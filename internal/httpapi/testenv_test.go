@@ -485,6 +485,7 @@ type recommendationJSON struct {
 }
 
 type ownerViewJSON struct {
+	ShareURL     string        `json:"share_url"`
 	Workshop     workshopJSON  `json:"workshop"`
 	Dates        []dateJSON    `json:"dates"`
 	Proposal     *proposalJSON `json:"proposal"`

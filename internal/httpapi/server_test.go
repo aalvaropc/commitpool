@@ -816,3 +816,25 @@ func requestIDs(reqs []paypal.RecordedRequest) []string {
 	}
 	return ids
 }
+
+func TestOwner_ShareURLCanBeRecovered(t *testing.T) {
+	e := newEnv(t)
+	h := e.createWorkshop()
+	v := e.owner(h)
+	if v.ShareURL == "" || v.ShareURL != h.created.ShareURL {
+		t.Fatalf("owner view share_url = %q, want the creation's %q", v.ShareURL, h.created.ShareURL)
+	}
+	var public struct {
+		Workshop workshopJSON `json:"workshop"`
+	}
+	e.call(http.MethodGet, "/api/v1/w/"+strings.TrimPrefix(v.ShareURL, appBaseURL+"/w/"), nil, http.StatusOK, &public)
+	if public.Workshop.Title != "Go for operators" {
+		t.Errorf("share_url resolves to %+v", public.Workshop)
+	}
+	ana := e.join(h, "Ana")
+	for _, path := range []string{ana.path, h.sharePath} {
+		if body := e.request(http.MethodGet, path, nil).Body.String(); strings.Contains(body, h.shareToken) || strings.Contains(body, "share_url") {
+			t.Errorf("GET %s exposes the share link: %s", path, body)
+		}
+	}
+}

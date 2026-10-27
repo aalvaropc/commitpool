@@ -24,6 +24,7 @@ type demoDTO struct {
 }
 
 type ownerViewDTO struct {
+	ShareURL       string            `json:"share_url"`
 	Workshop       workshopDTO       `json:"workshop"`
 	Dates          []dateDTO         `json:"dates"`
 	Proposal       *proposalDTO      `json:"proposal"`
@@ -35,9 +36,10 @@ type ownerViewDTO struct {
 	Demo           demoDTO           `json:"demo"`
 }
 
-// ownerView is the owner's dashboard: every participant with their latest
-// availability (message, reading and correction), the date recommendation,
-// the separated counts and each enrollment's financial status.
+// ownerView is the owner's dashboard: the share link to pass around, every
+// participant with their latest availability (message, reading and
+// correction), the date recommendation, the separated counts and each
+// enrollment's financial status. Only the owner sees the share link here.
 func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
 	ws, err := s.ownerWorkshop(r)
 	if err != nil {
@@ -85,7 +87,12 @@ func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
 		enrollments[i].DisplayName = names[en.ParticipantID]
 	}
 
+	shareURL := ""
+	if ws.ShareToken != "" {
+		shareURL = s.Cfg.BaseURL + "/w/" + ws.ShareToken
+	}
 	writeJSON(w, http.StatusOK, ownerViewDTO{
+		ShareURL:       shareURL,
 		Workshop:       ownerWorkshopView(ws),
 		Dates:          dateViews(st.dates, st.loc),
 		Proposal:       proposalView(st.proposal, ws, now),

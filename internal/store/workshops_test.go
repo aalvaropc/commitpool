@@ -427,3 +427,22 @@ func TestShortenPaymentWindow_OnlyMovesTheCloseEarlier(t *testing.T) {
 		t.Errorf("ShortenPaymentWindow(unknown) error = %v, want ErrNotFound", err)
 	}
 }
+
+func TestWorkshop_KeepsTheShareTokenButOnlyTheOwnerTokenHash(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	w, owner, share := newWorkshop(t, s, 1, 2)
+	if w.ShareToken != share {
+		t.Errorf("created row share token = %q, want the returned share token", w.ShareToken)
+	}
+	got, err := s.WorkshopByOwnerToken(ctx, owner)
+	if err != nil || got.ShareToken != share {
+		t.Errorf("WorkshopByOwnerToken share token = %q, %v; want %q", got.ShareToken, err, share)
+	}
+	for token, want := range map[string]int{owner: 0, share: 1} {
+		n := count(t, s, `select count(*) from workshops w where strpos(row_to_json(w)::text, $1) > 0`, token)
+		if n != want {
+			t.Errorf("rows holding token %q in plaintext = %d, want %d", token[:6], n, want)
+		}
+	}
+}

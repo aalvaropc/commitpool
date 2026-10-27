@@ -25,6 +25,9 @@ type WorkshopRow struct {
 	Status                 domain.WorkshopStatus
 	Resolution             domain.Resolution
 	CreatedAt              time.Time
+	// ShareToken is the plaintext share token, kept so the owner can show
+	// the share link again; empty for workshops created before it was kept.
+	ShareToken string
 }
 
 type CandidateDateRow struct {
@@ -54,14 +57,16 @@ type CreateWorkshopParams struct {
 }
 
 const (
-	workshopCols      = `id, title, description, duration_min, timezone, minimum, capacity, price_minor, currency, payment_window_min, status, resolution, created_at`
+	workshopCols      = `id, title, description, duration_min, timezone, minimum, capacity, price_minor, currency, payment_window_min, status, resolution, created_at, coalesce(share_token, '')`
 	candidateDateCols = `id, workshop_id, starts_at, ends_at`
 	proposalCols      = `id, workshop_id, version, chosen_date_id, price_minor, currency, minimum, capacity, opens_at, closes_at, starts_at`
 )
 
 // CreateWorkshop stores the workshop and its candidate dates in one
-// transaction and returns the owner and share tokens in plaintext, the only
-// time they exist outside a URL: only their hashes are stored.
+// transaction and returns the owner and share tokens in plaintext. The owner
+// token exists nowhere else: only its hash is stored. The share token, meant
+// to be passed around, is also kept in plaintext so the owner can show the
+// share link again.
 func (s *Store) CreateWorkshop(ctx context.Context, p CreateWorkshopParams) (w WorkshopRow, ownerToken, shareToken string, err error) {
 	ownerToken, ownerHash, err := NewToken()
 	if err != nil {
@@ -78,11 +83,11 @@ func (s *Store) CreateWorkshop(ctx context.Context, p CreateWorkshopParams) (w W
 
 	err = pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 		row, err := one[WorkshopRow](ctx, tx,
-			`insert into workshops (owner_token_hash, share_token_hash, title, description, duration_min, timezone,
+			`insert into workshops (owner_token_hash, share_token_hash, share_token, title, description, duration_min, timezone,
 				minimum, capacity, price_minor, currency, payment_window_min)
-			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 			returning `+workshopCols,
-			ownerHash, shareHash, p.Title, p.Description, p.DurationMin, p.Timezone,
+			ownerHash, shareHash, shareToken, p.Title, p.Description, p.DurationMin, p.Timezone,
 			p.Minimum, p.Capacity, p.PriceMinor, p.Currency, window)
 		if err != nil {
 			return wrap("insert workshop", err)

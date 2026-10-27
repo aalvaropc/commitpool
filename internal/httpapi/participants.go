@@ -41,11 +41,12 @@ func (s *server) participantView(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	now := s.Clock.Now()
 	view := participantViewDTO{
 		Participant: participantDTO{ID: p.ID, DisplayName: p.DisplayName},
 		Workshop:    publicWorkshopView(ws),
 		Dates:       dateViews(st.dates, st.loc),
-		Proposal:    proposalView(st.proposal, ws, s.Clock.Now()),
+		Proposal:    proposalView(st.proposal, ws, now),
 		Tally:       st.tally(),
 		Consent:     consentDTO{Version: ConsentVersion, Text: ConsentText},
 	}
@@ -66,7 +67,7 @@ func (s *server) participantView(w http.ResponseWriter, r *http.Request) error {
 		if err != nil {
 			return err
 		}
-		ev := enrollmentView(*en, ws, latest)
+		ev := enrollmentView(*en, ws, st.proposal, latest, now)
 		view.Enrollment = &ev
 	}
 	writeJSON(w, http.StatusOK, view)

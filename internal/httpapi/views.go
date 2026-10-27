@@ -21,14 +21,16 @@ const ConsentText = "You authorize a temporary hold. We will attempt to charge i
 	"If the minimum is not reached by the deadline, the workshop is cancelled and we request a refund of any charge already made. " +
 	"Refunds can take time and you will be able to follow their status."
 
-// statusLabel is the participant-facing copy for an enrollment status. The
-// workshop status refines the few cases where the next step depends on it:
-// a reserved seat or a failed capture can only be retried while the workshop
+// statusLabel is the participant-facing copy for an enrollment status.
+// seatHeld matters for SEAT_RESERVED only: whether the seat still counts,
+// because payments are open (domain.PaymentsOpen) and the seat has not
+// expired. The workshop status refines the two other cases where the next
+// step depends on it: a failed capture can only be retried while the workshop
 // is funding, and a payment kept in a cancelled workshop is being refunded.
-func statusLabel(s domain.EnrollmentStatus, w domain.WorkshopStatus) string {
+func statusLabel(s domain.EnrollmentStatus, w domain.WorkshopStatus, seatHeld bool) string {
 	switch s {
 	case domain.EnrollmentSeatReserved:
-		if w == domain.WorkshopFunding {
+		if seatHeld {
 			return "Seat reserved"
 		}
 		return "Seat expired"
@@ -150,10 +152,16 @@ type proposalDTO struct {
 	PaymentsOpen bool      `json:"payments_open"`
 }
 
-// payWindowOpen reports whether payments are open for the proposal at now:
-// the workshop is funding and the window has not closed.
-func payWindowOpen(ws store.WorkshopRow, p *store.ProposalRow, now time.Time) bool {
-	return p != nil && ws.Status == domain.WorkshopFunding && now.Before(p.ClosesAt)
+// paymentsOpen is domain.PaymentsOpen for the stored rows; false while there
+// is no proposal.
+func paymentsOpen(ws store.WorkshopRow, p *store.ProposalRow, now time.Time) bool {
+	return p != nil && domain.PaymentsOpen(domain.Workshop{Status: ws.Status}, domain.Proposal{ClosesAt: p.ClosesAt}, now)
+}
+
+// enrollmentLabel is statusLabel for a stored enrollment at now.
+func enrollmentLabel(en store.EnrollmentRow, ws store.WorkshopRow, p *store.ProposalRow, now time.Time) string {
+	held := paymentsOpen(ws, p, now) && now.Before(en.SeatExpiresAt)
+	return statusLabel(en.Status, ws.Status, held)
 }
 
 // proposalView is nil while payments have not been opened.
@@ -171,7 +179,7 @@ func proposalView(p *store.ProposalRow, w store.WorkshopRow, now time.Time) *pro
 		OpensAt:      p.OpensAt.UTC(),
 		ClosesAt:     p.ClosesAt.UTC(),
 		StartsAt:     p.StartsAt.UTC(),
-		PaymentsOpen: payWindowOpen(w, p, now),
+		PaymentsOpen: paymentsOpen(w, p, now),
 	}
 }
 
@@ -240,11 +248,11 @@ type enrollmentDTO struct {
 	Payment       *paymentDTO `json:"payment"`
 }
 
-func enrollmentView(en store.EnrollmentRow, w store.WorkshopRow, latest *store.AttemptRow) enrollmentDTO {
+func enrollmentView(en store.EnrollmentRow, w store.WorkshopRow, p *store.ProposalRow, latest *store.AttemptRow, now time.Time) enrollmentDTO {
 	return enrollmentDTO{
 		ID:            en.ID,
 		Status:        string(en.Status),
-		StatusLabel:   statusLabel(en.Status, w.Status),
+		StatusLabel:   enrollmentLabel(en, w, p, now),
 		SeatExpiresAt: en.SeatExpiresAt.UTC(),
 		Payment:       paymentView(latest),
 	}

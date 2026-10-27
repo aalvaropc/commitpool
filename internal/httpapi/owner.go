@@ -73,13 +73,14 @@ func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
 		availabilities[i].ParticipantID = a.ParticipantID
 		availabilities[i].DisplayName = names[a.ParticipantID]
 	}
+	now := s.Clock.Now()
 	enrollments := make([]enrollmentDTO, len(st.enrollments))
 	for i, en := range st.enrollments {
 		latest, err := s.Store.LatestAttempt(ctx, en.ID)
 		if err != nil {
 			return err
 		}
-		enrollments[i] = enrollmentView(en, ws, latest)
+		enrollments[i] = enrollmentView(en, ws, st.proposal, latest, now)
 		enrollments[i].ParticipantID = en.ParticipantID
 		enrollments[i].DisplayName = names[en.ParticipantID]
 	}
@@ -87,7 +88,7 @@ func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
 	writeJSON(w, http.StatusOK, ownerViewDTO{
 		Workshop:       ownerWorkshopView(ws),
 		Dates:          dateViews(st.dates, st.loc),
-		Proposal:       proposalView(st.proposal, ws, s.Clock.Now()),
+		Proposal:       proposalView(st.proposal, ws, now),
 		Tally:          st.ownerTally(),
 		Participants:   participants,
 		Availabilities: availabilities,

@@ -57,7 +57,7 @@ func (s *server) enroll(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	if !payWindowOpen(ws, proposal, now) || req.ProposalID != proposal.ID {
+	if !paymentsOpen(ws, proposal, now) || req.ProposalID != proposal.ID {
 		return errProposalNotOpen
 	}
 
@@ -84,7 +84,7 @@ func (s *server) enroll(w http.ResponseWriter, r *http.Request) error {
 
 	attempt, _, err := s.Store.CheckoutAttempt(ctx, en.ID, proposal.PriceMinor, proposal.Currency)
 	if errors.Is(err, store.ErrAttemptNotAllowed) {
-		return s.pastCheckout(ctx, w, ws, en.ID)
+		return s.pastCheckout(ctx, w, ws, proposal, en.ID)
 	}
 	if err != nil {
 		return err
@@ -99,14 +99,14 @@ func (s *server) enroll(w http.ResponseWriter, r *http.Request) error {
 		EnrollmentID: en.ID,
 		ApproveURL:   link,
 		Status:       string(en.Status),
-		StatusLabel:  statusLabel(en.Status, ws.Status),
+		StatusLabel:  enrollmentLabel(en, ws, proposal, now),
 	})
 	return nil
 }
 
 // pastCheckout answers for an enrollment that can no longer open a checkout,
 // with its current status and the approval link of its latest attempt.
-func (s *server) pastCheckout(ctx context.Context, w http.ResponseWriter, ws store.WorkshopRow, enrollmentID string) error {
+func (s *server) pastCheckout(ctx context.Context, w http.ResponseWriter, ws store.WorkshopRow, p *store.ProposalRow, enrollmentID string) error {
 	en, err := s.Store.EnrollmentByID(ctx, enrollmentID)
 	if err != nil {
 		return err
@@ -119,7 +119,7 @@ func (s *server) pastCheckout(ctx context.Context, w http.ResponseWriter, ws sto
 		EnrollmentID: en.ID,
 		ApproveURL:   link,
 		Status:       string(en.Status),
-		StatusLabel:  statusLabel(en.Status, ws.Status),
+		StatusLabel:  enrollmentLabel(en, ws, p, s.Clock.Now()),
 	})
 	return nil
 }

@@ -434,3 +434,26 @@ func TestCaptureDeadline_EarlierWins(t *testing.T) {
 		})
 	}
 }
+
+func TestPaymentsOpen_FundingOrConfirmedBeforeClose(t *testing.T) {
+	closes := time.Date(2026, 11, 3, 9, 0, 0, 0, time.UTC)
+	p := domain.Proposal{ClosesAt: closes}
+	cases := []struct {
+		status domain.WorkshopStatus
+		now    time.Time
+		want   bool
+	}{
+		{domain.WorkshopFunding, closes.Add(-time.Minute), true},
+		{domain.WorkshopConfirmed, closes.Add(-time.Minute), true},
+		{domain.WorkshopFunding, closes, false},
+		{domain.WorkshopConfirmed, closes, false},
+		{domain.WorkshopConfirmed, closes.Add(time.Hour), false},
+		{domain.WorkshopCollecting, closes.Add(-time.Minute), false},
+		{domain.WorkshopCancelled, closes.Add(-time.Minute), false},
+	}
+	for _, c := range cases {
+		if got := domain.PaymentsOpen(domain.Workshop{Status: c.status}, p, c.now); got != c.want {
+			t.Errorf("PaymentsOpen(%s, %s before close) = %v, want %v", c.status, closes.Sub(c.now), got, c.want)
+		}
+	}
+}

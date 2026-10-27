@@ -734,3 +734,58 @@ func TestLogs_NeverContainTokensMessagesOrApprovalLinks(t *testing.T) {
 		}
 	}
 }
+
+func TestParticipant_ReservedSeatInAConfirmedWorkshopUntilClose(t *testing.T) {
+	e := newEnv(t)
+	h, p, ps := e.fundingWorkshop(func(b map[string]any) { b["minimum"] = 1 })
+	wid := h.created.Workshop.ID
+	luis := e.enroll(ps[1], p.ID, http.StatusCreated)
+	ana := e.enroll(ps[0], p.ID, http.StatusCreated)
+	marta := e.join(h, "Marta")
+	e.runPayment("capture", wid, e.authorize(wid, ana.EnrollmentID))
+	e.wantStatus(ana.EnrollmentID, domain.EnrollmentPaid)
+
+	label := func() (string, bool) {
+		t.Helper()
+		var v participantViewJSON
+		e.call(http.MethodGet, ps[1].path, nil, http.StatusOK, &v)
+		if v.Workshop.Status != "CONFIRMED" || v.Enrollment == nil || v.Enrollment.ID != luis.EnrollmentID || v.Proposal == nil {
+			t.Fatalf("view = workshop %+v, enrollment %+v", v.Workshop, v.Enrollment)
+		}
+		return v.Enrollment.StatusLabel, v.Proposal.PaymentsOpen
+	}
+	if got, open := label(); got != "Seat reserved" || !open {
+		t.Errorf("confirmed before close: label %q, payments_open %v; want Seat reserved and open", got, open)
+	}
+	// The confirmed workshop still charges a hold authorized before close.
+	e.authorize(wid, luis.EnrollmentID)
+	e.runPayment("capture", wid, e.latestAttempt(luis.EnrollmentID))
+	e.wantStatus(luis.EnrollmentID, domain.EnrollmentPaid)
+
+	// A confirmed workshop takes no new seats, even while payments are open.
+	e.wantError(http.MethodPost, marta.path+"/enrollment", enrollBody(p.ID), http.StatusConflict, "proposal_not_open")
+}
+
+func TestParticipant_ReservedSeatExpiresWithTheSeatOrTheWindow(t *testing.T) {
+	e := newEnv(t)
+	h, p, ps := e.fundingWorkshop(func(b map[string]any) { b["minimum"] = 1 })
+	wid := h.created.Workshop.ID
+	luis := e.enroll(ps[1], p.ID, http.StatusCreated)
+	ana := e.enroll(ps[0], p.ID, http.StatusCreated)
+	e.runPayment("capture", wid, e.authorize(wid, ana.EnrollmentID))
+
+	view := func() participantViewJSON {
+		t.Helper()
+		var v participantViewJSON
+		e.call(http.MethodGet, ps[1].path, nil, http.StatusOK, &v)
+		return v
+	}
+	e.clock.Set(t0.Add(31 * time.Minute))
+	if v := view(); v.Enrollment == nil || v.Enrollment.ID != luis.EnrollmentID || v.Enrollment.StatusLabel != "Seat expired" || !v.Proposal.PaymentsOpen {
+		t.Errorf("seat past its expiry: %+v, proposal %+v; want Seat expired with payments still open", v.Enrollment, v.Proposal)
+	}
+	e.clock.Set(p.ClosesAt)
+	if v := view(); v.Enrollment.StatusLabel != "Seat expired" || v.Proposal.PaymentsOpen {
+		t.Errorf("after close: %+v, proposal %+v; want Seat expired, payments closed", v.Enrollment, v.Proposal)
+	}
+}

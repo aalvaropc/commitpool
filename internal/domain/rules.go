@@ -76,6 +76,13 @@ func ValidateProposal(w Workshop, p Proposal, date CandidateDate, compatible int
 	return nil
 }
 
+// PaymentsOpen reports whether the workshop still takes authorizations and
+// charges them: it is funding, or confirmed and still capturing holds
+// authorized in time, and its payment window has not closed.
+func PaymentsOpen(w Workshop, p Proposal, now time.Time) bool {
+	return (w.Status == WorkshopFunding || w.Status == WorkshopConfirmed) && now.Before(p.ClosesAt)
+}
+
 // ShouldStartCaptureRound reports whether enough authorizations exist, on top
 // of what is already paid, to try reaching the minimum before payments close.
 func ShouldStartCaptureRound(w Workshop, p Proposal, t Tally, now time.Time) bool {

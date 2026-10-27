@@ -120,15 +120,11 @@ func (r *Runner) authorizeApproved(ctx context.Context, log *slog.Logger, a stor
 }
 
 // paymentsOpen reports whether the enrollment's workshop still takes
-// authorizations: funding or confirmed, before its payments close. status is
-// the workshop's status.
+// authorizations (domain.PaymentsOpen). status is the workshop's status.
 func (r *Runner) paymentsOpen(ctx context.Context, en store.EnrollmentRow, now time.Time) (open bool, status domain.WorkshopStatus, err error) {
 	w, err := r.st.WorkshopByID(ctx, en.WorkshopID)
 	if err != nil {
 		return false, "", err
-	}
-	if w.Status != domain.WorkshopFunding && w.Status != domain.WorkshopConfirmed {
-		return false, w.Status, nil
 	}
 	p, err := r.st.ProposalByID(ctx, en.ProposalID)
 	if err != nil {
@@ -137,7 +133,7 @@ func (r *Runner) paymentsOpen(ctx context.Context, en store.EnrollmentRow, now t
 	if p == nil {
 		return false, w.Status, fmt.Errorf("proposal %s: %w", en.ProposalID, store.ErrNotFound)
 	}
-	return now.Before(p.ClosesAt), w.Status, nil
+	return domain.PaymentsOpen(domain.Workshop{Status: w.Status}, domain.Proposal{ClosesAt: p.ClosesAt}, now), w.Status, nil
 }
 
 // refresh applies the order, with every payment it lists, and then the

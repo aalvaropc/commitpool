@@ -13,31 +13,35 @@ func TestStatusLabel_CopyForEveryStatus(t *testing.T) {
 	cases := []struct {
 		status   domain.EnrollmentStatus
 		workshop domain.WorkshopStatus
+		seatHeld bool
 		want     string
 	}{
-		{domain.EnrollmentSeatReserved, funding, "Seat reserved"},
-		{domain.EnrollmentSeatReserved, cancelled, "Seat expired"},
-		{domain.EnrollmentAuthorized, funding, "Hold authorized"},
-		{domain.EnrollmentCapturing, funding, "Charging…"},
-		{domain.EnrollmentCapturePending, confirmed, "Payment pending verification"},
-		{domain.EnrollmentPaid, confirmed, "Seat paid"},
-		{domain.EnrollmentPaid, funding, "Seat paid"},
-		{domain.EnrollmentPaid, cancelled, "Refund in progress"},
-		{domain.EnrollmentCaptureFailed, funding, "Payment failed — you can try again"},
-		{domain.EnrollmentCaptureFailed, confirmed, "Hold released"},
-		{domain.EnrollmentVoiding, cancelled, "Hold released"},
-		{domain.EnrollmentVoided, cancelled, "Hold released"},
-		{domain.EnrollmentRefunding, cancelled, "Refund in progress"},
-		{domain.EnrollmentRefundPending, cancelled, "Refund in progress"},
-		{domain.EnrollmentRefunded, cancelled, "Refund completed"},
-		{domain.EnrollmentRefundFailed, cancelled, "Refund needs attention"},
-		{domain.EnrollmentNeedsAttention, funding, "Needs attention"},
-		{domain.EnrollmentReleased, funding, "Seat expired"},
-		{"SOMETHING_NEW", funding, "Needs attention"},
+		{domain.EnrollmentSeatReserved, funding, true, "Seat reserved"},
+		{domain.EnrollmentSeatReserved, confirmed, true, "Seat reserved"},
+		{domain.EnrollmentSeatReserved, funding, false, "Seat expired"},
+		{domain.EnrollmentSeatReserved, confirmed, false, "Seat expired"},
+		{domain.EnrollmentSeatReserved, cancelled, false, "Seat expired"},
+		{domain.EnrollmentAuthorized, funding, false, "Hold authorized"},
+		{domain.EnrollmentCapturing, funding, false, "Charging…"},
+		{domain.EnrollmentCapturePending, confirmed, false, "Payment pending verification"},
+		{domain.EnrollmentPaid, confirmed, false, "Seat paid"},
+		{domain.EnrollmentPaid, funding, false, "Seat paid"},
+		{domain.EnrollmentPaid, cancelled, false, "Refund in progress"},
+		{domain.EnrollmentCaptureFailed, funding, false, "Payment failed — you can try again"},
+		{domain.EnrollmentCaptureFailed, confirmed, false, "Hold released"},
+		{domain.EnrollmentVoiding, cancelled, false, "Hold released"},
+		{domain.EnrollmentVoided, cancelled, false, "Hold released"},
+		{domain.EnrollmentRefunding, cancelled, false, "Refund in progress"},
+		{domain.EnrollmentRefundPending, cancelled, false, "Refund in progress"},
+		{domain.EnrollmentRefunded, cancelled, false, "Refund completed"},
+		{domain.EnrollmentRefundFailed, cancelled, false, "Refund needs attention"},
+		{domain.EnrollmentNeedsAttention, funding, false, "Needs attention"},
+		{domain.EnrollmentReleased, funding, false, "Seat expired"},
+		{"SOMETHING_NEW", funding, false, "Needs attention"},
 	}
 	for _, c := range cases {
-		if got := statusLabel(c.status, c.workshop); got != c.want {
-			t.Errorf("statusLabel(%s, %s) = %q, want %q", c.status, c.workshop, got, c.want)
+		if got := statusLabel(c.status, c.workshop, c.seatHeld); got != c.want {
+			t.Errorf("statusLabel(%s, %s, seat held %v) = %q, want %q", c.status, c.workshop, c.seatHeld, got, c.want)
 		}
 	}
 }

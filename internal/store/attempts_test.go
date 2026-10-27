@@ -112,13 +112,13 @@ func TestAttempts_NumberingAndLookupByResource(t *testing.T) {
 		t.Errorf("LatestAttempt = %+v, %v; want attempt 2", latest, err)
 	}
 
-	second.CaptureReason, second.MockCode, second.AuthExpiresAt = nil, nil, nil
+	second.CaptureReason, second.MockCode = nil, nil
 	if err := s.UpdateAttempt(ctx, second); err != nil {
 		t.Fatalf("UpdateAttempt clearing fields: %v", err)
 	}
 	cleared, _ := s.AttemptByID(ctx, second.ID)
-	if cleared.CaptureReason != nil || cleared.MockCode != nil || cleared.AuthExpiresAt != nil {
-		t.Errorf("UpdateAttempt left cleared fields behind: %+v", cleared)
+	if cleared.CaptureReason != nil || cleared.MockCode != nil {
+		t.Errorf("UpdateAttempt left cleared reason/mock fields behind: %+v", cleared)
 	}
 	untouched, _ := s.AttemptByID(ctx, first.ID)
 	if untouched.OrderID != nil {
@@ -176,5 +176,200 @@ func TestAttempts_ConcurrentCreatesNumberWithoutGaps(t *testing.T) {
 		if n != i+1 {
 			t.Fatalf("attempt numbers = %v, want 1..%d with no gaps or repeats", numbers, creators)
 		}
+	}
+}
+
+var errRollback = errors.New("rollback requested by the callback")
+
+func TestUpdateAttempt_NilIdentityColumnsDoNotClearStoredIDs(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	a, err := s.CreateAttempt(ctx, newEnrollment(t, s).ID, 1000, "USD")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expires := time.Date(2026, 11, 24, 7, 28, 4, 0, time.UTC)
+	stored := a
+	stored.OrderID, stored.AuthorizationID, stored.CaptureID, stored.RefundID = ptr("ORDER-1"), ptr("AUTH-1"), ptr("CAPTURE-1"), ptr("REFUND-1")
+	stored.AuthExpiresAt = &expires
+	stored.CaptureStatus, stored.CaptureReason = ptr("PENDING"), ptr("PENDING_REVIEW")
+	if err := s.UpdateAttempt(ctx, stored); err != nil {
+		t.Fatalf("UpdateAttempt storing identity columns: %v", err)
+	}
+
+	stale := a
+	stale.CaptureStatus = ptr("COMPLETED")
+	if err := s.UpdateAttempt(ctx, stale); err != nil {
+		t.Fatalf("UpdateAttempt from a stale row: %v", err)
+	}
+
+	got, err := s.AttemptByID(ctx, a.ID)
+	if err != nil || got == nil {
+		t.Fatalf("AttemptByID = %+v, %v", got, err)
+	}
+	ids := map[string]*string{"order_id": got.OrderID, "authorization_id": got.AuthorizationID, "capture_id": got.CaptureID, "refund_id": got.RefundID}
+	wantIDs := map[string]string{"order_id": "ORDER-1", "authorization_id": "AUTH-1", "capture_id": "CAPTURE-1", "refund_id": "REFUND-1"}
+	for column, want := range wantIDs {
+		if ids[column] == nil || *ids[column] != want {
+			t.Errorf("%s = %v after a stale update, want %q to survive", column, ids[column], want)
+		}
+	}
+	if got.AuthExpiresAt == nil || !got.AuthExpiresAt.Equal(expires) {
+		t.Errorf("auth_expires_at = %v after a stale update, want %v to survive", got.AuthExpiresAt, expires)
+	}
+	if got.CaptureStatus == nil || *got.CaptureStatus != "COMPLETED" {
+		t.Errorf("capture_status = %v, want the stale update's COMPLETED to apply", got.CaptureStatus)
+	}
+	if got.CaptureReason != nil {
+		t.Errorf("capture_reason = %v, want it cleared: only identity columns are non-clearing", got.CaptureReason)
+	}
+	if found, err := s.AttemptByResourceID(ctx, "CAPTURE-1"); err != nil || found == nil || found.ID != a.ID {
+		t.Errorf("AttemptByResourceID(CAPTURE-1) = %+v, %v; the capture id must stay resolvable", found, err)
+	}
+
+	replaced := *got
+	replaced.CaptureID = ptr("CAPTURE-2")
+	if err := s.UpdateAttempt(ctx, replaced); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.AttemptByID(ctx, a.ID); got.CaptureID == nil || *got.CaptureID != "CAPTURE-2" {
+		t.Errorf("capture_id = %v, want a non-nil value to replace the stored one", got.CaptureID)
+	}
+}
+
+func TestUpdateAttemptFunc_ConcurrentUpdatesBothPersist(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	a, err := s.CreateAttempt(ctx, newEnrollment(t, s).ID, 1000, "USD")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The pause inside each callback makes the interleaving a lost update
+	// would need (both read, then both write) the normal outcome unless the
+	// row is locked for the whole read-modify-write.
+	edits := []func(*store.AttemptRow){
+		func(a *store.AttemptRow) { a.CaptureID, a.CaptureStatus = ptr("CAPTURE-1"), ptr("COMPLETED") },
+		func(a *store.AttemptRow) { a.RefundStatus = ptr("PENDING") },
+	}
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i, edit := range edits {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, err := s.UpdateAttemptFunc(ctx, a.ID, func(row *store.AttemptRow) error {
+				time.Sleep(50 * time.Millisecond)
+				edit(row)
+				return nil
+			})
+			if err != nil {
+				t.Errorf("UpdateAttemptFunc %d: %v", i, err)
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	got, err := s.AttemptByID(ctx, a.ID)
+	if err != nil || got == nil {
+		t.Fatalf("AttemptByID = %+v, %v", got, err)
+	}
+	if got.CaptureID == nil || *got.CaptureID != "CAPTURE-1" || got.CaptureStatus == nil || *got.CaptureStatus != "COMPLETED" {
+		t.Errorf("capture fields = %v / %v, want CAPTURE-1 / COMPLETED", got.CaptureID, got.CaptureStatus)
+	}
+	if got.RefundStatus == nil || *got.RefundStatus != "PENDING" {
+		t.Errorf("refund_status = %v, want PENDING: a concurrent update overwrote it", got.RefundStatus)
+	}
+}
+
+func TestUpdateAttemptFunc_ReadsLockedRowAndWritesAllColumns(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	a, err := s.CreateAttempt(ctx, newEnrollment(t, s).ID, 1000, "USD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expires := time.Date(2026, 11, 24, 7, 28, 4, 0, time.UTC)
+	a.OrderID, a.CaptureID, a.CaptureReason, a.AuthExpiresAt = ptr("ORDER-1"), ptr("CAPTURE-1"), ptr("PENDING_REVIEW"), &expires
+	if err := s.UpdateAttempt(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	var createdAt time.Time
+	if err := s.Pool.QueryRow(ctx, `select created_at from payment_attempts where id = $1`, a.ID).Scan(&createdAt); err != nil {
+		t.Fatal(err)
+	}
+
+	saved, err := s.UpdateAttemptFunc(ctx, a.ID, func(row *store.AttemptRow) error {
+		if row.ID != a.ID || row.OrderID == nil || *row.OrderID != "ORDER-1" || row.CaptureID == nil || row.AuthExpiresAt == nil {
+			t.Errorf("callback received %+v, want the stored attempt", *row)
+		}
+		row.CaptureReason = nil
+		row.CaptureID = nil
+		row.RefundID = ptr("REFUND-1")
+		row.AmountMinor, row.AttemptNo = 99999, 7
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("UpdateAttemptFunc: %v", err)
+	}
+
+	got, _ := s.AttemptByID(ctx, a.ID)
+	for name, row := range map[string]store.AttemptRow{"returned": saved, "stored": *got} {
+		if row.CaptureReason != nil || row.CaptureID != nil {
+			t.Errorf("%s row kept fields the callback cleared: %+v", name, row)
+		}
+		if row.RefundID == nil || *row.RefundID != "REFUND-1" || row.OrderID == nil || *row.OrderID != "ORDER-1" {
+			t.Errorf("%s row = %+v, want refund REFUND-1 and order ORDER-1", name, row)
+		}
+		if row.AmountMinor != 1000 || row.AttemptNo != 1 || row.ID != a.ID {
+			t.Errorf("%s row changed an immutable column: amount %d, attempt_no %d, id %s", name, row.AmountMinor, row.AttemptNo, row.ID)
+		}
+	}
+	var updatedAt time.Time
+	if err := s.Pool.QueryRow(ctx, `select updated_at from payment_attempts where id = $1`, a.ID).Scan(&updatedAt); err != nil {
+		t.Fatal(err)
+	}
+	if !updatedAt.After(createdAt) {
+		t.Errorf("updated_at %v was not bumped past created_at %v", updatedAt, createdAt)
+	}
+}
+
+func TestUpdateAttemptFunc_ErrorRollsBack(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	a, err := s.CreateAttempt(ctx, newEnrollment(t, s).ID, 1000, "USD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.OrderID, a.OrderStatus = ptr("ORDER-1"), ptr("CREATED")
+	if err := s.UpdateAttempt(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = s.UpdateAttemptFunc(ctx, a.ID, func(row *store.AttemptRow) error {
+		row.OrderStatus, row.CaptureID = ptr("COMPLETED"), ptr("CAPTURE-1")
+		return errRollback
+	})
+	if err != errRollback {
+		t.Errorf("UpdateAttemptFunc error = %v, want the callback's own error returned unwrapped", err)
+	}
+	got, _ := s.AttemptByID(ctx, a.ID)
+	if got.OrderStatus == nil || *got.OrderStatus != "CREATED" || got.CaptureID != nil {
+		t.Errorf("a failed callback persisted changes: %+v", got)
+	}
+
+	called := false
+	_, err = s.UpdateAttemptFunc(ctx, "00000000-0000-4000-8000-000000000000", func(*store.AttemptRow) error {
+		called = true
+		return nil
+	})
+	if !errors.Is(err, store.ErrNotFound) || called {
+		t.Errorf("UpdateAttemptFunc(unknown id) error = %v, callback called = %v; want ErrNotFound without calling it", err, called)
+	}
+	if _, err := s.UpdateAttemptFunc(ctx, "not-a-uuid", func(*store.AttemptRow) error { return nil }); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("UpdateAttemptFunc(malformed id) error = %v, want ErrNotFound", err)
 	}
 }

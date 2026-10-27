@@ -11,6 +11,7 @@ import (
 
 var (
 	ErrNotFound        = errors.New("store: not found")
+	ErrJobNotActive    = errors.New("store: job is not in a state that accepts this transition")
 	ErrProposalNotOpen = errors.New("store: payments are not open for this proposal")
 	ErrProposalExists  = errors.New("store: workshop already has a proposal")
 	ErrConsentMismatch = errors.New("store: consent version mismatch")

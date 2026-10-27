@@ -344,6 +344,60 @@ func TestCompleteJob_SucceedsAndClearsLock(t *testing.T) {
 	}
 }
 
+func TestCompleteJob_AcceptsUnknownJob(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	enqueue(t, s, "capture", "capture:a1", baseTime)
+	j := claim(t, s, "w1", baseTime)
+	if err := s.MarkJobUnknown(ctx, j.ID, "request timed out", nil); err != nil {
+		t.Fatalf("MarkJobUnknown: %v", err)
+	}
+
+	if err := s.CompleteJob(ctx, j.ID, ptr(200)); err != nil {
+		t.Fatalf("CompleteJob on an unknown job: %v", err)
+	}
+
+	got := jobByKey(t, s, "capture:a1")
+	if got.Status != "succeeded" {
+		t.Errorf("status = %s, want succeeded", got.Status)
+	}
+	if got.HTTPStatus == nil || *got.HTTPStatus != 200 {
+		t.Errorf("http_status = %v, want 200", got.HTTPStatus)
+	}
+	assertUnlocked(t, s, j.ID)
+}
+
+func TestCompleteJob_RefusesJobThatIsNotRunningOrUnknown(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	enqueue(t, s, "capture", "capture:pending", baseTime.Add(time.Hour))
+	enqueue(t, s, "capture", "capture:done", baseTime)
+	enqueue(t, s, "capture", "capture:parked", baseTime)
+	done := claim(t, s, "w1", baseTime)
+	if err := s.CompleteJob(ctx, done.ID, ptr(201)); err != nil {
+		t.Fatalf("CompleteJob: %v", err)
+	}
+	parked := claim(t, s, "w1", baseTime)
+	if _, err := s.Pool.Exec(ctx, `update jobs set status = 'needs_attention', attempts = 5, locked_at = null, locked_by = null where id = $1`, parked.ID); err != nil {
+		t.Fatalf("park job: %v", err)
+	}
+
+	wantStatus := map[string]string{"capture:pending": "pending", "capture:done": "succeeded", "capture:parked": "needs_attention"}
+	for key, status := range wantStatus {
+		j := jobByKey(t, s, key)
+		if err := s.CompleteJob(ctx, j.ID, ptr(200)); !errors.Is(err, store.ErrJobNotActive) {
+			t.Errorf("CompleteJob(%s) = %v, want ErrJobNotActive", key, err)
+		}
+		got := jobByKey(t, s, key)
+		if got.Status != status {
+			t.Errorf("%s status after refusal = %s, want %s", key, got.Status, status)
+		}
+	}
+	if got := jobByKey(t, s, "capture:done"); got.HTTPStatus == nil || *got.HTTPStatus != 201 {
+		t.Errorf("succeeded job http_status = %v, want 201 kept", got.HTTPStatus)
+	}
+}
+
 func TestRetryJob_BackoffThenNeedsAttention(t *testing.T) {
 	ctx := context.Background()
 	s := store.TestStore(t)
@@ -429,34 +483,132 @@ func TestRetryJob_StoresFailureDetailsAndReplacesThemOnNextRetry(t *testing.T) {
 	}
 }
 
+func TestRetryJob_RefusesSucceededJob(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	enqueue(t, s, "capture", "capture:a1", baseTime)
+	j := claim(t, s, "w1", baseTime)
+	if err := s.CompleteJob(ctx, j.ID, ptr(201)); err != nil {
+		t.Fatalf("CompleteJob: %v", err)
+	}
+
+	needsAttention, err := s.RetryJob(ctx, j.ID, baseTime.Add(time.Minute), "late failure", ptr(503), ptr("SERVICE_UNAVAILABLE"), ptr("dbg-late"))
+	if !errors.Is(err, store.ErrJobNotActive) || needsAttention {
+		t.Fatalf("RetryJob on a succeeded job = %v, %v; want false, ErrJobNotActive", needsAttention, err)
+	}
+
+	got := jobByKey(t, s, "capture:a1")
+	if got.Status != "succeeded" || got.Attempts != 1 {
+		t.Errorf("status/attempts = %s/%d, want succeeded/1", got.Status, got.Attempts)
+	}
+	if got.LastError != nil || got.ProviderIssue != nil || got.DebugID != nil {
+		t.Errorf("last_error/issue/debug = %v %v %v, want the late failure not stored", got.LastError, got.ProviderIssue, got.DebugID)
+	}
+	if got.HTTPStatus == nil || *got.HTTPStatus != 201 {
+		t.Errorf("http_status = %v, want 201 kept", got.HTTPStatus)
+	}
+	assertTime(t, "run_at", got.RunAt, baseTime)
+	assertUnlocked(t, s, j.ID)
+}
+
+func TestRetryJob_RefusesJobThatIsNotRunning(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	enqueue(t, s, "capture", "capture:pending", baseTime.Add(time.Hour))
+	enqueue(t, s, "capture", "capture:unknown", baseTime)
+	unknown := claim(t, s, "w1", baseTime)
+	if err := s.MarkJobUnknown(ctx, unknown.ID, "request timed out", nil); err != nil {
+		t.Fatalf("MarkJobUnknown: %v", err)
+	}
+
+	for key, status := range map[string]string{"capture:pending": "pending", "capture:unknown": "unknown"} {
+		j := jobByKey(t, s, key)
+		if _, err := s.RetryJob(ctx, j.ID, baseTime, "boom", nil, nil, nil); !errors.Is(err, store.ErrJobNotActive) {
+			t.Errorf("RetryJob(%s) = %v, want ErrJobNotActive", key, err)
+		}
+		if got := jobByKey(t, s, key); got.Status != status {
+			t.Errorf("%s status after refusal = %s, want %s", key, got.Status, status)
+		}
+	}
+}
+
 func TestMarkJobUnknown_ParksJobAndClearsLock(t *testing.T) {
 	ctx := context.Background()
 	s := store.TestStore(t)
 	enqueue(t, s, "refund", "refund:a1", baseTime)
 	j := claim(t, s, "w1", baseTime)
+	if _, err := s.RetryJob(ctx, j.ID, baseTime, "declined", ptr(422), ptr("INSTRUMENT_DECLINED"), ptr("dbg-1")); err != nil {
+		t.Fatalf("RetryJob: %v", err)
+	}
+	retryAt := baseTime.Add(5 * time.Second)
+	j = claim(t, s, "w1", retryAt)
 
 	if err := s.MarkJobUnknown(ctx, j.ID, "request timed out", nil); err != nil {
 		t.Fatalf("MarkJobUnknown: %v", err)
 	}
 
 	got := jobByKey(t, s, "refund:a1")
-	if got.Status != "unknown" || got.Attempts != 1 {
-		t.Errorf("status/attempts = %s/%d, want unknown/1", got.Status, got.Attempts)
+	if got.Status != "unknown" || got.Attempts != 2 {
+		t.Errorf("status/attempts = %s/%d, want unknown/2", got.Status, got.Attempts)
 	}
-	if got.LastError == nil || *got.LastError != "request timed out" || got.HTTPStatus != nil {
-		t.Errorf("last_error/http_status = %v/%v, want request timed out/nil", got.LastError, got.HTTPStatus)
+	if got.LastError == nil || *got.LastError != "request timed out" {
+		t.Errorf("last_error = %v, want request timed out", got.LastError)
+	}
+	if got.HTTPStatus != nil || got.ProviderIssue != nil || got.DebugID != nil {
+		t.Errorf("http/issue/debug = %v %v %v, want all cleared so the row does not mix two failures", got.HTTPStatus, got.ProviderIssue, got.DebugID)
 	}
 	assertUnlocked(t, s, j.ID)
-	if next, err := s.ClaimJob(ctx, "w2", baseTime.Add(time.Hour)); err != nil || next != nil {
+	if next, err := s.ClaimJob(ctx, "w2", retryAt.Add(time.Hour)); err != nil || next != nil {
 		t.Errorf("ClaimJob of an unknown job = %+v, %v; want nil, nil", next, err)
 	}
 
-	if err := s.MarkJobUnknown(ctx, j.ID, "gateway timeout", ptr(504)); err != nil {
-		t.Fatalf("MarkJobUnknown with status: %v", err)
+	if err := s.MarkJobUnknown(ctx, j.ID, "again", ptr(504)); !errors.Is(err, store.ErrJobNotActive) {
+		t.Errorf("MarkJobUnknown on an unknown job = %v, want ErrJobNotActive", err)
 	}
-	got = jobByKey(t, s, "refund:a1")
+	if got := jobByKey(t, s, "refund:a1"); got.LastError == nil || *got.LastError != "request timed out" || got.HTTPStatus != nil {
+		t.Errorf("refused call changed the row: last_error/http_status = %v/%v", got.LastError, got.HTTPStatus)
+	}
+}
+
+func TestMarkJobUnknown_StoresHTTPStatus(t *testing.T) {
+	s := store.TestStore(t)
+	enqueue(t, s, "refund", "refund:a1", baseTime)
+	j := claim(t, s, "w1", baseTime)
+
+	if err := s.MarkJobUnknown(context.Background(), j.ID, "gateway timeout", ptr(504)); err != nil {
+		t.Fatalf("MarkJobUnknown: %v", err)
+	}
+	got := jobByKey(t, s, "refund:a1")
 	if got.HTTPStatus == nil || *got.HTTPStatus != 504 {
 		t.Errorf("http_status = %v, want 504", got.HTTPStatus)
+	}
+}
+
+func TestMarkJobUnknown_RefusesNonRunningJob(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	enqueue(t, s, "refund", "refund:pending", baseTime.Add(time.Hour))
+	enqueue(t, s, "refund", "refund:done", baseTime)
+	done := claim(t, s, "w1", baseTime)
+	if err := s.CompleteJob(ctx, done.ID, ptr(201)); err != nil {
+		t.Fatalf("CompleteJob: %v", err)
+	}
+	pending := jobByKey(t, s, "refund:pending")
+
+	for _, j := range []store.Job{pending, done} {
+		if err := s.MarkJobUnknown(ctx, j.ID, "request timed out", ptr(504)); !errors.Is(err, store.ErrJobNotActive) {
+			t.Errorf("MarkJobUnknown(%s) = %v, want ErrJobNotActive", j.IdempotencyKey, err)
+		}
+	}
+	if got := jobByKey(t, s, "refund:pending"); got.Status != "pending" || got.LastError != nil {
+		t.Errorf("pending job after refusal = %s/%v, want pending/nil", got.Status, got.LastError)
+	}
+	got := jobByKey(t, s, "refund:done")
+	if got.Status != "succeeded" || got.LastError != nil {
+		t.Errorf("succeeded job after refusal = %s/%v, want succeeded/nil", got.Status, got.LastError)
+	}
+	if got.HTTPStatus == nil || *got.HTTPStatus != 201 {
+		t.Errorf("succeeded job http_status = %v, want 201 kept", got.HTTPStatus)
 	}
 }
 
@@ -687,5 +839,60 @@ func TestRequeueStale_RecoversAbandonedRunningJobs(t *testing.T) {
 
 	if n, err := s.RequeueStale(ctx, now, 10*time.Minute); err != nil || n != 0 {
 		t.Errorf("second RequeueStale = %d, %v; want 0, nil", n, err)
+	}
+}
+
+func TestRequeueStale_ParksExhaustedJobsAsNeedsAttention(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	enqueue(t, s, "capture", "capture:hangs", baseTime)
+	enqueue(t, s, "capture", "capture:below-cap", baseTime)
+	enqueue(t, s, "capture", "capture:fresh", baseTime)
+	hangs := claim(t, s, "crashed-worker", baseTime)
+	below := claim(t, s, "crashed-worker", baseTime)
+	if hangs.IdempotencyKey != "capture:hangs" || below.IdempotencyKey != "capture:below-cap" {
+		t.Fatalf("claims = %s, %s; want hangs, below-cap in creation order", hangs.IdempotencyKey, below.IdempotencyKey)
+	}
+	freshAt := baseTime.Add(9 * time.Minute)
+	fresh := claim(t, s, "w2", freshAt)
+	if _, err := s.Pool.Exec(ctx, `update jobs set attempts = 5 where id = $1`, hangs.ID); err != nil {
+		t.Fatalf("set attempts: %v", err)
+	}
+	if _, err := s.Pool.Exec(ctx, `update jobs set attempts = 4 where id = $1`, below.ID); err != nil {
+		t.Fatalf("set attempts: %v", err)
+	}
+
+	now := baseTime.Add(10*time.Minute + time.Second)
+	n, err := s.RequeueStale(ctx, now, 10*time.Minute)
+	if err != nil {
+		t.Fatalf("RequeueStale: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("RequeueStale count = %d, want 2 (one parked, one requeued)", n)
+	}
+
+	got := jobByKey(t, s, "capture:hangs")
+	if got.Status != "needs_attention" || got.Attempts != 5 {
+		t.Errorf("exhausted job status/attempts = %s/%d, want needs_attention/5", got.Status, got.Attempts)
+	}
+	assertUnlocked(t, s, hangs.ID)
+
+	got = jobByKey(t, s, "capture:below-cap")
+	if got.Status != "pending" || got.Attempts != 4 {
+		t.Errorf("job below the cap status/attempts = %s/%d, want pending/4", got.Status, got.Attempts)
+	}
+	assertTime(t, "below-cap run_at", got.RunAt, now)
+	assertUnlocked(t, s, below.ID)
+
+	if got := jobByKey(t, s, "capture:fresh"); got.Status != "running" || got.ID != fresh.ID {
+		t.Errorf("fresh job status = %s, want running", got.Status)
+	}
+
+	next := claim(t, s, "w3", now)
+	if next.ID != below.ID {
+		t.Errorf("claimed %s, want only the below-cap job %s", next.IdempotencyKey, below.IdempotencyKey)
+	}
+	if again, err := s.ClaimJob(ctx, "w3", now.Add(24*time.Hour)); err != nil || again != nil {
+		t.Errorf("ClaimJob with the exhausted job left = %+v, %v; want nil, nil", again, err)
 	}
 }

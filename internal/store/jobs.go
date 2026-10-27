@@ -93,12 +93,15 @@ func (s *Store) ClaimJob(ctx context.Context, workerID string, now time.Time) (*
 }
 
 // CompleteJob marks the job succeeded, stores the provider's HTTP status and
-// releases the lock. It returns ErrNotFound when the job does not exist.
+// releases the lock. It applies to a running job and to an unknown one, which a
+// reconcile run closes once it has seen the outcome at the provider. Any other
+// status returns ErrJobNotActive and leaves the job as it is; a missing job
+// returns ErrNotFound.
 func (s *Store) CompleteJob(ctx context.Context, id string, httpStatus *int) error {
 	return s.finishJob(ctx, "complete job", id,
 		`update jobs set status = 'succeeded', http_status = $2,
 			locked_at = null, locked_by = null, updated_at = now()
-		 where id = $1`, httpStatus)
+		 where id = $1 and status in ('running', 'unknown')`, httpStatus)
 }
 
 // RetryJob records a failed run and decides what happens next from the number
@@ -108,11 +111,18 @@ func (s *Store) CompleteJob(ctx context.Context, id string, httpStatus *int) err
 // longer claimed. The failure columns are overwritten with what the call
 // gives, and the lock is released.
 //
-// It returns ErrNotFound when the job does not exist.
+// Only a running job can be retried: a worker that reports late, after
+// RequeueStale took its job back and another worker finished it, gets
+// ErrJobNotActive and the job is left as it is. A missing job returns
+// ErrNotFound.
 func (s *Store) RetryJob(ctx context.Context, id string, now time.Time, lastError string, httpStatus *int, issue, debugID *string) (needsAttention bool, err error) {
 	err = pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 		var attempts int
-		if err := tx.QueryRow(ctx, `select attempts from jobs where id = $1 for update`, id).Scan(&attempts); err != nil {
+		err := tx.QueryRow(ctx, `select attempts from jobs where id = $1 and status = 'running' for update`, id).Scan(&attempts)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return jobMissError(ctx, tx, "retry job", id)
+		}
+		if err != nil {
 			return lookupErr("lock job", err)
 		}
 		status := "needs_attention"
@@ -123,7 +133,7 @@ func (s *Store) RetryJob(ctx context.Context, id string, now time.Time, lastErro
 			runAt = &next
 		}
 		needsAttention = status == "needs_attention"
-		_, err := tx.Exec(ctx,
+		_, err = tx.Exec(ctx,
 			`update jobs set status = $2, run_at = coalesce($3, run_at), last_error = $4, http_status = $5,
 				provider_issue = $6, debug_id = $7,
 				locked_at = null, locked_by = null, updated_at = now()
@@ -140,26 +150,52 @@ func (s *Store) RetryJob(ctx context.Context, id string, now time.Time, lastErro
 	return needsAttention, nil
 }
 
-// MarkJobUnknown parks a job whose outcome at the provider is ambiguous
-// (timeout, 5xx, 409, 429, network error) as unknown, stores the error and
-// releases the lock. A reconcile job resolves it later. It returns
-// ErrNotFound when the job does not exist.
+// MarkJobUnknown parks a running job whose outcome at the provider is
+// ambiguous as unknown, stores the error and HTTP status, clears the earlier
+// failure's provider issue and debug ID so the row never mixes two failures,
+// and releases the lock. Ambiguous means a transport or timeout error, a 5xx
+// or a 409; a 429 is not ambiguous, because PayPal rejects a rate-limited
+// request before processing it, so that one goes through RetryJob. A reconcile
+// job resolves an unknown job later.
+//
+// Only a running job can be parked: any other status returns ErrJobNotActive
+// and leaves the job as it is, and a missing job returns ErrNotFound.
 func (s *Store) MarkJobUnknown(ctx context.Context, id, lastError string, httpStatus *int) error {
 	return s.finishJob(ctx, "mark job unknown", id,
 		`update jobs set status = 'unknown', last_error = $2, http_status = $3,
+			provider_issue = null, debug_id = null,
 			locked_at = null, locked_by = null, updated_at = now()
-		 where id = $1`, lastError, httpStatus)
+		 where id = $1 and status = 'running'`, lastError, httpStatus)
 }
 
+// finishJob runs a status-guarded update of one job; sql takes the job ID as
+// $1. When it matches no row, the job is either missing (ErrNotFound) or in a
+// status the transition does not accept (ErrJobNotActive).
 func (s *Store) finishJob(ctx context.Context, op, id, sql string, args ...any) error {
 	tag, err := s.Pool.Exec(ctx, sql, append([]any{id}, args...)...)
 	if err != nil {
 		return lookupErr(op, err)
 	}
 	if tag.RowsAffected() == 0 {
-		return ErrNotFound
+		return jobMissError(ctx, s.Pool, op, id)
 	}
 	return nil
+}
+
+type rowQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// jobMissError explains why a status-guarded update of a job matched no row.
+func jobMissError(ctx context.Context, q rowQuerier, op, id string) error {
+	var exists bool
+	if err := q.QueryRow(ctx, `select exists (select 1 from jobs where id = $1)`, id).Scan(&exists); err != nil {
+		return lookupErr(op, err)
+	}
+	if !exists {
+		return ErrNotFound
+	}
+	return ErrJobNotActive
 }
 
 // ReenqueueJob sends the job with this idempotency key back to pending at now,
@@ -202,12 +238,17 @@ func (s *Store) JobsByAttempt(ctx context.Context, attemptID string) ([]Job, err
 
 // RequeueStale recovers jobs a worker claimed and never finished: every
 // running job locked more than olderThan before now goes back to pending, due
-// at now, with the lock released. It returns how many jobs it recovered.
+// at now, with the lock released. A job that has already used up its attempts
+// is parked as needs_attention instead (keeping its run_at), so a job that
+// hangs its worker every time is not taken back forever. It returns how many
+// jobs it recovered or parked.
 func (s *Store) RequeueStale(ctx context.Context, now time.Time, olderThan time.Duration) (int, error) {
 	tag, err := s.Pool.Exec(ctx,
-		`update jobs set status = 'pending', run_at = $1,
+		`update jobs set
+			status = case when attempts >= $3 then 'needs_attention' else 'pending' end,
+			run_at = case when attempts >= $3 then run_at else $1 end,
 			locked_at = null, locked_by = null, updated_at = now()
-		 where status = 'running' and locked_at < $2`, now, now.Add(-olderThan))
+		 where status = 'running' and locked_at < $2`, now, now.Add(-olderThan), maxJobAttempts)
 	if err != nil {
 		return 0, wrap("requeue stale jobs", err)
 	}

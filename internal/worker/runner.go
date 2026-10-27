@@ -12,7 +12,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 	"runtime/debug"
 	"strconv"
@@ -415,21 +414,6 @@ func (e *refusal) details() (issue, debugID *string) {
 
 func refused(pe *paypal.Error) (*int, error) {
 	return statusOf(pe), &refusal{pe: pe}
-}
-
-// definitiveError returns PayPal's error when it is a final answer about the
-// resource: any 4xx except 401 and 403 (credentials, not the payment), 409
-// (ambiguous) and 429 (rejected before processing).
-func definitiveError(err error) *paypal.Error {
-	var pe *paypal.Error
-	if !errors.As(err, &pe) || pe.HTTPStatus < 400 || pe.HTTPStatus >= 500 {
-		return nil
-	}
-	switch pe.HTTPStatus {
-	case http.StatusUnauthorized, http.StatusForbidden, http.StatusConflict, http.StatusTooManyRequests:
-		return nil
-	}
-	return pe
 }
 
 func statusOf(err error) *int {

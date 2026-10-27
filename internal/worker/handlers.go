@@ -15,8 +15,8 @@ import (
 
 // PayPal issues the handlers branch on, plus the one the worker records itself.
 const (
-	issueInvalidResourceID    = "INVALID_RESOURCE_ID"
-	issueOrderNotApproved     = "ORDER_NOT_APPROVED"
+	issueInvalidResourceID    = paypal.IssueInvalidResourceID
+	issueOrderNotApproved     = paypal.IssueOrderNotApproved
 	issuePreviouslyVoided     = "PREVIOUSLY_VOIDED"
 	issueAuthorizationExpired = "AUTHORIZATION_EXPIRED"
 	issueCaptureFullyRefunded = "CAPTURE_FULLY_REFUNDED"
@@ -113,7 +113,7 @@ func (r *Runner) createOrder(ctx context.Context, job *store.Job) (*int, error) 
 		CancelURL: cancelURL,
 	})
 	if err != nil {
-		if pe := definitiveError(err); pe != nil {
+		if pe := paypal.Definitive(err); pe != nil {
 			return refused(pe)
 		}
 		return failed(err)
@@ -165,7 +165,7 @@ func (r *Runner) authorize(ctx context.Context, job *store.Job) (*int, error) {
 	if err == nil {
 		return nil, r.ApplyOrder(ctx, a.ID, o)
 	}
-	pe := definitiveError(err)
+	pe := paypal.Definitive(err)
 	if pe == nil {
 		return failed(err)
 	}
@@ -242,7 +242,7 @@ func (r *Runner) capture(ctx context.Context, job *store.Job) (*int, error) {
 	if err == nil {
 		return nil, r.ApplyCapture(ctx, a.ID, c)
 	}
-	pe := definitiveError(err)
+	pe := paypal.Definitive(err)
 	if pe == nil {
 		return failed(err)
 	}
@@ -336,7 +336,7 @@ func (r *Runner) void(ctx context.Context, job *store.Job) (*int, error) {
 	if err == nil {
 		return nil, r.recordVoided(ctx, s, voided)
 	}
-	pe := definitiveError(err)
+	pe := paypal.Definitive(err)
 	if pe == nil {
 		return failed(err)
 	}
@@ -403,7 +403,7 @@ func (r *Runner) refund(ctx context.Context, job *store.Job) (*int, error) {
 	if err == nil {
 		return nil, r.ApplyRefund(ctx, a.ID, rf)
 	}
-	pe := definitiveError(err)
+	pe := paypal.Definitive(err)
 	if pe == nil {
 		return failed(err)
 	}

@@ -679,3 +679,28 @@ func TestNew_Validation(t *testing.T) {
 		t.Errorf("default HTTP client = %+v, want a 20s timeout", c.hc)
 	}
 }
+
+func TestDefinitive_OnlyFinalAnswersAboutTheResource(t *testing.T) {
+	cases := []struct {
+		name  string
+		err   error
+		final bool
+	}{
+		{"422 refusal", &Error{HTTPStatus: 422, Issue: "INSTRUMENT_DECLINED"}, true},
+		{"404 missing order", &Error{HTTPStatus: 404, Issue: IssueInvalidResourceID}, true},
+		{"400 malformed", &Error{HTTPStatus: 400}, true},
+		{"wrapped 422", fmt.Errorf("capture: %w", &Error{HTTPStatus: 422}), true},
+		{"401 credentials", &Error{HTTPStatus: 401}, false},
+		{"403 credentials", &Error{HTTPStatus: 403}, false},
+		{"409 in progress", &Error{HTTPStatus: 409}, false},
+		{"429 rate limited", &Error{HTTPStatus: 429}, false},
+		{"500", &Error{HTTPStatus: 500}, false},
+		{"timeout", context.DeadlineExceeded, false},
+		{"none", nil, false},
+	}
+	for _, c := range cases {
+		if got := Definitive(c.err); (got != nil) != c.final {
+			t.Errorf("%s: Definitive = %v, want final %v", c.name, got, c.final)
+		}
+	}
+}

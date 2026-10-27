@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"strings"
 )
 
@@ -58,6 +59,22 @@ func IsAmbiguous(err error) bool {
 	}
 	var un *unconfirmedError
 	return errors.As(err, &un)
+}
+
+// Definitive returns PayPal's error when it is a final answer about the
+// resource, one asking again will not change: any 4xx except 401 and 403
+// (credentials, not the payment), 409 (ambiguous) and 429 (rejected before
+// processing). Any other error, or none, is nil.
+func Definitive(err error) *Error {
+	var pe *Error
+	if !errors.As(err, &pe) || pe.HTTPStatus < 400 || pe.HTTPStatus >= 500 {
+		return nil
+	}
+	switch pe.HTTPStatus {
+	case http.StatusUnauthorized, http.StatusForbidden, http.StatusConflict, http.StatusTooManyRequests:
+		return nil
+	}
+	return pe
 }
 
 // unconfirmedError marks a failure after the request was sent, such as a

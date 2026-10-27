@@ -144,7 +144,7 @@ func (r *Runner) refresh(ctx context.Context, s subject) (*int, error) {
 	id := s.attempt.ID
 	if s.attempt.OrderID != nil {
 		o, err := r.pp.GetOrder(ctx, *s.attempt.OrderID)
-		switch pe := definitiveError(err); {
+		switch pe := paypal.Definitive(err); {
 		case err == nil:
 			if err := r.ApplyOrder(ctx, id, o); err != nil {
 				return nil, err

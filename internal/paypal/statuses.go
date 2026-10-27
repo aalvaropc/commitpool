@@ -19,3 +19,13 @@ const (
 	StatusCancelled           = "CANCELLED"
 	StatusExpired             = "EXPIRED"
 )
+
+// Issues PayPal reports in an error's details that callers branch on.
+const (
+	// IssueInvalidResourceID comes with a 404 for a resource PayPal does not
+	// know, such as an order dropped unapproved after a few hours.
+	IssueInvalidResourceID = "INVALID_RESOURCE_ID"
+	// IssueOrderNotApproved is the 422 for authorizing an order the buyer
+	// has not approved yet.
+	IssueOrderNotApproved = "ORDER_NOT_APPROVED"
+)

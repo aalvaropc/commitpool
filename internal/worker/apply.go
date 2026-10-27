@@ -11,23 +11,6 @@ import (
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
-// PayPal statuses the worker reads or writes.
-const (
-	ppCreated           = "CREATED"
-	ppApproved          = "APPROVED"
-	ppCompleted         = "COMPLETED"
-	ppPending           = "PENDING"
-	ppDeclined          = "DECLINED"
-	ppFailed            = "FAILED"
-	ppDenied            = "DENIED"
-	ppVoided            = "VOIDED"
-	ppCaptured          = "CAPTURED"
-	ppRefunded          = "REFUNDED"
-	ppPartiallyRefunded = "PARTIALLY_REFUNDED"
-	ppCancelled         = "CANCELLED"
-	ppExpired           = "EXPIRED"
-)
-
 // move is the enrollment transition a PayPal status implies: to `to`, but only
 // from one of `from`, so an enrollment that is already there or past it, or
 // finished, is never moved back.
@@ -52,23 +35,23 @@ var (
 	// A status missing from a table leaves the enrollment as it is. A capture
 	// REFUNDED moves nothing on its own: the refund's status decides.
 	authorizationMoves = map[string]move{
-		ppCreated: {statuses(domain.EnrollmentSeatReserved), domain.EnrollmentAuthorized},
-		ppVoided:  {statuses(domain.EnrollmentAuthorized, domain.EnrollmentVoiding), domain.EnrollmentVoided},
-		ppDenied:  {statuses(domain.EnrollmentSeatReserved, domain.EnrollmentAuthorized, domain.EnrollmentCapturing), domain.EnrollmentCaptureFailed},
+		paypal.StatusCreated: {statuses(domain.EnrollmentSeatReserved), domain.EnrollmentAuthorized},
+		paypal.StatusVoided:  {statuses(domain.EnrollmentAuthorized, domain.EnrollmentVoiding), domain.EnrollmentVoided},
+		paypal.StatusDenied:  {statuses(domain.EnrollmentSeatReserved, domain.EnrollmentAuthorized, domain.EnrollmentCapturing), domain.EnrollmentCaptureFailed},
 	}
 	captureMoves = map[string]move{
-		ppCompleted: {statuses(domain.EnrollmentAuthorized, domain.EnrollmentCapturing, domain.EnrollmentCapturePending), domain.EnrollmentPaid},
-		ppPending:   {statuses(domain.EnrollmentAuthorized, domain.EnrollmentCapturing), domain.EnrollmentCapturePending},
-		ppDeclined:  {statuses(domain.EnrollmentCapturing, domain.EnrollmentCapturePending), domain.EnrollmentCaptureFailed},
-		ppFailed:    {statuses(domain.EnrollmentCapturing, domain.EnrollmentCapturePending), domain.EnrollmentCaptureFailed},
-		ppPartiallyRefunded: {statuses(domain.EnrollmentCapturing, domain.EnrollmentCapturePending, domain.EnrollmentPaid,
+		paypal.StatusCompleted: {statuses(domain.EnrollmentAuthorized, domain.EnrollmentCapturing, domain.EnrollmentCapturePending), domain.EnrollmentPaid},
+		paypal.StatusPending:   {statuses(domain.EnrollmentAuthorized, domain.EnrollmentCapturing), domain.EnrollmentCapturePending},
+		paypal.StatusDeclined:  {statuses(domain.EnrollmentCapturing, domain.EnrollmentCapturePending), domain.EnrollmentCaptureFailed},
+		paypal.StatusFailed:    {statuses(domain.EnrollmentCapturing, domain.EnrollmentCapturePending), domain.EnrollmentCaptureFailed},
+		paypal.StatusPartiallyRefunded: {statuses(domain.EnrollmentCapturing, domain.EnrollmentCapturePending, domain.EnrollmentPaid,
 			domain.EnrollmentRefunding, domain.EnrollmentRefundPending), domain.EnrollmentNeedsAttention},
 	}
 	refundMoves = map[string]move{
-		ppCompleted: {statuses(domain.EnrollmentPaid, domain.EnrollmentRefunding, domain.EnrollmentRefundPending), domain.EnrollmentRefunded},
-		ppPending:   {statuses(domain.EnrollmentPaid, domain.EnrollmentRefunding), domain.EnrollmentRefundPending},
-		ppFailed:    {statuses(domain.EnrollmentRefunding, domain.EnrollmentRefundPending), domain.EnrollmentRefundFailed},
-		ppCancelled: {statuses(domain.EnrollmentRefunding, domain.EnrollmentRefundPending), domain.EnrollmentRefundFailed},
+		paypal.StatusCompleted: {statuses(domain.EnrollmentPaid, domain.EnrollmentRefunding, domain.EnrollmentRefundPending), domain.EnrollmentRefunded},
+		paypal.StatusPending:   {statuses(domain.EnrollmentPaid, domain.EnrollmentRefunding), domain.EnrollmentRefundPending},
+		paypal.StatusFailed:    {statuses(domain.EnrollmentRefunding, domain.EnrollmentRefundPending), domain.EnrollmentRefundFailed},
+		paypal.StatusCancelled: {statuses(domain.EnrollmentRefunding, domain.EnrollmentRefundPending), domain.EnrollmentRefundFailed},
 	}
 )
 
@@ -150,7 +133,7 @@ func (r *Runner) ApplyAuthorization(ctx context.Context, attemptID string, au pa
 		}
 		return nil
 	}, lookup(authorizationMoves, au.Status), false)
-	if err != nil || !res.ok || au.Status != ppCreated || res.moved {
+	if err != nil || !res.ok || au.Status != paypal.StatusCreated || res.moved {
 		return err
 	}
 	unused := !res.driving
@@ -182,11 +165,11 @@ func (r *Runner) ApplyCapture(ctx context.Context, attemptID string, c paypal.Ca
 		setStatus(&a.CaptureStatus, c.Status)
 		a.CaptureReason = reason(c.StatusDetails)
 		return nil
-	}, lookup(captureMoves, c.Status), c.Status == ppCompleted || c.Status == ppPending)
+	}, lookup(captureMoves, c.Status), c.Status == paypal.StatusCompleted || c.Status == paypal.StatusPending)
 	if !res.ok {
 		return err
 	}
-	if c.Status == ppDeclined || c.Status == ppFailed {
+	if c.Status == paypal.StatusDeclined || c.Status == paypal.StatusFailed {
 		return errors.Join(err, r.enqueueVoid(ctx, res.attempt))
 	}
 	return err
@@ -226,7 +209,7 @@ func (r *Runner) failCapture(ctx context.Context, attemptID, issue, debugID stri
 		if a.CaptureID != nil {
 			return errCaptureRecorded
 		}
-		failed := ppFailed
+		failed := paypal.StatusFailed
 		a.CaptureStatus = &failed
 		a.CaptureIssue = nonEmpty(issue)
 		a.CaptureDebugID = nonEmpty(debugID)
@@ -244,7 +227,7 @@ func (r *Runner) enqueueVoid(ctx context.Context, a store.AttemptRow) error {
 	if err != nil {
 		return err
 	}
-	_, err = r.EnqueueOrRevive(ctx, kindVoid, kindVoid+":"+a.ID, &en.WorkshopID, &a.ID, nil, r.clock.Now())
+	_, err = r.EnqueueOrRevive(ctx, store.KindVoid, store.JobKey(store.KindVoid, a.ID), &en.WorkshopID, &a.ID, nil, r.clock.Now())
 	return err
 }
 

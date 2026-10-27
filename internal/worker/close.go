@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/aalvaropc/commitpool/internal/domain"
+	"github.com/aalvaropc/commitpool/internal/paypal"
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
@@ -42,9 +43,9 @@ func (r *Runner) closePayments(ctx context.Context, job *store.Job) (*int, error
 		kind, suffix string
 		ids          []string
 	}{
-		{kindVoid, "", c.Voids},
-		{kindRefund, "", c.Refunds},
-		{kindReconcile, ":close", c.Reconciles},
+		{store.KindVoid, "", c.Voids},
+		{store.KindRefund, "", c.Refunds},
+		{store.KindReconcile, ":close", c.Reconciles},
 	}
 	for _, step := range steps {
 		for _, id := range step.ids {
@@ -164,7 +165,7 @@ func settlement(v view) domain.Resolution {
 // buyer's money: an authorization not yet released, or an authorize whose
 // outcome is unknown, which a seat release does not stop.
 func (v view) mayHold(i int) bool {
-	j, ok := v.job(i, kindAuthorize)
+	j, ok := v.job(i, store.KindAuthorize)
 	return holdsAuthorization(v.att[i]) || ok && j.Status == jobUnknown
 }
 
@@ -173,7 +174,7 @@ func (v view) mayHold(i int) bool {
 // buyer's money.
 func holdsAuthorization(a *store.AttemptRow) bool {
 	return a != nil && a.AuthorizationID != nil &&
-		!is(a.AuthorizationStatus, ppVoided) && !is(a.AuthorizationStatus, ppDenied) && !is(a.AuthorizationStatus, ppExpired)
+		!is(a.AuthorizationStatus, paypal.StatusVoided) && !is(a.AuthorizationStatus, paypal.StatusDenied) && !is(a.AuthorizationStatus, paypal.StatusExpired)
 }
 
 // HealWorkshop redoes, idempotently by key, the follow-ups a hook that failed
@@ -211,18 +212,18 @@ func (r *Runner) HealWorkshop(ctx context.Context, workshopID string) error {
 	for i, en := range v.rows {
 		switch {
 		case (en.Status == domain.EnrollmentCaptureFailed || en.Status == domain.EnrollmentReleased) &&
-			holdsAuthorization(v.att[i]) && !v.has(i, kindVoid):
-			heal(kindVoid, en, "authorization left holding after the enrollment ended")
-		case v.w.Status == domain.WorkshopCancelled && en.Status == domain.EnrollmentPaid && !v.has(i, kindRefund):
-			heal(kindRefund, en, "payment kept in a cancelled workshop")
-		case v.w.Status == domain.WorkshopCancelled && en.Status == domain.EnrollmentAuthorized && !v.has(i, kindVoid):
-			heal(kindVoid, en, "authorization kept in a cancelled workshop")
+			holdsAuthorization(v.att[i]) && !v.has(i, store.KindVoid):
+			heal(store.KindVoid, en, "authorization left holding after the enrollment ended")
+		case v.w.Status == domain.WorkshopCancelled && en.Status == domain.EnrollmentPaid && !v.has(i, store.KindRefund):
+			heal(store.KindRefund, en, "payment kept in a cancelled workshop")
+		case v.w.Status == domain.WorkshopCancelled && en.Status == domain.EnrollmentAuthorized && !v.has(i, store.KindVoid):
+			heal(store.KindVoid, en, "authorization kept in a cancelled workshop")
 		case v.w.Status == domain.WorkshopConfirmed && en.Status == domain.EnrollmentAuthorized &&
-			!v.has(i, kindCapture) && !v.has(i, kindVoid):
+			!v.has(i, store.KindCapture) && !v.has(i, store.KindVoid):
 			if open {
 				round = true
 			} else {
-				heal(kindVoid, en, "authorization left uncaptured after payments closed")
+				heal(store.KindVoid, en, "authorization left uncaptured after payments closed")
 			}
 		}
 	}
@@ -283,7 +284,7 @@ func (r *Runner) EnqueueSeatReleases(ctx context.Context) error {
 	now := r.clock.Now()
 	minute := now.UTC().Format(minuteLayout)
 	for _, id := range ids {
-		if err := r.Enqueue(ctx, kindReleaseSeats, kindReleaseSeats+":"+id+":"+minute, &id, nil, nil, now); err != nil {
+		if err := r.Enqueue(ctx, store.KindReleaseSeats, store.JobKey(store.KindReleaseSeats, id+":"+minute), &id, nil, nil, now); err != nil {
 			return err
 		}
 	}

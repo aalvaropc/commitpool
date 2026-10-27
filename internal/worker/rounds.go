@@ -34,7 +34,7 @@ func (v view) job(i int, kind string) (store.Job, bool) {
 	if v.att[i] == nil {
 		return store.Job{}, false
 	}
-	j, ok := v.jobs[i][kind+":"+v.att[i].ID]
+	j, ok := v.jobs[i][store.JobKey(kind, v.att[i].ID)]
 	return j, ok
 }
 
@@ -98,7 +98,7 @@ func (r *Runner) workshopView(ctx context.Context, workshopID string) (view, err
 			}
 		}
 		v.es[i] = domain.Enrollment{ID: row.ID, ParticipantID: row.ParticipantID, Status: row.Status, SeatExpiresAt: row.SeatExpiresAt}
-		if j, ok := v.job(i, kindCapture); ok {
+		if j, ok := v.job(i, store.KindCapture); ok {
 			due := j.RunAt
 			v.es[i].CaptureStartedAt = &due
 		}
@@ -130,7 +130,7 @@ func (r *Runner) StartCaptureRoundIfReady(ctx context.Context, workshopID string
 		if en.Status != domain.EnrollmentAuthorized {
 			continue
 		}
-		created, err := r.enqueueLatest(ctx, kindCapture, en, "")
+		created, err := r.enqueueLatest(ctx, store.KindCapture, en, "")
 		if err != nil {
 			return err
 		}
@@ -155,7 +155,7 @@ func (r *Runner) enqueueLatest(ctx context.Context, kind string, en store.Enroll
 	if a == nil {
 		return false, fmt.Errorf("enrollment %s has no payment attempt to %s", en.ID, kind)
 	}
-	return r.EnqueueOrRevive(ctx, kind, kind+":"+a.ID+suffix, &en.WorkshopID, &a.ID, nil, r.clock.Now())
+	return r.EnqueueOrRevive(ctx, kind, store.JobKey(kind, a.ID)+suffix, &en.WorkshopID, &a.ID, nil, r.clock.Now())
 }
 
 // afterMove runs what an enrollment's move sets off: a new authorization is
@@ -198,7 +198,7 @@ func (r *Runner) afterAuthorized(ctx context.Context, en store.EnrollmentRow) er
 	}
 	r.log.Warn("authorization landed after payments closed; voiding it",
 		"workshop_id", en.WorkshopID, "enrollment_id", en.ID, "workshop_status", status)
-	_, err = r.enqueueLatest(ctx, kindVoid, en, "")
+	_, err = r.enqueueLatest(ctx, store.KindVoid, en, "")
 	return err
 }
 
@@ -269,7 +269,7 @@ func (r *Runner) lateCapture(ctx context.Context, en store.EnrollmentRow, status
 	switch action {
 	case domain.ActionRefund:
 		log.Warn("payment completed too late to keep; refunding it")
-		_, err := r.enqueueLatest(ctx, kindRefund, en, "")
+		_, err := r.enqueueLatest(ctx, store.KindRefund, en, "")
 		return err
 	case domain.ActionKeepSeat:
 		log.Info("payment completed after the workshop was confirmed; it keeps its seat")

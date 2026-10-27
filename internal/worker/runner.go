@@ -33,18 +33,6 @@ const (
 	settleTimeout  = 10 * time.Second
 )
 
-// Job kinds this package handles.
-const (
-	kindCreateOrder  = "create_order"
-	kindAuthorize    = "authorize"
-	kindCapture      = "capture"
-	kindVoid         = "void"
-	kindRefund       = "refund"
-	kindReconcile    = "reconcile"
-	kindClose        = "close"
-	kindReleaseSeats = "release_seats"
-)
-
 // Job statuses as the store writes them.
 const (
 	jobPending = "pending"
@@ -100,14 +88,14 @@ func New(d Deps) *Runner {
 	}
 	r := &Runner{st: d.Store, pp: d.PayPal, clock: clk, cfg: d.Cfg, log: log, workerID: newWorkerID()}
 	r.handlers = map[string]Handler{
-		kindCreateOrder:  r.createOrder,
-		kindAuthorize:    r.authorize,
-		kindCapture:      r.capture,
-		kindVoid:         r.void,
-		kindRefund:       r.refund,
-		kindReconcile:    r.reconcile,
-		kindClose:        r.closePayments,
-		kindReleaseSeats: r.releaseSeats,
+		store.KindCreateOrder:  r.createOrder,
+		store.KindAuthorize:    r.authorize,
+		store.KindCapture:      r.capture,
+		store.KindVoid:         r.void,
+		store.KindRefund:       r.refund,
+		store.KindReconcile:    r.reconcile,
+		store.KindClose:        r.closePayments,
+		store.KindReleaseSeats: r.releaseSeats,
 	}
 	return r
 }
@@ -334,7 +322,7 @@ func (r *Runner) scheduleReconcile(ctx context.Context, job *store.Job) error {
 	}
 	next := 1
 	for _, j := range jobs {
-		if j.Kind != kindReconcile {
+		if j.Kind != store.KindReconcile {
 			continue
 		}
 		if j.Status == jobPending && j.RunAt.After(now) {
@@ -345,7 +333,7 @@ func (r *Runner) scheduleReconcile(ctx context.Context, job *store.Job) error {
 		}
 	}
 	key := reconcilePrefix(*job.AttemptID) + strconv.Itoa(next)
-	_, err = r.st.EnqueueJob(ctx, kindReconcile, key, job.WorkshopID, job.AttemptID, nil, now.Add(reconcileDelay))
+	_, err = r.st.EnqueueJob(ctx, store.KindReconcile, key, job.WorkshopID, job.AttemptID, nil, now.Add(reconcileDelay))
 	return err
 }
 
@@ -353,14 +341,14 @@ func (r *Runner) scheduleReconcile(ctx context.Context, job *store.Job) error {
 // a job of this kind; any other kind, a reconcile included, is retried.
 func reconcilable(kind string) bool {
 	switch kind {
-	case kindCreateOrder, kindAuthorize, kindCapture, kindVoid, kindRefund:
+	case store.KindCreateOrder, store.KindAuthorize, store.KindCapture, store.KindVoid, store.KindRefund:
 		return true
 	}
 	return false
 }
 
 func reconcilePrefix(attemptID string) string {
-	return kindReconcile + ":" + attemptID + ":"
+	return store.JobKey(store.KindReconcile, attemptID) + ":"
 }
 
 // generation is n in a reconcile job's key reconcile:{attempt}:{n}; ok is
@@ -382,7 +370,7 @@ func generation(j store.Job) (n int, ok bool) {
 // flags its workshop's resolution instead, whatever its status.
 func (r *Runner) escalate(ctx context.Context, log *slog.Logger, job *store.Job) error {
 	if job.AttemptID == nil {
-		if job.WorkshopID != nil && (job.Kind == kindClose || job.Kind == kindReleaseSeats) {
+		if job.WorkshopID != nil && (job.Kind == store.KindClose || job.Kind == store.KindReleaseSeats) {
 			return r.flagWorkshop(ctx, log, *job.WorkshopID)
 		}
 		return nil

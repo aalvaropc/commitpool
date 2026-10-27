@@ -20,18 +20,18 @@ const (
 
 // Order, authorization, capture and refund statuses the fake moves through.
 const (
-	orderPayerActionRequired = "PAYER_ACTION_REQUIRED"
-	orderApproved            = "APPROVED"
-	orderCompleted           = "COMPLETED"
+	orderPayerActionRequired = StatusPayerActionRequired
+	orderApproved            = StatusApproved
+	orderCompleted           = StatusCompleted
 
-	authCreated  = "CREATED"
-	authCaptured = "CAPTURED"
-	authVoided   = "VOIDED"
+	authCreated  = StatusCreated
+	authCaptured = StatusCaptured
+	authVoided   = StatusVoided
 
-	captureCompleted = "COMPLETED"
-	captureRefunded  = "REFUNDED"
+	captureCompleted = StatusCompleted
+	captureRefunded  = StatusRefunded
 
-	refundCompleted = "COMPLETED"
+	refundCompleted = StatusCompleted
 )
 
 var (

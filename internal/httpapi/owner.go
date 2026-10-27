@@ -9,16 +9,6 @@ import (
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
-// Job kinds and keys this package enqueues; the worker owns their meaning.
-const (
-	kindCreateOrder = "create_order"
-	kindClose       = "close"
-)
-
-func closeKey(proposalID string) string { return kindClose + ":" + proposalID }
-
-func createOrderKey(attemptID string) string { return kindCreateOrder + ":" + attemptID }
-
 // mockAuthorizationExpired is the only PayPal-Mock-Response code the demo
 // control sets: it makes the next capture of the attempt fail.
 const mockAuthorizationExpired = "AUTHORIZATION_EXPIRED"
@@ -238,7 +228,7 @@ func (s *server) alreadyOpen(ctx context.Context, open *store.ProposalRow) error
 }
 
 func (s *server) scheduleClose(ctx context.Context, p store.ProposalRow) error {
-	return s.Worker.Enqueue(ctx, kindClose, closeKey(p.ID), &p.WorkshopID, nil, nil, p.ClosesAt)
+	return s.Worker.Enqueue(ctx, store.KindClose, store.JobKey(store.KindClose, p.ID), &p.WorkshopID, nil, nil, p.ClosesAt)
 }
 
 // demoCloseNow ends the payment window now, for demos: the proposal's close
@@ -265,8 +255,8 @@ func (s *server) demoCloseNow(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	key := closeKey(p.ID)
-	created, err := s.Worker.EnqueueOrRevive(ctx, kindClose, key, &ws.ID, nil, nil, now)
+	key := store.JobKey(store.KindClose, p.ID)
+	created, err := s.Worker.EnqueueOrRevive(ctx, store.KindClose, key, &ws.ID, nil, nil, now)
 	if err != nil {
 		return err
 	}

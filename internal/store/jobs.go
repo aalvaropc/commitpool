@@ -9,6 +9,24 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// Job kinds. A job's idempotency key, which is also its PayPal-Request-Id,
+// is its kind and its subject joined by a colon (JobKey): the attempt ID for
+// a payment action, the proposal ID for close; the kinds that run more than
+// once per subject add a suffix.
+const (
+	KindCreateOrder  = "create_order"
+	KindAuthorize    = "authorize"
+	KindCapture      = "capture"
+	KindVoid         = "void"
+	KindRefund       = "refund"
+	KindReconcile    = "reconcile"
+	KindClose        = "close"
+	KindReleaseSeats = "release_seats"
+)
+
+// JobKey is the idempotency key of the job of this kind for subject.
+func JobKey(kind, subject string) string { return kind + ":" + subject }
+
 // Job is one row of the payment-action queue. IdempotencyKey is also the
 // PayPal-Request-Id, so every retry of the same logical action reuses it.
 type Job struct {

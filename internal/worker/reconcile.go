@@ -60,7 +60,7 @@ func (r *Runner) reconcile(ctx context.Context, job *store.Job) (*int, error) {
 // and one PayPal refused as ORDER_NOT_APPROVED because the order is approved
 // now.
 func (r *Runner) authorizeApproved(ctx context.Context, log *slog.Logger, a store.AttemptRow) error {
-	if !is(a.OrderStatus, ppApproved) || a.AuthorizationID != nil {
+	if !is(a.OrderStatus, paypal.StatusApproved) || a.AuthorizationID != nil {
 		return nil
 	}
 	if driving, err := r.driving(ctx, a); err != nil || !driving {
@@ -102,8 +102,8 @@ func (r *Runner) authorizeApproved(ctx context.Context, log *slog.Logger, a stor
 	default:
 		return nil
 	}
-	key := kindAuthorize + ":" + a.ID
-	created, err := r.EnqueueOrRevive(ctx, kindAuthorize, key, &en.WorkshopID, &a.ID, nil, now)
+	key := store.JobKey(store.KindAuthorize, a.ID)
+	created, err := r.EnqueueOrRevive(ctx, store.KindAuthorize, key, &en.WorkshopID, &a.ID, nil, now)
 	if err != nil || created {
 		if created {
 			log.Info("order approved without the buyer coming back; authorizing it")
@@ -239,16 +239,16 @@ func (r *Runner) resolveUnknown(ctx context.Context, log *slog.Logger, a store.A
 // done for the attempt; known is false for kinds a reconcile does not resolve.
 func performed(kind string, a store.AttemptRow) (done, known bool) {
 	switch kind {
-	case kindCreateOrder:
+	case store.KindCreateOrder:
 		return a.OrderID != nil, true
-	case kindAuthorize:
+	case store.KindAuthorize:
 		return a.AuthorizationID != nil, true
-	case kindCapture:
-		return a.CaptureID != nil || is(a.AuthorizationStatus, ppCaptured), true
-	case kindVoid:
-		return is(a.AuthorizationStatus, ppVoided), true
-	case kindRefund:
-		return a.RefundID != nil || is(a.CaptureStatus, ppRefunded), true
+	case store.KindCapture:
+		return a.CaptureID != nil || is(a.AuthorizationStatus, paypal.StatusCaptured), true
+	case store.KindVoid:
+		return is(a.AuthorizationStatus, paypal.StatusVoided), true
+	case store.KindRefund:
+		return a.RefundID != nil || is(a.CaptureStatus, paypal.StatusRefunded), true
 	}
 	return false, false
 }
@@ -260,7 +260,7 @@ func orderGone(pe *paypal.Error) bool {
 
 func (r *Runner) expireOrder(ctx context.Context, attemptID string) error {
 	_, err := r.st.UpdateAttemptFunc(ctx, attemptID, func(a *store.AttemptRow) error {
-		expired := ppExpired
+		expired := paypal.StatusExpired
 		a.OrderStatus = &expired
 		return nil
 	})

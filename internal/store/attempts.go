@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/aalvaropc/commitpool/internal/domain"
+	"github.com/aalvaropc/commitpool/internal/paypal"
 )
 
 type AttemptRow struct {
@@ -50,10 +51,6 @@ func (s *Store) CheckoutAttempt(ctx context.Context, enrollmentID string, amount
 	return s.openAttempt(ctx, enrollmentID, amountMinor, currency, true)
 }
 
-// orderExpired is the order status the worker records when PayPal no longer
-// knows an order the buyer never approved.
-const orderExpired = "EXPIRED"
-
 func (s *Store) openAttempt(ctx context.Context, enrollmentID string, amountMinor int64, currency string, reuse bool) (AttemptRow, bool, error) {
 	var (
 		attempt AttemptRow
@@ -79,7 +76,7 @@ func (s *Store) openAttempt(ctx context.Context, enrollmentID string, amountMino
 			return wrap("lock latest attempt", err)
 		case latest.AuthorizationID != nil:
 			return ErrAttemptNotAllowed
-		case reuse && (latest.OrderStatus == nil || *latest.OrderStatus != orderExpired):
+		case reuse && (latest.OrderStatus == nil || *latest.OrderStatus != paypal.StatusExpired):
 			attempt = latest
 			return nil
 		}

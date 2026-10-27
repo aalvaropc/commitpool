@@ -131,7 +131,7 @@ func (s *server) lastApprovalLink(ctx context.Context, enrollmentID string) (str
 	if err != nil || a == nil {
 		return "", err
 	}
-	job, err := s.Store.JobByKey(ctx, createOrderKey(a.ID))
+	job, err := s.Store.JobByKey(ctx, store.JobKey(store.KindCreateOrder, a.ID))
 	if err != nil || job == nil {
 		return "", err
 	}
@@ -144,8 +144,8 @@ func (s *server) lastApprovalLink(ctx context.Context, enrollmentID string) (str
 // job's payload. A failure leaves the job to retry under the same key, so a
 // later request reuses it; until then there is no link.
 func (s *server) approvalLink(ctx context.Context, workshopID string, a store.AttemptRow) (string, error) {
-	key := createOrderKey(a.ID)
-	if err := s.Worker.Enqueue(ctx, kindCreateOrder, key, &workshopID, &a.ID, nil, s.Clock.Now()); err != nil {
+	key := store.JobKey(store.KindCreateOrder, a.ID)
+	if err := s.Worker.Enqueue(ctx, store.KindCreateOrder, key, &workshopID, &a.ID, nil, s.Clock.Now()); err != nil {
 		return "", err
 	}
 	if err := s.Worker.RunKey(ctx, key); err != nil {

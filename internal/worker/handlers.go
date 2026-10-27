@@ -263,7 +263,7 @@ func (r *Runner) captureTooLate(ctx context.Context, s subject, resumed bool) (*
 		if a == nil {
 			return nil, fmt.Errorf("payment attempt %s: %w", s.attempt.ID, store.ErrNotFound)
 		}
-		if done, _ := performed(kindCapture, *a); done {
+		if done, _ := performed(store.KindCapture, *a); done {
 			s.log.Info("capture deadline passed, but PayPal shows the earlier run captured")
 			return nil, nil
 		}
@@ -323,7 +323,7 @@ func (r *Runner) void(ctx context.Context, job *store.Job) (*int, error) {
 		s.log.Warn("voiding an authorization the enrollment does not use", "latest_attempt", driving)
 	}
 
-	voided := paypal.Authorization{ID: *a.AuthorizationID, Status: ppVoided}
+	voided := paypal.Authorization{ID: *a.AuthorizationID, Status: paypal.StatusVoided}
 	err = r.pp.VoidAuthorization(ctx, *a.AuthorizationID, job.IdempotencyKey)
 	if err == nil {
 		return nil, r.recordVoided(ctx, s, voided)
@@ -401,10 +401,10 @@ func (r *Runner) refund(ctx context.Context, job *store.Job) (*int, error) {
 	}
 	if pe.Issue == issueCaptureFullyRefunded {
 		s.log.Info("capture already refunded at PayPal; counting it as refunded")
-		if err := r.ApplyCapture(ctx, a.ID, paypal.Capture{Status: ppRefunded}); err != nil {
+		if err := r.ApplyCapture(ctx, a.ID, paypal.Capture{Status: paypal.StatusRefunded}); err != nil {
 			return nil, err
 		}
-		return statusOf(pe), r.ApplyRefund(ctx, a.ID, paypal.Refund{Status: ppCompleted})
+		return statusOf(pe), r.ApplyRefund(ctx, a.ID, paypal.Refund{Status: paypal.StatusCompleted})
 	}
 	s.log.Error("PayPal refused the refund", "http_status", pe.HTTPStatus, "issue", pe.Issue, "debug_id", pe.DebugID)
 	if _, err := r.transition(ctx, s.log, s.enrollment.ID, move{statuses(domain.EnrollmentRefunding), domain.EnrollmentNeedsAttention}); err != nil {

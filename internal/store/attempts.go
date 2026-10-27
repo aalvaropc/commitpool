@@ -42,11 +42,12 @@ func (s *Store) CreateAttempt(ctx context.Context, enrollmentID string, amountMi
 }
 
 // CheckoutAttempt returns the attempt a buyer's checkout should use: the
-// enrollment's latest attempt while its order can still be approved, so a
+// enrollment's latest attempt while its checkout is open (checkoutOpen), so a
 // second tab or a repeated click gets the same order, or else a new one
-// (created true), when there is none yet or its order expired at PayPal. It
-// refuses with ErrAttemptNotAllowed exactly when CreateAttempt would, and runs
-// under the same enrollment lock, so concurrent checkouts share one attempt.
+// (created true), when there is none yet, its order expired at PayPal or
+// PayPal refused to create it. It refuses with ErrAttemptNotAllowed exactly
+// when CreateAttempt would, and runs under the same enrollment lock, so
+// concurrent checkouts share one attempt.
 func (s *Store) CheckoutAttempt(ctx context.Context, enrollmentID string, amountMinor int64, currency string) (AttemptRow, bool, error) {
 	return s.openAttempt(ctx, enrollmentID, amountMinor, currency, true)
 }
@@ -76,9 +77,15 @@ func (s *Store) openAttempt(ctx context.Context, enrollmentID string, amountMino
 			return wrap("lock latest attempt", err)
 		case latest.AuthorizationID != nil:
 			return ErrAttemptNotAllowed
-		case reuse && (latest.OrderStatus == nil || *latest.OrderStatus != paypal.StatusExpired):
-			attempt = latest
-			return nil
+		case reuse:
+			open, err := checkoutOpen(ctx, tx, latest)
+			if err != nil {
+				return err
+			}
+			if open {
+				attempt = latest
+				return nil
+			}
 		}
 		row, err := one[AttemptRow](ctx, tx,
 			`insert into payment_attempts (enrollment_id, attempt_no, amount_minor, currency)
@@ -95,6 +102,29 @@ func (s *Store) openAttempt(ctx context.Context, enrollmentID string, amountMino
 		return AttemptRow{}, false, err
 	}
 	return attempt, created, nil
+}
+
+// checkoutOpen reports whether the attempt's checkout can still be used: its
+// order has not expired and PayPal has not refused to create it. A
+// create_order job that failed while the attempt has no order is such a
+// refusal; one that is pending, running or unknown may still produce an
+// order, so the attempt is kept.
+func checkoutOpen(ctx context.Context, tx pgx.Tx, a AttemptRow) (bool, error) {
+	if a.OrderStatus != nil && *a.OrderStatus == paypal.StatusExpired {
+		return false, nil
+	}
+	if a.OrderID != nil {
+		return true, nil
+	}
+	var status string
+	err := tx.QueryRow(ctx, `select status from jobs where idempotency_key = $1`, JobKey(KindCreateOrder, a.ID)).Scan(&status)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return true, nil
+	case err != nil:
+		return false, wrap("read create_order job", err)
+	}
+	return status != jobFailed, nil
 }
 
 // LatestAttempt returns the enrollment's highest-numbered attempt, or nil.

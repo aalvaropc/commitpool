@@ -773,3 +773,33 @@ func TestVoid_AlreadyGoneCountsAsVoidedOtherRefusalsFlag(t *testing.T) {
 		}
 	}
 }
+
+func TestCreateOrder_OlderAttemptRevivedIsNotSent(t *testing.T) {
+	e := newEnv(t)
+	en, first := e.enroll("Ana")
+	e.fake.FailNext("create_order", 422, "INVALID_PARAMETER_VALUE")
+	firstKey := e.enqueue("create_order", first)
+	e.runKey(firstKey)
+	e.wantJob(firstKey, "failed")
+
+	second, created, err := e.st.CheckoutAttempt(e.ctx, en.ID, 1000, "USD")
+	if err != nil || !created || second.AttemptNo != 2 {
+		t.Fatalf("CheckoutAttempt after the refusal = %+v, %v, %v; want a new attempt 2", second, created, err)
+	}
+	e.runKey(e.enqueue("create_order", second))
+
+	if revived, err := e.runner.Revive(e.ctx, firstKey); err != nil || !revived {
+		t.Fatalf("Revive(%s) = %v, %v", firstKey, revived, err)
+	}
+	e.runKey(firstKey)
+	j := e.wantJob(firstKey, "failed")
+	if j.LastError == nil || !strings.Contains(*j.LastError, "latest attempt") {
+		t.Errorf("revived job last_error = %v, want the older-attempt skip", deref(j.LastError))
+	}
+	if n := e.requestsWithID("create_order", firstKey); n != 1 {
+		t.Errorf("create_order requests under %s = %d, want only the refused one", firstKey, n)
+	}
+	if a := e.attempt(first.ID); a.OrderID != nil {
+		t.Errorf("older attempt got order %s, want none: the enrollment follows attempt 2", *a.OrderID)
+	}
+}

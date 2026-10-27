@@ -13,6 +13,7 @@ import (
 	"github.com/aalvaropc/commitpool/internal/ai"
 	"github.com/aalvaropc/commitpool/internal/domain"
 	"github.com/aalvaropc/commitpool/internal/httpapi"
+	"github.com/aalvaropc/commitpool/internal/paypal"
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
@@ -788,4 +789,30 @@ func TestParticipant_ReservedSeatExpiresWithTheSeatOrTheWindow(t *testing.T) {
 	if v := view(); v.Enrollment.StatusLabel != "Seat expired" || v.Proposal.PaymentsOpen {
 		t.Errorf("after close: %+v, proposal %+v; want Seat expired, payments closed", v.Enrollment, v.Proposal)
 	}
+}
+
+func TestEnrollment_RefusedOrderOpensANewAttempt(t *testing.T) {
+	e := newEnv(t)
+	_, p, ps := e.fundingWorkshop()
+
+	e.fake.FailNext("create_order", http.StatusUnprocessableEntity, "INVALID_PARAMETER_VALUE")
+	e.wantError(http.MethodPost, ps[0].path+"/enrollment", enrollBody(p.ID), http.StatusBadGateway, "paypal_unavailable")
+
+	got := e.enroll(ps[0], p.ID, http.StatusOK)
+	a := e.latestAttempt(got.EnrollmentID)
+	if a.AttemptNo != 2 || a.OrderID == nil || !strings.HasSuffix(got.ApproveURL, *a.OrderID) {
+		t.Errorf("checkout after the refusal = %+v, attempt %+v; want attempt 2's link", got, a)
+	}
+	orders := e.fake.Requests("create_order")
+	if len(orders) != 2 || orders[0].RequestID == orders[1].RequestID || orders[1].RequestID != "create_order:"+a.ID {
+		t.Errorf("create_order request ids = %v, want two different keys, the second create_order:%s", requestIDs(orders), a.ID)
+	}
+}
+
+func requestIDs(reqs []paypal.RecordedRequest) []string {
+	ids := make([]string, len(reqs))
+	for i, r := range reqs {
+		ids[i] = r.RequestID
+	}
+	return ids
 }

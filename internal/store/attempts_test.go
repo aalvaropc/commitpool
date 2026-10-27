@@ -561,3 +561,73 @@ func TestCheckoutAttempt_ConcurrentCheckoutsShareOneAttempt(t *testing.T) {
 		t.Errorf("attempts after %d concurrent checkouts = %d, want 1", tabs, n)
 	}
 }
+
+func TestCheckoutAttempt_ReplacesAnAttemptWhoseOrderPayPalRefused(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	now := baseTime.Add(time.Hour)
+
+	checkout := func(e store.EnrollmentRow) (store.AttemptRow, bool) {
+		t.Helper()
+		a, created, err := s.CheckoutAttempt(ctx, e.ID, 1000, "USD")
+		if err != nil {
+			t.Fatalf("CheckoutAttempt: %v", err)
+		}
+		return a, created
+	}
+	// runCreateOrder enqueues and claims the attempt's create_order job and
+	// leaves it as finish says.
+	runCreateOrder := func(a store.AttemptRow, finish func(id string) error) {
+		t.Helper()
+		key := store.JobKey(store.KindCreateOrder, a.ID)
+		if _, err := s.EnqueueJob(ctx, store.KindCreateOrder, key, nil, &a.ID, nil, now); err != nil {
+			t.Fatalf("EnqueueJob: %v", err)
+		}
+		job, err := s.ClaimJobByKey(ctx, key, "w1", now)
+		if err != nil || job == nil {
+			t.Fatalf("ClaimJobByKey = %+v, %v", job, err)
+		}
+		if finish != nil {
+			if err := finish(job.ID); err != nil {
+				t.Fatalf("finish job: %v", err)
+			}
+		}
+	}
+	status := 422
+	refuse := func(id string) error {
+		return s.FailJob(ctx, id, "422 UNPROCESSABLE_ENTITY", &status, ptr("INVALID_PARAMETER_VALUE"), ptr("debug-1"))
+	}
+
+	w, _, _ := newWorkshop(t, s, 1, 6)
+	p := openFunding(t, s, w, baseTime)
+
+	refused := reserve(t, s, w, p, newParticipant(t, s, w, "Refused").ID, now)
+	first, _ := checkout(refused)
+	runCreateOrder(first, refuse)
+	if next, created := checkout(refused); !created || next.AttemptNo != 2 {
+		t.Errorf("checkout after PayPal refused the order = attempt %d, created %v; want a new attempt 2", next.AttemptNo, created)
+	}
+
+	for name, finish := range map[string]func(id string) error{
+		"running": nil,
+		"unknown": func(id string) error { return s.MarkJobUnknown(ctx, id, "timeout", nil) },
+	} {
+		e := reserve(t, s, w, p, newParticipant(t, s, w, name).ID, now)
+		a, _ := checkout(e)
+		runCreateOrder(a, finish)
+		if again, created := checkout(e); created || again.ID != a.ID {
+			t.Errorf("checkout while create_order is %s = attempt %d, created %v; want attempt 1 kept, an order may exist", name, again.AttemptNo, created)
+		}
+	}
+
+	withOrder := reserve(t, s, w, p, newParticipant(t, s, w, "Order kept").ID, now)
+	a, _ := checkout(withOrder)
+	a.OrderID = ptr("ORDER-KEPT")
+	if err := s.UpdateAttempt(ctx, a); err != nil {
+		t.Fatalf("UpdateAttempt: %v", err)
+	}
+	runCreateOrder(a, refuse)
+	if again, created := checkout(withOrder); created || again.ID != a.ID {
+		t.Errorf("checkout with an order on a failed job = attempt %d, created %v; want the attempt with the order kept", again.AttemptNo, created)
+	}
+}

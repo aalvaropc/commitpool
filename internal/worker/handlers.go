@@ -85,13 +85,21 @@ type orderPayload struct {
 // stores the order id and status on the attempt and {approve_url, order_id}
 // in the job's own payload, where the HTTP layer reads the approval link. The
 // enrollment stays SEAT_RESERVED. An order other than the one the attempt
-// holds is flagged and its link is not stored.
+// holds is flagged and its link is not stored. A job of an attempt the
+// enrollment no longer follows, revived after a newer checkout opened, is
+// skipped, so one enrollment never has two live orders.
 func (r *Runner) createOrder(ctx context.Context, job *store.Job) (*int, error) {
 	s, err := r.load(ctx, job)
 	if err != nil {
 		return nil, err
 	}
 	a := s.attempt
+	if driving, err := r.driving(ctx, a); err != nil || !driving {
+		if err != nil {
+			return nil, err
+		}
+		return s.skipOlderAttempt()
+	}
 	returnURL, cancelURL := r.ReturnURLs(s.enrollment.ID)
 	o, err := r.pp.CreateOrder(ctx, paypal.CreateOrderParams{
 		RequestID:   job.IdempotencyKey,

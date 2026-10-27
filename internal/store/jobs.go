@@ -37,12 +37,9 @@ const maxJobAttempts = len(jobBackoff) + 1
 // the same key already exists nothing is written, the stored row keeps its
 // payload, status and run_at, and created is false.
 func (s *Store) EnqueueJob(ctx context.Context, kind, key string, workshopID, attemptID *string, payload any, runAt time.Time) (created bool, err error) {
-	body, err := json.Marshal(payload)
+	body, err := jobPayload(payload)
 	if err != nil {
-		return false, wrap("marshal job payload", err)
-	}
-	if string(body) == "null" {
-		body = []byte("{}")
+		return false, err
 	}
 	tag, err := s.Pool.Exec(ctx,
 		`insert into jobs (kind, idempotency_key, workshop_id, attempt_id, payload, run_at)
@@ -60,15 +57,32 @@ func (s *Store) EnqueueJob(ctx context.Context, kind, key string, workshopID, at
 // worker is claiming at the same moment are skipped, so no job is handed to
 // two workers. It returns nil, nil when nothing is claimable.
 func (s *Store) ClaimJob(ctx context.Context, workerID string, now time.Time) (*Job, error) {
+	return s.claim(ctx, workerID, now,
+		`select id from jobs
+		 where status = 'pending' and run_at <= $1
+		 order by run_at, created_at
+		 limit 1
+		 for update skip locked`, now)
+}
+
+// ClaimJobByKey is ClaimJob for the one job with this idempotency key, so a
+// caller can run that job right away. It returns nil, nil when the key is
+// absent, the job is not pending, it is not due at now, or another claimer
+// holds its row.
+func (s *Store) ClaimJobByKey(ctx context.Context, key, workerID string, now time.Time) (*Job, error) {
+	return s.claim(ctx, workerID, now,
+		`select id from jobs
+		 where idempotency_key = $2 and status = 'pending' and run_at <= $1
+		 for update skip locked`, now, key)
+}
+
+// claim marks the job that selectSQL locks as running for workerID. selectSQL
+// returns at most one id and takes now as $1.
+func (s *Store) claim(ctx context.Context, workerID string, now time.Time, selectSQL string, args ...any) (*Job, error) {
 	var claimed *Job
 	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 		var id string
-		err := tx.QueryRow(ctx,
-			`select id from jobs
-			 where status = 'pending' and run_at <= $1
-			 order by run_at, created_at
-			 limit 1
-			 for update skip locked`, now).Scan(&id)
+		err := tx.QueryRow(ctx, selectSQL, args...).Scan(&id)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
@@ -222,6 +236,36 @@ func (s *Store) ReenqueueJob(ctx context.Context, key string, now time.Time) err
 		return ErrNotFound
 	}
 	return nil
+}
+
+// UpdateJobPayload replaces the job's payload with payload marshalled as JSON
+// (nil is stored as {}), whatever the job's status. A missing job returns
+// ErrNotFound.
+func (s *Store) UpdateJobPayload(ctx context.Context, id string, payload any) error {
+	body, err := jobPayload(payload)
+	if err != nil {
+		return err
+	}
+	tag, err := s.Pool.Exec(ctx, `update jobs set payload = $2, updated_at = now() where id = $1`, id, body)
+	if err != nil {
+		return lookupErr("update job payload", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// jobPayload marshals a job payload as JSON, storing nil as {}.
+func jobPayload(payload any) ([]byte, error) {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, wrap("marshal job payload", err)
+	}
+	if string(body) == "null" {
+		return []byte("{}"), nil
+	}
+	return body, nil
 }
 
 // JobByKey returns the job with this idempotency key, or nil when there is none.

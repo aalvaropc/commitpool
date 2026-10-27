@@ -321,6 +321,88 @@ func TestClaimJob_TwoWorkersNeverRunSameJob(t *testing.T) {
 	t.Logf("claims per worker: %s=%d %s=%d", workers[0], len(claimed[0]), workers[1], len(claimed[1]))
 }
 
+func TestClaimJobByKey_ClaimsOnlyThatJob(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	enqueue(t, s, "capture", "capture:older", baseTime)
+	enqueue(t, s, "capture", "capture:wanted", baseTime.Add(time.Minute))
+
+	now := baseTime.Add(time.Hour)
+	j, err := s.ClaimJobByKey(ctx, "capture:wanted", "worker-1", now)
+	if err != nil || j == nil {
+		t.Fatalf("ClaimJobByKey = %+v, %v; want the job", j, err)
+	}
+	if j.IdempotencyKey != "capture:wanted" || j.Status != "running" || j.Attempts != 1 {
+		t.Errorf("claimed %s %s/%d, want capture:wanted running/1", j.IdempotencyKey, j.Status, j.Attempts)
+	}
+	at, by := jobLock(t, s, j.ID)
+	if at == nil || by == nil {
+		t.Fatalf("lock = (%v, %v), want set", at, by)
+	}
+	assertTime(t, "locked_at", *at, now)
+	if *by != "worker-1" {
+		t.Errorf("locked_by = %q, want worker-1", *by)
+	}
+	if other := jobByKey(t, s, "capture:older"); other.Status != "pending" || other.Attempts != 0 {
+		t.Errorf("older job = %s/%d, want pending/0", other.Status, other.Attempts)
+	}
+
+	if got, err := s.ClaimJobByKey(ctx, "capture:missing", "worker-1", now); err != nil || got != nil {
+		t.Errorf("ClaimJobByKey(missing key) = %+v, %v; want nil, nil", got, err)
+	}
+}
+
+func TestClaimJobByKey_SkipsRunningAndFuture(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	enqueue(t, s, "capture", "capture:running", baseTime)
+	enqueue(t, s, "capture", "capture:future", baseTime.Add(10*time.Minute))
+	enqueue(t, s, "capture", "capture:done", baseTime)
+	enqueue(t, s, "capture", "capture:locked", baseTime)
+
+	if _, err := s.ClaimJobByKey(ctx, "capture:running", "w1", baseTime); err != nil {
+		t.Fatalf("first ClaimJobByKey: %v", err)
+	}
+	done, err := s.ClaimJobByKey(ctx, "capture:done", "w1", baseTime)
+	if err != nil || done == nil {
+		t.Fatalf("ClaimJobByKey(done) = %+v, %v", done, err)
+	}
+	if err := s.CompleteJob(ctx, done.ID, nil); err != nil {
+		t.Fatalf("CompleteJob: %v", err)
+	}
+
+	for _, key := range []string{"capture:running", "capture:future", "capture:done"} {
+		if got, err := s.ClaimJobByKey(ctx, key, "w2", baseTime); err != nil || got != nil {
+			t.Errorf("ClaimJobByKey(%s) = %+v, %v; want nil, nil", key, got, err)
+		}
+	}
+	if got := jobByKey(t, s, "capture:running"); got.Status != "running" || got.Attempts != 1 {
+		t.Errorf("running job = %s/%d, want running/1 (not claimed twice)", got.Status, got.Attempts)
+	}
+	if got := jobByKey(t, s, "capture:future"); got.Status != "pending" || got.Attempts != 0 {
+		t.Errorf("future job = %s/%d, want pending/0", got.Status, got.Attempts)
+	}
+
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `select id from jobs where idempotency_key = 'capture:locked' for update`); err != nil {
+		t.Fatalf("lock row: %v", err)
+	}
+	if got, err := s.ClaimJobByKey(ctx, "capture:locked", "w2", baseTime); err != nil || got != nil {
+		t.Errorf("ClaimJobByKey(row locked by another claimer) = %+v, %v; want nil, nil", got, err)
+	}
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatalf("rollback: %v", err)
+	}
+
+	if got, err := s.ClaimJobByKey(ctx, "capture:future", "w2", baseTime.Add(10*time.Minute)); err != nil || got == nil {
+		t.Errorf("ClaimJobByKey(future) once due = %+v, %v; want the job", got, err)
+	}
+}
+
 func TestCompleteJob_SucceedsAndClearsLock(t *testing.T) {
 	ctx := context.Background()
 	s := store.TestStore(t)
@@ -741,6 +823,31 @@ func TestJobByKey_MissingIsNil(t *testing.T) {
 	s := store.TestStore(t)
 	if j, err := s.JobByKey(context.Background(), "capture:missing"); err != nil || j != nil {
 		t.Errorf("JobByKey(missing) = %+v, %v; want nil, nil", j, err)
+	}
+}
+
+func TestUpdateJobPayload_ReplacesPayload(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	created, err := s.EnqueueJob(ctx, "create_order", "create_order:a1", nil, nil, map[string]string{"note": "first"}, baseTime)
+	if err != nil || !created {
+		t.Fatalf("EnqueueJob = %v, %v; want true, nil", created, err)
+	}
+	j := claim(t, s, "w1", baseTime)
+
+	err = s.UpdateJobPayload(ctx, j.ID, map[string]string{"approve_url": "https://pay.example/approve?order=O1", "order_id": "O1"})
+	if err != nil {
+		t.Fatalf("UpdateJobPayload: %v", err)
+	}
+
+	got := jobByKey(t, s, "create_order:a1")
+	assertJSONEqual(t, "payload", got.Payload, []byte(`{"approve_url":"https://pay.example/approve?order=O1","order_id":"O1"}`))
+	if got.Status != "running" || got.Attempts != 1 {
+		t.Errorf("status/attempts = %s/%d, want running/1 (unchanged)", got.Status, got.Attempts)
+	}
+
+	if err := s.UpdateJobPayload(ctx, missingUUID, map[string]string{"order_id": "O2"}); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("UpdateJobPayload(missing job) = %v, want ErrNotFound", err)
 	}
 }
 

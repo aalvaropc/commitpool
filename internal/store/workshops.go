@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/aalvaropc/commitpool/internal/domain"
 )
@@ -129,17 +130,23 @@ func (s *Store) CandidateDates(ctx context.Context, workshopID string) ([]Candid
 }
 
 // OpenProposal stores the workshop's first proposal as version 1 and moves the
-// workshop from COLLECTING to FUNDING in one transaction. The ID and Version
-// of p are ignored. It fails with ErrProposalExists when payments were already
-// opened.
+// workshop from COLLECTING to FUNDING, by the same compare-and-set as
+// TransitionWorkshop, in one transaction. The ID and Version of p are
+// ignored. It fails with ErrProposalExists when the workshop is no longer
+// COLLECTING, because payments were already opened, and with ErrNotFound for
+// an unknown workshop.
 func (s *Store) OpenProposal(ctx context.Context, p ProposalRow) (ProposalRow, error) {
 	var opened ProposalRow
 	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
-		status, err := lockWorkshop(ctx, tx, p.WorkshopID)
+		if _, err := lockWorkshop(ctx, tx, p.WorkshopID); err != nil {
+			return err
+		}
+		moved, err := transitionWorkshop(ctx, tx, p.WorkshopID,
+			[]domain.WorkshopStatus{domain.WorkshopCollecting}, nil, domain.WorkshopFunding, domain.ResolutionOpen)
 		if err != nil {
 			return err
 		}
-		if status != domain.WorkshopCollecting {
+		if !moved {
 			return ErrProposalExists
 		}
 		row, err := one[ProposalRow](ctx, tx,
@@ -150,11 +157,6 @@ func (s *Store) OpenProposal(ctx context.Context, p ProposalRow) (ProposalRow, e
 		if err != nil {
 			return wrap("insert proposal", err)
 		}
-		if _, err := tx.Exec(ctx,
-			`update workshops set status = $2, updated_at = now() where id = $1`,
-			p.WorkshopID, string(domain.WorkshopFunding)); err != nil {
-			return wrap("open payments", err)
-		}
 		opened = row
 		return nil
 	})
@@ -162,6 +164,34 @@ func (s *Store) OpenProposal(ctx context.Context, p ProposalRow) (ProposalRow, e
 		return ProposalRow{}, err
 	}
 	return opened, nil
+}
+
+// ShortenPaymentWindow moves the proposal's close to closesAt when that is
+// earlier, under the workshop's row lock, and returns the proposal as stored.
+// It never extends the window. An unknown proposal is ErrNotFound.
+func (s *Store) ShortenPaymentWindow(ctx context.Context, proposalID string, closesAt time.Time) (ProposalRow, error) {
+	var shortened ProposalRow
+	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+		var workshopID string
+		if err := tx.QueryRow(ctx, `select workshop_id from proposals where id = $1`, proposalID).Scan(&workshopID); err != nil {
+			return lookupErr("find proposal", err)
+		}
+		if _, err := lockWorkshop(ctx, tx, workshopID); err != nil {
+			return err
+		}
+		row, err := one[ProposalRow](ctx, tx,
+			`update proposals set closes_at = least(closes_at, $2) where id = $1 returning `+proposalCols,
+			proposalID, closesAt)
+		if err != nil {
+			return wrap("shorten payment window", err)
+		}
+		shortened = row
+		return nil
+	})
+	if err != nil {
+		return ProposalRow{}, err
+	}
+	return shortened, nil
 }
 
 // ActiveProposal returns the workshop's current proposal, or nil when payments
@@ -197,7 +227,15 @@ func lockWorkshop(ctx context.Context, tx pgx.Tx, workshopID string) (domain.Wor
 // fromStatus and the resolution one of fromResolution, a nil list meaning
 // any. It reports whether the row changed; a missing workshop is false.
 func (s *Store) TransitionWorkshop(ctx context.Context, id string, fromStatus []domain.WorkshopStatus, fromResolution []domain.Resolution, to domain.WorkshopStatus, resolution domain.Resolution) (bool, error) {
-	tag, err := s.Pool.Exec(ctx,
+	return transitionWorkshop(ctx, s.Pool, id, fromStatus, fromResolution, to, resolution)
+}
+
+type execer interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
+
+func transitionWorkshop(ctx context.Context, q execer, id string, fromStatus []domain.WorkshopStatus, fromResolution []domain.Resolution, to domain.WorkshopStatus, resolution domain.Resolution) (bool, error) {
+	tag, err := q.Exec(ctx,
 		`update workshops set status = $4, resolution = $5, updated_at = now()
 		 where id = $1
 		   and ($2::text[] is null or status = any($2::text[]))

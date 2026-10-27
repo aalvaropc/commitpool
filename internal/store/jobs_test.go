@@ -1119,3 +1119,35 @@ func TestRequeueStale_ParksExhaustedJobsAsNeedsAttention(t *testing.T) {
 		t.Errorf("ClaimJob with the exhausted job left = %+v, %v; want nil, nil", again, err)
 	}
 }
+
+func TestAdvanceJob_OnlyBringsAPendingJobForward(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	now := time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
+	later := now.Add(24 * time.Hour)
+
+	enqueue(t, s, "close", "close:later", later)
+	if moved, err := s.AdvanceJob(ctx, "close:later", now); err != nil || !moved {
+		t.Fatalf("AdvanceJob(pending, later) = %v, %v; want true", moved, err)
+	}
+	assertTime(t, "run_at after AdvanceJob", jobByKey(t, s, "close:later").RunAt, now)
+	if moved, err := s.AdvanceJob(ctx, "close:later", later); err != nil || moved {
+		t.Errorf("AdvanceJob to a later time = %v, %v; want false: it never postpones", moved, err)
+	}
+	assertTime(t, "run_at after a later AdvanceJob", jobByKey(t, s, "close:later").RunAt, now)
+
+	enqueue(t, s, "close", "close:running", later)
+	claimed, err := s.ClaimJobByKey(ctx, "close:running", "w1", later)
+	if err != nil || claimed == nil {
+		t.Fatalf("ClaimJobByKey = %+v, %v", claimed, err)
+	}
+	if moved, err := s.AdvanceJob(ctx, "close:running", now); err != nil || moved {
+		t.Errorf("AdvanceJob(running) = %v, %v; want false", moved, err)
+	}
+	if got := jobByKey(t, s, "close:running"); got.ID != claimed.ID || got.Status != "running" {
+		t.Errorf("running job after AdvanceJob = %+v", got)
+	}
+	if moved, err := s.AdvanceJob(ctx, "close:missing", now); err != nil || moved {
+		t.Errorf("AdvanceJob(missing key) = %v, %v; want false, nil", moved, err)
+	}
+}

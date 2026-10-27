@@ -36,7 +36,29 @@ const attemptCols = `id, enrollment_id, attempt_no, order_id, authorization_id, 
 // good, so the hold, its capture, its void and its refund always belong to
 // the attempt the enrollment follows.
 func (s *Store) CreateAttempt(ctx context.Context, enrollmentID string, amountMinor int64, currency string) (AttemptRow, error) {
-	var attempt AttemptRow
+	a, _, err := s.openAttempt(ctx, enrollmentID, amountMinor, currency, false)
+	return a, err
+}
+
+// CheckoutAttempt returns the attempt a buyer's checkout should use: the
+// enrollment's latest attempt while its order can still be approved, so a
+// second tab or a repeated click gets the same order, or else a new one
+// (created true), when there is none yet or its order expired at PayPal. It
+// refuses with ErrAttemptNotAllowed exactly when CreateAttempt would, and runs
+// under the same enrollment lock, so concurrent checkouts share one attempt.
+func (s *Store) CheckoutAttempt(ctx context.Context, enrollmentID string, amountMinor int64, currency string) (AttemptRow, bool, error) {
+	return s.openAttempt(ctx, enrollmentID, amountMinor, currency, true)
+}
+
+// orderExpired is the order status the worker records when PayPal no longer
+// knows an order the buyer never approved.
+const orderExpired = "EXPIRED"
+
+func (s *Store) openAttempt(ctx context.Context, enrollmentID string, amountMinor int64, currency string, reuse bool) (AttemptRow, bool, error) {
+	var (
+		attempt AttemptRow
+		created bool
+	)
 	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 		var status domain.EnrollmentStatus
 		if err := tx.QueryRow(ctx, `select status from enrollments where id = $1 for update`, enrollmentID).Scan(&status); err != nil {
@@ -47,16 +69,19 @@ func (s *Store) CreateAttempt(ctx context.Context, enrollmentID string, amountMi
 		}
 		// The latest attempt is read under its row lock, so an authorization
 		// UpdateAttemptFunc is recording on it right now is seen once written.
-		var authorized bool
-		err := tx.QueryRow(ctx,
-			`select authorization_id is not null from payment_attempts
+		latest, err := one[AttemptRow](ctx, tx,
+			`select `+attemptCols+` from payment_attempts
 			 where enrollment_id = $1 order by attempt_no desc limit 1 for update`,
-			enrollmentID).Scan(&authorized)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			enrollmentID)
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+		case err != nil:
 			return wrap("lock latest attempt", err)
-		}
-		if authorized {
+		case latest.AuthorizationID != nil:
 			return ErrAttemptNotAllowed
+		case reuse && (latest.OrderStatus == nil || *latest.OrderStatus != orderExpired):
+			attempt = latest
+			return nil
 		}
 		row, err := one[AttemptRow](ctx, tx,
 			`insert into payment_attempts (enrollment_id, attempt_no, amount_minor, currency)
@@ -66,13 +91,13 @@ func (s *Store) CreateAttempt(ctx context.Context, enrollmentID string, amountMi
 		if err != nil {
 			return wrap("insert attempt", err)
 		}
-		attempt = row
+		attempt, created = row, true
 		return nil
 	})
 	if err != nil {
-		return AttemptRow{}, err
+		return AttemptRow{}, false, err
 	}
-	return attempt, nil
+	return attempt, created, nil
 }
 
 // LatestAttempt returns the enrollment's highest-numbered attempt, or nil.

@@ -405,3 +405,25 @@ func TestTransitionWorkshop_RefusesWhenStateMoved(t *testing.T) {
 		}
 	}
 }
+
+func TestShortenPaymentWindow_OnlyMovesTheCloseEarlier(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	w, _, _ := newWorkshop(t, s, 1, 3)
+	p := openFunding(t, s, w, baseTime)
+
+	now := baseTime.Add(2 * time.Hour)
+	got, err := s.ShortenPaymentWindow(ctx, p.ID, now)
+	if err != nil || got.ID != p.ID || !got.ClosesAt.Equal(now) {
+		t.Fatalf("ShortenPaymentWindow(now) = %+v, %v; want closes_at %s", got, err, now)
+	}
+	if again, err := s.ShortenPaymentWindow(ctx, p.ID, now.Add(time.Hour)); err != nil || !again.ClosesAt.Equal(now) {
+		t.Errorf("ShortenPaymentWindow(later) = %+v, %v; want closes_at kept at %s", again, err, now)
+	}
+	if active, err := s.ActiveProposal(ctx, w.ID); err != nil || active == nil || !active.ClosesAt.Equal(now) {
+		t.Errorf("ActiveProposal after shortening = %+v, %v", active, err)
+	}
+	if _, err := s.ShortenPaymentWindow(ctx, missingUUID, now); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("ShortenPaymentWindow(unknown) error = %v, want ErrNotFound", err)
+	}
+}

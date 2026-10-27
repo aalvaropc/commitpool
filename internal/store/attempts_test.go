@@ -479,3 +479,85 @@ func TestCreateAttempt_WaitsForAnAuthorizationBeingRecorded(t *testing.T) {
 		t.Errorf("attempts = %d, want only the authorized one", n)
 	}
 }
+
+func TestCheckoutAttempt_ReusesTheOpenAttemptAndReplacesAnExpiredOrder(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	e := newEnrollment(t, s)
+
+	first, created, err := s.CheckoutAttempt(ctx, e.ID, 1000, "USD")
+	if err != nil || !created || first.AttemptNo != 1 || first.AmountMinor != 1000 || first.Currency != "USD" {
+		t.Fatalf("first CheckoutAttempt = %+v, %v, %v; want a new attempt 1 for 1000 USD", first, created, err)
+	}
+	again, created, err := s.CheckoutAttempt(ctx, e.ID, 1000, "USD")
+	if err != nil || created || again.ID != first.ID {
+		t.Fatalf("second CheckoutAttempt = %+v, %v, %v; want attempt %s back", again, created, err, first.ID)
+	}
+
+	first.OrderID = ptr("ORDER-1")
+	first.OrderStatus = ptr("PAYER_ACTION_REQUIRED")
+	if err := s.UpdateAttempt(ctx, first); err != nil {
+		t.Fatalf("UpdateAttempt: %v", err)
+	}
+	if got, created, err := s.CheckoutAttempt(ctx, e.ID, 1000, "USD"); err != nil || created || got.ID != first.ID {
+		t.Fatalf("CheckoutAttempt with an order awaiting approval = %+v, %v, %v; want attempt %s back", got, created, err, first.ID)
+	}
+
+	first.OrderStatus = ptr("EXPIRED")
+	if err := s.UpdateAttempt(ctx, first); err != nil {
+		t.Fatalf("UpdateAttempt: %v", err)
+	}
+	next, created, err := s.CheckoutAttempt(ctx, e.ID, 1000, "USD")
+	if err != nil || !created || next.AttemptNo != 2 {
+		t.Fatalf("CheckoutAttempt after the order expired = %+v, %v, %v; want a new attempt 2", next, created, err)
+	}
+
+	next.AuthorizationID = ptr("AUTH-1")
+	if err := s.UpdateAttempt(ctx, next); err != nil {
+		t.Fatalf("UpdateAttempt: %v", err)
+	}
+	if got, _, err := s.CheckoutAttempt(ctx, e.ID, 1000, "USD"); !errors.Is(err, store.ErrAttemptNotAllowed) {
+		t.Errorf("CheckoutAttempt behind an authorization = %+v, %v; want ErrAttemptNotAllowed", got, err)
+	}
+	mustTransition(t, s, e.ID, []domain.EnrollmentStatus{domain.EnrollmentSeatReserved}, domain.EnrollmentAuthorized)
+	if got, _, err := s.CheckoutAttempt(ctx, e.ID, 1000, "USD"); !errors.Is(err, store.ErrAttemptNotAllowed) {
+		t.Errorf("CheckoutAttempt on an AUTHORIZED enrollment = %+v, %v; want ErrAttemptNotAllowed", got, err)
+	}
+	if _, _, err := s.CheckoutAttempt(ctx, missingUUID, 1000, "USD"); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("CheckoutAttempt(unknown enrollment) error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestCheckoutAttempt_ConcurrentCheckoutsShareOneAttempt(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	e := newEnrollment(t, s)
+
+	const tabs = 8
+	ids := make([]string, tabs)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := range tabs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			a, _, err := s.CheckoutAttempt(ctx, e.ID, 1000, "USD")
+			if err != nil {
+				t.Errorf("CheckoutAttempt %d: %v", i, err)
+			}
+			ids[i] = a.ID
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	for _, id := range ids {
+		if id != ids[0] {
+			t.Fatalf("concurrent checkouts got attempts %v, want one shared attempt", ids)
+		}
+	}
+	if n := count(t, s, `select count(*) from payment_attempts where enrollment_id = $1`, e.ID); n != 1 {
+		t.Errorf("attempts after %d concurrent checkouts = %d, want 1", tabs, n)
+	}
+}

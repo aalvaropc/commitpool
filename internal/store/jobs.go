@@ -303,6 +303,19 @@ func (s *Store) ReviveJob(ctx context.Context, key string, now time.Time, anyFai
 	return tag.RowsAffected() == 1, nil
 }
 
+// AdvanceJob brings the pending job with this key forward to runAt, keeping
+// its row and key. It never postpones a job, and a job in any other status,
+// or a missing key, is left alone; it reports whether run_at changed.
+func (s *Store) AdvanceJob(ctx context.Context, key string, runAt time.Time) (bool, error) {
+	tag, err := s.Pool.Exec(ctx,
+		`update jobs set run_at = $2, updated_at = now()
+		 where idempotency_key = $1 and status = 'pending' and run_at > $2`, key, runAt)
+	if err != nil {
+		return false, wrap("advance job", err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
 // JobByKey returns the job with this idempotency key, or nil when there is none.
 func (s *Store) JobByKey(ctx context.Context, key string) (*Job, error) {
 	return oneOrNil[Job](ctx, s.Pool, "job by key",

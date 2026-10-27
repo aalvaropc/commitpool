@@ -1,0 +1,7 @@
+.env
+web/node_modules
+web/dist/*
+!web/dist/.keep
+web/test-results
+web/playwright-report
+.superpowers/

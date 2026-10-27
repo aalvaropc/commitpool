@@ -33,13 +33,6 @@ const (
 	settleTimeout  = 10 * time.Second
 )
 
-// Job statuses as the store writes them.
-const (
-	jobPending = "pending"
-	jobUnknown = "unknown"
-	jobFailed  = "failed"
-)
-
 // maxReconcileGenerations is how many reconciles an ambiguous action gets: the
 // one with this generation no longer sends the action again when PayPal still
 // shows no trace of it, and flags the enrollment for an operator instead.
@@ -325,7 +318,7 @@ func (r *Runner) scheduleReconcile(ctx context.Context, job *store.Job) error {
 		if j.Kind != store.KindReconcile {
 			continue
 		}
-		if j.Status == jobPending && j.RunAt.After(now) {
+		if j.Status == store.JobPending && j.RunAt.After(now) {
 			return nil
 		}
 		if n, ok := generation(j); ok && n >= next {

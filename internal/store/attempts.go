@@ -124,7 +124,7 @@ func checkoutOpen(ctx context.Context, tx pgx.Tx, a AttemptRow) (bool, error) {
 	case err != nil:
 		return false, wrap("read create_order job", err)
 	}
-	return status != jobFailed, nil
+	return status != JobFailed, nil
 }
 
 // LatestAttempt returns the enrollment's highest-numbered attempt, or nil.

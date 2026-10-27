@@ -106,7 +106,10 @@ func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-var errProposalAlreadyOpen = conflict("proposal_already_open", "Payments are already open for this workshop; its terms are locked.")
+var (
+	errProposalAlreadyOpen = conflict("proposal_already_open", "Payments are already open for this workshop; its terms are locked.")
+	errCaptureStarted      = conflict("capture_already_started", "This enrollment's capture has already started or it is finished.")
+)
 
 // proposalRefusals turns each domain.ValidateProposal rule into the reason a
 // refused proposal reports.
@@ -239,7 +242,8 @@ func (s *server) scheduleClose(ctx context.Context, p store.ProposalRow) error {
 
 // demoCloseNow ends the payment window now, for demos: the proposal's close
 // moves to now first, so no capture round or new seat can start, and then
-// close:{proposal} is enqueued, or brought forward, due now for the worker.
+// close:{proposal} is made due now for the worker, created, revived or
+// brought forward as it stands.
 func (s *server) demoCloseNow(w http.ResponseWriter, r *http.Request) error {
 	if !s.Cfg.DemoMode {
 		return errNotFound
@@ -261,15 +265,18 @@ func (s *server) demoCloseNow(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	// Each step is a no-op unless it applies: a missing job is created due
+	// now, a failed or parked one is revived now, a pending one is brought
+	// forward, so 202 means a close will run.
 	key := store.JobKey(store.KindClose, p.ID)
-	created, err := s.Worker.EnqueueOrRevive(ctx, store.KindClose, key, &ws.ID, nil, nil, now)
-	if err != nil {
+	if err := s.Worker.Enqueue(ctx, store.KindClose, key, &ws.ID, nil, nil, now); err != nil {
 		return err
 	}
-	if !created {
-		if _, err := s.Store.AdvanceJob(ctx, key, now); err != nil {
-			return err
-		}
+	if _, err := s.Worker.Revive(ctx, key); err != nil {
+		return err
+	}
+	if _, err := s.Store.AdvanceJob(ctx, key, now); err != nil {
+		return err
 	}
 	s.Log.Info("demo: payment window closed now", "workshop_id", ws.ID, "proposal_id", p.ID)
 	writeJSON(w, http.StatusAccepted, map[string]*proposalDTO{"proposal": proposalView(&closed, ws, now)})
@@ -307,7 +314,7 @@ func (s *server) demoFailNextCapture(w http.ResponseWriter, r *http.Request) err
 		return errNotFound
 	}
 	if en.Status != domain.EnrollmentSeatReserved && en.Status != domain.EnrollmentAuthorized {
-		return conflict("capture_already_started", "This enrollment's capture has already started or it is finished.")
+		return errCaptureStarted
 	}
 	a, err := s.Store.LatestAttempt(ctx, en.ID)
 	if err != nil {
@@ -318,6 +325,11 @@ func (s *server) demoFailNextCapture(w http.ResponseWriter, r *http.Request) err
 	}
 	code := mockAuthorizationExpired
 	if _, err := s.Store.UpdateAttemptFunc(ctx, a.ID, func(row *store.AttemptRow) error {
+		// Checked under the attempt's row lock, so a capture recorded while
+		// this request ran is seen: the mock must never reach a refund.
+		if row.CaptureID != nil || row.CaptureStatus != nil || row.CaptureIssue != nil {
+			return errCaptureStarted
+		}
 		row.MockCode = &code
 		return nil
 	}); err != nil {

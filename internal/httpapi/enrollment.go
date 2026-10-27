@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/aalvaropc/commitpool/internal/domain"
 	"github.com/aalvaropc/commitpool/internal/store"
@@ -17,7 +18,30 @@ var (
 	errCapacityFull      = conflict("capacity_full", "Every seat is taken.")
 	errPayPalUnavailable = newError(http.StatusBadGateway, "paypal_unavailable",
 		"PayPal is not answering right now. Your seat is reserved; please try again in a moment.")
+	errCheckoutInProgress = conflict("checkout_in_progress",
+		"Your checkout is still being prepared in another window. Please try again in a moment.")
 )
+
+// A request that finds its checkout's create_order running in another
+// request waits for it, looking every checkoutPoll for up to checkoutWait;
+// checkoutPause is how it waits between looks.
+var (
+	checkoutWait  = 3 * time.Second
+	checkoutPoll  = 100 * time.Millisecond
+	checkoutPause = pause
+)
+
+// pause waits d or until ctx is done.
+func pause(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}
 
 type enrollResponse struct {
 	EnrollmentID string `json:"enrollment_id"`
@@ -35,7 +59,7 @@ type enrollResponse struct {
 // a second request, from another tab say, gets the same enrollment and the
 // same approval link (201 the first time, 200 after), and PayPal is asked
 // for one order only. An enrollment past checkout, with its hold authorized
-// or being charged, answers with its enrollment and its last link, 200.
+// or being charged, answers 200 with its enrollment and status, no link.
 func (s *server) enroll(w http.ResponseWriter, r *http.Request) error {
 	p, ws, err := s.participant(r)
 	if err != nil {
@@ -91,9 +115,7 @@ func (s *server) enroll(w http.ResponseWriter, r *http.Request) error {
 	}
 	link, err := s.approvalLink(ctx, ws.ID, attempt)
 	if err != nil {
-		s.Log.Error("enrollment: no approval link from PayPal", "workshop_id", ws.ID, "enrollment_id", en.ID,
-			"attempt_id", attempt.ID, "error", err)
-		return errPayPalUnavailable
+		return err
 	}
 	writeJSON(w, status, enrollResponse{
 		EnrollmentID: en.ID,
@@ -105,15 +127,19 @@ func (s *server) enroll(w http.ResponseWriter, r *http.Request) error {
 }
 
 // pastCheckout answers for an enrollment that can no longer open a checkout,
-// with its current status and the approval link of its latest attempt.
+// with its current status; the approval link of its latest attempt comes
+// with it only while the enrollment is SEAT_RESERVED, as when its
+// authorization is being recorded.
 func (s *server) pastCheckout(ctx context.Context, w http.ResponseWriter, ws store.WorkshopRow, p *store.ProposalRow, enrollmentID string) error {
 	en, err := s.Store.EnrollmentByID(ctx, enrollmentID)
 	if err != nil {
 		return err
 	}
-	link, err := s.lastApprovalLink(ctx, en.ID)
-	if err != nil {
-		return err
+	link := ""
+	if en.Status == domain.EnrollmentSeatReserved {
+		if link, err = s.lastApprovalLink(ctx, en.ID); err != nil {
+			return err
+		}
 	}
 	writeJSON(w, http.StatusOK, enrollResponse{
 		EnrollmentID: en.ID,
@@ -141,27 +167,43 @@ func (s *server) lastApprovalLink(ctx context.Context, enrollmentID string) (str
 // approvalLink returns the attempt's PayPal approval link, creating the
 // order now when it does not exist yet: create_order:{attempt} is enqueued
 // (a no-op when it already is) and run inline, and the link is read from the
-// job's payload. A failure leaves the job to retry under the same key, so a
-// later request reuses it; until then there is no link.
+// job's payload. When another request is running that job, as on a double
+// click, it waits for the link (checkoutWait) and then answers
+// checkout_in_progress. A PayPal failure, which leaves the job to retry under
+// the same key, is paypal_unavailable; a database failure is returned as is
+// and answered as a 500.
 func (s *server) approvalLink(ctx context.Context, workshopID string, a store.AttemptRow) (string, error) {
 	key := store.JobKey(store.KindCreateOrder, a.ID)
 	if err := s.Worker.Enqueue(ctx, store.KindCreateOrder, key, &workshopID, &a.ID, nil, s.Clock.Now()); err != nil {
 		return "", err
 	}
 	if err := s.Worker.RunKey(ctx, key); err != nil {
-		return "", err
+		s.Log.Error("enrollment: create_order did not run", "workshop_id", workshopID, "attempt_id", a.ID, "error", err)
+		return "", errPayPalUnavailable
 	}
-	job, err := s.Store.JobByKey(ctx, key)
-	if err != nil {
-		return "", err
+	for waited := time.Duration(0); ; waited += checkoutPoll {
+		job, err := s.Store.JobByKey(ctx, key)
+		if err != nil {
+			return "", err
+		}
+		if job == nil {
+			return "", fmt.Errorf("job %s vanished", key)
+		}
+		if link := approveURL(job.Payload); link != "" {
+			return link, nil
+		}
+		if job.Status != store.JobRunning {
+			s.Log.Error("enrollment: no approval link from PayPal", "workshop_id", workshopID, "attempt_id", a.ID,
+				"job_status", job.Status, "http_status", job.HTTPStatus, "provider_issue", job.ProviderIssue, "debug_id", job.DebugID)
+			return "", errPayPalUnavailable
+		}
+		if waited >= checkoutWait {
+			return "", errCheckoutInProgress
+		}
+		if err := checkoutPause(ctx, checkoutPoll); err != nil {
+			return "", err
+		}
 	}
-	if job == nil {
-		return "", fmt.Errorf("job %s vanished", key)
-	}
-	if link := approveURL(job.Payload); link != "" {
-		return link, nil
-	}
-	return "", fmt.Errorf("job %s is %s without an approval link", key, job.Status)
 }
 
 func approveURL(payload json.RawMessage) string {

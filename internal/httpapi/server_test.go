@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"regexp"
 	"strings"
 	"testing"
@@ -286,15 +287,16 @@ func TestEnrollment_PayPalFailureIs502AndTheRetryKeepsTheKey(t *testing.T) {
 
 func TestEnrollment_ExpiredOrderGetsANewCheckout(t *testing.T) {
 	e := newEnv(t)
-	_, p, ps := e.fundingWorkshop()
+	h, p, ps := e.fundingWorkshop()
 	first := e.enroll(ps[0], p.ID, http.StatusCreated)
 	a := e.latestAttempt(first.EnrollmentID)
-	if _, err := e.st.UpdateAttemptFunc(e.ctx, a.ID, func(row *store.AttemptRow) error {
-		expired := "EXPIRED"
-		row.OrderStatus = &expired
-		return nil
-	}); err != nil {
-		t.Fatalf("UpdateAttemptFunc: %v", err)
+
+	// The buyer never approved and PayPal dropped the order; the return's
+	// authorize finds it gone and the worker records it EXPIRED.
+	e.fake.ExpireOrder(*a.OrderID)
+	e.runPayment("authorize", h.created.Workshop.ID, a)
+	if got := e.latestAttempt(first.EnrollmentID); got.OrderStatus == nil || *got.OrderStatus != paypal.StatusExpired {
+		t.Fatalf("order status after PayPal dropped it = %v, want EXPIRED", got.OrderStatus)
 	}
 
 	again := e.enroll(ps[0], p.ID, http.StatusOK)
@@ -313,8 +315,8 @@ func TestEnrollment_AuthorizedHoldReturnsItsEnrollment(t *testing.T) {
 	e.authorize(h.created.Workshop.ID, first.EnrollmentID)
 
 	again := e.enroll(ps[0], p.ID, http.StatusOK)
-	if again.EnrollmentID != first.EnrollmentID || again.ApproveURL != first.ApproveURL || again.Status != "AUTHORIZED" || again.StatusLabel != "Hold authorized" {
-		t.Errorf("enrollment behind an authorization = %+v, want %s AUTHORIZED with its link", again, first.EnrollmentID)
+	if again.EnrollmentID != first.EnrollmentID || again.ApproveURL != "" || again.Status != "AUTHORIZED" || again.StatusLabel != "Hold authorized" {
+		t.Errorf("enrollment behind an authorization = %+v, want %s AUTHORIZED without a link", again, first.EnrollmentID)
 	}
 	if n := len(e.fake.Requests("create_order")); n != 1 {
 		t.Errorf("create_order requests = %d, want 1", n)
@@ -561,9 +563,8 @@ func TestDemoEndpoints_DisabledWithoutFlags(t *testing.T) {
 		e := newEnv(t, withSandboxMocks())
 		h, p, ps := e.fundingWorkshop(func(b map[string]any) { b["minimum"] = 1 })
 		wid := h.created.Workshop.ID
-		other, otherP, otherPs := e.fundingWorkshop()
+		_, otherP, otherPs := e.fundingWorkshop()
 		foreign := e.enroll(otherPs[0], otherP.ID, http.StatusCreated)
-		_ = other
 
 		en := e.enroll(ps[0], p.ID, http.StatusCreated)
 		e.wantError(http.MethodPost, h.ownerPath+"/demo/fail-next-capture", map[string]string{"enrollment_id": foreign.EnrollmentID}, http.StatusNotFound, "not_found")
@@ -594,6 +595,11 @@ func TestSPA_FallbackServesIndex(t *testing.T) {
 	}
 	if rec := e.request(http.MethodGet, "/assets/app.js", nil); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "commitpool") {
 		t.Errorf("GET /assets/app.js = %d %q", rec.Code, rec.Body.String())
+	}
+	for _, path := range []string{"/assets/missing.js", "/favicon.ico", "/owner/abc/logo.png"} {
+		if rec := e.request(http.MethodGet, path, nil); rec.Code != http.StatusNotFound || rec.Body.String() == indexHTML {
+			t.Errorf("GET %s = %d %q, want 404 for a missing file", path, rec.Code, rec.Body.String())
+		}
 	}
 	for _, path := range []string{"/api/v1/nope", "/api/", "/api/v1/workshops"} {
 		e.wantError(http.MethodGet, path, nil, http.StatusNotFound, "not_found")
@@ -836,5 +842,154 @@ func TestOwner_ShareURLCanBeRecovered(t *testing.T) {
 		if body := e.request(http.MethodGet, path, nil).Body.String(); strings.Contains(body, h.shareToken) || strings.Contains(body, "share_url") {
 			t.Errorf("GET %s exposes the share link: %s", path, body)
 		}
+	}
+}
+
+func TestEnrollment_DoubleClickWaitsForTheRunningCheckout(t *testing.T) {
+	gate := newGate(t)
+	e := newEnv(t, withPayPal(gate.wrap))
+	_, p, ps := e.fundingWorkshop()
+
+	firstDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() { firstDone <- e.request(http.MethodPost, ps[0].path+"/enrollment", enrollBody(p.ID)) }()
+	<-gate.entered
+
+	var first *httptest.ResponseRecorder
+	waits := 0
+	httpapi.SetCheckoutWait(t, 3*time.Second, func(context.Context, time.Duration) error {
+		waits++
+		gate.open()
+		if first == nil {
+			first = <-firstDone
+		}
+		return nil
+	})
+	var second enrollJSON
+	e.call(http.MethodPost, ps[0].path+"/enrollment", enrollBody(p.ID), http.StatusOK, &second)
+
+	var firstBody enrollJSON
+	if first == nil || first.Code != http.StatusCreated || json.Unmarshal(first.Body.Bytes(), &firstBody) != nil {
+		t.Fatalf("first click = %+v", first)
+	}
+	if waits == 0 || second.EnrollmentID != firstBody.EnrollmentID || second.ApproveURL == "" || second.ApproveURL != firstBody.ApproveURL {
+		t.Errorf("second click after %d waits = %+v, want the first click's %+v", waits, second, firstBody)
+	}
+	if n := len(e.fake.Requests("create_order")); n != 1 {
+		t.Errorf("create_order requests = %d, want 1", n)
+	}
+}
+
+func TestEnrollment_DoubleClickWhileTheCheckoutStillRunsIs409(t *testing.T) {
+	gate := newGate(t)
+	e := newEnv(t, withPayPal(gate.wrap))
+	_, p, ps := e.fundingWorkshop()
+
+	firstDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() { firstDone <- e.request(http.MethodPost, ps[0].path+"/enrollment", enrollBody(p.ID)) }()
+	<-gate.entered
+
+	waits := 0
+	httpapi.SetCheckoutWait(t, 300*time.Millisecond, func(context.Context, time.Duration) error {
+		waits++
+		return nil
+	})
+	e.wantError(http.MethodPost, ps[0].path+"/enrollment", enrollBody(p.ID), http.StatusConflict, "checkout_in_progress")
+	if waits == 0 {
+		t.Errorf("the second click did not wait for the running checkout")
+	}
+
+	gate.open()
+	first := <-firstDone
+	var firstBody enrollJSON
+	if first.Code != http.StatusCreated || json.Unmarshal(first.Body.Bytes(), &firstBody) != nil || firstBody.ApproveURL == "" {
+		t.Fatalf("first click = %d %s", first.Code, first.Body.String())
+	}
+	third := e.enroll(ps[0], p.ID, http.StatusOK)
+	if third.ApproveURL != firstBody.ApproveURL {
+		t.Errorf("third click = %+v, want the first click's link", third)
+	}
+	if n := len(e.fake.Requests("create_order")); n != 1 {
+		t.Errorf("create_order requests = %d, want 1", n)
+	}
+}
+
+func TestDemoFailNextCapture_RefusedOnceTheAttemptHoldsACapture(t *testing.T) {
+	e := newEnv(t, withSandboxMocks())
+	h, p, ps := e.fundingWorkshop()
+	en := e.enroll(ps[0], p.ID, http.StatusCreated)
+	a := e.authorize(h.created.Workshop.ID, en.EnrollmentID)
+	// The capture is recorded on the attempt while the enrollment has not
+	// moved yet, as when the request lands in the middle of a capture.
+	if _, err := e.st.UpdateAttemptFunc(e.ctx, a.ID, func(row *store.AttemptRow) error {
+		id := "CAPTURE-IN-FLIGHT"
+		row.CaptureID = &id
+		return nil
+	}); err != nil {
+		t.Fatalf("UpdateAttemptFunc: %v", err)
+	}
+	e.wantError(http.MethodPost, h.ownerPath+"/demo/fail-next-capture", map[string]string{"enrollment_id": en.EnrollmentID}, http.StatusConflict, "capture_already_started")
+	if got := e.latestAttempt(en.EnrollmentID); got.MockCode != nil {
+		t.Errorf("mock code = %q, want none once a capture exists", *got.MockCode)
+	}
+}
+
+func TestDemoCloseNow_RevivesAStuckCloseJob(t *testing.T) {
+	for _, stuck := range []string{"failed", "needs_attention"} {
+		t.Run(stuck, func(t *testing.T) {
+			e := newEnv(t, withDemoMode())
+			h, p, _ := e.fundingWorkshop()
+			key := store.JobKey(store.KindClose, p.ID)
+			if _, err := e.st.AdvanceJob(e.ctx, key, t0); err != nil {
+				t.Fatal(err)
+			}
+			job, err := e.st.ClaimJobByKey(e.ctx, key, "w1", t0)
+			if err != nil || job == nil {
+				t.Fatalf("ClaimJobByKey = %+v, %v", job, err)
+			}
+			status := 500
+			if err := e.st.FailJob(e.ctx, job.ID, "close failed", &status, nil, nil); err != nil {
+				t.Fatal(err)
+			}
+			if stuck == "needs_attention" {
+				if _, err := e.st.Pool.Exec(e.ctx, `update jobs set status = 'needs_attention' where id = $1`, job.ID); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			now := t0.Add(time.Hour)
+			e.clock.Set(now)
+			e.call(http.MethodPost, h.ownerPath+"/demo/close-now", nil, http.StatusAccepted, nil)
+			got := e.job(key)
+			if got.ID != job.ID || got.Status != "pending" || got.RunAt.After(now) {
+				t.Errorf("close job after close-now = %s at %s, want the same job pending by %s", got.Status, got.RunAt, now)
+			}
+		})
+	}
+}
+
+func TestEnrollment_DatabaseFailureIs500NotPayPal(t *testing.T) {
+	e := newEnv(t)
+	h, p, ps := e.fundingWorkshop()
+	// Only this workshop's create_order inserts fail, as a database fault
+	// right where the checkout enqueues its order.
+	for _, stmt := range []string{
+		`create or replace function test_refuse_create_order() returns trigger language plpgsql as $$
+		 begin raise exception 'create_order insert refused by the test'; end $$`,
+		`create trigger test_refuse_create_order before insert on jobs for each row
+		 when (new.kind = 'create_order' and new.workshop_id = '` + h.created.Workshop.ID + `'::uuid)
+		 execute function test_refuse_create_order()`,
+	} {
+		if _, err := e.st.Pool.Exec(e.ctx, stmt); err != nil {
+			t.Fatalf("install the fault: %v", err)
+		}
+	}
+	t.Cleanup(func() {
+		_, _ = e.st.Pool.Exec(context.Background(), `drop trigger if exists test_refuse_create_order on jobs`)
+		_, _ = e.st.Pool.Exec(context.Background(), `drop function if exists test_refuse_create_order()`)
+	})
+
+	e.wantError(http.MethodPost, ps[0].path+"/enrollment", enrollBody(p.ID), http.StatusInternalServerError, "internal_error")
+	if n := len(e.fake.Requests("create_order")); n != 0 {
+		t.Errorf("create_order requests = %d, want none", n)
 	}
 }

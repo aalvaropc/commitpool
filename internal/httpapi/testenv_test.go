@@ -53,8 +53,9 @@ type env struct {
 }
 
 type setup struct {
-	cfg config.Config
-	ai  ai.Interpreter
+	cfg    config.Config
+	ai     ai.Interpreter
+	paypal func(paypal.API) paypal.API
 }
 
 type option func(*setup)
@@ -63,6 +64,47 @@ func withDemoMode() option     { return func(s *setup) { s.cfg.DemoMode = true }
 func withSandboxMocks() option { return func(s *setup) { s.cfg.SandboxMocks = true } }
 func withAI(i ai.Interpreter) option {
 	return func(s *setup) { s.ai = i }
+}
+
+// withPayPal wraps the PayPal client the worker and the API use.
+func withPayPal(wrap func(paypal.API) paypal.API) option {
+	return func(s *setup) { s.paypal = wrap }
+}
+
+// gatedPayPal holds every CreateOrder until open is called, after telling
+// entered that one arrived, so a test can act while a create_order job is
+// running.
+type gatedPayPal struct {
+	paypal.API
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func newGate(t *testing.T) *gatedPayPal {
+	g := &gatedPayPal{entered: make(chan struct{}, 1), release: make(chan struct{})}
+	t.Cleanup(g.open)
+	return g
+}
+
+func (g *gatedPayPal) wrap(api paypal.API) paypal.API {
+	g.API = api
+	return g
+}
+
+func (g *gatedPayPal) open() { g.once.Do(func() { close(g.release) }) }
+
+func (g *gatedPayPal) CreateOrder(ctx context.Context, p paypal.CreateOrderParams) (paypal.Order, error) {
+	select {
+	case g.entered <- struct{}{}:
+	default:
+	}
+	select {
+	case <-g.release:
+	case <-ctx.Done():
+		return paypal.Order{}, ctx.Err()
+	}
+	return g.API.CreateOrder(ctx, p)
 }
 
 type logBuffer struct {
@@ -104,7 +146,7 @@ func newEnv(t *testing.T, opts ...option) *env {
 	for _, o := range opts {
 		o(&s)
 	}
-	api, err := paypal.New(paypal.Config{
+	client, err := paypal.New(paypal.Config{
 		BaseURL:      fake.URL,
 		ClientID:     s.cfg.PayPalClientID,
 		ClientSecret: s.cfg.PayPalClientSecret,
@@ -112,6 +154,10 @@ func newEnv(t *testing.T, opts ...option) *env {
 	})
 	if err != nil {
 		t.Fatalf("paypal.New: %v", err)
+	}
+	var api paypal.API = client
+	if s.paypal != nil {
+		api = s.paypal(api)
 	}
 
 	clk := &clock.Fake{}

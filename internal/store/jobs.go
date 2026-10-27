@@ -24,8 +24,15 @@ const (
 	KindReleaseSeats = "release_seats"
 )
 
-// jobFailed is the status of a job refused for good, until it is revived.
-const jobFailed = "failed"
+// Job statuses.
+const (
+	JobPending        = "pending"
+	JobRunning        = "running"
+	JobSucceeded      = "succeeded"
+	JobFailed         = "failed"
+	JobUnknown        = "unknown"
+	JobNeedsAttention = "needs_attention"
+)
 
 // JobKey is the idempotency key of the job of this kind for subject.
 func JobKey(kind, subject string) string { return kind + ":" + subject }

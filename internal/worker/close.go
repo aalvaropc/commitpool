@@ -166,7 +166,7 @@ func settlement(v view) domain.Resolution {
 // outcome is unknown, which a seat release does not stop.
 func (v view) mayHold(i int) bool {
 	j, ok := v.job(i, store.KindAuthorize)
-	return holdsAuthorization(v.att[i]) || ok && j.Status == jobUnknown
+	return holdsAuthorization(v.att[i]) || ok && j.Status == store.JobUnknown
 }
 
 // holdsAuthorization reports whether the attempt has an authorization PayPal

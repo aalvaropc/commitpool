@@ -8,8 +8,9 @@ import (
 )
 
 // spaHandler serves the built web app: a file that exists is served as is,
-// and every other GET gets index.html so the client-side router can resolve
-// deep links such as /owner/{token}. Hidden files are never served.
+// a missing one with a file extension is a 404, and every other GET gets
+// index.html so the client-side router can resolve deep links such as
+// /owner/{token}. Hidden files are never served.
 func spaHandler(dist fs.FS) http.Handler {
 	var files http.Handler
 	if dist != nil {
@@ -29,6 +30,12 @@ func spaHandler(dist fs.FS) http.Handler {
 		if name != "" && !hidden(name) {
 			if info, err := fs.Stat(dist, name); err == nil && !info.IsDir() {
 				files.ServeHTTP(w, r)
+				return
+			}
+			// A missing asset is a 404, not the app: the router has no
+			// routes with a file extension.
+			if path.Ext(name) != "" {
+				http.NotFound(w, r)
 				return
 			}
 		}

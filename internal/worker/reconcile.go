@@ -111,7 +111,7 @@ func (r *Runner) authorizeApproved(ctx context.Context, log *slog.Logger, a stor
 		return err
 	}
 	j, err := r.st.JobByKey(ctx, key)
-	if err != nil || j == nil || j.Status != jobFailed || !is(j.ProviderIssue, issueOrderNotApproved) {
+	if err != nil || j == nil || j.Status != store.JobFailed || !is(j.ProviderIssue, issueOrderNotApproved) {
 		return err
 	}
 	log.Info("order approved since PayPal refused to authorize it; reviving the authorize job")
@@ -201,7 +201,7 @@ func (r *Runner) resolveUnknown(ctx context.Context, log *slog.Logger, a store.A
 		return err
 	}
 	for _, j := range jobs {
-		if j.Status != jobUnknown {
+		if j.Status != store.JobUnknown {
 			continue
 		}
 		done, known := performed(j.Kind, a)

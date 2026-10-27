@@ -3,6 +3,7 @@ package worker_test
 import (
 	"context"
 	"errors"
+	"strconv"
 	"testing"
 	"time"
 
@@ -325,4 +326,177 @@ func TestApply_DifferentResourceIDMarksNeedsAttention(t *testing.T) {
 
 	wantString(t, "capture_id", e.attempt(a.ID).CaptureID, known)
 	e.wantStatus(en.ID, domain.EnrollmentNeedsAttention)
+}
+
+func TestReconcile_OwnAmbiguousGetIsRetriedNotChained(t *testing.T) {
+	e := newEnv(t)
+	_, a := e.authorized("Ana")
+	key := "reconcile:" + a.ID + ":1"
+	e.enqueueKey("reconcile", key, a, e.clock.Now())
+	e.fake.FailNext("get_order", 503, "")
+
+	e.runKey(key)
+
+	j := e.wantJob(key, "pending")
+	if j.Attempts != 1 || j.HTTPStatus == nil || *j.HTTPStatus != 503 || !j.RunAt.Equal(e.clock.Now().Add(5*time.Second)) {
+		t.Errorf("reconcile after an ambiguous GET = attempts %d, http %v, run_at %s; want 1, 503, now+5s",
+			j.Attempts, deref(j.HTTPStatus), j.RunAt)
+	}
+	if next, err := e.st.JobByKey(e.ctx, "reconcile:"+a.ID+":2"); err != nil || next != nil {
+		t.Errorf("next reconcile = %+v, %v; want none: a GET is retried, not chained", next, err)
+	}
+	e.advance(5 * time.Second)
+	e.runOnce()
+	e.wantJob(key, "succeeded")
+}
+
+func TestReconcile_StopsAfterFiveGenerationsAndFlagsEnrollment(t *testing.T) {
+	e := newEnv(t)
+	en, a := e.authorized("Ana")
+	key := e.enqueue("capture", a)
+
+	for gen := 1; gen <= 5; gen++ {
+		e.fake.FailNext("capture", 503, "")
+		e.runOnce()
+		e.wantJob(key, "unknown")
+		reconcileKey := "reconcile:" + a.ID + ":" + strconv.Itoa(gen)
+		e.wantJob(reconcileKey, "pending")
+		e.advance(31 * time.Second)
+		e.runKey(reconcileKey)
+		e.wantJob(reconcileKey, "succeeded")
+		if gen < 5 {
+			e.wantJob(key, "pending")
+		}
+	}
+
+	e.wantJob(key, "unknown")
+	e.wantStatus(en.ID, domain.EnrollmentNeedsAttention)
+	if j, err := e.st.JobByKey(e.ctx, "reconcile:"+a.ID+":6"); err != nil || j != nil {
+		t.Errorf("sixth reconcile = %+v, %v; want none", j, err)
+	}
+	reqs := e.fake.Requests("capture")
+	if len(reqs) != 5 {
+		t.Fatalf("capture requests = %d, want 5", len(reqs))
+	}
+	for i, r := range reqs {
+		if r.RequestID != key {
+			t.Errorf("capture request %d PayPal-Request-Id = %q, want %q", i+1, r.RequestID, key)
+		}
+	}
+	e.wantIdle()
+}
+
+func TestScheduleReconcile_BumpsGenerationWithoutProbing(t *testing.T) {
+	e := newEnv(t)
+	_, a := e.authorized("Ana")
+	now := e.clock.Now()
+	first := "reconcile:" + a.ID + ":1"
+	e.enqueueKey("reconcile", first, a, now)
+	e.runKey(first)
+	e.enqueueKey("reconcile", "reconcile:"+a.ID+":3", a, now)
+
+	e.fake.FailNext("capture", 503, "")
+	captureKey := e.enqueue("capture", a)
+	e.runKey(captureKey)
+
+	e.wantJob(captureKey, "unknown")
+	if r := e.wantJob("reconcile:"+a.ID+":4", "pending"); !r.RunAt.Equal(now.Add(30 * time.Second)) {
+		t.Errorf("new reconcile run_at = %s, want now+30s", r.RunAt)
+	}
+	if j, err := e.st.JobByKey(e.ctx, "reconcile:"+a.ID+":2"); err != nil || j != nil {
+		t.Errorf("reconcile :2 = %+v, %v; want none (the next generation follows the highest one)", j, err)
+	}
+
+	e.runner.Register("probe", func(ctx context.Context, job *store.Job) (*int, error) {
+		status := 503
+		return &status, &paypal.Error{HTTPStatus: 503, Name: "INTERNAL_SERVER_ERROR"}
+	})
+	if err := e.runner.Enqueue(e.ctx, "probe", "probe:"+a.ID, &e.workshop.ID, &a.ID, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	e.runKey("probe:" + a.ID)
+	e.wantJob("probe:"+a.ID, "unknown")
+	if j, err := e.st.JobByKey(e.ctx, "reconcile:"+a.ID+":5"); err != nil || j != nil {
+		t.Errorf("reconcile :5 = %+v, %v; want none while :4 has not started", j, err)
+	}
+}
+
+func TestReconcile_CompletesUnknownJobWithItsOwnStatus(t *testing.T) {
+	e := newEnv(t)
+	en, a := e.authorized("Ana")
+	key := "capture:" + a.ID
+	if _, err := e.api.CaptureAuthorization(e.ctx, paypal.CaptureParams{AuthorizationID: *a.AuthorizationID, RequestID: key}); err != nil {
+		t.Fatalf("capture at PayPal: %v", err)
+	}
+	e.fake.FailNext("capture", 503, "")
+	e.enqueue("capture", a)
+	e.runOnce()
+	e.wantJob(key, "unknown")
+
+	e.advance(31 * time.Second)
+	e.runKey("reconcile:" + a.ID + ":1")
+
+	j := e.wantJob(key, "succeeded")
+	if j.HTTPStatus == nil || *j.HTTPStatus != 503 {
+		t.Errorf("completed job http_status = %v, want its own 503 kept", deref(j.HTTPStatus))
+	}
+	e.wantStatus(en.ID, domain.EnrollmentPaid)
+}
+
+func TestRetry_ExhaustedReconcileNeverFlagsPaidEnrollment(t *testing.T) {
+	e := newEnv(t)
+	en, a := e.paid("Ana")
+	key := "reconcile:" + a.ID + ":1"
+	e.enqueueKey("reconcile", key, a, e.clock.Now())
+	backoff := []time.Duration{5 * time.Second, 30 * time.Second, 2 * time.Minute, 10 * time.Minute}
+
+	for i := range 5 {
+		e.fake.FailNext("get_order", 503, "")
+		e.runOnce()
+		if i < 4 {
+			e.advance(backoff[i])
+		}
+	}
+
+	e.wantJob(key, "needs_attention")
+	e.wantStatus(en.ID, domain.EnrollmentPaid)
+}
+
+func TestRunOnce_PanickingHandlerIsRetried(t *testing.T) {
+	e := newEnv(t)
+	e.runner.Register("release_seats", func(ctx context.Context, job *store.Job) (*int, error) {
+		panic("boom")
+	})
+	key := "release_seats:w1:2026-11-02T09:00"
+	if err := e.runner.Enqueue(e.ctx, "release_seats", key, &e.workshop.ID, nil, nil, e.clock.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	e.runOnce()
+
+	j := e.wantJob(key, "pending")
+	if j.Attempts != 1 {
+		t.Errorf("attempts = %d, want 1", j.Attempts)
+	}
+	wantString(t, "last_error", j.LastError, "panic: boom")
+}
+
+func TestApplyCaptureFailure_KeepsARecordedCapture(t *testing.T) {
+	e := newEnv(t)
+	en, a := e.paid("Ana")
+
+	err := e.runner.ApplyCaptureFailure(e.ctx, a.ID, &paypal.Error{HTTPStatus: 422, Issue: "AUTHORIZATION_ALREADY_CAPTURED", DebugID: "dbg"})
+	if err == nil {
+		t.Fatalf("ApplyCaptureFailure on a captured attempt = nil, want a refusal")
+	}
+
+	got := e.attempt(a.ID)
+	wantString(t, "capture_status", got.CaptureStatus, "COMPLETED")
+	if got.CaptureIssue != nil {
+		t.Errorf("capture_issue = %q, want none recorded", *got.CaptureIssue)
+	}
+	e.wantStatus(en.ID, domain.EnrollmentPaid)
+	if j, err := e.st.JobByKey(e.ctx, "void:"+a.ID); err != nil || j != nil {
+		t.Errorf("void job = %+v, %v; want none for a captured authorization", j, err)
+	}
 }

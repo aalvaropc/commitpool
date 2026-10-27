@@ -14,7 +14,9 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"runtime/debug"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/aalvaropc/commitpool/internal/clock"
@@ -43,9 +45,16 @@ const (
 
 // Job statuses as the store writes them.
 const (
-	jobPending = "pending"
-	jobUnknown = "unknown"
+	jobPending        = "pending"
+	jobUnknown        = "unknown"
+	jobFailed         = "failed"
+	jobNeedsAttention = "needs_attention"
 )
+
+// maxReconcileGenerations is how many reconciles an ambiguous action gets: the
+// one with this generation no longer sends the action again when PayPal still
+// shows no trace of it, and flags the enrollment for an operator instead.
+const maxReconcileGenerations = 5
 
 var errUnknownKind = errors.New("unknown kind")
 
@@ -59,10 +68,11 @@ type Deps struct {
 
 // Handler runs one job. A nil error completes the job. Otherwise the error
 // decides what happens next: an ambiguous PayPal error parks the job as
-// unknown and schedules a reconcile; a final PayPal refusal the handler has
-// already recorded (see definitive) completes it; anything else, a 429 or a
-// store failure included, retries it later under the same key. httpStatus is
-// PayPal's HTTP status when the handler knows it.
+// unknown and schedules a reconcile; a refusal the handler has already
+// recorded (see refusal) fails the job, which keeps its key and can be revived
+// with EnqueueOrRevive; anything else, a 429, a store failure or a panic
+// included, retries it later under the same key. httpStatus is PayPal's HTTP
+// status when the handler knows it.
 type Handler func(ctx context.Context, job *store.Job) (httpStatus *int, err error)
 
 type Runner struct {
@@ -190,6 +200,27 @@ func (r *Runner) Enqueue(ctx context.Context, kind, key string, workshopID, atte
 	return err
 }
 
+// EnqueueOrRevive adds a pending job due at runAt, or, when a job with the key
+// already exists and was refused or skipped (failed) or gave up
+// (needs_attention), sends that job back to pending at runAt under its own
+// key, keeping its payload. A job that is pending, running, unknown or
+// succeeded is left as it is. created reports whether a new job was written.
+func (r *Runner) EnqueueOrRevive(ctx context.Context, kind, key string, workshopID, attemptID *string, payload any, runAt time.Time) (created bool, err error) {
+	created, err = r.st.EnqueueJob(ctx, kind, key, workshopID, attemptID, payload, runAt)
+	if err != nil || created {
+		return created, err
+	}
+	existing, err := r.st.JobByKey(ctx, key)
+	if err != nil || existing == nil {
+		return false, err
+	}
+	if existing.Status == jobFailed || existing.Status == jobNeedsAttention {
+		r.log.Info("worker: reviving a job under its own key", "job_id", existing.ID, "kind", existing.Kind, "key", key, "was", existing.Status)
+		return false, r.st.ReenqueueJob(ctx, key, runAt)
+	}
+	return false, nil
+}
+
 // ReturnURLs are where PayPal sends the buyer back after approving or
 // cancelling the enrollment's checkout.
 func (r *Runner) ReturnURLs(enrollmentID string) (returnURL, cancelURL string) {
@@ -201,8 +232,20 @@ func (r *Runner) run(ctx context.Context, job *store.Job) error {
 	if !ok {
 		return r.settle(ctx, job, nil, errUnknownKind)
 	}
-	status, err := h(ctx, job)
+	status, err := r.call(ctx, h, job)
 	return r.settle(ctx, job, status, err)
+}
+
+// call runs the handler and turns a panic into an error, so the job is retried
+// like any other failure instead of taking the process down with it.
+func (r *Runner) call(ctx context.Context, h Handler, job *store.Job) (status *int, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			r.jobLog(job).Error("job handler panicked", "panic", fmt.Sprint(p), "stack", string(debug.Stack()))
+			status, err = nil, fmt.Errorf("panic: %v", p)
+		}
+	}()
+	return h(ctx, job)
 }
 
 // settle records the outcome of a run on the job, in a context that outlives
@@ -219,15 +262,16 @@ func (r *Runner) settle(ctx context.Context, job *store.Job, status *int, err er
 		log = log.With("issue", pe.Issue, "debug_id", pe.DebugID)
 	}
 
-	var def *definitive
+	var ref *refusal
 	switch {
 	case err == nil:
 		log.Info("job succeeded")
 		return r.tolerate(log, r.st.CompleteJob(ctx, job.ID, status))
-	case errors.As(err, &def):
-		log.Warn("job finished with a final refusal from PayPal", "error", err)
-		return r.tolerate(log, r.st.CompleteJob(ctx, job.ID, status))
-	case paypal.IsAmbiguous(err) && job.AttemptID != nil:
+	case errors.As(err, &ref):
+		issue, debugID := ref.details()
+		log.Warn("job refused; it keeps its key and can be revived", "error", err)
+		return r.tolerate(log, r.st.FailJob(ctx, job.ID, err.Error(), status, issue, debugID))
+	case paypal.IsAmbiguous(err) && job.AttemptID != nil && job.Kind != kindReconcile:
 		log.Warn("PayPal result is ambiguous; reconciling before acting again", "error", err)
 		if rerr := r.scheduleReconcile(ctx, job); rerr != nil {
 			return rerr
@@ -258,32 +302,54 @@ func (r *Runner) tolerate(log *slog.Logger, err error) error {
 	return err
 }
 
-// scheduleReconcile enqueues reconcile:{attempt}:{n} thirty seconds from now,
-// n being the job's attempt count. When a reconcile that already ran holds
-// that key the next free n is used; a reconcile of the attempt that is still
-// pending is enough, since it resolves every unknown job of the attempt.
+// scheduleReconcile enqueues the attempt's next reconcile generation,
+// reconcile:{attempt}:{n} with n one above the highest generation the attempt
+// has, thirty seconds from now. A reconcile of the attempt that is pending and
+// not due yet is enough instead: it has not started, so it will resolve this
+// job together with every other unknown job of the attempt.
 func (r *Runner) scheduleReconcile(ctx context.Context, job *store.Job) error {
-	runAt := r.clock.Now().Add(reconcileDelay)
-	for n := job.Attempts; ; n++ {
-		key := kindReconcile + ":" + *job.AttemptID + ":" + strconv.Itoa(n)
-		created, err := r.st.EnqueueJob(ctx, kindReconcile, key, job.WorkshopID, job.AttemptID, nil, runAt)
-		if err != nil {
-			return err
+	now := r.clock.Now()
+	jobs, err := r.st.JobsByAttempt(ctx, *job.AttemptID)
+	if err != nil {
+		return err
+	}
+	next := 1
+	for _, j := range jobs {
+		if j.Kind != kindReconcile {
+			continue
 		}
-		if created {
+		if j.Status == jobPending && j.RunAt.After(now) {
 			return nil
 		}
-		existing, err := r.st.JobByKey(ctx, key)
-		if err != nil {
-			return err
-		}
-		if existing != nil && existing.Status == jobPending {
-			return nil
+		if n, ok := generation(j); ok && n >= next {
+			next = n + 1
 		}
 	}
+	key := reconcilePrefix(*job.AttemptID) + strconv.Itoa(next)
+	_, err = r.st.EnqueueJob(ctx, kindReconcile, key, job.WorkshopID, job.AttemptID, nil, now.Add(reconcileDelay))
+	return err
 }
 
-// escalate flags the enrollment behind a job whose retries are used up.
+func reconcilePrefix(attemptID string) string {
+	return kindReconcile + ":" + attemptID + ":"
+}
+
+// generation is n in a reconcile job's key reconcile:{attempt}:{n}; ok is
+// false for a key of another shape.
+func generation(j store.Job) (n int, ok bool) {
+	if j.AttemptID == nil {
+		return 0, false
+	}
+	rest, found := strings.CutPrefix(j.IdempotencyKey, reconcilePrefix(*j.AttemptID))
+	if !found {
+		return 0, false
+	}
+	n, err := strconv.Atoi(rest)
+	return n, err == nil && n > 0
+}
+
+// escalate flags the enrollment behind a job whose retries are used up,
+// unless it is paid or finished.
 func (r *Runner) escalate(ctx context.Context, log *slog.Logger, job *store.Job) error {
 	if job.AttemptID == nil {
 		return nil
@@ -292,23 +358,48 @@ func (r *Runner) escalate(ctx context.Context, log *slog.Logger, job *store.Job)
 	if err != nil || a == nil {
 		return err
 	}
-	return r.flag(ctx, log.With("enrollment_id", a.EnrollmentID), a.EnrollmentID)
+	return r.flag(ctx, log.With("enrollment_id", a.EnrollmentID), a.EnrollmentID, unpaidActiveStatuses)
 }
 
 func (r *Runner) jobLog(job *store.Job) *slog.Logger {
 	return r.log.With("job_id", job.ID, "kind", job.Kind, "key", job.IdempotencyKey, "attempt_id", deref(job.AttemptID))
 }
 
-// definitive wraps a final PayPal refusal whose outcome the handler has
-// already recorded on the attempt and the enrollment, so the job is finished
-// rather than failed.
-type definitive struct{ err *paypal.Error }
+// refusal ends a run whose action did not happen and would not happen by
+// retrying it as is: PayPal refused it for good (pe), the worker refused it
+// itself (issue, such as a passed capture deadline), or the enrollment was not
+// in a state the action applies to. The handler has already recorded any
+// outcome on the attempt and the enrollment. The job is failed with the
+// reason and keeps its key, so EnqueueOrRevive can send it again later.
+type refusal struct {
+	reason string
+	issue  string
+	pe     *paypal.Error
+}
 
-func (d *definitive) Error() string { return d.err.Error() }
-func (d *definitive) Unwrap() error { return d.err }
+func (e *refusal) Error() string {
+	if e.pe != nil {
+		return e.pe.Error()
+	}
+	return e.reason
+}
+
+func (e *refusal) Unwrap() error {
+	if e.pe == nil {
+		return nil
+	}
+	return e.pe
+}
+
+func (e *refusal) details() (issue, debugID *string) {
+	if e.pe != nil {
+		return nonEmpty(e.pe.Issue), nonEmpty(e.pe.DebugID)
+	}
+	return nonEmpty(e.issue), nil
+}
 
 func refused(pe *paypal.Error) (*int, error) {
-	return statusOf(pe), &definitive{pe}
+	return statusOf(pe), &refusal{pe: pe}
 }
 
 // definitiveError returns PayPal's error when it is a final answer about the

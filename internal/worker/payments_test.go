@@ -8,6 +8,7 @@ import (
 
 	"github.com/aalvaropc/commitpool/internal/domain"
 	"github.com/aalvaropc/commitpool/internal/paypal"
+	"github.com/aalvaropc/commitpool/internal/store"
 )
 
 func TestCreateOrder_PersistsKeyBeforeSendAndStoresApproveURL(t *testing.T) {
@@ -115,9 +116,11 @@ func TestAuthorize_ExpiredOrderIsDefinitive(t *testing.T) {
 		t.Errorf("authorization_id = %s, want nil", *got.AuthorizationID)
 	}
 	e.wantStatus(en.ID, domain.EnrollmentSeatReserved)
-	if j := e.wantJob(key, "succeeded"); j.HTTPStatus == nil || *j.HTTPStatus != 404 {
+	j := e.wantJob(key, "failed")
+	if j.HTTPStatus == nil || *j.HTTPStatus != 404 {
 		t.Errorf("job http_status = %v, want 404", deref(j.HTTPStatus))
 	}
+	wantString(t, "provider_issue", j.ProviderIssue, "INVALID_RESOURCE_ID")
 	e.wantIdle()
 }
 
@@ -139,8 +142,13 @@ func TestCapture_422MarksFailedAndWorkshopStaysFunding(t *testing.T) {
 	if got.CaptureID != nil {
 		t.Errorf("capture_id = %s, want nil", *got.CaptureID)
 	}
-	if j := e.wantJob(key, "succeeded"); j.HTTPStatus == nil || *j.HTTPStatus != 422 {
+	j := e.wantJob(key, "failed")
+	if j.HTTPStatus == nil || *j.HTTPStatus != 422 {
 		t.Errorf("job http_status = %v, want 422", deref(j.HTTPStatus))
+	}
+	wantString(t, "provider_issue", j.ProviderIssue, "AUTHORIZATION_EXPIRED")
+	if j.DebugID == nil || *j.DebugID == "" {
+		t.Errorf("job debug_id = %v, want PayPal's debug_id", deref(j.DebugID))
 	}
 	w, err := e.st.WorkshopByID(e.ctx, e.workshop.ID)
 	if err != nil {
@@ -190,7 +198,9 @@ func TestCapture_DeadlinePassedFailsWithoutCallingPayPal(t *testing.T) {
 	}
 	e.wantStatus(en.ID, domain.EnrollmentCaptureFailed)
 	wantString(t, "capture_issue", e.attempt(a.ID).CaptureIssue, "CAPTURE_DEADLINE_PASSED")
-	e.wantJob(key, "succeeded")
+	j := e.wantJob(key, "failed")
+	wantString(t, "provider_issue", j.ProviderIssue, "CAPTURE_DEADLINE_PASSED")
+	wantString(t, "last_error", j.LastError, "capture deadline passed")
 	e.wantJob("void:"+a.ID, "pending")
 }
 
@@ -328,5 +338,364 @@ func TestRefund_PendingStaysPendingUntilGetSaysCompleted(t *testing.T) {
 	wantString(t, "refund_status", e.attempt(a.ID).RefundStatus, "COMPLETED")
 	if n := len(e.fake.Requests("refund")); n != 1 {
 		t.Errorf("refund requests = %d, want 1", n)
+	}
+}
+
+func TestCapture_ResumedPastDeadlineRefreshesBeforeFailing(t *testing.T) {
+	e := newEnv(t)
+	en, a := e.authorized("Ana")
+	key := "capture:" + a.ID
+	captured, err := e.api.CaptureAuthorization(e.ctx, paypal.CaptureParams{AuthorizationID: *a.AuthorizationID, RequestID: key})
+	if err != nil {
+		t.Fatalf("capture at PayPal: %v", err)
+	}
+	e.fake.FailNext("capture", 429, "RATE_LIMIT_REACHED")
+	e.enqueue("capture", a)
+	e.runOnce()
+	e.wantStatus(en.ID, domain.EnrollmentCapturing)
+
+	e.clock.Set(e.proposal.ClosesAt.Add(time.Minute))
+	e.runOnce()
+
+	e.wantStatus(en.ID, domain.EnrollmentPaid)
+	wantString(t, "capture_id", e.attempt(a.ID).CaptureID, captured.ID)
+	e.wantJob(key, "succeeded")
+	if j, err := e.st.JobByKey(e.ctx, "void:"+a.ID); err != nil || j != nil {
+		t.Errorf("void job = %+v, %v; want none for a captured authorization", j, err)
+	}
+	if n := len(e.fake.Requests("capture")); n != 2 {
+		t.Errorf("capture requests = %d, want 2 (none sent past the deadline)", n)
+	}
+}
+
+func TestCapture_FirstRunDoesNotResumeAnotherCapture(t *testing.T) {
+	e := newEnv(t)
+	en, a := e.authorized("Ana")
+	e.transition(en.ID, domain.EnrollmentAuthorized, domain.EnrollmentCapturing)
+	key := e.enqueue("capture", a)
+
+	e.runOnce()
+
+	j := e.wantJob(key, "failed")
+	wantString(t, "last_error", j.LastError, "skipped: enrollment CAPTURING")
+	if n := len(e.fake.Requests("capture")); n != 0 {
+		t.Errorf("capture requests = %d, want 0", n)
+	}
+	e.wantStatus(en.ID, domain.EnrollmentCapturing)
+}
+
+func TestAuthorize_OrderNotApprovedFailsJobAndCanBeRevived(t *testing.T) {
+	e := newEnv(t)
+	en, a := e.withOrder("Ana")
+	key := e.enqueue("authorize", a)
+
+	e.runKey(key)
+
+	j := e.wantJob(key, "failed")
+	wantString(t, "provider_issue", j.ProviderIssue, "ORDER_NOT_APPROVED")
+	if j.HTTPStatus == nil || *j.HTTPStatus != 422 {
+		t.Errorf("job http_status = %v, want 422", deref(j.HTTPStatus))
+	}
+	e.wantStatus(en.ID, domain.EnrollmentSeatReserved)
+
+	e.fake.Approve(*a.OrderID)
+	created, err := e.runner.EnqueueOrRevive(e.ctx, "authorize", key, &e.workshop.ID, &a.ID, nil, e.clock.Now())
+	if err != nil || created {
+		t.Fatalf("EnqueueOrRevive = %v, %v; want the existing job revived (false, nil)", created, err)
+	}
+	e.wantJob(key, "pending")
+	e.runKey(key)
+
+	e.wantStatus(en.ID, domain.EnrollmentAuthorized)
+	reqs := e.fake.Requests("authorize")
+	if len(reqs) != 2 || reqs[0].RequestID != key || reqs[1].RequestID != key {
+		t.Fatalf("authorize requests = %+v, want two with PayPal-Request-Id %s", reqs, key)
+	}
+}
+
+func TestVoid_SkippedWhileCapturingIsRevivedAfterCaptureFailure(t *testing.T) {
+	e := newEnv(t)
+	en, a := e.authorized("Ana")
+	captureKey := e.enqueue("capture", a)
+	e.fake.FailNext("capture", 429, "RATE_LIMIT_REACHED")
+	e.runKey(captureKey)
+	e.wantStatus(en.ID, domain.EnrollmentCapturing)
+	voidKey := e.enqueue("void", a)
+	e.runKey(voidKey)
+	j := e.wantJob(voidKey, "failed")
+	wantString(t, "last_error", j.LastError, "skipped: enrollment CAPTURING")
+
+	e.advance(5 * time.Second)
+	e.fake.FailNext("capture", 422, "TRANSACTION_REFUSED")
+	e.runKey(captureKey)
+	e.wantStatus(en.ID, domain.EnrollmentCaptureFailed)
+	e.wantJob(voidKey, "pending")
+	e.runOnce()
+
+	e.wantJob(voidKey, "succeeded")
+	if reqs := e.fake.Requests("void"); len(reqs) != 1 || reqs[0].RequestID != voidKey {
+		t.Fatalf("void requests = %+v, want one with PayPal-Request-Id %s", reqs, voidKey)
+	}
+	auth, err := e.api.GetAuthorization(e.ctx, *a.AuthorizationID)
+	if err != nil || auth.Status != "VOIDED" {
+		t.Errorf("authorization at PayPal = %+v, %v; want VOIDED", auth, err)
+	}
+	e.wantStatus(en.ID, domain.EnrollmentCaptureFailed)
+}
+
+func TestRefund_SkippedOnNonPaidEnrollmentIsRevivable(t *testing.T) {
+	e := newEnv(t)
+	en, a := e.authorized("Ana")
+	refundKey := e.enqueue("refund", a)
+	e.runKey(refundKey)
+	j := e.wantJob(refundKey, "failed")
+	wantString(t, "last_error", j.LastError, "skipped: enrollment AUTHORIZED")
+
+	e.runKey(e.enqueue("capture", a))
+	e.wantStatus(en.ID, domain.EnrollmentPaid)
+	created, err := e.runner.EnqueueOrRevive(e.ctx, "refund", refundKey, &e.workshop.ID, &a.ID, nil, e.clock.Now())
+	if err != nil || created {
+		t.Fatalf("EnqueueOrRevive = %v, %v; want the existing job revived (false, nil)", created, err)
+	}
+	e.runKey(refundKey)
+
+	e.wantStatus(en.ID, domain.EnrollmentRefunded)
+	e.wantJob(refundKey, "succeeded")
+	if n := len(e.fake.Requests("refund")); n != 1 {
+		t.Errorf("refund requests = %d, want 1", n)
+	}
+}
+
+func TestAuthorize_SecondAuthorizationOnAnotherAttemptIsVoided(t *testing.T) {
+	e := newEnv(t)
+	en, first := e.withOrder("Ana")
+	second, err := e.st.CreateAttempt(e.ctx, en.ID, e.proposal.PriceMinor, e.proposal.Currency)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.runKey(e.enqueue("create_order", second))
+	second = e.attempt(second.ID)
+	e.fake.Approve(*first.OrderID)
+	e.fake.Approve(*second.OrderID)
+	e.runKey(e.enqueue("authorize", second))
+	e.wantStatus(en.ID, domain.EnrollmentAuthorized)
+	second = e.attempt(second.ID)
+
+	if _, err := e.api.AuthorizeOrder(e.ctx, *first.OrderID, "authorize:"+first.ID); err != nil {
+		t.Fatalf("authorize the first checkout at PayPal: %v", err)
+	}
+	key := "reconcile:" + first.ID + ":1"
+	e.enqueueKey("reconcile", key, first, e.clock.Now())
+	e.runKey(key)
+
+	got := e.attempt(first.ID)
+	wantString(t, "first attempt authorization_status", got.AuthorizationStatus, "CREATED")
+	e.wantStatus(en.ID, domain.EnrollmentAuthorized)
+	e.wantJob("void:"+first.ID, "pending")
+	e.runOnce()
+
+	e.wantJob("void:"+first.ID, "succeeded")
+	wantString(t, "first attempt authorization_status", e.attempt(first.ID).AuthorizationStatus, "VOIDED")
+	e.wantStatus(en.ID, domain.EnrollmentAuthorized)
+	if auth, err := e.api.GetAuthorization(e.ctx, *got.AuthorizationID); err != nil || auth.Status != "VOIDED" {
+		t.Errorf("first authorization at PayPal = %+v, %v; want VOIDED", auth, err)
+	}
+	if auth, err := e.api.GetAuthorization(e.ctx, *second.AuthorizationID); err != nil || auth.Status != "CREATED" {
+		t.Errorf("second authorization at PayPal = %+v, %v; want it untouched (CREATED)", auth, err)
+	}
+}
+
+func TestAuthorize_AuthorizationOnReleasedSeatIsVoided(t *testing.T) {
+	e := newEnv(t)
+	en, a := e.withOrder("Ana")
+	e.fake.Approve(*a.OrderID)
+	e.transition(en.ID, domain.EnrollmentSeatReserved, domain.EnrollmentReleased)
+	if _, err := e.api.AuthorizeOrder(e.ctx, *a.OrderID, "authorize:"+a.ID); err != nil {
+		t.Fatalf("authorize at PayPal: %v", err)
+	}
+	key := "reconcile:" + a.ID + ":1"
+	e.enqueueKey("reconcile", key, a, e.clock.Now())
+	e.runKey(key)
+
+	e.wantStatus(en.ID, domain.EnrollmentReleased)
+	e.wantJob("void:"+a.ID, "pending")
+	e.runOnce()
+
+	e.wantJob("void:"+a.ID, "succeeded")
+	got := e.attempt(a.ID)
+	wantString(t, "authorization_status", got.AuthorizationStatus, "VOIDED")
+	if auth, err := e.api.GetAuthorization(e.ctx, *got.AuthorizationID); err != nil || auth.Status != "VOIDED" {
+		t.Errorf("authorization at PayPal = %+v, %v; want VOIDED", auth, err)
+	}
+	e.wantStatus(en.ID, domain.EnrollmentReleased)
+}
+
+func TestApplyCapture_DeclinedEnqueuesVoid(t *testing.T) {
+	e := newEnv(t)
+	en, a := e.authorized("Ana")
+	e.transition(en.ID, domain.EnrollmentAuthorized, domain.EnrollmentCapturing)
+
+	if err := e.runner.ApplyCapture(e.ctx, a.ID, paypal.Capture{ID: "DECLINEDCAPTURE", Status: "DECLINED"}); err != nil {
+		t.Fatalf("ApplyCapture: %v", err)
+	}
+
+	e.wantStatus(en.ID, domain.EnrollmentCaptureFailed)
+	e.wantJob("void:"+a.ID, "pending")
+	e.runOnce()
+	if auth, err := e.api.GetAuthorization(e.ctx, *a.AuthorizationID); err != nil || auth.Status != "VOIDED" {
+		t.Errorf("authorization at PayPal = %+v, %v; want VOIDED", auth, err)
+	}
+	e.wantStatus(en.ID, domain.EnrollmentCaptureFailed)
+}
+
+func TestCreateOrder_DifferentOrderIsFlaggedWithoutApproveURL(t *testing.T) {
+	e := newEnv(t)
+	en, a := e.enroll("Ana")
+	if _, err := e.st.UpdateAttemptFunc(e.ctx, a.ID, func(row *store.AttemptRow) error {
+		other := "OTHERORDER"
+		row.OrderID = &other
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	key := e.enqueue("create_order", a)
+
+	e.runKey(key)
+
+	j := e.wantJob(key, "failed")
+	if strings.Contains(string(j.Payload), "approve_url") {
+		t.Errorf("job payload = %s, want no approve_url for a conflicting order", j.Payload)
+	}
+	wantString(t, "order_id", e.attempt(a.ID).OrderID, "OTHERORDER")
+	e.wantStatus(en.ID, domain.EnrollmentNeedsAttention)
+}
+
+func TestCreateOrder_UnknownWithoutOrderIsResentUnderTheSameKey(t *testing.T) {
+	e := newEnv(t)
+	_, a := e.enroll("Ana")
+	e.fake.FailNext("create_order", 503, "")
+	key := e.enqueue("create_order", a)
+	e.runKey(key)
+	e.wantJob(key, "unknown")
+
+	e.advance(31 * time.Second)
+	e.runKey("reconcile:" + a.ID + ":1")
+	e.wantJob(key, "pending")
+	if n := len(e.fake.Requests("get_order")); n != 0 {
+		t.Errorf("get_order requests = %d, want 0 without an order id", n)
+	}
+	e.runOnce()
+
+	j := e.wantJob(key, "succeeded")
+	if !strings.Contains(string(j.Payload), "approve_url") {
+		t.Errorf("job payload = %s, want the approve URL", j.Payload)
+	}
+	reqs := e.fake.Requests("create_order")
+	if len(reqs) != 2 || reqs[0].RequestID != key || reqs[1].RequestID != key {
+		t.Fatalf("create_order requests = %+v, want two with PayPal-Request-Id %s", reqs, key)
+	}
+	if e.attempt(a.ID).OrderID == nil {
+		t.Errorf("order_id = nil, want the order")
+	}
+}
+
+func TestCapture_401IsRetriedUnderTheSameKey(t *testing.T) {
+	e := newEnv(t)
+	en, a := e.authorized("Ana")
+	e.fake.FailNext("capture", 401, "")
+	e.fake.FailNext("capture", 401, "")
+	key := e.enqueue("capture", a)
+
+	e.runOnce()
+
+	j := e.wantJob(key, "pending")
+	if j.HTTPStatus == nil || *j.HTTPStatus != 401 {
+		t.Errorf("job http_status = %v, want 401", deref(j.HTTPStatus))
+	}
+	e.wantStatus(en.ID, domain.EnrollmentCapturing)
+	if issue := e.attempt(a.ID).CaptureIssue; issue != nil {
+		t.Errorf("capture_issue = %q, want none: a rejected credential is not a payment refusal", *issue)
+	}
+	e.advance(5 * time.Second)
+	e.runOnce()
+	e.wantStatus(en.ID, domain.EnrollmentPaid)
+	for i, r := range e.fake.Requests("capture") {
+		if r.RequestID != key {
+			t.Errorf("capture request %d PayPal-Request-Id = %q, want %q", i+1, r.RequestID, key)
+		}
+	}
+}
+
+func TestRefund_CompletedMarksRefunded(t *testing.T) {
+	e := newEnv(t)
+	en, a := e.paid("Ana")
+	key := e.enqueue("refund", a)
+
+	e.runKey(key)
+
+	if reqs := e.fake.Requests("refund"); len(reqs) != 1 || reqs[0].RequestID != key {
+		t.Fatalf("refund requests = %+v, want one with PayPal-Request-Id %s", reqs, key)
+	}
+	got := e.attempt(a.ID)
+	if got.RefundID == nil {
+		t.Errorf("refund_id = nil, want the refund")
+	}
+	wantString(t, "refund_status", got.RefundStatus, "COMPLETED")
+	e.wantStatus(en.ID, domain.EnrollmentRefunded)
+	e.wantJob(key, "succeeded")
+}
+
+func TestRefund_CaptureFullyRefundedCountsAsRefunded(t *testing.T) {
+	e := newEnv(t)
+	en, a := e.paid("Ana")
+	e.fake.FailNext("refund", 422, "CAPTURE_FULLY_REFUNDED")
+	key := e.enqueue("refund", a)
+
+	e.runKey(key)
+
+	got := e.attempt(a.ID)
+	wantString(t, "refund_status", got.RefundStatus, "COMPLETED")
+	wantString(t, "capture_status", got.CaptureStatus, "REFUNDED")
+	e.wantStatus(en.ID, domain.EnrollmentRefunded)
+	if j := e.wantJob(key, "succeeded"); j.HTTPStatus == nil || *j.HTTPStatus != 422 {
+		t.Errorf("job http_status = %v, want 422", deref(j.HTTPStatus))
+	}
+}
+
+func TestVoid_AlreadyGoneCountsAsVoidedOtherRefusalsFlag(t *testing.T) {
+	e := newEnv(t)
+	cases := []struct {
+		issue string
+		want  domain.EnrollmentStatus
+		job   string
+	}{
+		{"PREVIOUSLY_VOIDED", domain.EnrollmentVoided, "succeeded"},
+		{"AUTHORIZATION_EXPIRED", domain.EnrollmentVoided, "succeeded"},
+		{"PREVIOUSLY_CAPTURED", domain.EnrollmentNeedsAttention, "failed"},
+	}
+	for i, tc := range cases {
+		en, a := e.authorized("Participant " + string(rune('A'+i)))
+		e.fake.FailNext("void", 422, tc.issue)
+		key := e.enqueue("void", a)
+
+		e.runKey(key)
+
+		got, err := e.st.EnrollmentByID(e.ctx, en.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Status != tc.want {
+			t.Errorf("%s: enrollment = %s, want %s", tc.issue, got.Status, tc.want)
+		}
+		j := e.job(key)
+		if j.Status != tc.job {
+			t.Errorf("%s: job = %s, want %s", tc.issue, j.Status, tc.job)
+		}
+		if tc.job == "failed" {
+			wantString(t, tc.issue+" provider_issue", j.ProviderIssue, tc.issue)
+			wantString(t, tc.issue+" authorization_status", e.attempt(a.ID).AuthorizationStatus, "CREATED")
+		} else {
+			wantString(t, tc.issue+" authorization_status", e.attempt(a.ID).AuthorizationStatus, "VOIDED")
+		}
 	}
 }

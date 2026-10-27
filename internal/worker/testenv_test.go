@@ -324,8 +324,6 @@ func deref[T any](p *T) any {
 	return *p
 }
 
-func ptr[T any](v T) *T { return &v }
-
 func wantString(t *testing.T, name string, got *string, want string) {
 	t.Helper()
 	if got == nil || *got != want {

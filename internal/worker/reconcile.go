@@ -14,8 +14,10 @@ import (
 // they say, then resolves the attempt's unknown jobs: one whose resource now
 // exists is completed, and one whose resource does not is sent back to pending
 // under its own key, so PayPal either replays its earlier answer or performs
-// the action once. Ambiguous reads park this job as unknown in turn and
-// schedule the next reconcile.
+// the action once. The reconcile of generation maxReconcileGenerations stops
+// sending: it leaves such a job unknown for an operator and flags the
+// enrollment. Reads are safe to repeat, so a failed or ambiguous one retries
+// this job like any other failure.
 func (r *Runner) reconcile(ctx context.Context, job *store.Job) (*int, error) {
 	s, err := r.load(ctx, job)
 	if err != nil {
@@ -31,7 +33,8 @@ func (r *Runner) reconcile(ctx context.Context, job *store.Job) (*int, error) {
 	if a == nil {
 		return nil, fmt.Errorf("payment attempt %s: %w", s.attempt.ID, store.ErrNotFound)
 	}
-	return nil, r.resolveUnknown(ctx, s.log, *a)
+	n, _ := generation(*job)
+	return nil, r.resolveUnknown(ctx, s.log, *a, n >= maxReconcileGenerations)
 }
 
 // refresh applies the order, with every payment it lists, and then the
@@ -93,7 +96,7 @@ func (r *Runner) refresh(ctx context.Context, s subject) (*int, error) {
 	return nil, nil
 }
 
-func (r *Runner) resolveUnknown(ctx context.Context, log *slog.Logger, a store.AttemptRow) error {
+func (r *Runner) resolveUnknown(ctx context.Context, log *slog.Logger, a store.AttemptRow, last bool) error {
 	jobs, err := r.st.JobsByAttempt(ctx, a.ID)
 	if err != nil {
 		return err
@@ -109,7 +112,14 @@ func (r *Runner) resolveUnknown(ctx context.Context, log *slog.Logger, a store.A
 		jl := log.With("unknown_job_id", j.ID, "unknown_key", j.IdempotencyKey)
 		if done {
 			jl.Info("PayPal shows the action happened; completing its job")
-			if err := r.tolerate(jl, r.st.CompleteJob(ctx, j.ID, nil)); err != nil {
+			if err := r.tolerate(jl, r.st.CompleteJob(ctx, j.ID, j.HTTPStatus)); err != nil {
+				return err
+			}
+			continue
+		}
+		if last {
+			jl.Error("PayPal still shows no trace of the action after the last reconcile; leaving the job unknown for an operator")
+			if err := r.flag(ctx, jl, a.EnrollmentID, unpaidActiveStatuses); err != nil {
 				return err
 			}
 			continue
@@ -124,7 +134,6 @@ func (r *Runner) resolveUnknown(ctx context.Context, log *slog.Logger, a store.A
 
 // performed reports whether PayPal shows the action of a job of this kind as
 // done for the attempt; known is false for kinds a reconcile does not resolve.
-// An unknown reconcile is superseded by the one now running.
 func performed(kind string, a store.AttemptRow) (done, known bool) {
 	switch kind {
 	case kindCreateOrder:
@@ -137,8 +146,6 @@ func performed(kind string, a store.AttemptRow) (done, known bool) {
 		return is(a.AuthorizationStatus, ppVoided), true
 	case kindRefund:
 		return a.RefundID != nil || is(a.CaptureStatus, ppRefunded), true
-	case kindReconcile:
-		return true, true
 	}
 	return false, false
 }

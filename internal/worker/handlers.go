@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/aalvaropc/commitpool/internal/domain"
@@ -46,10 +47,20 @@ func (r *Runner) load(ctx context.Context, job *store.Job) (subject, error) {
 	return subject{attempt: *a, enrollment: en, log: r.jobLog(job).With("enrollment_id", en.ID)}, nil
 }
 
-// skip completes a job that has nothing left to do for its enrollment.
-func (s subject) skip(why string) (*int, error) {
-	s.log.Info("job skipped: "+why, "status", s.enrollment.Status)
-	return nil, nil
+// skip refuses a job whose action does not apply to the enrollment as it
+// stands. The job is failed, not completed, so it can be revived once the
+// action applies again.
+func (s subject) skip() (*int, error) {
+	return s.refuse("skipped: enrollment " + string(s.enrollment.Status))
+}
+
+func (s subject) skipOlderAttempt() (*int, error) {
+	return s.refuse("skipped: not the enrollment's latest attempt")
+}
+
+func (s subject) refuse(reason string) (*int, error) {
+	s.log.Info("job " + reason)
+	return nil, &refusal{reason: reason}
 }
 
 // failed returns a PayPal error that is not a final answer to settle as is.
@@ -72,7 +83,8 @@ type orderPayload struct {
 // createOrder creates the attempt's PayPal order for the attempt's amount,
 // stores the order id and status on the attempt and {approve_url, order_id}
 // in the job's own payload, where the HTTP layer reads the approval link. The
-// enrollment stays SEAT_RESERVED.
+// enrollment stays SEAT_RESERVED. An order other than the one the attempt
+// holds is flagged and its link is not stored.
 func (r *Runner) createOrder(ctx context.Context, job *store.Job) (*int, error) {
 	s, err := r.load(ctx, job)
 	if err != nil {
@@ -97,18 +109,22 @@ func (r *Runner) createOrder(ctx context.Context, job *store.Job) (*int, error) 
 		}
 		return failed(err)
 	}
-	if err := r.ApplyOrder(ctx, a.ID, o); err != nil {
+	ok, err := r.applyOrder(ctx, a.ID, o)
+	if err != nil {
 		return nil, err
+	}
+	if !ok {
+		return s.refuse("PayPal returned a different order than the attempt holds")
 	}
 	return nil, r.st.UpdateJobPayload(ctx, job.ID, orderPayload{ApproveURL: o.ApproveURL(), OrderID: o.ID})
 }
 
-// authorize authorizes the approved order while the enrollment holds its seat,
-// recording the authorization and its expiry and moving the enrollment
-// SEAT_RESERVED → AUTHORIZED. PayPal answers an order the buyer has not
-// approved with 422 ORDER_NOT_APPROVED, and one that expired unapproved with
-// 404 INVALID_RESOURCE_ID, recorded as order status EXPIRED. Both answers are
-// final and leave the enrollment SEAT_RESERVED.
+// authorize authorizes the approved order of the enrollment's latest attempt
+// while the enrollment holds its seat, recording the authorization and its
+// expiry and moving the enrollment SEAT_RESERVED → AUTHORIZED. PayPal answers
+// an order the buyer has not approved with 422 ORDER_NOT_APPROVED, and one
+// that expired unapproved with 404 INVALID_RESOURCE_ID, recorded as order
+// status EXPIRED. Both refusals leave the enrollment SEAT_RESERVED.
 func (r *Runner) authorize(ctx context.Context, job *store.Job) (*int, error) {
 	s, err := r.load(ctx, job)
 	if err != nil {
@@ -116,7 +132,13 @@ func (r *Runner) authorize(ctx context.Context, job *store.Job) (*int, error) {
 	}
 	a := s.attempt
 	if s.enrollment.Status != domain.EnrollmentSeatReserved {
-		return s.skip("the enrollment no longer waits for an authorization")
+		return s.skip()
+	}
+	if driving, err := r.driving(ctx, a); err != nil || !driving {
+		if err != nil {
+			return nil, err
+		}
+		return s.skipOlderAttempt()
 	}
 	if a.OrderID == nil {
 		return nil, errors.New("payment attempt has no order to authorize")
@@ -138,47 +160,62 @@ func (r *Runner) authorize(ctx context.Context, job *store.Job) (*int, error) {
 	return refused(pe)
 }
 
-// capture captures the authorization once, in full and as the final capture.
-// It starts only from an AUTHORIZED enrollment, which moves to CAPTURING
-// before the request leaves; a retry of the same job finds it CAPTURING and
-// sends again under the same key. Past the capture deadline (the earlier of
-// the payment close and the authorization's expiry) the capture fails without
-// calling PayPal. A failed capture leaves the authorization open, so both
-// that and a final refusal from PayPal mark the enrollment CAPTURE_FAILED and
-// enqueue its void.
+// capture captures the authorization of the enrollment's latest attempt once,
+// in full and as the final capture. A first run starts only from AUTHORIZED,
+// which moves to CAPTURING before the request leaves; only a later run of the
+// same job (attempts > 1) resumes a CAPTURING enrollment, sending again under
+// the same key, because an earlier run of it may have reached PayPal.
+//
+// Past the capture deadline (the earlier of the payment close and the
+// authorization's expiry) the capture is failed without sending it. A resumed
+// run first reads the attempt back from PayPal and fails only when no capture
+// exists. A failed capture leaves the authorization open, so both that and a
+// final refusal from PayPal mark the enrollment CAPTURE_FAILED and enqueue its
+// void.
 func (r *Runner) capture(ctx context.Context, job *store.Job) (*int, error) {
 	s, err := r.load(ctx, job)
 	if err != nil {
 		return nil, err
 	}
 	a := s.attempt
-	if st := s.enrollment.Status; st != domain.EnrollmentAuthorized && st != domain.EnrollmentCapturing {
-		return s.skip("the enrollment is not authorized")
+	from := statuses(domain.EnrollmentAuthorized)
+	if job.Attempts > 1 {
+		from = append(from, domain.EnrollmentCapturing)
+	}
+	if !slices.Contains(from, s.enrollment.Status) {
+		return s.skip()
+	}
+	resumed := s.enrollment.Status == domain.EnrollmentCapturing
+	if driving, err := r.driving(ctx, a); err != nil || !driving {
+		if err != nil {
+			return nil, err
+		}
+		return s.skipOlderAttempt()
 	}
 	if a.AuthorizationID == nil {
 		return nil, errors.New("payment attempt has no authorization to capture")
 	}
-	p, err := r.st.ActiveProposal(ctx, s.enrollment.WorkshopID)
+	p, err := r.st.ProposalByID(ctx, s.enrollment.ProposalID)
 	if err != nil {
 		return nil, err
 	}
-	if p == nil || p.ID != s.enrollment.ProposalID {
-		return nil, fmt.Errorf("proposal %s of the enrollment is not the workshop's active proposal", s.enrollment.ProposalID)
+	if p == nil {
+		return nil, fmt.Errorf("proposal %s: %w", s.enrollment.ProposalID, store.ErrNotFound)
 	}
-	moved, err := r.transition(ctx, s.log, s.enrollment.ID, move{statuses(domain.EnrollmentAuthorized, domain.EnrollmentCapturing), domain.EnrollmentCapturing})
+	moved, err := r.transition(ctx, s.log, s.enrollment.ID, move{from, domain.EnrollmentCapturing})
 	if err != nil {
 		return nil, err
 	}
 	if !moved {
-		return s.skip("the enrollment moved on before the capture started")
+		return s.skip()
 	}
+
 	var authExpires time.Time
 	if a.AuthExpiresAt != nil {
 		authExpires = *a.AuthExpiresAt
 	}
 	if r.clock.Now().After(domain.CaptureDeadline(p.ClosesAt, authExpires)) {
-		s.log.Warn("capture deadline passed; failing the capture without calling PayPal")
-		return nil, r.failCapture(ctx, a.ID, issueDeadlinePassed, "")
+		return r.captureTooLate(ctx, s, resumed)
 	}
 
 	c, err := r.pp.CaptureAuthorization(ctx, paypal.CaptureParams{
@@ -194,38 +231,88 @@ func (r *Runner) capture(ctx context.Context, job *store.Job) (*int, error) {
 		return failed(err)
 	}
 	if err := r.ApplyCaptureFailure(ctx, a.ID, pe); err != nil {
+		if errors.Is(err, errCaptureRecorded) {
+			s.log.Warn("PayPal refused a capture the attempt already holds; keeping the capture", "issue", pe.Issue)
+			return statusOf(pe), nil
+		}
 		return nil, err
 	}
 	return refused(pe)
 }
 
-// void releases the authorization. From AUTHORIZED the enrollment goes
-// VOIDING and then VOIDED; after a failed capture it stays CAPTURE_FAILED and
-// only the authorization is recorded as VOIDED. PREVIOUSLY_VOIDED and
-// AUTHORIZATION_EXPIRED mean the hold is already gone and count as voided;
-// any other final refusal flags the enrollment NEEDS_ATTENTION.
+// captureTooLate fails a capture past its deadline without sending it. A
+// resumed run may already have captured, so it reads the attempt back from
+// PayPal first and keeps a capture it finds.
+func (r *Runner) captureTooLate(ctx context.Context, s subject, resumed bool) (*int, error) {
+	if resumed {
+		if status, err := r.refresh(ctx, s); err != nil {
+			return status, err
+		}
+		a, err := r.st.AttemptByID(ctx, s.attempt.ID)
+		if err != nil {
+			return nil, err
+		}
+		if a == nil {
+			return nil, fmt.Errorf("payment attempt %s: %w", s.attempt.ID, store.ErrNotFound)
+		}
+		if done, _ := performed(kindCapture, *a); done {
+			s.log.Info("capture deadline passed, but PayPal shows the earlier run captured")
+			return nil, nil
+		}
+	}
+	s.log.Warn("capture deadline passed; failing the capture without sending it")
+	err := r.failCapture(ctx, s.attempt.ID, issueDeadlinePassed, "")
+	if errors.Is(err, errCaptureRecorded) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return nil, &refusal{reason: "capture deadline passed", issue: issueDeadlinePassed}
+}
+
+// void releases the attempt's authorization. For the enrollment's latest
+// attempt, AUTHORIZED goes VOIDING and then VOIDED; after a failed capture the
+// enrollment stays CAPTURE_FAILED and only the authorization is recorded as
+// VOIDED. An authorization the enrollment does not use, on an older attempt or
+// a released seat, is voided without touching the enrollment.
+// PREVIOUSLY_VOIDED and AUTHORIZATION_EXPIRED mean the hold is already gone
+// and count as voided; any other final refusal flags the enrollment
+// NEEDS_ATTENTION when the authorization was its own.
 func (r *Runner) void(ctx context.Context, job *store.Job) (*int, error) {
 	s, err := r.load(ctx, job)
 	if err != nil {
 		return nil, err
 	}
 	a := s.attempt
-	switch s.enrollment.Status {
-	case domain.EnrollmentAuthorized, domain.EnrollmentVoiding, domain.EnrollmentCaptureFailed:
-	default:
-		return s.skip("the enrollment holds no authorization to void")
+	st := s.enrollment.Status
+	driving, err := r.driving(ctx, a)
+	if err != nil {
+		return nil, err
+	}
+	unused := !driving || st == domain.EnrollmentReleased
+	own := !unused && (st == domain.EnrollmentAuthorized || st == domain.EnrollmentVoiding)
+	if !unused && !own && st != domain.EnrollmentCaptureFailed {
+		return s.skip()
 	}
 	if a.AuthorizationID == nil {
 		return nil, errors.New("payment attempt has no authorization to void")
 	}
-	if s.enrollment.Status != domain.EnrollmentCaptureFailed {
+	var stuck *move
+	switch {
+	case own:
 		moved, err := r.transition(ctx, s.log, s.enrollment.ID, move{statuses(domain.EnrollmentAuthorized, domain.EnrollmentVoiding), domain.EnrollmentVoiding})
 		if err != nil {
 			return nil, err
 		}
 		if !moved {
-			return s.skip("the enrollment moved on before the void started")
+			return s.skip()
 		}
+		stuck = &move{statuses(domain.EnrollmentVoiding), domain.EnrollmentNeedsAttention}
+	case !unused:
+		stuck = &move{statuses(domain.EnrollmentCaptureFailed), domain.EnrollmentNeedsAttention}
+	default:
+		s.log.Warn("voiding an authorization the enrollment does not use", "latest_attempt", driving)
 	}
 
 	voided := paypal.Authorization{ID: *a.AuthorizationID, Status: ppVoided}
@@ -237,15 +324,13 @@ func (r *Runner) void(ctx context.Context, job *store.Job) (*int, error) {
 	if pe == nil {
 		return failed(err)
 	}
-	switch pe.Issue {
-	case issuePreviouslyVoided, issueAuthorizationExpired:
-		if err := r.ApplyAuthorization(ctx, a.ID, voided); err != nil {
-			return nil, err
-		}
-	default:
-		s.log.Error("PayPal refused the void", "http_status", pe.HTTPStatus, "issue", pe.Issue, "debug_id", pe.DebugID)
-		stuck := move{statuses(domain.EnrollmentVoiding, domain.EnrollmentCaptureFailed), domain.EnrollmentNeedsAttention}
-		if _, err := r.transition(ctx, s.log, s.enrollment.ID, stuck); err != nil {
+	if pe.Issue == issuePreviouslyVoided || pe.Issue == issueAuthorizationExpired {
+		s.log.Info("authorization already gone at PayPal; counting it as voided", "issue", pe.Issue)
+		return statusOf(pe), r.ApplyAuthorization(ctx, a.ID, voided)
+	}
+	s.log.Error("PayPal refused the void", "http_status", pe.HTTPStatus, "issue", pe.Issue, "debug_id", pe.DebugID)
+	if stuck != nil {
+		if _, err := r.transition(ctx, s.log, s.enrollment.ID, *stuck); err != nil {
 			return nil, err
 		}
 	}
@@ -264,7 +349,7 @@ func (r *Runner) refund(ctx context.Context, job *store.Job) (*int, error) {
 	}
 	a := s.attempt
 	if st := s.enrollment.Status; st != domain.EnrollmentPaid && st != domain.EnrollmentRefunding {
-		return s.skip("the enrollment holds no completed payment to refund")
+		return s.skip()
 	}
 	if a.CaptureID == nil {
 		return nil, errors.New("payment attempt has no capture to refund")
@@ -274,7 +359,7 @@ func (r *Runner) refund(ctx context.Context, job *store.Job) (*int, error) {
 		return nil, err
 	}
 	if !moved {
-		return s.skip("the enrollment moved on before the refund started")
+		return s.skip()
 	}
 
 	rf, err := r.pp.RefundCapture(ctx, paypal.RefundParams{
@@ -290,13 +375,11 @@ func (r *Runner) refund(ctx context.Context, job *store.Job) (*int, error) {
 		return failed(err)
 	}
 	if pe.Issue == issueCaptureFullyRefunded {
+		s.log.Info("capture already refunded at PayPal; counting it as refunded")
 		if err := r.ApplyCapture(ctx, a.ID, paypal.Capture{Status: ppRefunded}); err != nil {
 			return nil, err
 		}
-		if err := r.ApplyRefund(ctx, a.ID, paypal.Refund{Status: ppCompleted}); err != nil {
-			return nil, err
-		}
-		return refused(pe)
+		return statusOf(pe), r.ApplyRefund(ctx, a.ID, paypal.Refund{Status: ppCompleted})
 	}
 	s.log.Error("PayPal refused the refund", "http_status", pe.HTTPStatus, "issue", pe.Issue, "debug_id", pe.DebugID)
 	if _, err := r.transition(ctx, s.log, s.enrollment.ID, move{statuses(domain.EnrollmentRefunding), domain.EnrollmentNeedsAttention}); err != nil {

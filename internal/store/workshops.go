@@ -192,6 +192,41 @@ func lockWorkshop(ctx context.Context, tx pgx.Tx, workshopID string) (domain.Wor
 	return status, nil
 }
 
+// TransitionWorkshop is a compare-and-set on the workshop's status and
+// resolution: they become to and resolution only while the status is one of
+// fromStatus and the resolution one of fromResolution, a nil list meaning
+// any. It reports whether the row changed; a missing workshop is false.
+func (s *Store) TransitionWorkshop(ctx context.Context, id string, fromStatus []domain.WorkshopStatus, fromResolution []domain.Resolution, to domain.WorkshopStatus, resolution domain.Resolution) (bool, error) {
+	tag, err := s.Pool.Exec(ctx,
+		`update workshops set status = $4, resolution = $5, updated_at = now()
+		 where id = $1
+		   and ($2::text[] is null or status = any($2::text[]))
+		   and ($3::text[] is null or resolution = any($3::text[]))`,
+		id, texts(fromStatus), texts(fromResolution), string(to), string(resolution))
+	if err != nil {
+		if isMissing(err) {
+			return false, nil
+		}
+		return false, wrap("transition workshop", err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+// texts turns a list of string-like values into a text array; nil stays nil,
+// which is sent as NULL.
+func texts[T ~string](vs []T) []string {
+	if vs == nil {
+		return nil
+	}
+	out := make([]string, len(vs))
+	for i, v := range vs {
+		out[i] = string(v)
+	}
+	return out
+}
+
+// SetWorkshopStatus writes the status and resolution unconditionally; the
+// worker uses TransitionWorkshop instead.
 func (s *Store) SetWorkshopStatus(ctx context.Context, id string, status domain.WorkshopStatus, resolution domain.Resolution) error {
 	tag, err := s.Pool.Exec(ctx,
 		`update workshops set status = $2, resolution = $3, updated_at = now() where id = $1`,

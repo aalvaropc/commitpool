@@ -423,3 +423,59 @@ func TestUpdateAttemptFunc_ErrorRollsBack(t *testing.T) {
 		t.Errorf("UpdateAttemptFunc(malformed id) error = %v, want ErrNotFound", err)
 	}
 }
+
+func TestCreateAttempt_WaitsForAnAuthorizationBeingRecorded(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	e := newEnrollment(t, s)
+	a, err := s.CreateAttempt(ctx, e.ID, 1000, "USD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	locked, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	t.Cleanup(func() { once.Do(func() { close(release) }) })
+	recorded := make(chan error, 1)
+	go func() {
+		_, err := s.UpdateAttemptFunc(ctx, a.ID, func(row *store.AttemptRow) error {
+			close(locked)
+			<-release
+			row.AuthorizationID = ptr("AUTH-IN-FLIGHT")
+			return nil
+		})
+		recorded <- err
+	}()
+	<-locked
+
+	created := make(chan error, 1)
+	go func() {
+		_, err := s.CreateAttempt(ctx, e.ID, 1000, "USD")
+		created <- err
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for waiting := false; !waiting; {
+		select {
+		case err := <-created:
+			t.Fatalf("CreateAttempt returned %v while the latest attempt was being authorized; want it to wait for that write", err)
+		default:
+		}
+		if err := s.Pool.QueryRow(ctx,
+			`select exists (select 1 from pg_locks where not granted and locktype in ('transactionid', 'tuple'))`).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("CreateAttempt never waited on the attempt row")
+		}
+	}
+	once.Do(func() { close(release) })
+
+	if err := <-recorded; err != nil {
+		t.Fatalf("UpdateAttemptFunc: %v", err)
+	}
+	if err := <-created; !errors.Is(err, store.ErrAttemptNotAllowed) {
+		t.Errorf("CreateAttempt after the authorization was recorded = %v, want ErrAttemptNotAllowed", err)
+	}
+	if n := count(t, s, `select count(*) from payment_attempts where enrollment_id = $1`, e.ID); n != 1 {
+		t.Errorf("attempts = %d, want only the authorized one", n)
+	}
+}

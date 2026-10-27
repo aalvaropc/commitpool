@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -44,12 +45,15 @@ func (s *Store) CreateAttempt(ctx context.Context, enrollmentID string, amountMi
 		if status != domain.EnrollmentSeatReserved {
 			return ErrAttemptNotAllowed
 		}
+		// The latest attempt is read under its row lock, so an authorization
+		// UpdateAttemptFunc is recording on it right now is seen once written.
 		var authorized bool
-		if err := tx.QueryRow(ctx,
-			`select coalesce((select authorization_id is not null from payment_attempts
-				where enrollment_id = $1 order by attempt_no desc limit 1), false)`,
-			enrollmentID).Scan(&authorized); err != nil {
-			return wrap("read latest attempt", err)
+		err := tx.QueryRow(ctx,
+			`select authorization_id is not null from payment_attempts
+			 where enrollment_id = $1 order by attempt_no desc limit 1 for update`,
+			enrollmentID).Scan(&authorized)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return wrap("lock latest attempt", err)
 		}
 		if authorized {
 			return ErrAttemptNotAllowed

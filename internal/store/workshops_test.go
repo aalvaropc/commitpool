@@ -363,3 +363,45 @@ func TestAvailability_SaveCorrectAndLatest(t *testing.T) {
 		t.Errorf("AvailabilitiesByWorkshop returned %v, want ana's second message and ben's only message", all)
 	}
 }
+
+func TestTransitionWorkshop_RefusesWhenStateMoved(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	w, _, _ := newWorkshop(t, s, 1, 2)
+	openFunding(t, s, w, baseTime)
+	funding := []domain.WorkshopStatus{domain.WorkshopFunding}
+	want := func(status domain.WorkshopStatus, resolution domain.Resolution) {
+		t.Helper()
+		got, err := s.WorkshopByID(ctx, w.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Status != status || got.Resolution != resolution {
+			t.Fatalf("workshop is %s/%s, want %s/%s", got.Status, got.Resolution, status, resolution)
+		}
+	}
+
+	if ok, err := s.TransitionWorkshop(ctx, w.ID, funding, nil, domain.WorkshopConfirmed, domain.ResolutionOpen); err != nil || !ok {
+		t.Fatalf("TransitionWorkshop(FUNDING -> CONFIRMED) = %v, %v; want true", ok, err)
+	}
+	want(domain.WorkshopConfirmed, domain.ResolutionOpen)
+	if ok, err := s.TransitionWorkshop(ctx, w.ID, funding, nil, domain.WorkshopCancelled, domain.ResolutionResolving); err != nil || ok {
+		t.Fatalf("TransitionWorkshop(FUNDING -> CANCELLED) on a CONFIRMED workshop = %v, %v; want false", ok, err)
+	}
+	want(domain.WorkshopConfirmed, domain.ResolutionOpen)
+
+	open := []domain.Resolution{domain.ResolutionOpen}
+	if ok, err := s.TransitionWorkshop(ctx, w.ID, nil, open, domain.WorkshopConfirmed, domain.ResolutionNeedsAttention); err != nil || !ok {
+		t.Fatalf("TransitionWorkshop(any/OPEN -> NEEDS_ATTENTION) = %v, %v; want true", ok, err)
+	}
+	if ok, err := s.TransitionWorkshop(ctx, w.ID, nil, open, domain.WorkshopConfirmed, domain.ResolutionSettled); err != nil || ok {
+		t.Fatalf("second TransitionWorkshop(any/OPEN) = %v, %v; want false", ok, err)
+	}
+	want(domain.WorkshopConfirmed, domain.ResolutionNeedsAttention)
+
+	for _, id := range []string{"00000000-0000-4000-8000-000000000000", "not-a-uuid"} {
+		if ok, err := s.TransitionWorkshop(ctx, id, nil, nil, domain.WorkshopCancelled, domain.ResolutionOpen); err != nil || ok {
+			t.Errorf("TransitionWorkshop(%q) = %v, %v; want false, nil", id, ok, err)
+		}
+	}
+}

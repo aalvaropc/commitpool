@@ -14,6 +14,7 @@ import (
 // PayPal statuses the worker reads or writes.
 const (
 	ppCreated           = "CREATED"
+	ppApproved          = "APPROVED"
 	ppCompleted         = "COMPLETED"
 	ppPending           = "PENDING"
 	ppDeclined          = "DECLINED"
@@ -313,18 +314,22 @@ func (r *Runner) driving(ctx context.Context, a store.AttemptRow) (bool, error) 
 }
 
 // transition moves the enrollment as m says; log already names it. Not moving
-// is not an error: the enrollment is already there, past it or finished.
+// is not an error: the enrollment is already there, past it or finished. A
+// move then runs what it sets off (afterMove), so it must never be called
+// inside an UpdateAttemptFunc fn. Every move the worker makes on one
+// enrollment goes through here; only seat releases, done by the store for a
+// whole workshop, do not, and their callers settle the workshop themselves.
 func (r *Runner) transition(ctx context.Context, log *slog.Logger, enrollmentID string, m move) (bool, error) {
 	moved, err := r.st.TransitionEnrollment(ctx, enrollmentID, m.from, m.to)
 	if err != nil {
 		return false, err
 	}
-	if moved {
-		log.Info("enrollment moved", "to", m.to)
-	} else {
+	if !moved {
 		log.Debug("enrollment left as it is", "not_to", m.to)
+		return false, nil
 	}
-	return moved, nil
+	log.Info("enrollment moved", "to", m.to)
+	return true, r.afterMove(ctx, enrollmentID, m.to)
 }
 
 // flag marks the enrollment NEEDS_ATTENTION when it is in one of from.

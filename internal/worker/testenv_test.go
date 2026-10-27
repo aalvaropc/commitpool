@@ -113,6 +113,13 @@ func withClientTimeout(d time.Duration) func(*paypal.Config) {
 
 func (e *env) openWorkshop() {
 	e.t.Helper()
+	e.workshop, e.proposal = e.fundingWorkshop()
+}
+
+// fundingWorkshop creates a workshop like the env's own, with payments open
+// from t0 for 24 hours and the workshop starting 48 hours after t0.
+func (e *env) fundingWorkshop() (store.WorkshopRow, store.ProposalRow) {
+	e.t.Helper()
 	starts := t0.Add(48 * time.Hour)
 	w, _, _, err := e.st.CreateWorkshop(e.ctx, store.CreateWorkshopParams{
 		Title:            "Go for operators",
@@ -147,33 +154,44 @@ func (e *env) openWorkshop() {
 	if err != nil {
 		e.t.Fatalf("OpenProposal: %v", err)
 	}
-	e.workshop, e.proposal = w, p
+	return w, p
 }
 
 // enroll reserves a seat for a new participant and opens its first payment
 // attempt for the proposal's price.
 func (e *env) enroll(name string) (store.EnrollmentRow, store.AttemptRow) {
 	e.t.Helper()
-	p, _, err := e.st.CreateParticipant(e.ctx, e.workshop.ID, name)
+	en, err := e.reserve(e.workshop, e.proposal, name)
 	if err != nil {
-		e.t.Fatalf("CreateParticipant(%s): %v", name, err)
-	}
-	en, created, err := e.st.ReserveSeatAndCreateEnrollment(e.ctx, store.ReserveParams{
-		WorkshopID:     e.workshop.ID,
-		ParticipantID:  p.ID,
-		ProposalID:     e.proposal.ID,
-		ConsentVersion: "consent-v1",
-		Now:            e.clock.Now(),
-		SeatTTL:        30 * time.Minute,
-	})
-	if err != nil || !created {
-		e.t.Fatalf("ReserveSeatAndCreateEnrollment(%s) = %v, %v; want created", name, created, err)
+		e.t.Fatalf("reserve(%s): %v", name, err)
 	}
 	a, err := e.st.CreateAttempt(e.ctx, en.ID, e.proposal.PriceMinor, e.proposal.Currency)
 	if err != nil {
 		e.t.Fatalf("CreateAttempt: %v", err)
 	}
 	return en, a
+}
+
+// reserve creates a participant of the workshop and reserves a seat for it
+// now, with a 30-minute seat window. An error means no enrollment was created.
+func (e *env) reserve(w store.WorkshopRow, p store.ProposalRow, name string) (store.EnrollmentRow, error) {
+	e.t.Helper()
+	pt, _, err := e.st.CreateParticipant(e.ctx, w.ID, name)
+	if err != nil {
+		e.t.Fatalf("CreateParticipant(%s): %v", name, err)
+	}
+	en, created, err := e.st.ReserveSeatAndCreateEnrollment(e.ctx, store.ReserveParams{
+		WorkshopID:     w.ID,
+		ParticipantID:  pt.ID,
+		ProposalID:     p.ID,
+		ConsentVersion: "consent-v1",
+		Now:            e.clock.Now(),
+		SeatTTL:        30 * time.Minute,
+	})
+	if err == nil && !created {
+		e.t.Fatalf("ReserveSeatAndCreateEnrollment(%s) returned an existing enrollment, want a new one", name)
+	}
+	return en, err
 }
 
 // enqueue adds the attempt's job of this kind, due now, under its contract key.
@@ -213,7 +231,147 @@ func (e *env) wantIdle() {
 	}
 }
 
+// runUntilIdle runs due jobs one at a time until none is left, without
+// moving the clock.
+func (e *env) runUntilIdle() {
+	e.t.Helper()
+	for range 200 {
+		ran, err := e.runner.RunOnce(e.ctx)
+		if err != nil {
+			e.t.Fatalf("RunOnce: %v", err)
+		}
+		if !ran {
+			return
+		}
+	}
+	e.t.Fatalf("jobs still due after 200 runs")
+}
+
 func (e *env) advance(d time.Duration) { e.clock.Set(e.clock.Now().Add(d)) }
+
+// closeKey is the key of the env proposal's close job.
+func (e *env) closeKey() string { return "close:" + e.proposal.ID }
+
+// enqueueClose adds the env proposal's close job, due when payments close,
+// and reports whether it was created.
+func (e *env) enqueueClose() bool {
+	e.t.Helper()
+	created, err := e.runner.EnqueueOrRevive(e.ctx, "close", e.closeKey(), &e.workshop.ID, nil, nil, e.proposal.ClosesAt)
+	if err != nil {
+		e.t.Fatalf("EnqueueOrRevive(%s): %v", e.closeKey(), err)
+	}
+	return created
+}
+
+func (e *env) wantWorkshop(status domain.WorkshopStatus, resolution domain.Resolution) {
+	e.t.Helper()
+	w, err := e.st.WorkshopByID(e.ctx, e.workshop.ID)
+	if err != nil {
+		e.t.Fatalf("WorkshopByID: %v", err)
+	}
+	if w.Status != status || w.Resolution != resolution {
+		e.t.Fatalf("workshop = %s/%s, want %s/%s", w.Status, w.Resolution, status, resolution)
+	}
+}
+
+func (e *env) wantNoJob(key string) {
+	e.t.Helper()
+	j, err := e.st.JobByKey(e.ctx, key)
+	if err != nil {
+		e.t.Fatalf("JobByKey(%s): %v", key, err)
+	}
+	if j != nil {
+		e.t.Fatalf("job %s exists (%s), want none", key, j.Status)
+	}
+}
+
+// jobKeys lists the keys of every job of the attempt, oldest first.
+func (e *env) jobKeys(a store.AttemptRow) []string {
+	e.t.Helper()
+	jobs, err := e.st.JobsByAttempt(e.ctx, a.ID)
+	if err != nil {
+		e.t.Fatalf("JobsByAttempt: %v", err)
+	}
+	keys := make([]string, len(jobs))
+	for i, j := range jobs {
+		keys[i] = j.IdempotencyKey
+	}
+	return keys
+}
+
+// requestsWithID counts the requests of op the fake received under this
+// PayPal-Request-Id.
+func (e *env) requestsWithID(op, requestID string) int {
+	n := 0
+	for _, r := range e.fake.Requests(op) {
+		if r.RequestID == requestID {
+			n++
+		}
+	}
+	return n
+}
+
+// setMockCode stores a PayPal-Mock-Response code on the attempt, which the
+// capture and refund handlers send because the env enables sandbox mocks.
+func (e *env) setMockCode(a store.AttemptRow, code string) {
+	e.t.Helper()
+	if _, err := e.st.UpdateAttemptFunc(e.ctx, a.ID, func(row *store.AttemptRow) error {
+		row.MockCode = &code
+		return nil
+	}); err != nil {
+		e.t.Fatalf("UpdateAttemptFunc(mock code): %v", err)
+	}
+}
+
+// capturePending drives the authorized attempt's capture to CAPTURE_PENDING:
+// the capture request times out while the fake still captures, the fake then
+// reports the capture PENDING, and the reconcile the timeout scheduled reads
+// that back. It needs an env built withClientTimeout. It returns the capture id.
+func (e *env) capturePending(en store.EnrollmentRow, a store.AttemptRow) string {
+	e.t.Helper()
+	e.fake.FailNext("capture", 0, "")
+	e.runKey(e.enqueue("capture", a))
+	e.fake.WaitHung()
+	captures := e.order(*a.OrderID).PurchaseUnits[0].Payments.Captures
+	if len(captures) != 1 {
+		e.t.Fatalf("captures on the order = %d, want 1", len(captures))
+	}
+	e.fake.SetCaptureStatus(captures[0].ID, "PENDING", "PENDING_REVIEW")
+	reconcileKey := "reconcile:" + a.ID + ":1"
+	e.clock.Set(e.job(reconcileKey).RunAt)
+	e.runKey(reconcileKey)
+	e.wantStatus(en.ID, domain.EnrollmentCapturePending)
+	return captures[0].ID
+}
+
+// refundPending drives the paid attempt's refund job, already enqueued, to
+// REFUND_PENDING the same way capturePending does for a capture. It returns
+// the refund id.
+func (e *env) refundPending(en store.EnrollmentRow, a store.AttemptRow) string {
+	e.t.Helper()
+	e.fake.FailNext("refund", 0, "")
+	e.runKey("refund:" + a.ID)
+	e.fake.WaitHung()
+	refunds := e.order(*a.OrderID).PurchaseUnits[0].Payments.Refunds
+	if len(refunds) != 1 {
+		e.t.Fatalf("refunds on the order = %d, want 1", len(refunds))
+	}
+	e.fake.SetRefundStatus(refunds[0].ID, "PENDING")
+	reconcileKey := "reconcile:" + a.ID + ":1"
+	e.clock.Set(e.job(reconcileKey).RunAt)
+	e.runKey(reconcileKey)
+	e.wantStatus(en.ID, domain.EnrollmentRefundPending)
+	return refunds[0].ID
+}
+
+// reconcileNow enqueues a periodic reconcile of the attempt due now and
+// returns its key.
+func (e *env) reconcileNow(a store.AttemptRow) string {
+	e.t.Helper()
+	key := "reconcile:" + a.ID + ":periodic:" + e.clock.Now().UTC().Format("2006-01-02T15:04")
+	e.enqueueKey("reconcile", key, a, e.clock.Now())
+	return key
+}
 
 func (e *env) attempt(id string) store.AttemptRow {
 	e.t.Helper()
@@ -287,10 +445,17 @@ func (e *env) withOrder(name string) (store.EnrollmentRow, store.AttemptRow) {
 func (e *env) authorized(name string) (store.EnrollmentRow, store.AttemptRow) {
 	e.t.Helper()
 	en, a := e.withOrder(name)
+	return en, e.authorize(en, a)
+}
+
+// authorize plays the buyer approving the attempt's order and runs its
+// authorize job.
+func (e *env) authorize(en store.EnrollmentRow, a store.AttemptRow) store.AttemptRow {
+	e.t.Helper()
 	e.fake.Approve(*a.OrderID)
 	e.runKey(e.enqueue("authorize", a))
 	e.wantStatus(en.ID, domain.EnrollmentAuthorized)
-	return en, e.attempt(a.ID)
+	return e.attempt(a.ID)
 }
 
 // paid enrolls a participant whose authorization has been captured.

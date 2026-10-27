@@ -26,27 +26,30 @@ import (
 )
 
 const (
-	pollInterval    = 2 * time.Second
-	requeueInterval = time.Minute
-	staleAfter      = 5 * time.Minute
-	reconcileDelay  = 30 * time.Second
-	settleTimeout   = 10 * time.Second
+	pollInterval   = 2 * time.Second
+	tickInterval   = time.Minute
+	staleAfter     = 5 * time.Minute
+	reconcileDelay = 30 * time.Second
+	settleTimeout  = 10 * time.Second
 )
 
 // Job kinds this package handles.
 const (
-	kindCreateOrder = "create_order"
-	kindAuthorize   = "authorize"
-	kindCapture     = "capture"
-	kindVoid        = "void"
-	kindRefund      = "refund"
-	kindReconcile   = "reconcile"
+	kindCreateOrder  = "create_order"
+	kindAuthorize    = "authorize"
+	kindCapture      = "capture"
+	kindVoid         = "void"
+	kindRefund       = "refund"
+	kindReconcile    = "reconcile"
+	kindClose        = "close"
+	kindReleaseSeats = "release_seats"
 )
 
 // Job statuses as the store writes them.
 const (
 	jobPending = "pending"
 	jobUnknown = "unknown"
+	jobFailed  = "failed"
 )
 
 // maxReconcileGenerations is how many reconciles an ambiguous action gets: the
@@ -67,10 +70,11 @@ type Deps struct {
 // Handler runs one job. A nil error completes the job. Otherwise the error
 // decides what happens next: an ambiguous PayPal error parks the job as
 // unknown and schedules a reconcile; a refusal the handler has already
-// recorded (see refusal) fails the job, which keeps its key and can be revived
-// with EnqueueOrRevive; anything else, a 429, a store failure or a panic
-// included, retries it later under the same key. httpStatus is PayPal's HTTP
-// status when the handler knows it.
+// recorded (see refusal) fails the job, which keeps its key: a skip is
+// revived by EnqueueOrRevive once the action applies again, and a PayPal
+// refusal only through Revive; anything else, a 429, a store failure or a
+// panic included, retries it later under the same key. httpStatus is PayPal's
+// HTTP status when the handler knows it.
 type Handler func(ctx context.Context, job *store.Job) (httpStatus *int, err error)
 
 type Runner struct {
@@ -83,8 +87,8 @@ type Runner struct {
 	handlers map[string]Handler
 }
 
-// New returns a runner with the payment handlers registered. A nil Log uses
-// slog.Default and a nil Clock the real clock.
+// New returns a runner with the payment handlers, close and release_seats
+// registered. A nil Log uses slog.Default and a nil Clock the real clock.
 func New(d Deps) *Runner {
 	log := d.Log
 	if log == nil {
@@ -96,12 +100,14 @@ func New(d Deps) *Runner {
 	}
 	r := &Runner{st: d.Store, pp: d.PayPal, clock: clk, cfg: d.Cfg, log: log, workerID: newWorkerID()}
 	r.handlers = map[string]Handler{
-		kindCreateOrder: r.createOrder,
-		kindAuthorize:   r.authorize,
-		kindCapture:     r.capture,
-		kindVoid:        r.void,
-		kindRefund:      r.refund,
-		kindReconcile:   r.reconcile,
+		kindCreateOrder:  r.createOrder,
+		kindAuthorize:    r.authorize,
+		kindCapture:      r.capture,
+		kindVoid:         r.void,
+		kindRefund:       r.refund,
+		kindReconcile:    r.reconcile,
+		kindClose:        r.closePayments,
+		kindReleaseSeats: r.releaseSeats,
 	}
 	return r
 }
@@ -112,14 +118,18 @@ func (r *Runner) Register(kind string, h Handler) {
 }
 
 // Run claims and runs due jobs until ctx is done, then returns ctx.Err(). When
-// nothing is due it waits two seconds before looking again, and once a minute
-// it takes back jobs claimed more than five minutes ago and never finished.
+// nothing is due it waits two seconds before looking again. Once a minute it
+// takes back jobs claimed more than five minutes ago and never finished, and
+// enqueues the minute's seat release for every workshop with a reserved seat.
 func (r *Runner) Run(ctx context.Context) error {
-	var lastRequeue time.Time
+	var lastTick time.Time
 	for {
-		if lastRequeue.IsZero() || time.Since(lastRequeue) >= requeueInterval {
+		if lastTick.IsZero() || time.Since(lastTick) >= tickInterval {
 			r.requeueStale(ctx)
-			lastRequeue = time.Now()
+			if err := r.EnqueueSeatReleases(ctx); err != nil && ctx.Err() == nil {
+				r.log.Error("worker: enqueue seat releases", "error", err)
+			}
+			lastTick = time.Now()
 		}
 		r.drain(ctx)
 		select {
@@ -389,7 +399,8 @@ func (r *Runner) jobLog(job *store.Job) *slog.Logger {
 // itself (issue, such as a passed capture deadline), or the enrollment was not
 // in a state the action applies to. The handler has already recorded any
 // outcome on the attempt and the enrollment. The job is failed with the
-// reason and keeps its key, so EnqueueOrRevive can send it again later.
+// reason and keeps its key: EnqueueOrRevive sends a skip again once the
+// action applies, and only Revive sends again an action PayPal refused.
 type refusal struct {
 	reason string
 	issue  string

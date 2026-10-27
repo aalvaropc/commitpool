@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
+	"github.com/aalvaropc/commitpool/internal/domain"
 	"github.com/aalvaropc/commitpool/internal/paypal"
 	"github.com/aalvaropc/commitpool/internal/store"
 )
@@ -16,8 +18,11 @@ import (
 // under its own key, so PayPal either replays its earlier answer or performs
 // the action once. The reconcile of generation maxReconcileGenerations stops
 // sending: it leaves such a job unknown for an operator and flags the
-// enrollment. Reads are safe to repeat, so a failed or ambiguous one retries
-// this job like any other failure.
+// enrollment. An order the buyer approved without coming back from PayPal is
+// authorized from here (authorizeApproved). Last, the workshop gets the
+// captures it is ready for and settles if nothing is left in flight. Reads
+// are safe to repeat, so a failed or ambiguous one retries this job like any
+// other failure.
 func (r *Runner) reconcile(ctx context.Context, job *store.Job) (*int, error) {
 	s, err := r.load(ctx, job)
 	if err != nil {
@@ -34,7 +39,104 @@ func (r *Runner) reconcile(ctx context.Context, job *store.Job) (*int, error) {
 		return nil, fmt.Errorf("payment attempt %s: %w", s.attempt.ID, store.ErrNotFound)
 	}
 	n, _ := generation(*job)
-	return nil, r.resolveUnknown(ctx, s.log, *a, n >= maxReconcileGenerations)
+	if err := r.resolveUnknown(ctx, s.log, *a, n >= maxReconcileGenerations); err != nil {
+		return nil, err
+	}
+	if err := r.authorizeApproved(ctx, s.log, *a); err != nil {
+		return nil, err
+	}
+	if err := r.StartCaptureRoundIfReady(ctx, s.enrollment.WorkshopID); err != nil {
+		return nil, err
+	}
+	return nil, r.SettleIfResolved(ctx, s.enrollment.WorkshopID)
+}
+
+// authorizeApproved authorizes an order the buyer approved at PayPal without
+// coming back to the return page. It acts when PayPal shows the latest
+// attempt's order APPROVED with no authorization, payments are still open and
+// the enrollment is SEAT_RESERVED or RELEASED. Expired seats are released
+// first; a released enrollment takes a seat again when one is free and
+// otherwise stays RELEASED, with nothing authorized. With a seat held it
+// enqueues authorize:{attempt}, or revives it: a skipped one automatically,
+// and one PayPal refused as ORDER_NOT_APPROVED because the order is approved
+// now.
+func (r *Runner) authorizeApproved(ctx context.Context, log *slog.Logger, a store.AttemptRow) error {
+	if !is(a.OrderStatus, ppApproved) || a.AuthorizationID != nil {
+		return nil
+	}
+	if driving, err := r.driving(ctx, a); err != nil || !driving {
+		return err
+	}
+	en, err := r.st.EnrollmentByID(ctx, a.EnrollmentID)
+	if err != nil {
+		return err
+	}
+	if en.Status != domain.EnrollmentSeatReserved && en.Status != domain.EnrollmentReleased {
+		return nil
+	}
+	now := r.clock.Now()
+	if open, err := r.paymentsOpen(ctx, en, now); err != nil || !open {
+		if err == nil {
+			log.Info("order approved after payments closed; not authorizing it")
+		}
+		return err
+	}
+	if _, err := r.st.ReleaseExpiredSeats(ctx, en.WorkshopID, now); err != nil {
+		return err
+	}
+	if en, err = r.st.EnrollmentByID(ctx, en.ID); err != nil {
+		return err
+	}
+	switch en.Status {
+	case domain.EnrollmentSeatReserved:
+	case domain.EnrollmentReleased:
+		reserved, err := r.st.ReReserveSeat(ctx, en.ID, now, r.cfg.SeatTTL)
+		if err != nil {
+			return err
+		}
+		if !reserved {
+			log.Info("order approved after the seat expired and no seat is free; not authorizing it")
+			return nil
+		}
+		log.Info("order approved after the seat expired; seat taken again")
+	default:
+		return nil
+	}
+	key := kindAuthorize + ":" + a.ID
+	created, err := r.EnqueueOrRevive(ctx, kindAuthorize, key, &en.WorkshopID, &a.ID, nil, now)
+	if err != nil || created {
+		if created {
+			log.Info("order approved without the buyer coming back; authorizing it")
+		}
+		return err
+	}
+	j, err := r.st.JobByKey(ctx, key)
+	if err != nil || j == nil || j.Status != jobFailed || !is(j.ProviderIssue, issueOrderNotApproved) {
+		return err
+	}
+	log.Info("order approved since PayPal refused to authorize it; reviving the authorize job")
+	_, err = r.Revive(ctx, key)
+	return err
+}
+
+// paymentsOpen reports whether the enrollment's workshop still takes
+// authorizations: funding or confirmed, before its payments close.
+func (r *Runner) paymentsOpen(ctx context.Context, en store.EnrollmentRow, now time.Time) (bool, error) {
+	w, err := r.st.WorkshopByID(ctx, en.WorkshopID)
+	if err != nil {
+		return false, err
+	}
+	if w.Status != domain.WorkshopFunding && w.Status != domain.WorkshopConfirmed {
+		return false, nil
+	}
+	p, err := r.st.ProposalByID(ctx, en.ProposalID)
+	if err != nil {
+		return false, err
+	}
+	if p == nil {
+		return false, fmt.Errorf("proposal %s: %w", en.ProposalID, store.ErrNotFound)
+	}
+	return now.Before(p.ClosesAt), nil
 }
 
 // refresh applies the order, with every payment it lists, and then the

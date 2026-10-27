@@ -16,6 +16,7 @@ import (
 // PayPal issues the handlers branch on, plus the one the worker records itself.
 const (
 	issueInvalidResourceID    = "INVALID_RESOURCE_ID"
+	issueOrderNotApproved     = "ORDER_NOT_APPROVED"
 	issuePreviouslyVoided     = "PREVIOUSLY_VOIDED"
 	issueAuthorizationExpired = "AUTHORIZATION_EXPIRED"
 	issueCaptureFullyRefunded = "CAPTURE_FULLY_REFUNDED"

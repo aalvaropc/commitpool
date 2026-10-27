@@ -170,6 +170,12 @@ func (s *Store) ActiveProposal(ctx context.Context, workshopID string) (*Proposa
 	return latestProposal(ctx, s.Pool, workshopID)
 }
 
+// ProposalByID returns the proposal, or nil when there is none.
+func (s *Store) ProposalByID(ctx context.Context, id string) (*ProposalRow, error) {
+	return oneOrNil[ProposalRow](ctx, s.Pool, "proposal by id",
+		`select `+proposalCols+` from proposals where id = $1`, id)
+}
+
 func latestProposal(ctx context.Context, q querier, workshopID string) (*ProposalRow, error) {
 	return oneOrNil[ProposalRow](ctx, q, "active proposal",
 		`select `+proposalCols+` from proposals where workshop_id = $1 order by version desc limit 1`, workshopID)

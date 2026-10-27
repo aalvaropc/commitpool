@@ -219,6 +219,26 @@ func TestOpenProposal_UnknownWorkshop(t *testing.T) {
 	}
 }
 
+func TestProposalByID_ReturnsProposalOrNil(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	w, _, _ := newWorkshop(t, s, 2, 4)
+	opened := openFunding(t, s, w, baseTime)
+
+	got, err := s.ProposalByID(ctx, opened.ID)
+	if err != nil || got == nil {
+		t.Fatalf("ProposalByID = %+v, %v; want the proposal", got, err)
+	}
+	if *got != opened {
+		t.Errorf("ProposalByID = %+v, want %+v", *got, opened)
+	}
+	for _, id := range []string{missingUUID, "not-a-uuid"} {
+		if p, err := s.ProposalByID(ctx, id); err != nil || p != nil {
+			t.Errorf("ProposalByID(%s) = %+v, %v; want nil, nil", id, p, err)
+		}
+	}
+}
+
 func TestParticipants_CreateAndLookup(t *testing.T) {
 	ctx := context.Background()
 	s := store.TestStore(t)

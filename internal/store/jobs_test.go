@@ -694,6 +694,49 @@ func TestMarkJobUnknown_RefusesNonRunningJob(t *testing.T) {
 	}
 }
 
+func TestFailJob_MarksFailedAndIsReenqueueable(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	enqueue(t, s, "authorize", "authorize:a1", baseTime)
+	j := claim(t, s, "w1", baseTime)
+
+	if err := s.FailJob(ctx, j.ID, "paypal: HTTP 422 (ORDER_NOT_APPROVED)", ptr(422), ptr("ORDER_NOT_APPROVED"), ptr("dbg-1")); err != nil {
+		t.Fatalf("FailJob: %v", err)
+	}
+
+	got := jobByKey(t, s, "authorize:a1")
+	if got.Status != "failed" || got.Attempts != 1 {
+		t.Errorf("status/attempts = %s/%d, want failed/1", got.Status, got.Attempts)
+	}
+	if got.LastError == nil || *got.LastError != "paypal: HTTP 422 (ORDER_NOT_APPROVED)" ||
+		got.HTTPStatus == nil || *got.HTTPStatus != 422 ||
+		got.ProviderIssue == nil || *got.ProviderIssue != "ORDER_NOT_APPROVED" ||
+		got.DebugID == nil || *got.DebugID != "dbg-1" {
+		t.Errorf("failure columns = %v %v %v %v, want the refusal", got.LastError, got.HTTPStatus, got.ProviderIssue, got.DebugID)
+	}
+	assertUnlocked(t, s, j.ID)
+
+	if err := s.FailJob(ctx, j.ID, "again", nil, nil, nil); !errors.Is(err, store.ErrJobNotActive) {
+		t.Errorf("FailJob on a failed job = %v, want ErrJobNotActive", err)
+	}
+	if err := s.FailJob(ctx, missingUUID, "missing", nil, nil, nil); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("FailJob on a missing job = %v, want ErrNotFound", err)
+	}
+
+	if err := s.ReenqueueJob(ctx, "authorize:a1", baseTime.Add(time.Minute)); err != nil {
+		t.Fatalf("ReenqueueJob: %v", err)
+	}
+	revived := jobByKey(t, s, "authorize:a1")
+	if revived.ID != j.ID || revived.Status != "pending" || revived.Attempts != 1 {
+		t.Errorf("revived job = %s %s/%d, want the same row %s pending with attempts kept at 1", revived.ID, revived.Status, revived.Attempts, j.ID)
+	}
+	assertTime(t, "revived run_at", revived.RunAt, baseTime.Add(time.Minute))
+	again := claim(t, s, "w2", baseTime.Add(time.Minute))
+	if again.IdempotencyKey != "authorize:a1" || again.Attempts != 2 {
+		t.Errorf("claimed %s with attempts %d, want authorize:a1 with attempts 2", again.IdempotencyKey, again.Attempts)
+	}
+}
+
 func TestJobTransitions_UnknownJobIsNotFound(t *testing.T) {
 	ctx := context.Background()
 	s := store.TestStore(t)

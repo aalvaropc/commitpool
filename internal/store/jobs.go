@@ -182,6 +182,21 @@ func (s *Store) MarkJobUnknown(ctx context.Context, id, lastError string, httpSt
 		 where id = $1 and status = 'running'`, lastError, httpStatus)
 }
 
+// FailJob records a final refusal of a running job: it goes to failed with the
+// error, HTTP status, provider issue and debug ID as given, and the lock is
+// released. A failed job is no longer claimed, but ReenqueueJob sends it back
+// to pending under the same key, so a refused action can be tried again later.
+//
+// Only a running job can be failed: any other status returns ErrJobNotActive
+// and leaves the job as it is, and a missing job returns ErrNotFound.
+func (s *Store) FailJob(ctx context.Context, id, lastError string, httpStatus *int, issue, debugID *string) error {
+	return s.finishJob(ctx, "fail job", id,
+		`update jobs set status = 'failed', last_error = $2, http_status = $3,
+			provider_issue = $4, debug_id = $5,
+			locked_at = null, locked_by = null, updated_at = now()
+		 where id = $1 and status = 'running'`, lastError, httpStatus, issue, debugID)
+}
+
 // finishJob runs a status-guarded update of one job; sql takes the job ID as
 // $1. When it matches no row, the job is either missing (ErrNotFound) or in a
 // status the transition does not accept (ErrJobNotActive).

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/aalvaropc/commitpool/internal/domain"
+	"github.com/aalvaropc/commitpool/internal/httpapi"
 	"github.com/aalvaropc/commitpool/internal/paypal"
 	"github.com/aalvaropc/commitpool/internal/store"
 )
@@ -418,6 +419,105 @@ func TestReturn_HoldLandedOnAReleasedSeatIsNotAuthorizedAgain(t *testing.T) {
 	}
 }
 
+// orderReads runs a hook once, on the next GET order, before PayPal answers
+// it: what another request does while the return reads the order.
+type orderReads struct {
+	paypal.API
+	mu   sync.Mutex
+	next func()
+}
+
+func (o *orderReads) wrap(api paypal.API) paypal.API {
+	o.API = api
+	return o
+}
+
+func (o *orderReads) before(f func()) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.next = f
+}
+
+func (o *orderReads) GetOrder(ctx context.Context, id string) (paypal.Order, error) {
+	o.mu.Lock()
+	f := o.next
+	o.next = nil
+	o.mu.Unlock()
+	if f != nil {
+		f()
+	}
+	return o.API.GetOrder(ctx, id)
+}
+
+// approvedEvent is PayPal's CHECKOUT.ORDER.APPROVED for the order.
+func approvedEvent(id, orderID string) map[string]any {
+	return event(id, "CHECKOUT.ORDER.APPROVED", "checkout-order", map[string]any{"id": orderID, "status": "APPROVED", "intent": "AUTHORIZE"})
+}
+
+func TestReturn_SeatReReservedByConcurrentReconcileIsNotReportedExpired(t *testing.T) {
+	reads := &orderReads{}
+	e := newEnv(t, withWebhookID(), withPayPal(reads.wrap))
+	h, p, ps := e.fundingWorkshop()
+	en, a := e.checkout(ps[0], p.ID)
+	e.fake.Approve(*a.OrderID)
+	e.clock.Set(t0.Add(31 * time.Minute))
+	e.releaseSeats(h)
+	e.wantStatus(en.EnrollmentID, domain.EnrollmentReleased)
+
+	// PayPal's approval webhook comes with the buyer's redirect, and its
+	// reconcile takes the seat again while the return reads the order.
+	e.deliver(approvedEvent("WH-APPROVED-RACE-1", *a.OrderID))
+	reads.before(func() { e.runKey("reconcile:" + a.ID + ":webhook:WH-APPROVED-RACE-1") })
+
+	e.wantReturn(en.EnrollmentID, *a.OrderID, "authorized")
+	e.wantStatus(en.EnrollmentID, domain.EnrollmentAuthorized)
+	if reqs := e.wantRequests("authorize", 1); len(reqs) == 1 && reqs[0].RequestID != "authorize:"+a.ID {
+		t.Errorf("authorize PayPal-Request-Id = %q, want authorize:%s", reqs[0].RequestID, a.ID)
+	}
+}
+
+func TestReturn_PaymentsClosingWhileTheSeatIsRenewedIsClosed(t *testing.T) {
+	reads := &orderReads{}
+	e := newEnv(t, withPayPal(reads.wrap))
+	h, p, ps := e.fundingWorkshop()
+	en, a := e.checkout(ps[0], p.ID)
+	e.fake.Approve(*a.OrderID)
+	lapsed := t0.Add(31 * time.Minute)
+	e.clock.Set(lapsed)
+	e.releaseSeats(h)
+	// The owner closes payments while the return reads the order.
+	reads.before(func() {
+		if _, err := e.st.ShortenPaymentWindow(e.ctx, p.ID, lapsed); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	e.wantReturn(en.EnrollmentID, *a.OrderID, "closed")
+	e.wantStatus(en.EnrollmentID, domain.EnrollmentReleased)
+	e.wantRequests("authorize", 0)
+}
+
+func TestReturn_CompletedOrderAfterPaymentsCloseIsClosed(t *testing.T) {
+	lost := &lostAnswers{}
+	e := newEnv(t, withPayPal(lost.wrap))
+	h, p, ps := e.fundingWorkshop()
+	en, a := e.checkout(ps[0], p.ID)
+	e.fake.Approve(*a.OrderID)
+	lost.loseNext("authorize")
+	e.runPayment("authorize", h.created.Workshop.ID, a)
+	e.clock.Set(p.ClosesAt)
+
+	e.wantReturn(en.EnrollmentID, *a.OrderID, "closed")
+	e.wantRequests("authorize", 1)
+
+	// The reconcile records the hold and, payments being closed, voids it.
+	e.runKey("reconcile:" + a.ID + ":1")
+	if j := e.job("void:" + a.ID); j.Status != store.JobPending {
+		t.Errorf("void of the hold recorded after close = %s, want pending", j.Status)
+	}
+	e.wantReturn(en.EnrollmentID, *a.OrderID, "closed")
+}
+
 func TestReturn_OrderNotApprovedIsPending(t *testing.T) {
 	e := newEnv(t)
 	_, p, ps := e.fundingWorkshop()
@@ -543,6 +643,14 @@ func TestCancel_MarksApprovalCancelledAndKeepsSeatUntilExpiry(t *testing.T) {
 	cancelledAt := t0.Add(2 * time.Minute)
 	e.clock.Set(cancelledAt)
 
+	// A cancel without PayPal's token cannot be told apart from a forged one.
+	if got := e.fromPayPal("/paypal/cancel?e=" + en.EnrollmentID); got.result != "mismatch" || got.enrollmentID != en.EnrollmentID {
+		t.Errorf("cancel without a token = %+v, want mismatch", got)
+	}
+	if row := e.enrollment(en.EnrollmentID); row.ApprovalCancelledAt != nil {
+		t.Fatalf("a cancel without a token marked the enrollment at %v", row.ApprovalCancelledAt)
+	}
+
 	back := e.buyer(http.MethodGet, "/cancel", url.Values{"order": {*a.OrderID}})
 	if !strings.HasPrefix(back, "/paypal/cancel?e="+en.EnrollmentID+"&") {
 		t.Fatalf("PayPal sends the cancelling buyer to %q, want this enrollment's cancel", back)
@@ -649,6 +757,50 @@ func TestEnrollment_LapsedSeatIsReReservedOrRefused(t *testing.T) {
 		e.wantStatus(first.EnrollmentID, domain.EnrollmentReleased)
 		e.wantRequests("create_order", 2)
 	})
+}
+
+func TestEnrollment_LapsedSeatRenewedByAConcurrentReconcileKeepsTheLink(t *testing.T) {
+	e := newEnv(t, withWebhookID())
+	_, p, ps := e.fundingWorkshop()
+	first, a := e.checkout(ps[0], p.ID)
+	e.fake.Approve(*a.OrderID)
+	e.clock.Set(t0.Add(31 * time.Minute))
+	e.deliver(approvedEvent("WH-APPROVED-RACE-2", *a.OrderID))
+	// The approval webhook's reconcile renews the seat while this request
+	// is about to.
+	ran := false
+	httpapi.SetBeforeSeatRenewal(t, func(context.Context, string) {
+		if !ran {
+			ran = true
+			e.runKey("reconcile:" + a.ID + ":webhook:WH-APPROVED-RACE-2")
+		}
+	})
+
+	again := e.enroll(ps[0], p.ID, http.StatusOK)
+	if !ran || again.EnrollmentID != first.EnrollmentID || again.ApproveURL != first.ApproveURL || again.Status != "SEAT_RESERVED" {
+		t.Errorf("repeated POST while the reconcile renewed the seat = %+v (hook ran %v), want the same link", again, ran)
+	}
+	if j := e.job("authorize:" + a.ID); j.Status != store.JobPending {
+		t.Errorf("the reconcile's authorize = %s, want pending", j.Status)
+	}
+	e.wantRequests("create_order", 1)
+}
+
+func TestEnrollment_LapsedSeatAfterPaymentsCloseIsProposalNotOpen(t *testing.T) {
+	e := newEnv(t)
+	_, p, ps := e.fundingWorkshop()
+	first := e.enroll(ps[0], p.ID, http.StatusCreated)
+	lapsed := t0.Add(31 * time.Minute)
+	e.clock.Set(lapsed)
+	// The owner closes payments while the seat is being renewed.
+	httpapi.SetBeforeSeatRenewal(t, func(ctx context.Context, _ string) {
+		if _, err := e.st.ShortenPaymentWindow(ctx, p.ID, lapsed); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	e.wantError(http.MethodPost, ps[0].path+"/enrollment", enrollBody(p.ID), http.StatusConflict, "proposal_not_open")
+	e.wantStatus(first.EnrollmentID, domain.EnrollmentReleased)
 }
 
 // lostAnswers lets PayPal authorize or capture but loses the answer to the
@@ -823,6 +975,9 @@ func TestWebhook_InvalidSignatureIs400AndNotStored(t *testing.T) {
 	e.refuseDelivery(body, http.StatusBadRequest, "invalid_signature")
 	if n := e.count(`select count(*) from provider_events`); n != 0 {
 		t.Errorf("provider events = %d, want none", n)
+	}
+	if logs := e.logs.String(); strings.Contains(logs, "WH-FORGED-1") || strings.Contains(logs, "PAYMENT.CAPTURE.COMPLETED") {
+		t.Errorf("the log carries fields of an unverified event:\n%s", logs)
 	}
 	if n := e.count(`select count(*) from jobs where kind = 'reconcile'`); n != 0 {
 		t.Errorf("reconcile jobs = %d, want none", n)
@@ -1017,8 +1172,11 @@ func TestWebhook_RejectsBodiesThatAreNotEvents(t *testing.T) {
 func TestWebhook_VerificationOutageIs502AndNotStored(t *testing.T) {
 	e := newEnv(t, withWebhookID())
 	e.fake.FailNext("verify_webhook", http.StatusServiceUnavailable, "")
-	e.refuseDelivery(mustJSON(t, captureCompleted("WH-1", "CAPTURE-1", "ORDER-1", "AUTH-1")), http.StatusBadGateway, "paypal_unavailable")
+	e.refuseDelivery(mustJSON(t, captureCompleted("WH-UNVERIFIED-MARKER", "CAPTURE-1", "ORDER-1", "AUTH-1")), http.StatusBadGateway, "paypal_unavailable")
 	if n := e.count(`select count(*) from provider_events`); n != 0 {
 		t.Errorf("provider events = %d, want none", n)
+	}
+	if strings.Contains(e.logs.String(), "WH-UNVERIFIED-MARKER") {
+		t.Errorf("the log carries the id of an event PayPal did not verify")
 	}
 }

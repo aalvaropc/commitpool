@@ -133,22 +133,27 @@ func (s *server) enroll(w http.ResponseWriter, r *http.Request) error {
 
 // renewLapsedSeat gives a participant who asks again for a checkout whose
 // seat has expired, before the seat tick released it, the seat back under
-// the capacity rule (holdSeat) and returns the enrollment as it is then. When
-// the seat cannot be renewed the enrollment is left RELEASED and the answer
-// is seat_expired, without a link. Any other enrollment is returned as is.
+// the capacity rule (holdSeat) and returns the enrollment as it is then; a
+// seat another request or a reconcile renewed first counts as renewed. When
+// it cannot be renewed the enrollment is left RELEASED and the answer has no
+// link: proposal_not_open once payments have closed, seat_expired otherwise.
+// Any other enrollment is returned as is.
 func (s *server) renewLapsedSeat(ctx context.Context, en store.EnrollmentRow, now time.Time) (store.EnrollmentRow, error) {
 	if en.Status != domain.EnrollmentSeatReserved || !en.SeatExpiresAt.Before(now) {
 		return en, nil
 	}
-	held, err := s.holdSeat(ctx, en, now)
-	if err != nil {
+	seat, err := s.holdSeat(ctx, en, now)
+	switch {
+	case err != nil:
 		return en, err
-	}
-	if !held {
+	case seat == seatClosed:
+		s.Log.Info("enrollment: payments closed before the expired seat could be renewed", "enrollment_id", en.ID)
+		return en, errProposalNotOpen
+	case seat == seatGone:
 		s.Log.Info("enrollment: the seat expired and could not be renewed", "enrollment_id", en.ID)
 		return en, errSeatExpired
 	}
-	s.Log.Info("enrollment: the expired seat was renewed", "enrollment_id", en.ID)
+	s.Log.Info("enrollment: the expired seat is held again", "enrollment_id", en.ID)
 	return s.Store.EnrollmentByID(ctx, en.ID)
 }
 

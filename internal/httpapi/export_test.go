@@ -14,3 +14,12 @@ func SetCheckoutWait(t testing.TB, wait time.Duration, pause func(context.Contex
 	checkoutWait, checkoutPause = wait, pause
 	t.Cleanup(func() { checkoutWait, checkoutPause = oldWait, oldPause })
 }
+
+// SetBeforeSeatRenewal replaces, for the rest of the test, what runs as an
+// expired seat starts being renewed, so a test can let another request act
+// first.
+func SetBeforeSeatRenewal(t testing.TB, f func(ctx context.Context, enrollmentID string)) {
+	old := beforeSeatRenewal
+	beforeSeatRenewal = f
+	t.Cleanup(func() { beforeSeatRenewal = old })
+}

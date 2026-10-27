@@ -1,0 +1,82 @@
+package httpapi
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+)
+
+// apiError is an answer for the client: an HTTP status, a snake_case code
+// the web app branches on, an English sentence it can show and, for a
+// refused proposal, the rule that refused it.
+type apiError struct {
+	status  int
+	code    string
+	message string
+	reason  string
+}
+
+func (e *apiError) Error() string { return e.code + ": " + e.message }
+
+func newError(status int, code, message string) *apiError {
+	return &apiError{status: status, code: code, message: message}
+}
+
+func badRequest(code, format string, args ...any) *apiError {
+	return newError(http.StatusBadRequest, code, fmt.Sprintf(format, args...))
+}
+
+func conflict(code, message string) *apiError {
+	return newError(http.StatusConflict, code, message)
+}
+
+var (
+	errNotFound      = newError(http.StatusNotFound, "not_found", "Nothing was found at this address.")
+	errInternal      = newError(http.StatusInternalServerError, "internal_error", "Something went wrong on our side. Please try again.")
+	errBodyTooLarge  = newError(http.StatusRequestEntityTooLarge, "body_too_large", "The request body is larger than 64 KiB.")
+	errInvalidJSON   = badRequest("invalid_json", "The request body is not a valid JSON object for this endpoint.")
+	errMethodRefused = newError(http.StatusMethodNotAllowed, "method_not_allowed", "This address only answers GET requests.")
+)
+
+type errorBody struct {
+	Error   string `json:"error"`
+	Message string `json:"message"`
+	Reason  string `json:"reason,omitempty"`
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+func writeError(w http.ResponseWriter, e *apiError) {
+	writeJSON(w, e.status, errorBody{Error: e.code, Message: e.message, Reason: e.reason})
+}
+
+// decode reads exactly one JSON value from the request body into dst. The
+// body is capped by the server's limit, so a larger one is body_too_large.
+func decode(r *http.Request, dst any) error {
+	dec := json.NewDecoder(r.Body)
+	err := dec.Decode(dst)
+	if err == nil {
+		if extra := dec.Decode(&struct{}{}); !errors.Is(extra, io.EOF) {
+			err = extra
+			if err == nil {
+				err = errors.New("trailing data")
+			}
+		}
+	}
+	var tooLarge *http.MaxBytesError
+	switch {
+	case err == nil:
+		return nil
+	case errors.As(err, &tooLarge):
+		return errBodyTooLarge
+	default:
+		return errInvalidJSON
+	}
+}

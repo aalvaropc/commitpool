@@ -3,20 +3,28 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
-	"path"
-	"strings"
 	"syscall"
 	"time"
+	// The workshop time zone must load in a minimal container image too.
+	_ "time/tzdata"
 
+	"github.com/aalvaropc/commitpool/internal/ai"
+	"github.com/aalvaropc/commitpool/internal/clock"
 	"github.com/aalvaropc/commitpool/internal/config"
+	"github.com/aalvaropc/commitpool/internal/httpapi"
+	"github.com/aalvaropc/commitpool/internal/paypal"
 	"github.com/aalvaropc/commitpool/internal/store"
+	"github.com/aalvaropc/commitpool/internal/worker"
 	"github.com/aalvaropc/commitpool/web"
 )
+
+const shutdownTimeout = 10 * time.Second
 
 func main() {
 	log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
@@ -40,8 +48,18 @@ func run(log *slog.Logger) error {
 		return err
 	}
 	defer st.Close()
-
 	if err := store.Migrate(ctx, st.Pool); err != nil {
+		return err
+	}
+
+	pp, closePayPal, err := newPayPal(&cfg, log)
+	if err != nil {
+		return err
+	}
+	defer closePayPal()
+
+	interpreter, err := newInterpreter(cfg)
+	if err != nil {
 		return err
 	}
 
@@ -50,34 +68,47 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if err := st.Pool.Ping(r.Context()); err != nil {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			_, _ = w.Write([]byte(`{"ok":false}`))
-			return
-		}
-		_, _ = w.Write([]byte(`{"ok":true}`))
-	})
-	mux.Handle("/", spaHandler(dist))
-
+	clk := clock.Real{}
+	runner := worker.New(worker.Deps{Store: st, PayPal: pp, Clock: clk, Cfg: cfg, Log: log})
 	srv := &http.Server{
-		Addr:              ":" + cfg.Port,
-		Handler:           mux,
+		Addr: ":" + cfg.Port,
+		Handler: httpapi.New(httpapi.Deps{
+			Store: st, Worker: runner, PayPal: pp, AI: interpreter, Clock: clk, Cfg: cfg, Log: log, Dist: dist,
+		}),
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      90 * time.Second,
+		IdleTimeout:       2 * time.Minute,
 	}
+
+	// The worker runs on its own context so it keeps serving inline jobs while
+	// the HTTP server drains, and stops after it. Run also enqueues the seat
+	// releases once a minute.
+	workerCtx, stopWorker := context.WithCancel(context.Background())
+	workerDone := make(chan struct{})
+	go func() {
+		defer close(workerDone)
+		if err := runner.Run(workerCtx); err != nil && !errors.Is(err, context.Canceled) {
+			log.Error("worker stopped", "error", err)
+		}
+	}()
+	defer func() {
+		stopWorker()
+		<-workerDone
+	}()
+
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
-	log.Info("commitpool listening", "addr", srv.Addr)
+	log.Info("commitpool listening", "addr", srv.Addr, "base_url", cfg.BaseURL,
+		"ai_provider", cfg.AIProvider, "demo_mode", cfg.DemoMode, "sandbox_mocks", cfg.SandboxMocks)
 
 	select {
 	case err := <-errc:
 		return err
 	case <-ctx.Done():
 	}
-
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	log.Info("shutting down")
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
@@ -85,24 +116,44 @@ func run(log *slog.Logger) error {
 	return nil
 }
 
-// spaHandler serves the embedded web build, falling back to index.html so the
-// client-side router can resolve deep links.
-func spaHandler(dist fs.FS) http.Handler {
-	files := http.FileServerFS(dist)
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		name := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
-		if name != "" {
-			if info, err := fs.Stat(dist, name); err == nil && !info.IsDir() {
-				files.ServeHTTP(w, r)
-				return
-			}
+// newPayPal returns the PayPal client. With E2E_FAKE_PAYPAL=1 it first starts
+// the in-process fake and points the configuration at it; the returned func
+// stops the fake.
+func newPayPal(cfg *config.Config, log *slog.Logger) (paypal.API, func(), error) {
+	ppCfg := paypal.Config{
+		BaseURL:      cfg.PayPalBaseURL,
+		ClientID:     cfg.PayPalClientID,
+		ClientSecret: cfg.PayPalClientSecret,
+		WebhookID:    cfg.PayPalWebhookID,
+		SandboxMocks: cfg.SandboxMocks,
+	}
+	closeFake := func() {}
+	if cfg.FakePayPal {
+		fake := paypal.NewFakeServer()
+		closeFake = fake.Close
+		cfg.PayPalBaseURL = fake.URL
+		ppCfg.BaseURL = fake.URL
+		if ppCfg.ClientID == "" {
+			ppCfg.ClientID = "fake-client"
 		}
-		index, err := fs.ReadFile(dist, "index.html")
-		if err != nil {
-			http.Error(w, "web app is not built: run `make web-build`", http.StatusNotFound)
-			return
+		if ppCfg.ClientSecret == "" {
+			ppCfg.ClientSecret = "fake-secret"
 		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write(index)
-	})
+		log.Warn("using the in-process fake PayPal server", "url", fake.URL)
+	}
+	client, err := paypal.New(ppCfg)
+	if err != nil {
+		closeFake()
+		return nil, nil, err
+	}
+	return client, closeFake, nil
+}
+
+func newInterpreter(cfg config.Config) (ai.Interpreter, error) {
+	switch cfg.AIProvider {
+	case config.AIProviderFake:
+		return ai.Fake{}, nil
+	default:
+		return nil, fmt.Errorf("ai: provider %q is not available in this build yet; set COMMITPOOL_AI_PROVIDER=fake", cfg.AIProvider)
+	}
 }

@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/aalvaropc/commitpool/internal/domain"
 )
 
 type AttemptRow struct {
@@ -26,12 +28,20 @@ const attemptCols = `id, enrollment_id, attempt_no, order_id, authorization_id, 
 // CreateAttempt adds the enrollment's next payment attempt, numbered from 1.
 // The enrollment row is locked while numbering, so concurrent callers get
 // distinct consecutive numbers.
+//
+// Only a SEAT_RESERVED enrollment can get a new attempt; any other status
+// returns ErrAttemptNotAllowed. Once an attempt is authorized the enrollment
+// leaves SEAT_RESERVED for good, so an enrollment that is authorized, being
+// captured, voided or refunded always belongs to its latest attempt.
 func (s *Store) CreateAttempt(ctx context.Context, enrollmentID string, amountMinor int64, currency string) (AttemptRow, error) {
 	var attempt AttemptRow
 	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
-		var locked string
-		if err := tx.QueryRow(ctx, `select id from enrollments where id = $1 for update`, enrollmentID).Scan(&locked); err != nil {
+		var status domain.EnrollmentStatus
+		if err := tx.QueryRow(ctx, `select status from enrollments where id = $1 for update`, enrollmentID).Scan(&status); err != nil {
 			return lookupErr("lock enrollment", err)
+		}
+		if status != domain.EnrollmentSeatReserved {
+			return ErrAttemptNotAllowed
 		}
 		row, err := one[AttemptRow](ctx, tx,
 			`insert into payment_attempts (enrollment_id, attempt_no, amount_minor, currency)

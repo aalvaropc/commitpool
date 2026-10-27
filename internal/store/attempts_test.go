@@ -3,11 +3,13 @@ package store_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/aalvaropc/commitpool/internal/domain"
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
@@ -19,6 +21,38 @@ func newEnrollment(t *testing.T, s *store.Store) store.EnrollmentRow {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+func TestCreateAttempt_RefusesUnlessSeatReserved(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	w, _, _ := newWorkshop(t, s, 1, 6)
+	p := openFunding(t, s, w, baseTime)
+	statuses := []domain.EnrollmentStatus{
+		domain.EnrollmentAuthorized, domain.EnrollmentCapturing, domain.EnrollmentPaid, domain.EnrollmentCaptureFailed,
+	}
+	for i, status := range statuses {
+		e := reserve(t, s, w, p, newParticipant(t, s, w, fmt.Sprintf("Participant %d", i)).ID, baseTime.Add(time.Hour))
+		if _, err := s.CreateAttempt(ctx, e.ID, 1000, "USD"); err != nil {
+			t.Fatalf("CreateAttempt while SEAT_RESERVED: %v", err)
+		}
+		mustTransition(t, s, e.ID, []domain.EnrollmentStatus{domain.EnrollmentSeatReserved}, status)
+
+		if a, err := s.CreateAttempt(ctx, e.ID, 1000, "USD"); !errors.Is(err, store.ErrAttemptNotAllowed) {
+			t.Errorf("CreateAttempt on a %s enrollment = %+v, %v; want ErrAttemptNotAllowed", status, a, err)
+		}
+		if n := count(t, s, `select count(*) from payment_attempts where enrollment_id = $1`, e.ID); n != 1 {
+			t.Errorf("%s: attempts = %d, want only the first", status, n)
+		}
+	}
+
+	e := reserve(t, s, w, p, newParticipant(t, s, w, "Still reserved").ID, baseTime.Add(time.Hour))
+	for want := 1; want <= 2; want++ {
+		a, err := s.CreateAttempt(ctx, e.ID, 1000, "USD")
+		if err != nil || a.AttemptNo != want {
+			t.Fatalf("CreateAttempt #%d on a SEAT_RESERVED enrollment = %+v, %v", want, a, err)
+		}
+	}
+}
 
 func TestAttempts_NumberingAndLookupByResource(t *testing.T) {
 	ctx := context.Background()

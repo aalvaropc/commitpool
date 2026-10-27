@@ -283,6 +283,26 @@ func jobPayload(payload any) ([]byte, error) {
 	return body, nil
 }
 
+// ReviveJob sends the job with this key back to pending at now, on the same
+// row, under the same key and with its attempts kept, in one guarded update.
+// With anyFailure false only a job that failed without a provider answer (no
+// provider issue and no HTTP status, such as a skip) is revived, so an action
+// PayPal already refused is never sent again automatically; with anyFailure
+// true any failed or needs_attention job is. It reports whether a job was
+// revived; a missing key, or a job in another status, is false without error.
+func (s *Store) ReviveJob(ctx context.Context, key string, now time.Time, anyFailure bool) (bool, error) {
+	tag, err := s.Pool.Exec(ctx,
+		`update jobs set status = 'pending', run_at = $2,
+			locked_at = null, locked_by = null, updated_at = now()
+		 where idempotency_key = $1
+		   and ((status = 'failed' and ($3 or (provider_issue is null and http_status is null)))
+		        or ($3 and status = 'needs_attention'))`, key, now, anyFailure)
+	if err != nil {
+		return false, wrap("revive job", err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
 // JobByKey returns the job with this idempotency key, or nil when there is none.
 func (s *Store) JobByKey(ctx context.Context, key string) (*Job, error) {
 	return oneOrNil[Job](ctx, s.Pool, "job by key",

@@ -754,6 +754,79 @@ func TestJobTransitions_UnknownJobIsNotFound(t *testing.T) {
 	}
 }
 
+func TestReviveJob_PolicyAndSingleStatement(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	failed := func(key string, httpStatus *int, issue *string) {
+		t.Helper()
+		enqueue(t, s, "void", key, baseTime)
+		j, err := s.ClaimJobByKey(ctx, key, "w1", baseTime)
+		if err != nil || j == nil {
+			t.Fatalf("ClaimJobByKey(%s) = %+v, %v", key, j, err)
+		}
+		if err := s.FailJob(ctx, j.ID, "refused", httpStatus, issue, nil); err != nil {
+			t.Fatalf("FailJob(%s): %v", key, err)
+		}
+	}
+	failed("void:skipped", nil, nil)
+	failed("void:refused", ptr(422), ptr("PREVIOUSLY_CAPTURED"))
+	failed("void:refused-without-issue", ptr(400), nil)
+	enqueue(t, s, "void", "void:exhausted", baseTime)
+	if _, err := s.Pool.Exec(ctx, `update jobs set status = 'needs_attention', attempts = 5 where idempotency_key = 'void:exhausted'`); err != nil {
+		t.Fatal(err)
+	}
+	enqueue(t, s, "void", "void:pending", baseTime)
+	enqueue(t, s, "void", "void:running", baseTime)
+	if j, err := s.ClaimJobByKey(ctx, "void:running", "w1", baseTime); err != nil || j == nil {
+		t.Fatalf("claim void:running = %+v, %v", j, err)
+	}
+	enqueue(t, s, "void", "void:unknown", baseTime)
+	if j, err := s.ClaimJobByKey(ctx, "void:unknown", "w1", baseTime); err != nil || j == nil || s.MarkJobUnknown(ctx, j.ID, "timeout", nil) != nil {
+		t.Fatalf("park void:unknown = %+v, %v", j, err)
+	}
+	enqueue(t, s, "void", "void:succeeded", baseTime)
+	if j, err := s.ClaimJobByKey(ctx, "void:succeeded", "w1", baseTime); err != nil || j == nil || s.CompleteJob(ctx, j.ID, nil) != nil {
+		t.Fatalf("complete void:succeeded = %+v, %v", j, err)
+	}
+
+	now := baseTime.Add(time.Hour)
+	revive := func(key string, anyFailure, want bool) {
+		t.Helper()
+		before := jobByKey(t, s, key)
+		got, err := s.ReviveJob(ctx, key, now, anyFailure)
+		if err != nil || got != want {
+			t.Fatalf("ReviveJob(%s, anyFailure=%v) = %v, %v; want %v, nil", key, anyFailure, got, err, want)
+		}
+		after := jobByKey(t, s, key)
+		if !want {
+			if after.Status != before.Status {
+				t.Errorf("%s status = %s, want it left %s", key, after.Status, before.Status)
+			}
+			return
+		}
+		if after.Status != "pending" || after.ID != before.ID || after.Attempts != before.Attempts {
+			t.Errorf("revived %s = %s %s/%d, want the same row %s pending with attempts kept at %d",
+				key, after.ID, after.Status, after.Attempts, before.ID, before.Attempts)
+		}
+		assertTime(t, key+" run_at", after.RunAt, now)
+		assertUnlocked(t, s, after.ID)
+	}
+
+	revive("void:skipped", false, true)
+	for _, key := range []string{"void:refused", "void:refused-without-issue", "void:exhausted", "void:pending", "void:running", "void:unknown", "void:succeeded"} {
+		revive(key, false, false)
+	}
+	for _, key := range []string{"void:refused", "void:refused-without-issue", "void:exhausted"} {
+		revive(key, true, true)
+	}
+	for _, key := range []string{"void:running", "void:unknown", "void:succeeded"} {
+		revive(key, true, false)
+	}
+	if got, err := s.ReviveJob(ctx, "void:no-such-job", now, true); err != nil || got {
+		t.Errorf("ReviveJob(missing key) = %v, %v; want false, nil", got, err)
+	}
+}
+
 func TestReenqueueJob_KeepsKeyAndResetsRunAt(t *testing.T) {
 	ctx := context.Background()
 	s := store.TestStore(t)

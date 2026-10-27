@@ -244,3 +244,30 @@ func (s *Store) UpdateAttemptFunc(ctx context.Context, id string, fn func(a *Att
 	}
 	return saved, nil
 }
+
+// MarkOrderExpired records that PayPal no longer knows the attempt's order,
+// which happens to an order never approved: its status becomes EXPIRED,
+// in one guarded update, unless the attempt holds an authorization by then,
+// in which case nothing changes and marked is false. The next checkout of
+// the enrollment opens a new attempt (CheckoutAttempt). A missing or
+// malformed ID is ErrNotFound.
+func (s *Store) MarkOrderExpired(ctx context.Context, attemptID string) (marked bool, err error) {
+	tag, err := s.Pool.Exec(ctx,
+		`update payment_attempts set order_status = $2, updated_at = now()
+		 where id = $1 and authorization_id is null`,
+		attemptID, paypal.StatusExpired)
+	if err != nil {
+		return false, lookupErr("mark order expired", err)
+	}
+	if tag.RowsAffected() == 1 {
+		return true, nil
+	}
+	a, err := s.AttemptByID(ctx, attemptID)
+	if err != nil {
+		return false, err
+	}
+	if a == nil {
+		return false, ErrNotFound
+	}
+	return false, nil
+}

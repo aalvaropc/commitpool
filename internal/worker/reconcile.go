@@ -254,11 +254,9 @@ func orderGone(pe *paypal.Error) bool {
 	return pe.HTTPStatus == http.StatusNotFound && pe.Issue == issueInvalidResourceID
 }
 
+// expireOrder records the attempt's order as EXPIRED unless the attempt holds
+// an authorization by then (store.MarkOrderExpired).
 func (r *Runner) expireOrder(ctx context.Context, attemptID string) error {
-	_, err := r.st.UpdateAttemptFunc(ctx, attemptID, func(a *store.AttemptRow) error {
-		expired := paypal.StatusExpired
-		a.OrderStatus = &expired
-		return nil
-	})
+	_, err := r.st.MarkOrderExpired(ctx, attemptID)
 	return err
 }

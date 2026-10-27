@@ -631,3 +631,73 @@ func TestCheckoutAttempt_ReplacesAnAttemptWhoseOrderPayPalRefused(t *testing.T) 
 		t.Errorf("checkout with an order on a failed job = attempt %d, created %v; want the attempt with the order kept", again.AttemptNo, created)
 	}
 }
+
+func TestMarkOrderExpired_OnlyWithoutAnAuthorization(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	e := newEnrollment(t, s)
+	a, err := s.CreateAttempt(ctx, e.ID, 1000, "USD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	approved := "APPROVED"
+	a.OrderID, a.OrderStatus = ptr("ORDER-1"), &approved
+	if err := s.UpdateAttempt(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+
+	marked, err := s.MarkOrderExpired(ctx, a.ID)
+	if err != nil || !marked {
+		t.Fatalf("MarkOrderExpired = %v, %v; want true, nil", marked, err)
+	}
+	got, _ := s.AttemptByID(ctx, a.ID)
+	if got.OrderStatus == nil || *got.OrderStatus != "EXPIRED" || got.OrderID == nil || *got.OrderID != "ORDER-1" {
+		t.Errorf("attempt after MarkOrderExpired = status %v, order %v; want EXPIRED with the order kept", got.OrderStatus, got.OrderID)
+	}
+
+	held := reserve(t, s, mustWorkshop(t, s, e.WorkshopID), mustProposal(t, s, e.ProposalID), newParticipantIn(t, s, e.WorkshopID, "Ben").ID, baseTime.Add(time.Hour))
+	b, err := s.CreateAttempt(ctx, held.ID, 1000, "USD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	completed := "COMPLETED"
+	b.OrderID, b.OrderStatus, b.AuthorizationID = ptr("ORDER-2"), &completed, ptr("AUTH-2")
+	if err := s.UpdateAttempt(ctx, b); err != nil {
+		t.Fatal(err)
+	}
+	if marked, err := s.MarkOrderExpired(ctx, b.ID); err != nil || marked {
+		t.Errorf("MarkOrderExpired on an authorized attempt = %v, %v; want false, nil", marked, err)
+	}
+	if got, _ := s.AttemptByID(ctx, b.ID); got.OrderStatus == nil || *got.OrderStatus != "COMPLETED" {
+		t.Errorf("authorized attempt's order status = %v, want COMPLETED kept", got.OrderStatus)
+	}
+
+	for _, id := range []string{"00000000-0000-4000-8000-000000000000", "not-a-uuid"} {
+		if _, err := s.MarkOrderExpired(ctx, id); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("MarkOrderExpired(%q) error = %v, want ErrNotFound", id, err)
+		}
+	}
+}
+
+func mustWorkshop(t *testing.T, s *store.Store, id string) store.WorkshopRow {
+	t.Helper()
+	w, err := s.WorkshopByID(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return w
+}
+
+func mustProposal(t *testing.T, s *store.Store, id string) store.ProposalRow {
+	t.Helper()
+	p, err := s.ProposalByID(context.Background(), id)
+	if err != nil || p == nil {
+		t.Fatalf("ProposalByID(%s) = %v, %v", id, p, err)
+	}
+	return *p
+}
+
+func newParticipantIn(t *testing.T, s *store.Store, workshopID, name string) store.ParticipantRow {
+	t.Helper()
+	return newParticipant(t, s, mustWorkshop(t, s, workshopID), name)
+}

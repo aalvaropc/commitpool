@@ -17,8 +17,9 @@ var (
 	ErrConsentMismatch = errors.New("store: consent version mismatch")
 
 	// ErrAttemptNotAllowed refuses a new payment attempt for an enrollment
-	// that is past SEAT_RESERVED: its current attempt is already authorized,
-	// being charged or finished.
+	// that is past SEAT_RESERVED, or whose latest attempt already holds an
+	// authorization: its current attempt is authorized, being charged or
+	// finished.
 	ErrAttemptNotAllowed = errors.New("store: a new payment attempt needs a SEAT_RESERVED enrollment")
 )
 

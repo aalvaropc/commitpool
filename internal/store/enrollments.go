@@ -228,6 +228,27 @@ func (s *Store) TransitionEnrollment(ctx context.Context, id string, from []doma
 	return tag.RowsAffected() == 1, nil
 }
 
+// WorkshopIDsWithReservedSeats returns, once each and in order, the
+// workshops with at least one SEAT_RESERVED enrollment, expired or not: the
+// ones a seat release may have work for. It is an empty list when there are
+// none.
+func (s *Store) WorkshopIDsWithReservedSeats(ctx context.Context) ([]string, error) {
+	rows, err := s.Pool.Query(ctx,
+		`select workshop_id::text from enrollments where status = $1 group by workshop_id order by workshop_id`,
+		string(domain.EnrollmentSeatReserved))
+	if err != nil {
+		return nil, wrap("workshops with reserved seats", err)
+	}
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, wrap("workshops with reserved seats", err)
+	}
+	if ids == nil {
+		ids = []string{}
+	}
+	return ids, nil
+}
+
 // ReleaseExpiredSeats moves the workshop's SEAT_RESERVED enrollments whose seat
 // expired before now to RELEASED and returns how many it released.
 func (s *Store) ReleaseExpiredSeats(ctx context.Context, workshopID string, now time.Time) (int, error) {

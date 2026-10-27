@@ -52,6 +52,22 @@ func TestCreateAttempt_RefusesUnlessSeatReserved(t *testing.T) {
 			t.Fatalf("CreateAttempt #%d on a SEAT_RESERVED enrollment = %+v, %v", want, a, err)
 		}
 	}
+
+	held := reserve(t, s, w, p, newParticipant(t, s, w, "Authorized, seat kept").ID, baseTime.Add(time.Hour))
+	a, err := s.CreateAttempt(ctx, held.ID, 1000, "USD")
+	if err != nil {
+		t.Fatalf("CreateAttempt while SEAT_RESERVED: %v", err)
+	}
+	a.AuthorizationID = ptr("AUTH-HELD")
+	if err := s.UpdateAttempt(ctx, a); err != nil {
+		t.Fatalf("UpdateAttempt: %v", err)
+	}
+	if got, err := s.CreateAttempt(ctx, held.ID, 1000, "USD"); !errors.Is(err, store.ErrAttemptNotAllowed) {
+		t.Errorf("CreateAttempt behind an authorized latest attempt = %+v, %v; want ErrAttemptNotAllowed", got, err)
+	}
+	if n := count(t, s, `select count(*) from payment_attempts where enrollment_id = $1`, held.ID); n != 1 {
+		t.Errorf("attempts behind an authorization = %d, want only the authorized one", n)
+	}
 }
 
 func TestAttempts_NumberingAndLookupByResource(t *testing.T) {

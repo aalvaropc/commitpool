@@ -29,10 +29,11 @@ const attemptCols = `id, enrollment_id, attempt_no, order_id, authorization_id, 
 // The enrollment row is locked while numbering, so concurrent callers get
 // distinct consecutive numbers.
 //
-// Only a SEAT_RESERVED enrollment can get a new attempt; any other status
-// returns ErrAttemptNotAllowed. Once an attempt is authorized the enrollment
-// leaves SEAT_RESERVED for good, so an enrollment that is authorized, being
-// captured, voided or refunded always belongs to its latest attempt.
+// A new attempt needs a SEAT_RESERVED enrollment whose latest attempt holds
+// no authorization; anything else returns ErrAttemptNotAllowed. An attempt
+// that holds an authorization therefore stays the enrollment's latest for
+// good, so the hold, its capture, its void and its refund always belong to
+// the attempt the enrollment follows.
 func (s *Store) CreateAttempt(ctx context.Context, enrollmentID string, amountMinor int64, currency string) (AttemptRow, error) {
 	var attempt AttemptRow
 	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
@@ -41,6 +42,16 @@ func (s *Store) CreateAttempt(ctx context.Context, enrollmentID string, amountMi
 			return lookupErr("lock enrollment", err)
 		}
 		if status != domain.EnrollmentSeatReserved {
+			return ErrAttemptNotAllowed
+		}
+		var authorized bool
+		if err := tx.QueryRow(ctx,
+			`select coalesce((select authorization_id is not null from payment_attempts
+				where enrollment_id = $1 order by attempt_no desc limit 1), false)`,
+			enrollmentID).Scan(&authorized); err != nil {
+			return wrap("read latest attempt", err)
+		}
+		if authorized {
 			return ErrAttemptNotAllowed
 		}
 		row, err := one[AttemptRow](ctx, tx,

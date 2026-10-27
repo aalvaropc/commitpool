@@ -3,6 +3,7 @@ package store_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -690,4 +691,40 @@ func TestReReserveSeat(t *testing.T) {
 			t.Errorf("%d SEAT_RESERVED rows, want 2", n)
 		}
 	})
+}
+
+func TestWorkshopIDsWithReservedSeats_ListsEachWorkshopOnce(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	if ids, err := s.WorkshopIDsWithReservedSeats(ctx); err != nil || ids == nil || len(ids) != 0 {
+		t.Fatalf("WorkshopIDsWithReservedSeats on an empty database = %v, %v; want an empty list", ids, err)
+	}
+
+	two, _, _ := newWorkshop(t, s, 1, 6)
+	twoP := openFunding(t, s, two, baseTime)
+	one, _, _ := newWorkshop(t, s, 1, 6)
+	oneP := openFunding(t, s, one, baseTime)
+	authorized, _, _ := newWorkshop(t, s, 1, 6)
+	authorizedP := openFunding(t, s, authorized, baseTime)
+	released, _, _ := newWorkshop(t, s, 1, 6)
+	releasedP := openFunding(t, s, released, baseTime)
+	newWorkshop(t, s, 1, 6)
+
+	reserve(t, s, two, twoP, newParticipant(t, s, two, "Expired").ID, baseTime)
+	reserve(t, s, two, twoP, newParticipant(t, s, two, "Live").ID, baseTime.Add(2*time.Hour))
+	reserve(t, s, one, oneP, newParticipant(t, s, one, "Live").ID, baseTime.Add(2*time.Hour))
+	held := reserve(t, s, authorized, authorizedP, newParticipant(t, s, authorized, "Authorized").ID, baseTime)
+	mustTransition(t, s, held.ID, []domain.EnrollmentStatus{domain.EnrollmentSeatReserved}, domain.EnrollmentAuthorized)
+	gone := reserve(t, s, released, releasedP, newParticipant(t, s, released, "Released").ID, baseTime)
+	mustTransition(t, s, gone.ID, []domain.EnrollmentStatus{domain.EnrollmentSeatReserved}, domain.EnrollmentReleased)
+
+	ids, err := s.WorkshopIDsWithReservedSeats(ctx)
+	if err != nil {
+		t.Fatalf("WorkshopIDsWithReservedSeats: %v", err)
+	}
+	want := []string{two.ID, one.ID}
+	slices.Sort(want)
+	if !slices.Equal(ids, want) {
+		t.Errorf("WorkshopIDsWithReservedSeats = %v, want %v (each workshop with a SEAT_RESERVED enrollment once, expired or not)", ids, want)
+	}
 }

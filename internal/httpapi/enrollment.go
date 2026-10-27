@@ -58,8 +58,10 @@ type enrollResponse struct {
 // It is idempotent per participant: while a checkout can still be approved
 // a second request, from another tab say, gets the same enrollment and the
 // same approval link (201 the first time, 200 after), and PayPal is asked
-// for one order only. An enrollment past checkout, with its hold authorized
-// or being charged, answers 200 with its enrollment and status, no link.
+// for one order only. A seat that expired before the seat tick released it
+// is renewed first, or the answer is seat_expired. An enrollment past
+// checkout, with its hold authorized or being charged, answers 200 with its
+// enrollment and status, no link.
 func (s *server) enroll(w http.ResponseWriter, r *http.Request) error {
 	p, ws, err := s.participant(r)
 	if err != nil {
@@ -105,6 +107,9 @@ func (s *server) enroll(w http.ResponseWriter, r *http.Request) error {
 	if created {
 		status = http.StatusCreated
 	}
+	if en, err = s.renewLapsedSeat(ctx, en, now); err != nil {
+		return err
+	}
 
 	attempt, _, err := s.Store.CheckoutAttempt(ctx, en.ID, proposal.PriceMinor, proposal.Currency)
 	if errors.Is(err, store.ErrAttemptNotAllowed) {
@@ -124,6 +129,27 @@ func (s *server) enroll(w http.ResponseWriter, r *http.Request) error {
 		StatusLabel:  enrollmentLabel(en, ws, proposal, now),
 	})
 	return nil
+}
+
+// renewLapsedSeat gives a participant who asks again for a checkout whose
+// seat has expired, before the seat tick released it, the seat back under
+// the capacity rule (holdSeat) and returns the enrollment as it is then. When
+// the seat cannot be renewed the enrollment is left RELEASED and the answer
+// is seat_expired, without a link. Any other enrollment is returned as is.
+func (s *server) renewLapsedSeat(ctx context.Context, en store.EnrollmentRow, now time.Time) (store.EnrollmentRow, error) {
+	if en.Status != domain.EnrollmentSeatReserved || !en.SeatExpiresAt.Before(now) {
+		return en, nil
+	}
+	held, err := s.holdSeat(ctx, en, now)
+	if err != nil {
+		return en, err
+	}
+	if !held {
+		s.Log.Info("enrollment: the seat expired and could not be renewed", "enrollment_id", en.ID)
+		return en, errSeatExpired
+	}
+	s.Log.Info("enrollment: the expired seat was renewed", "enrollment_id", en.ID)
+	return s.Store.EnrollmentByID(ctx, en.ID)
 }
 
 // pastCheckout answers for an enrollment that can no longer open a checkout,

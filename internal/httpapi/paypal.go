@@ -1,0 +1,542 @@
+package httpapi
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/url"
+	"time"
+
+	"github.com/aalvaropc/commitpool/internal/domain"
+	"github.com/aalvaropc/commitpool/internal/paypal"
+	"github.com/aalvaropc/commitpool/internal/store"
+)
+
+// The outcomes the web app's /paypal/returned page receives as result.
+const (
+	resultAuthorized  = "authorized"
+	resultPending     = "pending"
+	resultMismatch    = "mismatch"
+	resultSeatExpired = "seat_expired"
+	resultClosed      = "closed"
+	resultExpired     = "expired"
+	resultDeclined    = "declined"
+	resultCancelled   = "cancelled"
+	resultError       = "error"
+)
+
+const (
+	// returnedPath is the web app's page for a buyer back from PayPal.
+	returnedPath = "/paypal/returned"
+	webhookPath  = "/paypal/webhook"
+
+	// maxWebhookBytes caps a webhook body instead of maxBodyBytes.
+	maxWebhookBytes = 256 << 10
+
+	// returnReconcileDelay is how long a return PayPal did not answer waits
+	// for the reconcile that reads the checkout back.
+	returnReconcileDelay = 30 * time.Second
+	minuteLayout         = "2006-01-02T15:04"
+)
+
+var (
+	errWebhookNotConfigured = newError(http.StatusServiceUnavailable, "webhook_not_configured",
+		"PayPal webhooks are not configured on this server.")
+	errWebhookTooLarge   = newError(http.StatusRequestEntityTooLarge, "body_too_large", "The webhook body is larger than 256 KiB.")
+	errInvalidSignature  = badRequest("invalid_signature", "The webhook signature could not be verified with PayPal.")
+	errInvalidEvent      = badRequest("invalid_event", "The webhook body is not a PayPal event with an id and an event type.")
+	errVerifyUnavailable = newError(http.StatusBadGateway, "paypal_unavailable",
+		"PayPal could not verify the webhook right now. Please deliver it again later.")
+	errSeatExpired = conflict("seat_expired", "Your seat reservation expired and could not be renewed.")
+)
+
+// checkout is the enrollment a buyer comes back for, with the latest
+// attempt, whose order PayPal named.
+type checkout struct {
+	enrollment store.EnrollmentRow
+	attempt    store.AttemptRow
+	log        *slog.Logger
+}
+
+// paypalReturn is where PayPal sends the buyer after approving a checkout:
+// /paypal/return?e={enrollment}&token={order}. The query only finds the
+// checkout. The order must be the enrollment's latest attempt's, and PayPal
+// must report it for this enrollment, this attempt and the proposal's price
+// and currency, before the worker is asked to authorize it under
+// authorize:{attempt}; then the buyer is redirected to the web app's
+// /paypal/returned page with the outcome. The redirect carries the
+// enrollment and the outcome only, never a token or a PayPal issue.
+func (s *server) paypalReturn(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	q := r.URL.Query()
+	c, result := s.findCheckout(ctx, "paypal return", q.Get("e"), q.Get("token"))
+	if result == "" {
+		result = s.completeReturn(ctx, c)
+	}
+	c.log.Info("paypal return", "result", result)
+	redirectReturned(w, r, c.enrollment.ID, result)
+}
+
+// paypalCancel is where PayPal sends a buyer who cancelled the checkout:
+// /paypal/cancel?e={enrollment}&token={order}. The cancel is recorded on the
+// enrollment for the participant's view; the seat is kept until it expires
+// on its own, so the buyer can still approve the same checkout. A token
+// naming an order other than the latest attempt's marks nothing.
+func (s *server) paypalCancel(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	q := r.URL.Query()
+	enrollmentID, token := q.Get("e"), q.Get("token")
+	var (
+		c      *checkout
+		result string
+	)
+	if token == "" {
+		c, result = s.findEnrollment(ctx, "paypal cancel", enrollmentID)
+	} else {
+		c, result = s.findCheckout(ctx, "paypal cancel", enrollmentID, token)
+	}
+	if result == "" {
+		result = s.cancelCheckout(ctx, c)
+	}
+	redirectReturned(w, r, c.enrollment.ID, result)
+}
+
+// cancelCheckout records the cancel on a SEAT_RESERVED enrollment. One past
+// checkout, its hold authorized from another tab say, keeps what it has and
+// the result says what that is.
+func (s *server) cancelCheckout(ctx context.Context, c *checkout) string {
+	marked, err := s.Store.MarkApprovalCancelled(ctx, c.enrollment.ID, s.Clock.Now())
+	if err != nil {
+		c.log.Error("paypal cancel: record the cancel", "error", err)
+		return resultError
+	}
+	if marked {
+		c.log.Info("paypal cancel: the buyer cancelled the checkout; the seat is kept until it expires")
+		return resultCancelled
+	}
+	en, err := s.Store.EnrollmentByID(ctx, c.enrollment.ID)
+	if err != nil {
+		c.log.Error("paypal cancel: reload the enrollment", "error", err)
+		return resultError
+	}
+	c.log.Info("paypal cancel: the enrollment is past checkout; nothing to cancel", "status", en.Status)
+	return settledResult(en.Status)
+}
+
+// findEnrollment loads the enrollment a PayPal redirect names. An unknown or
+// malformed ID is a mismatch, with an empty enrollment in the checkout.
+func (s *server) findEnrollment(ctx context.Context, op, enrollmentID string) (*checkout, string) {
+	c := &checkout{log: s.Log}
+	en, err := s.Store.EnrollmentByID(ctx, enrollmentID)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		c.log.Warn(op + ": the enrollment is unknown")
+		return c, resultMismatch
+	case err != nil:
+		c.log.Error(op+": load the enrollment", "error", err)
+		return c, resultError
+	}
+	c.enrollment, c.log = en, s.Log.With("enrollment_id", en.ID)
+	return c, ""
+}
+
+// findCheckout is findEnrollment plus the latest attempt, which must hold
+// the order PayPal named; any other order is a mismatch.
+func (s *server) findCheckout(ctx context.Context, op, enrollmentID, orderID string) (*checkout, string) {
+	c, result := s.findEnrollment(ctx, op, enrollmentID)
+	if result != "" {
+		return c, result
+	}
+	a, err := s.Store.LatestAttempt(ctx, c.enrollment.ID)
+	if err != nil {
+		c.log.Error(op+": load the latest attempt", "error", err)
+		return c, resultError
+	}
+	if a == nil || a.OrderID == nil || orderID == "" || *a.OrderID != orderID {
+		c.log.Warn(op + ": the order is not the enrollment's latest checkout")
+		return c, resultMismatch
+	}
+	c.attempt, c.log = *a, c.log.With("attempt_id", a.ID)
+	return c, ""
+}
+
+// completeReturn decides and does what the return of a known checkout calls
+// for. A checkout whose hold is already recorded, or whose enrollment is past
+// checkout, is answered from the stored state without asking PayPal, so a
+// repeated return sends nothing twice.
+func (s *server) completeReturn(ctx context.Context, c *checkout) string {
+	key := store.JobKey(store.KindAuthorize, c.attempt.ID)
+	if st := c.enrollment.Status; c.attempt.AuthorizationID != nil ||
+		(st != domain.EnrollmentSeatReserved && st != domain.EnrollmentReleased) {
+		return s.returnOutcome(ctx, c, key)
+	}
+	ws, err := s.Store.WorkshopByID(ctx, c.enrollment.WorkshopID)
+	if err != nil {
+		c.log.Error("paypal return: load the workshop", "error", err)
+		return resultError
+	}
+	p, err := s.Store.ProposalByID(ctx, c.enrollment.ProposalID)
+	if err != nil || p == nil {
+		c.log.Error("paypal return: load the proposal", "error", err)
+		return resultError
+	}
+
+	o, err := s.PayPal.GetOrder(ctx, *c.attempt.OrderID)
+	if err != nil {
+		return s.orderUnreadable(ctx, c, err)
+	}
+	if field := orderMismatch(o, c, p); field != "" {
+		c.log.Warn("paypal return: PayPal reports the order for another checkout; not authorizing it", "field", field)
+		return resultMismatch
+	}
+	switch o.Status {
+	case paypal.StatusApproved:
+	case paypal.StatusCompleted:
+		// Authorized at PayPal, not recorded here yet: a job is finishing it.
+		// On a released seat that hold is voided once recorded.
+		c.log.Info("paypal return: PayPal already shows the order authorized", "status", c.enrollment.Status)
+		if c.enrollment.Status == domain.EnrollmentReleased {
+			return resultSeatExpired
+		}
+		return resultAuthorized
+	case paypal.StatusCreated, paypal.StatusPayerActionRequired:
+		return resultPending
+	default:
+		c.log.Warn("paypal return: the order is in a status the return does not authorize", "order_status", o.Status)
+		return resultError
+	}
+
+	now := s.Clock.Now()
+	if !paymentsOpen(ws, p, now) {
+		c.log.Info("paypal return: order approved after payments closed; not authorizing it", "workshop_status", ws.Status)
+		return resultClosed
+	}
+	held, err := s.holdSeat(ctx, c.enrollment, now)
+	if err != nil {
+		c.log.Error("paypal return: renew the seat", "error", err)
+		return resultError
+	}
+	if !held {
+		c.log.Info("paypal return: order approved after the seat expired and no seat is left; not authorizing it")
+		return resultSeatExpired
+	}
+	if err := s.authorizeNow(ctx, c, key, now); err != nil {
+		c.log.Error("paypal return: run the authorization", "error", err)
+	}
+	return s.returnOutcome(ctx, c, key)
+}
+
+// authorizeNow has the worker authorize the attempt under key, enqueued or
+// revived and run inline: a job skipped earlier is revived automatically,
+// and one PayPal refused as ORDER_NOT_APPROVED is revived because the buyer
+// is back with the order approved. Any other refusal, or a job running,
+// unknown or waiting for its retry, is left alone.
+func (s *server) authorizeNow(ctx context.Context, c *checkout, key string, now time.Time) error {
+	created, err := s.Worker.EnqueueOrRevive(ctx, store.KindAuthorize, key, &c.enrollment.WorkshopID, &c.attempt.ID, nil, now)
+	if err != nil {
+		return err
+	}
+	if !created {
+		j, err := s.Store.JobByKey(ctx, key)
+		if err != nil {
+			return err
+		}
+		if j != nil && j.Status == store.JobFailed && j.ProviderIssue != nil && *j.ProviderIssue == paypal.IssueOrderNotApproved {
+			c.log.Info("paypal return: the buyer approved since PayPal refused the authorization; reviving it")
+			if _, err := s.Worker.Revive(ctx, key); err != nil {
+				return err
+			}
+		}
+	}
+	return s.Worker.RunKey(ctx, key)
+}
+
+// holdSeat makes sure the enrollment holds a live seat at now. A seat past
+// its expiry, released by the seat tick or not yet, is released and taken
+// again under the capacity rule (store.ReReserveSeat) for the configured
+// seat TTL, as a new enrollment gets; held is false when it could not be.
+func (s *server) holdSeat(ctx context.Context, en store.EnrollmentRow, now time.Time) (held bool, err error) {
+	switch {
+	case en.Status == domain.EnrollmentSeatReserved && !en.SeatExpiresAt.Before(now):
+		return true, nil
+	case en.Status != domain.EnrollmentSeatReserved && en.Status != domain.EnrollmentReleased:
+		return false, nil
+	}
+	if _, err := s.Store.ReleaseExpiredSeats(ctx, en.WorkshopID, now); err != nil {
+		return false, err
+	}
+	return s.Store.ReReserveSeat(ctx, en.ID, now, s.Cfg.SeatTTL)
+}
+
+// orderMismatch names the first thing in which PayPal's order differs from
+// the checkout the attempt opened, or "" when it is that checkout: this
+// order, one purchase unit, the enrollment as custom_id, the attempt as
+// reference_id and the proposal's price and currency.
+func orderMismatch(o paypal.Order, c *checkout, p *store.ProposalRow) string {
+	if o.ID != *c.attempt.OrderID {
+		return "order_id"
+	}
+	if len(o.PurchaseUnits) != 1 {
+		return "purchase_units"
+	}
+	u := o.PurchaseUnits[0]
+	switch {
+	case u.CustomID != c.enrollment.ID:
+		return "custom_id"
+	case u.ReferenceID != c.attempt.ID:
+		return "reference_id"
+	case u.Amount.CurrencyCode != p.Currency:
+		return "currency_code"
+	case u.Amount.Value != (domain.Money{Minor: p.PriceMinor, Currency: p.Currency}).String():
+		return "amount"
+	}
+	return ""
+}
+
+// orderUnreadable answers a return whose order PayPal would not show. An
+// order PayPal no longer knows expired unapproved: the attempt records it
+// and the participant's next checkout opens a new one. A refusal that is
+// final is an error. Otherwise PayPal may answer later, so a reconcile reads
+// the checkout back shortly (reconcile:{attempt}:return:{minute}) and
+// authorizes it if the buyer approved, and the buyer is told it is pending.
+func (s *server) orderUnreadable(ctx context.Context, c *checkout, err error) string {
+	var pe *paypal.Error
+	if errors.As(err, &pe) {
+		c.log = c.log.With("http_status", pe.HTTPStatus, "issue", pe.Issue, "debug_id", pe.DebugID)
+	}
+	if pe != nil && pe.HTTPStatus == http.StatusNotFound && pe.Issue == paypal.IssueInvalidResourceID {
+		c.log.Info("paypal return: PayPal no longer has the order; the checkout expired")
+		if err := s.expireOrder(ctx, c.attempt.ID); err != nil {
+			c.log.Error("paypal return: record the expired order", "error", err)
+			return resultError
+		}
+		return resultExpired
+	}
+	if paypal.Definitive(err) != nil {
+		c.log.Error("paypal return: PayPal refused to show the order")
+		return resultError
+	}
+	c.log.Warn("paypal return: PayPal did not show the order; reconciling the checkout shortly", "error", err)
+	now := s.Clock.Now()
+	key := store.JobKey(store.KindReconcile, c.attempt.ID+":return:"+now.UTC().Format(minuteLayout))
+	if err := s.Worker.Enqueue(ctx, store.KindReconcile, key, &c.enrollment.WorkshopID, &c.attempt.ID, nil, now.Add(returnReconcileDelay)); err != nil {
+		c.log.Error("paypal return: enqueue the reconcile", "error", err)
+		return resultError
+	}
+	return resultPending
+}
+
+// expireOrder records the attempt's order as EXPIRED, unless the attempt
+// holds an authorization by then.
+func (s *server) expireOrder(ctx context.Context, attemptID string) error {
+	_, err := s.Store.UpdateAttemptFunc(ctx, attemptID, func(a *store.AttemptRow) error {
+		if a.AuthorizationID == nil {
+			expired := paypal.StatusExpired
+			a.OrderStatus = &expired
+		}
+		return nil
+	})
+	return err
+}
+
+// returnOutcome is the result for the checkout as it stands now, read back
+// from the store after the worker had its turn.
+func (s *server) returnOutcome(ctx context.Context, c *checkout, key string) string {
+	en, err := s.Store.EnrollmentByID(ctx, c.enrollment.ID)
+	if err != nil {
+		c.log.Error("paypal return: reload the enrollment", "error", err)
+		return resultError
+	}
+	if en.Status != domain.EnrollmentSeatReserved {
+		return settledResult(en.Status)
+	}
+	j, err := s.Store.JobByKey(ctx, key)
+	if err != nil {
+		c.log.Error("paypal return: read the authorize job", "error", err)
+		return resultError
+	}
+	if j == nil {
+		return resultPending
+	}
+	switch j.Status {
+	case store.JobNeedsAttention:
+		return resultError
+	case store.JobFailed:
+	default:
+		return resultPending
+	}
+	issue := ""
+	if j.ProviderIssue != nil {
+		issue = *j.ProviderIssue
+	}
+	switch {
+	case issue == paypal.IssueOrderNotApproved:
+		return resultPending
+	case issue == paypal.IssueInvalidResourceID:
+		return resultExpired
+	case issue == "" && j.HTTPStatus == nil:
+		// The worker skipped it: payments closed, or the seat or the
+		// checkout changed under the return.
+		return s.skippedOutcome(ctx, c, en)
+	}
+	debugID := ""
+	if j.DebugID != nil {
+		debugID = *j.DebugID
+	}
+	c.log.Warn("paypal return: PayPal refused the authorization", "issue", issue, "debug_id", debugID)
+	return resultDeclined
+}
+
+// settledResult is the result an enrollment past SEAT_RESERVED stands for: a
+// hold placed (or charged since) is authorized, a released seat expired, a
+// denied hold or failed charge declined, a hold released at close closed. A
+// seat still reserved is pending.
+func settledResult(status domain.EnrollmentStatus) string {
+	switch status {
+	case domain.EnrollmentSeatReserved:
+		return resultPending
+	case domain.EnrollmentReleased:
+		return resultSeatExpired
+	case domain.EnrollmentCaptureFailed:
+		return resultDeclined
+	case domain.EnrollmentVoiding, domain.EnrollmentVoided:
+		return resultClosed
+	case domain.EnrollmentNeedsAttention:
+		return resultError
+	}
+	return resultAuthorized
+}
+
+func (s *server) skippedOutcome(ctx context.Context, c *checkout, en store.EnrollmentRow) string {
+	ws, err := s.Store.WorkshopByID(ctx, en.WorkshopID)
+	if err != nil {
+		c.log.Error("paypal return: load the workshop", "error", err)
+		return resultError
+	}
+	p, err := s.Store.ProposalByID(ctx, en.ProposalID)
+	if err != nil {
+		c.log.Error("paypal return: load the proposal", "error", err)
+		return resultError
+	}
+	if !paymentsOpen(ws, p, s.Clock.Now()) {
+		return resultClosed
+	}
+	return resultPending
+}
+
+func redirectReturned(w http.ResponseWriter, r *http.Request, enrollmentID, result string) {
+	q := url.Values{"result": {result}}
+	if enrollmentID != "" {
+		q.Set("e", enrollmentID)
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	http.Redirect(w, r, returnedPath+"?"+q.Encode(), http.StatusFound)
+}
+
+// webhookEvent is what the webhook reads from a PayPal event; the body is
+// stored whole.
+type webhookEvent struct {
+	ID           string `json:"id"`
+	EventType    string `json:"event_type"`
+	ResourceType string `json:"resource_type"`
+	Resource     struct {
+		ID                string `json:"id"`
+		SupplementaryData struct {
+			RelatedIDs struct {
+				OrderID         string `json:"order_id"`
+				AuthorizationID string `json:"authorization_id"`
+				CaptureID       string `json:"capture_id"`
+			} `json:"related_ids"`
+		} `json:"supplementary_data"`
+	} `json:"resource"`
+}
+
+// paypalWebhook takes PayPal's event deliveries. A delivery is verified with
+// PayPal (verify-webhook-signature, with its transmission headers and the
+// body byte for byte) before anything is stored, and an event is stored
+// once by its id. The webhook never applies a payment state: when the
+// event's resource belongs to a payment attempt it enqueues
+// reconcile:{attempt}:webhook:{event_id}, due now, and the reconcile reads
+// PayPal and applies what it finds, so an early or repeated event cannot
+// count a payment twice. It answers 200 {"inserted"} for every verified
+// event, a repeat included; the log names the event and the attempt, never
+// the body.
+func (s *server) paypalWebhook(w http.ResponseWriter, r *http.Request) error {
+	if s.Cfg.PayPalWebhookID == "" {
+		return errWebhookNotConfigured
+	}
+	body, err := io.ReadAll(r.Body)
+	var tooLarge *http.MaxBytesError
+	switch {
+	case errors.As(err, &tooLarge):
+		return errWebhookTooLarge
+	case err != nil:
+		return err
+	case !json.Valid(body):
+		return errInvalidJSON
+	}
+	var ev webhookEvent
+	if err := json.Unmarshal(body, &ev); err != nil || ev.ID == "" || ev.EventType == "" {
+		return errInvalidEvent
+	}
+	ctx := r.Context()
+	log := s.Log.With("event_id", ev.ID, "event_type", ev.EventType)
+	verified, err := s.PayPal.VerifyWebhookSignature(ctx, r.Header, body)
+	if err != nil {
+		log.Error("webhook: PayPal could not verify the delivery", "error", err)
+		return errVerifyUnavailable
+	}
+	if !verified {
+		log.Warn("webhook: the signature did not verify; event dropped")
+		return errInvalidSignature
+	}
+
+	inserted, err := s.Store.InsertProviderEvent(ctx, ev.ID, ev.EventType, ev.ResourceType, ev.Resource.ID, true, body)
+	if err != nil {
+		return err
+	}
+	a, err := s.eventAttempt(ctx, ev)
+	if err != nil {
+		return err
+	}
+	if a != nil {
+		log = log.With("attempt_id", a.ID)
+		en, err := s.Store.EnrollmentByID(ctx, a.EnrollmentID)
+		if err != nil {
+			return err
+		}
+		key := store.JobKey(store.KindReconcile, a.ID+":webhook:"+ev.ID)
+		if err := s.Worker.Enqueue(ctx, store.KindReconcile, key, &en.WorkshopID, &a.ID, nil, s.Clock.Now()); err != nil {
+			return err
+		}
+	}
+	if err := s.Store.MarkEventProcessed(ctx, ev.ID); err != nil {
+		return err
+	}
+	log.Info("webhook: event recorded", "inserted", inserted, "matched", a != nil)
+	writeJSON(w, http.StatusOK, map[string]bool{"inserted": inserted})
+	return nil
+}
+
+// eventAttempt is the payment attempt the event's resource belongs to: the
+// first of the resource itself and its related capture, authorization and
+// order that an attempt holds, or nil. The related IDs find the attempt when
+// PayPal tells of a resource before the worker recorded it, such as a
+// capture whose answer was lost.
+func (s *server) eventAttempt(ctx context.Context, ev webhookEvent) (*store.AttemptRow, error) {
+	related := ev.Resource.SupplementaryData.RelatedIDs
+	for _, id := range []string{ev.Resource.ID, related.CaptureID, related.AuthorizationID, related.OrderID} {
+		if id == "" {
+			continue
+		}
+		a, err := s.Store.AttemptByResourceID(ctx, id)
+		if err != nil || a != nil {
+			return a, err
+		}
+	}
+	return nil, nil
+}

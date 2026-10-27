@@ -246,23 +246,32 @@ func paymentView(a *store.AttemptRow) *paymentDTO {
 	}
 }
 
+// enrollmentDTO's approval_cancelled_at is when the buyer last cancelled the
+// checkout at PayPal, or null; the seat stays reserved until it expires.
 type enrollmentDTO struct {
-	ID            string      `json:"id"`
-	ParticipantID string      `json:"participant_id,omitempty"`
-	DisplayName   string      `json:"display_name,omitempty"`
-	Status        string      `json:"status"`
-	StatusLabel   string      `json:"status_label"`
-	SeatExpiresAt time.Time   `json:"seat_expires_at"`
-	Payment       *paymentDTO `json:"payment"`
+	ID                  string      `json:"id"`
+	ParticipantID       string      `json:"participant_id,omitempty"`
+	DisplayName         string      `json:"display_name,omitempty"`
+	Status              string      `json:"status"`
+	StatusLabel         string      `json:"status_label"`
+	SeatExpiresAt       time.Time   `json:"seat_expires_at"`
+	ApprovalCancelledAt *time.Time  `json:"approval_cancelled_at"`
+	Payment             *paymentDTO `json:"payment"`
 }
 
 func enrollmentView(en store.EnrollmentRow, w store.WorkshopRow, p *store.ProposalRow, latest *store.AttemptRow, now time.Time) enrollmentDTO {
+	var cancelled *time.Time
+	if en.ApprovalCancelledAt != nil {
+		at := en.ApprovalCancelledAt.UTC()
+		cancelled = &at
+	}
 	return enrollmentDTO{
-		ID:            en.ID,
-		Status:        string(en.Status),
-		StatusLabel:   enrollmentLabel(en, w, p, now),
-		SeatExpiresAt: en.SeatExpiresAt.UTC(),
-		Payment:       paymentView(latest),
+		ID:                  en.ID,
+		Status:              string(en.Status),
+		StatusLabel:         enrollmentLabel(en, w, p, now),
+		SeatExpiresAt:       en.SeatExpiresAt.UTC(),
+		ApprovalCancelledAt: cancelled,
+		Payment:             paymentView(latest),
 	}
 }
 

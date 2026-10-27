@@ -22,7 +22,7 @@ import (
 	"github.com/aalvaropc/commitpool/internal/worker"
 )
 
-// maxBodyBytes caps every request body.
+// maxBodyBytes caps every request body but a webhook's (maxWebhookBytes).
 const maxBodyBytes = 64 << 10
 
 type Deps struct {
@@ -73,6 +73,10 @@ func (s *server) routes(mux *http.ServeMux) {
 	api("PUT /api/v1/p/{token}/availability/{id}", s.correctAvailability)
 	api("POST /api/v1/p/{token}/enrollment", s.enroll)
 
+	mux.HandleFunc("GET /paypal/return", s.paypalReturn)
+	mux.HandleFunc("GET /paypal/cancel", s.paypalCancel)
+	api("POST "+webhookPath, s.paypalWebhook)
+
 	api("/api/", func(http.ResponseWriter, *http.Request) error { return errNotFound })
 	mux.HandleFunc("GET /healthz", s.healthz)
 	mux.Handle("/", spaHandler(s.Dist))
@@ -107,13 +111,17 @@ func (s *server) healthz(w http.ResponseWriter, r *http.Request) {
 }
 
 // observe caps the request body, turns a panic into a logged 500 and logs one
-// line per request. The line names the route pattern, never the path, so no
-// token in a URL reaches the log; bodies are never logged.
+// line per request. The line names the route pattern, never the path or the
+// query, so no token in a URL reaches the log; bodies are never logged.
 func (s *server) observe(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		sw := &statusWriter{ResponseWriter: w}
-		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+		limit := int64(maxBodyBytes)
+		if r.URL.Path == webhookPath {
+			limit = maxWebhookBytes
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, limit)
 		defer func() {
 			if p := recover(); p != nil {
 				if p == http.ErrAbortHandler {

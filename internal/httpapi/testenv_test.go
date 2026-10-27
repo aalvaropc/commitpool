@@ -62,6 +62,11 @@ type option func(*setup)
 
 func withDemoMode() option     { return func(s *setup) { s.cfg.DemoMode = true } }
 func withSandboxMocks() option { return func(s *setup) { s.cfg.SandboxMocks = true } }
+
+// testWebhookID is the PAYPAL_WEBHOOK_ID withWebhookID configures.
+const testWebhookID = "WH-ID-COMMITPOOL-TEST"
+
+func withWebhookID() option { return func(s *setup) { s.cfg.PayPalWebhookID = testWebhookID } }
 func withAI(i ai.Interpreter) option {
 	return func(s *setup) { s.ai = i }
 }
@@ -150,6 +155,7 @@ func newEnv(t *testing.T, opts ...option) *env {
 		BaseURL:      fake.URL,
 		ClientID:     s.cfg.PayPalClientID,
 		ClientSecret: s.cfg.PayPalClientSecret,
+		WebhookID:    s.cfg.PayPalWebhookID,
 		SandboxMocks: s.cfg.SandboxMocks,
 	})
 	if err != nil {
@@ -501,12 +507,14 @@ type paymentJSON struct {
 }
 
 type enrollmentJSON struct {
-	ID            string       `json:"id"`
-	ParticipantID string       `json:"participant_id"`
-	DisplayName   string       `json:"display_name"`
-	Status        string       `json:"status"`
-	StatusLabel   string       `json:"status_label"`
-	Payment       *paymentJSON `json:"payment"`
+	ID                  string       `json:"id"`
+	ParticipantID       string       `json:"participant_id"`
+	DisplayName         string       `json:"display_name"`
+	Status              string       `json:"status"`
+	StatusLabel         string       `json:"status_label"`
+	SeatExpiresAt       time.Time    `json:"seat_expires_at"`
+	ApprovalCancelledAt *time.Time   `json:"approval_cancelled_at"`
+	Payment             *paymentJSON `json:"payment"`
 }
 
 type availabilityJSON struct {

@@ -378,9 +378,13 @@ func generation(j store.Job) (n int, ok bool) {
 }
 
 // escalate flags the enrollment behind a job whose retries are used up,
-// unless it is paid or finished.
+// unless it is paid or finished. A close or release_seats job that gives up
+// flags its workshop's resolution instead, whatever its status.
 func (r *Runner) escalate(ctx context.Context, log *slog.Logger, job *store.Job) error {
 	if job.AttemptID == nil {
+		if job.WorkshopID != nil && (job.Kind == kindClose || job.Kind == kindReleaseSeats) {
+			return r.flagWorkshop(ctx, log, *job.WorkshopID)
+		}
 		return nil
 	}
 	a, err := r.st.AttemptByID(ctx, *job.AttemptID)

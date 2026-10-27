@@ -173,7 +173,7 @@ func (r *Runner) ApplyAuthorization(ctx context.Context, attemptID string, au pa
 // enrollment: COMPLETED → PAID, PENDING → CAPTURE_PENDING, DECLINED or FAILED
 // → CAPTURE_FAILED, PARTIALLY_REFUNDED → NEEDS_ATTENTION. A declined or
 // failed capture leaves the authorization open, so it also enqueues the
-// attempt's void.
+// attempt's void, even when what the move set off failed.
 func (r *Runner) ApplyCapture(ctx context.Context, attemptID string, c paypal.Capture) error {
 	res, err := r.record(ctx, attemptID, func(a *store.AttemptRow) error {
 		if err := setID(&a.CaptureID, c.ID); err != nil {
@@ -183,13 +183,13 @@ func (r *Runner) ApplyCapture(ctx context.Context, attemptID string, c paypal.Ca
 		a.CaptureReason = reason(c.StatusDetails)
 		return nil
 	}, lookup(captureMoves, c.Status), c.Status == ppCompleted || c.Status == ppPending)
-	if err != nil || !res.ok {
+	if !res.ok {
 		return err
 	}
 	if c.Status == ppDeclined || c.Status == ppFailed {
-		return r.enqueueVoid(ctx, res.attempt)
+		return errors.Join(err, r.enqueueVoid(ctx, res.attempt))
 	}
-	return nil
+	return err
 }
 
 // ApplyRefund records the refund's id, status and reason and moves the
@@ -210,8 +210,9 @@ func (r *Runner) ApplyRefund(ctx context.Context, attemptID string, rf paypal.Re
 // ApplyCaptureFailure records a capture PayPal refused for good: its issue and
 // debug id, capture status FAILED and the enrollment CAPTURING →
 // CAPTURE_FAILED. The authorization is still open, so it also enqueues (or
-// revives) void:{attempt} to release the buyer's hold. An attempt that already
-// holds a capture is left alone and errCaptureRecorded is returned.
+// revives) void:{attempt} to release the buyer's hold, even when what the
+// move set off failed. An attempt that already holds a capture is left alone
+// and errCaptureRecorded is returned.
 func (r *Runner) ApplyCaptureFailure(ctx context.Context, attemptID string, e *paypal.Error) error {
 	issue := e.Issue
 	if issue == "" {
@@ -231,10 +232,10 @@ func (r *Runner) failCapture(ctx context.Context, attemptID, issue, debugID stri
 		a.CaptureDebugID = nonEmpty(debugID)
 		return nil
 	}, &move{statuses(domain.EnrollmentCapturing), domain.EnrollmentCaptureFailed}, false)
-	if err != nil || !res.ok {
+	if !res.ok {
 		return err
 	}
-	return r.enqueueVoid(ctx, res.attempt)
+	return errors.Join(err, r.enqueueVoid(ctx, res.attempt))
 }
 
 // enqueueVoid enqueues, or revives, void:{attempt} due now.

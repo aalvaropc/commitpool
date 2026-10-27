@@ -333,3 +333,63 @@ func TestRound_ReevaluatedAfterRefusalAndLateAuthorization(t *testing.T) {
 		t.Errorf("refund requests = %d, want 0", n)
 	}
 }
+
+func TestRound_CaptureClaimedAfterCloseIsRefusedAndVoided(t *testing.T) {
+	e := newEnv(t)
+	e.nearClose()
+	dan, danAttempt := e.withOrder("Dan")
+	e.confirmed()
+	danAttempt = e.authorize(dan, danAttempt)
+	e.wantJob("capture:"+danAttempt.ID, "pending")
+	e.clock.Set(e.proposal.ClosesAt.Add(time.Minute))
+	e.enqueueClose()
+	e.runKey(e.closeKey())
+	e.wantNoJob("void:" + danAttempt.ID)
+
+	e.runUntilIdle()
+
+	e.wantStatus(dan.ID, domain.EnrollmentCaptureFailed)
+	wantString(t, "capture issue", e.attempt(danAttempt.ID).CaptureIssue, "CAPTURE_DEADLINE_PASSED")
+	e.wantJob("void:"+danAttempt.ID, "succeeded")
+	wantString(t, "authorization_status", e.attempt(danAttempt.ID).AuthorizationStatus, "VOIDED")
+	if n := e.requestsWithID("capture", "capture:"+danAttempt.ID); n != 0 {
+		t.Errorf("capture requests after the deadline = %d, want 0", n)
+	}
+	e.wantWorkshop(domain.WorkshopConfirmed, domain.ResolutionOpen)
+	e.wantIdle()
+}
+
+func TestRound_ConfirmationLosesToAConcurrentCancellation(t *testing.T) {
+	e := newEnv(t)
+	_, a1 := e.paid("Ana")
+	_, a2 := e.paid("Ben")
+	cleo, a3 := e.authorized("Cleo")
+	e.wantJob("capture:"+a3.ID, "pending")
+
+	// A close cancels the workshop in a transaction still open while Cleo's
+	// capture completes and would confirm it.
+	tx, err := e.st.Pool.Begin(e.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(e.ctx) }()
+	if _, err := tx.Exec(e.ctx, `update workshops set status = 'CANCELLED', resolution = 'RESOLVING' where id = $1`, e.workshop.ID); err != nil {
+		t.Fatal(err)
+	}
+	captured := make(chan error, 1)
+	go func() { captured <- e.runner.RunKey(e.ctx, "capture:"+a3.ID) }()
+	e.waitForRowLockWaiter(captured)
+	if err := tx.Commit(e.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-captured; err != nil {
+		t.Fatalf("RunKey(capture): %v", err)
+	}
+
+	e.wantStatus(cleo.ID, domain.EnrollmentPaid)
+	e.wantWorkshop(domain.WorkshopCancelled, domain.ResolutionResolving)
+	e.wantJob("refund:"+a3.ID, "pending")
+	for _, a := range []store.AttemptRow{a1, a2} {
+		e.wantNoJob("refund:" + a.ID)
+	}
+}

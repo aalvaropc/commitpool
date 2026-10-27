@@ -438,3 +438,365 @@ func TestReconcile_AuthorizationFoundAfterCloseIsVoided(t *testing.T) {
 	}
 	e.wantWorkshop(domain.WorkshopCancelled, domain.ResolutionSettled)
 }
+
+// moveWorkshop rewrites the workshop's state as a step the test stands in
+// for would have, through the store's compare-and-set.
+func (e *env) moveWorkshop(from domain.WorkshopStatus, to domain.WorkshopStatus, resolution domain.Resolution) {
+	e.t.Helper()
+	ok, err := e.st.TransitionWorkshop(e.ctx, e.workshop.ID, []domain.WorkshopStatus{from}, nil, to, resolution)
+	if err != nil || !ok {
+		e.t.Fatalf("TransitionWorkshop(%s -> %s/%s) = %v, %v", from, to, resolution, ok, err)
+	}
+}
+
+// allJobKeys lists every job key in the database.
+func (e *env) allJobKeys() map[string]bool {
+	e.t.Helper()
+	rows, err := e.st.Pool.Query(e.ctx, `select idempotency_key from jobs`)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	defer rows.Close()
+	keys := map[string]bool{}
+	for rows.Next() {
+		var k string
+		if err := rows.Scan(&k); err != nil {
+			e.t.Fatal(err)
+		}
+		keys[k] = true
+	}
+	return keys
+}
+
+// waitForRowLockWaiter returns once some statement waits on a row lock, or
+// fails when done reports first or nothing waits within five seconds.
+func (e *env) waitForRowLockWaiter(done <-chan error) {
+	e.t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		select {
+		case err := <-done:
+			e.t.Fatalf("finished (%v) without waiting on the locked row", err)
+		default:
+		}
+		var waiting bool
+		if err := e.st.Pool.QueryRow(e.ctx,
+			`select exists (select 1 from pg_locks where not granted and locktype in ('transactionid', 'tuple'))`).Scan(&waiting); err != nil {
+			e.t.Fatal(err)
+		}
+		if waiting {
+			return
+		}
+		if time.Now().After(deadline) {
+			e.t.Fatal("nothing waited on the locked row within 5s")
+		}
+	}
+}
+
+func TestClose_OnConfirmedWorkshopEnqueuesNoRefunds(t *testing.T) {
+	e := newEnv(t, withClientTimeout(time.Second))
+	_, a1 := e.paid("Ana")
+	_, a2 := e.paid("Ben")
+	cleo, a3 := e.authorized("Cleo")
+	e.capturePending(cleo, a3)
+	e.clock.Set(e.proposal.ClosesAt)
+	e.enqueueClose()
+
+	// Cleo's capture completes and confirms the workshop in a transaction
+	// that is still open when close decides: close reads two payments and
+	// cancels, but its write has to wait for that transaction.
+	tx, err := e.st.Pool.Begin(e.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(e.ctx) }()
+	if _, err := tx.Exec(e.ctx, `update enrollments set status = 'PAID' where id = $1`, cleo.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(e.ctx, `update workshops set status = 'CONFIRMED' where id = $1`, e.workshop.ID); err != nil {
+		t.Fatal(err)
+	}
+	closed := make(chan error, 1)
+	go func() { closed <- e.runner.RunKey(e.ctx, e.closeKey()) }()
+	e.waitForRowLockWaiter(closed)
+	if err := tx.Commit(e.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-closed; err != nil {
+		t.Fatalf("RunKey(close): %v", err)
+	}
+
+	e.wantJob(e.closeKey(), "succeeded")
+	e.wantWorkshop(domain.WorkshopConfirmed, domain.ResolutionOpen)
+	for _, a := range []store.AttemptRow{a1, a2, a3} {
+		e.wantNoJob("refund:" + a.ID)
+		e.wantNoJob("void:" + a.ID)
+	}
+	e.runUntilIdle()
+	if n := len(e.fake.Requests("refund")); n != 0 {
+		t.Errorf("refund requests = %d, want 0", n)
+	}
+	e.wantWorkshop(domain.WorkshopConfirmed, domain.ResolutionOpen)
+}
+
+func TestClose_RetryOnCancelledResolvingEnqueuesSameKeys(t *testing.T) {
+	e := newEnv(t, withClientTimeout(time.Second))
+	ana, a1 := e.paid("Ana")
+	ben, a2 := e.paid("Ben")
+	dan, a4 := e.authorized("Dan")
+	e.capturePending(dan, a4)
+	e.nearClose()
+	cleo, a3 := e.withOrder("Cleo")
+	a3 = e.authorizeJustBeforeClose(cleo, a3)
+	e.clock.Set(e.proposal.ClosesAt.Add(time.Minute))
+	e.enqueueClose()
+	// A first close recorded the cancellation and stopped before enqueuing
+	// what it owes.
+	e.moveWorkshop(domain.WorkshopFunding, domain.WorkshopCancelled, domain.ResolutionResolving)
+	before := e.allJobKeys()
+
+	e.runKey(e.closeKey())
+
+	after := e.allJobKeys()
+	var added []string
+	for k := range after {
+		if !before[k] {
+			added = append(added, k)
+		}
+	}
+	slices.Sort(added)
+	want := []string{"refund:" + a1.ID, "refund:" + a2.ID, "void:" + a3.ID, "reconcile:" + a4.ID + ":close"}
+	slices.Sort(want)
+	if !slices.Equal(added, want) {
+		t.Fatalf("jobs added by the retried close = %v, want %v", added, want)
+	}
+	e.wantWorkshop(domain.WorkshopCancelled, domain.ResolutionResolving)
+
+	e.runUntilIdle()
+	e.wantStatus(ana.ID, domain.EnrollmentRefunded)
+	e.wantStatus(ben.ID, domain.EnrollmentRefunded)
+	e.wantStatus(cleo.ID, domain.EnrollmentCaptureFailed)
+	wantString(t, "Cleo's authorization", e.attempt(a3.ID).AuthorizationStatus, "VOIDED")
+	e.wantStatus(dan.ID, domain.EnrollmentCapturePending)
+	if n := len(e.fake.Requests("void")); n != 1 {
+		t.Errorf("void requests = %d, want 1", n)
+	}
+	e.wantWorkshop(domain.WorkshopCancelled, domain.ResolutionResolving)
+}
+
+func TestSettle_WaitsForPendingVoidAfterCaptureFailed(t *testing.T) {
+	setup := func(t *testing.T) (*env, store.EnrollmentRow, store.AttemptRow) {
+		e := newEnv(t)
+		ana, a := e.authorized("Ana")
+		e.setMockCode(a, "TRANSACTION_REFUSED")
+		e.runKey(e.enqueue("capture", a))
+		e.wantStatus(ana.ID, domain.EnrollmentCaptureFailed)
+		e.wantJob("void:"+a.ID, "pending")
+		e.clock.Set(e.proposal.ClosesAt)
+		e.enqueueClose()
+		e.runKey(e.closeKey())
+		e.wantWorkshop(domain.WorkshopCancelled, domain.ResolutionResolving)
+		return e, ana, a
+	}
+
+	t.Run("the void succeeds", func(t *testing.T) {
+		e, ana, a := setup(t)
+		if err := e.runner.SettleIfResolved(e.ctx, e.workshop.ID); err != nil {
+			t.Fatal(err)
+		}
+		e.wantWorkshop(domain.WorkshopCancelled, domain.ResolutionResolving)
+
+		e.runKey("void:" + a.ID)
+
+		e.wantStatus(ana.ID, domain.EnrollmentCaptureFailed)
+		wantString(t, "authorization_status", e.attempt(a.ID).AuthorizationStatus, "VOIDED")
+		e.wantWorkshop(domain.WorkshopCancelled, domain.ResolutionSettled)
+	})
+
+	t.Run("the void is refused after the workshop settled", func(t *testing.T) {
+		e, ana, a := setup(t)
+		ok, err := e.st.TransitionWorkshop(e.ctx, e.workshop.ID, nil, []domain.Resolution{domain.ResolutionResolving},
+			domain.WorkshopCancelled, domain.ResolutionSettled)
+		if err != nil || !ok {
+			t.Fatalf("settle the workshop by hand = %v, %v", ok, err)
+		}
+		e.fake.FailNext("void", 422, "PREVIOUSLY_CAPTURED")
+
+		e.runKey("void:" + a.ID)
+
+		e.wantStatus(ana.ID, domain.EnrollmentNeedsAttention)
+		e.wantWorkshop(domain.WorkshopCancelled, domain.ResolutionNeedsAttention)
+	})
+}
+
+func TestEscalate_CloseJobExhaustionFlagsWorkshop(t *testing.T) {
+	e := newEnv(t)
+	w, _, _, err := e.st.CreateWorkshop(e.ctx, store.CreateWorkshopParams{
+		Title: "No proposal", Description: "Payments were never opened.", DurationMin: 60, Timezone: "UTC",
+		Minimum: 1, Capacity: 2, PriceMinor: 1000, Currency: "USD",
+		Dates: []struct{ StartsAt, EndsAt time.Time }{{StartsAt: t0.Add(72 * time.Hour), EndsAt: t0.Add(73 * time.Hour)}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := "close:00000000-0000-4000-8000-000000000000"
+	if err := e.runner.Enqueue(e.ctx, "close", key, &w.ID, nil, nil, e.clock.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	for range 5 {
+		e.clock.Set(e.job(key).RunAt)
+		e.runKey(key)
+	}
+
+	e.wantJob(key, "needs_attention")
+	got, err := e.st.WorkshopByID(e.ctx, w.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != domain.WorkshopCollecting || got.Resolution != domain.ResolutionNeedsAttention {
+		t.Errorf("workshop = %s/%s, want COLLECTING/NEEDS_ATTENTION", got.Status, got.Resolution)
+	}
+	e.wantWorkshop(domain.WorkshopFunding, domain.ResolutionOpen)
+}
+
+func TestHeal_OrphanHoldAfterCaptureFailedIsVoided(t *testing.T) {
+	e := newEnv(t)
+	ana, a := e.authorized("Ana")
+	// The capture failure was recorded but the void it calls for was lost.
+	e.transition(ana.ID, domain.EnrollmentAuthorized, domain.EnrollmentCaptureFailed)
+	e.wantNoJob("void:" + a.ID)
+	e.clock.Set(e.proposal.ClosesAt)
+	e.enqueueClose()
+
+	e.runKey(e.closeKey())
+
+	e.wantJob("void:"+a.ID, "pending")
+	e.wantWorkshop(domain.WorkshopCancelled, domain.ResolutionResolving)
+	if err := e.runner.HealWorkshop(e.ctx, e.workshop.ID); err != nil {
+		t.Fatalf("HealWorkshop: %v", err)
+	}
+	e.runUntilIdle()
+
+	wantString(t, "authorization_status", e.attempt(a.ID).AuthorizationStatus, "VOIDED")
+	e.wantStatus(ana.ID, domain.EnrollmentCaptureFailed)
+	if reqs := e.fake.Requests("void"); len(reqs) != 1 || reqs[0].RequestID != "void:"+a.ID {
+		t.Errorf("void requests = %+v, want one under void:%s", reqs, a.ID)
+	}
+	e.wantWorkshop(domain.WorkshopCancelled, domain.ResolutionSettled)
+}
+
+func TestHeal_FundingAtMinimumConfirms(t *testing.T) {
+	e := newEnv(t)
+	e.confirmed()
+	// The confirmation after the third payment was lost.
+	e.moveWorkshop(domain.WorkshopConfirmed, domain.WorkshopFunding, domain.ResolutionOpen)
+
+	if err := e.runner.HealWorkshop(e.ctx, e.workshop.ID); err != nil {
+		t.Fatalf("HealWorkshop: %v", err)
+	}
+
+	e.wantWorkshop(domain.WorkshopConfirmed, domain.ResolutionOpen)
+	e.wantIdle()
+}
+
+func TestHeal_CancelledPaidWithoutRefundJobEnqueuesRefund(t *testing.T) {
+	e := newEnv(t)
+	ana, a := e.paid("Ana")
+	// The workshop was cancelled but the refund it owes Ana was never enqueued.
+	e.moveWorkshop(domain.WorkshopFunding, domain.WorkshopCancelled, domain.ResolutionResolving)
+
+	e.runKey(e.reconcileNow(a))
+
+	e.wantJob("refund:"+a.ID, "pending")
+	e.runUntilIdle()
+	e.wantStatus(ana.ID, domain.EnrollmentRefunded)
+	if n := e.requestsWithID("refund", "refund:"+a.ID); n != 1 {
+		t.Errorf("refund requests = %d, want 1", n)
+	}
+	e.wantWorkshop(domain.WorkshopCancelled, domain.ResolutionSettled)
+}
+
+func TestHeal_LeftoverAuthorizationIsVoidedOncePaymentsClosed(t *testing.T) {
+	t.Run("confirmed workshop", func(t *testing.T) {
+		e := newEnv(t)
+		dan, danAttempt := e.withOrder("Dan")
+		e.confirmed()
+		danAttempt = e.authorize(dan, danAttempt)
+		// The capture this authorization called for was lost.
+		e.dropJob("capture:" + danAttempt.ID)
+		e.clock.Set(e.proposal.ClosesAt.Add(time.Minute))
+
+		e.runKey(e.reconcileNow(danAttempt))
+
+		e.wantJob("void:"+danAttempt.ID, "pending")
+		e.runUntilIdle()
+		e.wantStatus(dan.ID, domain.EnrollmentVoided)
+		e.wantNoJob("capture:" + danAttempt.ID)
+		e.wantWorkshop(domain.WorkshopConfirmed, domain.ResolutionOpen)
+	})
+
+	t.Run("cancelled workshop", func(t *testing.T) {
+		e := newEnv(t)
+		ana, a := e.authorized("Ana")
+		// The workshop was cancelled but the void it owes Ana was never enqueued.
+		e.moveWorkshop(domain.WorkshopFunding, domain.WorkshopCancelled, domain.ResolutionResolving)
+
+		e.runKey(e.reconcileNow(a))
+
+		e.wantJob("void:"+a.ID, "pending")
+		e.runUntilIdle()
+		e.wantStatus(ana.ID, domain.EnrollmentVoided)
+		e.wantWorkshop(domain.WorkshopCancelled, domain.ResolutionSettled)
+	})
+}
+
+func TestSettle_WaitsForAuthorizationOnReleasedSeat(t *testing.T) {
+	e := newEnv(t, withClientTimeout(time.Second))
+	e.nearClose()
+	en, a := e.withOrder("Ana")
+	e.fake.Approve(*a.OrderID)
+	e.fake.FailNext("authorize", 0, "")
+	e.runKey(e.enqueue("authorize", a))
+	e.fake.WaitHung()
+	e.clock.Set(e.proposal.ClosesAt.Add(time.Minute))
+	e.enqueueClose()
+	e.runKey(e.closeKey())
+	e.advance(10 * time.Minute)
+	e.runKey(e.releaseSeatsNow())
+	e.wantStatus(en.ID, domain.EnrollmentReleased)
+	// The seat is gone but the authorize's outcome is still unknown: PayPal
+	// may hold the buyer's money.
+	e.wantWorkshop(domain.WorkshopCancelled, domain.ResolutionResolving)
+
+	e.runKey("reconcile:" + a.ID + ":1")
+
+	e.wantStatus(en.ID, domain.EnrollmentReleased)
+	wantString(t, "authorization_status", e.attempt(a.ID).AuthorizationStatus, "CREATED")
+	e.wantJob("void:"+a.ID, "pending")
+	e.wantWorkshop(domain.WorkshopCancelled, domain.ResolutionResolving)
+
+	e.runKey("void:" + a.ID)
+	wantString(t, "authorization_status", e.attempt(a.ID).AuthorizationStatus, "VOIDED")
+	e.wantWorkshop(domain.WorkshopCancelled, domain.ResolutionSettled)
+}
+
+func TestApply_AuthorizationAfterCloseEnqueuesVoid(t *testing.T) {
+	e := newEnv(t, withClientTimeout(time.Second))
+	e.nearClose()
+	en, a := e.withOrder("Ana")
+	e.fake.Approve(*a.OrderID)
+	e.fake.FailNext("authorize", 0, "")
+	e.runKey(e.enqueue("authorize", a))
+	e.fake.WaitHung()
+	e.clock.Set(e.proposal.ClosesAt.Add(time.Minute))
+	e.enqueueClose()
+	e.runKey(e.closeKey())
+
+	if err := e.runner.ApplyOrder(e.ctx, a.ID, e.order(*a.OrderID)); err != nil {
+		t.Fatalf("ApplyOrder: %v", err)
+	}
+
+	e.wantStatus(en.ID, domain.EnrollmentAuthorized)
+	e.wantJob("void:"+a.ID, "pending")
+}

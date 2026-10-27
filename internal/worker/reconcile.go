@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -20,9 +21,9 @@ import (
 // sending: it leaves such a job unknown for an operator and flags the
 // enrollment. An order the buyer approved without coming back from PayPal is
 // authorized from here (authorizeApproved). Last, the workshop gets the
-// captures it is ready for and settles if nothing is left in flight. Reads
-// are safe to repeat, so a failed or ambiguous one retries this job like any
-// other failure.
+// captures it is ready for and is healed (HealWorkshop), which also settles
+// it. Reads are safe to repeat, so a failed or ambiguous one retries this job
+// like any other failure.
 func (r *Runner) reconcile(ctx context.Context, job *store.Job) (*int, error) {
 	s, err := r.load(ctx, job)
 	if err != nil {
@@ -45,10 +46,8 @@ func (r *Runner) reconcile(ctx context.Context, job *store.Job) (*int, error) {
 	if err := r.authorizeApproved(ctx, s.log, *a); err != nil {
 		return nil, err
 	}
-	if err := r.StartCaptureRoundIfReady(ctx, s.enrollment.WorkshopID); err != nil {
-		return nil, err
-	}
-	return nil, r.SettleIfResolved(ctx, s.enrollment.WorkshopID)
+	workshopID := s.enrollment.WorkshopID
+	return nil, errors.Join(r.StartCaptureRoundIfReady(ctx, workshopID), r.HealWorkshop(ctx, workshopID))
 }
 
 // authorizeApproved authorizes an order the buyer approved at PayPal without

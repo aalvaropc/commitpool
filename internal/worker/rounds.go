@@ -4,69 +4,106 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 
 	"github.com/aalvaropc/commitpool/internal/domain"
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
-// workshopView loads the workshop, its active proposal and its enrollments as
-// the domain rules take them, with the enrollment rows in the same order. An
-// enrollment's CaptureStartedAt is set, to when the job was due, once a
+// casRetries bounds how often a decision is taken again when the workshop
+// changed between reading it and writing the outcome.
+const casRetries = 3
+
+var errWorkshopMoving = errors.New("worker: the workshop kept changing while a decision about it was being recorded")
+
+// view is a workshop as the domain rules see it, with what the worker needs
+// beside each enrollment: its row, its latest attempt (nil when it has none)
+// and that attempt's jobs by key. The slices share one order, the
+// enrollments' creation order.
+type view struct {
+	w    domain.Workshop
+	p    domain.Proposal
+	es   []domain.Enrollment
+	rows []store.EnrollmentRow
+	att  []*store.AttemptRow
+	jobs []map[string]store.Job
+}
+
+// job returns the job of this kind for enrollment i's latest attempt.
+func (v view) job(i int, kind string) (store.Job, bool) {
+	if v.att[i] == nil {
+		return store.Job{}, false
+	}
+	j, ok := v.jobs[i][kind+":"+v.att[i].ID]
+	return j, ok
+}
+
+func (v view) has(i int, kind string) bool {
+	_, ok := v.job(i, kind)
+	return ok
+}
+
+// workshopView loads the workshop, its active proposal and its enrollments.
+// An enrollment's CaptureStartedAt is set, to when the job was due, once a
 // capture:{attempt} job exists for its latest attempt, whatever that job's
 // status; an enrollment without an attempt carries only its status.
-func (r *Runner) workshopView(ctx context.Context, workshopID string) (domain.Workshop, domain.Proposal, []domain.Enrollment, []store.EnrollmentRow, error) {
+func (r *Runner) workshopView(ctx context.Context, workshopID string) (view, error) {
 	wr, err := r.st.WorkshopByID(ctx, workshopID)
 	if err != nil {
-		return domain.Workshop{}, domain.Proposal{}, nil, nil, err
+		return view{}, err
 	}
 	pr, err := r.st.ActiveProposal(ctx, workshopID)
 	if err != nil {
-		return domain.Workshop{}, domain.Proposal{}, nil, nil, err
+		return view{}, err
 	}
 	if pr == nil {
-		return domain.Workshop{}, domain.Proposal{}, nil, nil, fmt.Errorf("proposal of workshop %s: %w", workshopID, store.ErrNotFound)
+		return view{}, fmt.Errorf("proposal of workshop %s: %w", workshopID, store.ErrNotFound)
 	}
 	rows, err := r.st.EnrollmentsByWorkshop(ctx, workshopID)
 	if err != nil {
-		return domain.Workshop{}, domain.Proposal{}, nil, nil, err
+		return view{}, err
 	}
-	es := make([]domain.Enrollment, len(rows))
+	v := view{
+		w: domain.Workshop{
+			ID: wr.ID, Title: wr.Title, Timezone: wr.Timezone,
+			Minimum: wr.Minimum, Capacity: wr.Capacity,
+			Price:         domain.Money{Minor: wr.PriceMinor, Currency: wr.Currency},
+			Status:        wr.Status,
+			Resolution:    wr.Resolution,
+			PaymentWindow: time.Duration(wr.PaymentWindowMin) * time.Minute,
+		},
+		p: domain.Proposal{
+			ID: pr.ID, Version: pr.Version, DateID: pr.ChosenDateID,
+			OpensAt: pr.OpensAt, ClosesAt: pr.ClosesAt, StartsAt: pr.StartsAt,
+			Price:   domain.Money{Minor: pr.PriceMinor, Currency: pr.Currency},
+			Minimum: pr.Minimum, Capacity: pr.Capacity,
+		},
+		es:   make([]domain.Enrollment, len(rows)),
+		rows: rows,
+		att:  make([]*store.AttemptRow, len(rows)),
+		jobs: make([]map[string]store.Job, len(rows)),
+	}
 	for i, row := range rows {
-		es[i] = domain.Enrollment{ID: row.ID, ParticipantID: row.ParticipantID, Status: row.Status, SeatExpiresAt: row.SeatExpiresAt}
-		if es[i].CaptureStartedAt, err = r.captureStartedAt(ctx, row.ID); err != nil {
-			return domain.Workshop{}, domain.Proposal{}, nil, nil, err
+		v.jobs[i] = map[string]store.Job{}
+		if v.att[i], err = r.st.LatestAttempt(ctx, row.ID); err != nil {
+			return view{}, err
+		}
+		if v.att[i] != nil {
+			jobs, err := r.st.JobsByAttempt(ctx, v.att[i].ID)
+			if err != nil {
+				return view{}, err
+			}
+			for _, j := range jobs {
+				v.jobs[i][j.IdempotencyKey] = j
+			}
+		}
+		v.es[i] = domain.Enrollment{ID: row.ID, ParticipantID: row.ParticipantID, Status: row.Status, SeatExpiresAt: row.SeatExpiresAt}
+		if j, ok := v.job(i, kindCapture); ok {
+			due := j.RunAt
+			v.es[i].CaptureStartedAt = &due
 		}
 	}
-	w := domain.Workshop{
-		ID: wr.ID, Title: wr.Title, Timezone: wr.Timezone,
-		Minimum: wr.Minimum, Capacity: wr.Capacity,
-		Price:         domain.Money{Minor: wr.PriceMinor, Currency: wr.Currency},
-		Status:        wr.Status,
-		Resolution:    wr.Resolution,
-		PaymentWindow: time.Duration(wr.PaymentWindowMin) * time.Minute,
-	}
-	p := domain.Proposal{
-		ID: pr.ID, Version: pr.Version, DateID: pr.ChosenDateID,
-		OpensAt: pr.OpensAt, ClosesAt: pr.ClosesAt, StartsAt: pr.StartsAt,
-		Price:   domain.Money{Minor: pr.PriceMinor, Currency: pr.Currency},
-		Minimum: pr.Minimum, Capacity: pr.Capacity,
-	}
-	return w, p, es, rows, nil
-}
-
-func (r *Runner) captureStartedAt(ctx context.Context, enrollmentID string) (*time.Time, error) {
-	a, err := r.st.LatestAttempt(ctx, enrollmentID)
-	if err != nil || a == nil {
-		return nil, err
-	}
-	j, err := r.st.JobByKey(ctx, kindCapture+":"+a.ID)
-	if err != nil || j == nil {
-		return nil, err
-	}
-	due := j.RunAt
-	return &due, nil
+	return v, nil
 }
 
 // StartCaptureRoundIfReady enqueues, due now, the captures the workshop is
@@ -79,17 +116,17 @@ func (r *Runner) captureStartedAt(ctx context.Context, enrollmentID string) (*ti
 // cancelled workshop or once payments have closed. Captures are keyed by
 // their attempt, so calling it again enqueues nothing twice.
 func (r *Runner) StartCaptureRoundIfReady(ctx context.Context, workshopID string) error {
-	w, p, es, rows, err := r.workshopView(ctx, workshopID)
+	v, err := r.workshopView(ctx, workshopID)
 	if err != nil {
 		return err
 	}
 	now := r.clock.Now()
-	round := domain.ShouldStartCaptureRound(w, p, domain.Counts(es), now)
-	if !round && (w.Status != domain.WorkshopConfirmed || !now.Before(p.ClosesAt)) {
+	round := domain.ShouldStartCaptureRound(v.w, v.p, domain.Counts(v.es), now)
+	if !round && (v.w.Status != domain.WorkshopConfirmed || !now.Before(v.p.ClosesAt)) {
 		return nil
 	}
 	enqueued := 0
-	for _, en := range rows {
+	for _, en := range v.rows {
 		if en.Status != domain.EnrollmentAuthorized {
 			continue
 		}
@@ -102,7 +139,7 @@ func (r *Runner) StartCaptureRoundIfReady(ctx context.Context, workshopID string
 		}
 	}
 	if enqueued > 0 {
-		r.log.Info("captures enqueued", "workshop_id", workshopID, "workshop_status", w.Status, "count", enqueued)
+		r.log.Info("captures enqueued", "workshop_id", workshopID, "workshop_status", v.w.Status, "count", enqueued)
 	}
 	return nil
 }
@@ -165,42 +202,73 @@ func (r *Runner) afterAuthorized(ctx context.Context, en store.EnrollmentRow) er
 	return err
 }
 
-// afterPaid acts on a payment that has just completed. A FUNDING workshop is
-// confirmed once enough payments have completed (domain.AfterCaptureResult);
-// short of that, the round is evaluated again, since authorizations that
-// arrived while this capture was in flight may now reach the minimum.
-// A payment completed after the workshop was cancelled is refunded
+// afterPaid acts on a payment that has just completed. In a FUNDING
+// workshop it applies domain.AfterCaptureResult (confirmIfFunded). A payment
+// completed after the workshop was cancelled is refunded
 // (domain.LateCaptureAfterCancel), and one completed after it was confirmed
 // keeps its seat until the workshop starts and is refunded after that
-// (domain.LateCaptureAfterConfirm).
+// (domain.LateCaptureAfterConfirm). That refund is decided from the
+// workshop, its proposal and this enrollment alone, since nothing marks a
+// payment as late once this hook has passed. When the workshop leaves
+// FUNDING while this decides, it decides again from the new state.
 func (r *Runner) afterPaid(ctx context.Context, en store.EnrollmentRow) error {
-	w, p, es, _, err := r.workshopView(ctx, en.WorkshopID)
-	if err != nil {
-		return err
-	}
-	i := slices.IndexFunc(es, func(e domain.Enrollment) bool { return e.ID == en.ID })
-	if i < 0 {
-		return fmt.Errorf("enrollment %s of workshop %s: %w", en.ID, en.WorkshopID, store.ErrNotFound)
-	}
-	log := r.log.With("workshop_id", w.ID, "enrollment_id", en.ID)
-	action := domain.ActionNone
-	switch w.Status {
-	case domain.WorkshopFunding:
-		t := domain.Counts(es)
-		status, resolution := domain.AfterCaptureResult(w, p, t)
-		if status == w.Status && resolution == w.Resolution {
-			return r.StartCaptureRoundIfReady(ctx, w.ID)
+	paid := domain.Enrollment{ID: en.ID, ParticipantID: en.ParticipantID, Status: en.Status, SeatExpiresAt: en.SeatExpiresAt}
+	for range casRetries {
+		w, err := r.st.WorkshopByID(ctx, en.WorkshopID)
+		if err != nil {
+			return err
 		}
-		log.Info("workshop confirmed: enough payments completed", "paid", t.Paid, "minimum", p.Minimum)
-		return r.st.SetWorkshopStatus(ctx, w.ID, status, resolution)
-	case domain.WorkshopCancelled:
-		action = domain.LateCaptureAfterCancel(es[i])
-	case domain.WorkshopConfirmed:
-		action = domain.LateCaptureAfterConfirm(es[i], p.StartsAt, r.clock.Now())
+		switch w.Status {
+		case domain.WorkshopFunding:
+			done, err := r.confirmIfFunded(ctx, en.WorkshopID)
+			if err != nil || done {
+				return err
+			}
+		case domain.WorkshopCancelled:
+			return r.lateCapture(ctx, en, w.Status, domain.LateCaptureAfterCancel(paid))
+		case domain.WorkshopConfirmed:
+			p, err := r.st.ProposalByID(ctx, en.ProposalID)
+			if err != nil {
+				return err
+			}
+			if p == nil {
+				return fmt.Errorf("proposal %s: %w", en.ProposalID, store.ErrNotFound)
+			}
+			return r.lateCapture(ctx, en, w.Status, domain.LateCaptureAfterConfirm(paid, p.StartsAt, r.clock.Now()))
+		default:
+			return nil
+		}
 	}
+	return errWorkshopMoving
+}
+
+// confirmIfFunded applies domain.AfterCaptureResult to a FUNDING workshop:
+// it is confirmed, by compare-and-set from FUNDING, once enough payments have
+// completed; short of that the capture round is evaluated again, since
+// authorizations that arrived while a capture was in flight may now reach
+// the minimum. done is false when the workshop was no longer FUNDING.
+func (r *Runner) confirmIfFunded(ctx context.Context, workshopID string) (done bool, err error) {
+	v, err := r.workshopView(ctx, workshopID)
+	if err != nil || v.w.Status != domain.WorkshopFunding {
+		return false, err
+	}
+	t := domain.Counts(v.es)
+	status, resolution := domain.AfterCaptureResult(v.w, v.p, t)
+	if status == v.w.Status && resolution == v.w.Resolution {
+		return true, r.StartCaptureRoundIfReady(ctx, workshopID)
+	}
+	ok, err := r.st.TransitionWorkshop(ctx, workshopID, []domain.WorkshopStatus{domain.WorkshopFunding}, nil, status, resolution)
+	if ok {
+		r.log.Info("workshop confirmed: enough payments completed", "workshop_id", workshopID, "paid", t.Paid, "minimum", v.p.Minimum)
+	}
+	return ok, err
+}
+
+func (r *Runner) lateCapture(ctx context.Context, en store.EnrollmentRow, status domain.WorkshopStatus, action domain.Action) error {
+	log := r.log.With("workshop_id", en.WorkshopID, "enrollment_id", en.ID, "workshop_status", status)
 	switch action {
 	case domain.ActionRefund:
-		log.Warn("payment completed too late to keep; refunding it", "workshop_status", w.Status)
+		log.Warn("payment completed too late to keep; refunding it")
 		_, err := r.enqueueLatest(ctx, kindRefund, en, "")
 		return err
 	case domain.ActionKeepSeat:

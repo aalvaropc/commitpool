@@ -326,7 +326,7 @@ func (r *Runner) void(ctx context.Context, job *store.Job) (*int, error) {
 	voided := paypal.Authorization{ID: *a.AuthorizationID, Status: ppVoided}
 	err = r.pp.VoidAuthorization(ctx, *a.AuthorizationID, job.IdempotencyKey)
 	if err == nil {
-		return nil, r.ApplyAuthorization(ctx, a.ID, voided)
+		return nil, r.recordVoided(ctx, s, voided)
 	}
 	pe := definitiveError(err)
 	if pe == nil {
@@ -334,7 +334,7 @@ func (r *Runner) void(ctx context.Context, job *store.Job) (*int, error) {
 	}
 	if pe.Issue == issuePreviouslyVoided || pe.Issue == issueAuthorizationExpired {
 		s.log.Info("authorization already gone at PayPal; counting it as voided", "issue", pe.Issue)
-		return statusOf(pe), r.ApplyAuthorization(ctx, a.ID, voided)
+		return statusOf(pe), r.recordVoided(ctx, s, voided)
 	}
 	s.log.Error("PayPal refused the void", "http_status", pe.HTTPStatus, "issue", pe.Issue, "debug_id", pe.DebugID)
 	if stuck != nil {
@@ -343,6 +343,16 @@ func (r *Runner) void(ctx context.Context, job *store.Job) (*int, error) {
 		}
 	}
 	return refused(pe)
+}
+
+// recordVoided records the authorization as voided and then settles the
+// workshop: releasing the hold of a failed capture or a released seat moves no
+// enrollment, so no move sets that off.
+func (r *Runner) recordVoided(ctx context.Context, s subject, voided paypal.Authorization) error {
+	if err := r.ApplyAuthorization(ctx, s.attempt.ID, voided); err != nil {
+		return err
+	}
+	return r.SettleIfResolved(ctx, s.enrollment.WorkshopID)
 }
 
 // refund refunds the capture of the enrollment's latest attempt in full. The

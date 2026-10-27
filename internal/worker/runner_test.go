@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -407,15 +408,12 @@ func TestScheduleReconcile_BumpsGenerationWithoutProbing(t *testing.T) {
 		t.Errorf("reconcile :2 = %+v, %v; want none (the next generation follows the highest one)", j, err)
 	}
 
-	e.runner.Register("probe", func(ctx context.Context, job *store.Job) (*int, error) {
-		status := 503
-		return &status, &paypal.Error{HTTPStatus: 503, Name: "INTERNAL_SERVER_ERROR"}
-	})
-	if err := e.runner.Enqueue(e.ctx, "probe", "probe:"+a.ID, &e.workshop.ID, &a.ID, nil, now); err != nil {
+	if err := e.st.ReenqueueJob(e.ctx, captureKey, now); err != nil {
 		t.Fatal(err)
 	}
-	e.runKey("probe:" + a.ID)
-	e.wantJob("probe:"+a.ID, "unknown")
+	e.fake.FailNext("capture", 503, "")
+	e.runKey(captureKey)
+	e.wantJob(captureKey, "unknown")
 	if j, err := e.st.JobByKey(e.ctx, "reconcile:"+a.ID+":5"); err != nil || j != nil {
 		t.Errorf("reconcile :5 = %+v, %v; want none while :4 has not started", j, err)
 	}
@@ -498,5 +496,75 @@ func TestApplyCaptureFailure_KeepsARecordedCapture(t *testing.T) {
 	e.wantStatus(en.ID, domain.EnrollmentPaid)
 	if j, err := e.st.JobByKey(e.ctx, "void:"+a.ID); err != nil || j != nil {
 		t.Errorf("void job = %+v, %v; want none for a captured authorization", j, err)
+	}
+}
+
+func TestRecord_MoneyOnOlderAttemptFlagsEnrollment(t *testing.T) {
+	e := newEnv(t)
+	en, older := e.enroll("Ana")
+	if _, err := e.st.CreateAttempt(e.ctx, en.ID, e.proposal.PriceMinor, e.proposal.Currency); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := e.runner.ApplyCapture(e.ctx, older.ID, paypal.Capture{ID: "OLDERCAPTURE", Status: "COMPLETED"}); err != nil {
+		t.Fatalf("ApplyCapture: %v", err)
+	}
+
+	wantString(t, "older attempt capture_id", e.attempt(older.ID).CaptureID, "OLDERCAPTURE")
+	e.wantStatus(en.ID, domain.EnrollmentNeedsAttention)
+	if logs := e.logs.String(); !strings.Contains(logs, "level=ERROR") || !strings.Contains(logs, "older attempt") {
+		t.Errorf("worker log has no error about money on an older attempt:\n%s", logs)
+	}
+}
+
+func TestEnqueueOrRevive_NeverRevivesPayPalRefusals(t *testing.T) {
+	e := newEnv(t)
+	_, refused := e.authorized("Ana")
+	e.fake.FailNext("void", 422, "PREVIOUSLY_CAPTURED")
+	refusedKey := e.enqueue("void", refused)
+	e.runKey(refusedKey)
+	e.wantJob(refusedKey, "failed")
+
+	_, skipped := e.paid("Ben")
+	skippedKey := e.enqueue("void", skipped)
+	e.runKey(skippedKey)
+	j := e.wantJob(skippedKey, "failed")
+	wantString(t, "last_error", j.LastError, "skipped: enrollment PAID")
+
+	for _, tc := range []struct {
+		key, want string
+		a         store.AttemptRow
+	}{{refusedKey, "failed", refused}, {skippedKey, "pending", skipped}} {
+		created, err := e.runner.EnqueueOrRevive(e.ctx, "void", tc.key, &e.workshop.ID, &tc.a.ID, nil, e.clock.Now())
+		if err != nil || created {
+			t.Fatalf("EnqueueOrRevive(%s) = %v, %v; want false, nil", tc.key, created, err)
+		}
+		e.wantJob(tc.key, tc.want)
+	}
+	if n := len(e.fake.Requests("void")); n != 1 {
+		t.Errorf("void requests = %d, want only the refused one", n)
+	}
+}
+
+func TestSettle_AmbiguousErrorOfOtherKindIsRetried(t *testing.T) {
+	e := newEnv(t)
+	_, a := e.authorized("Ana")
+	e.runner.Register("probe", func(ctx context.Context, job *store.Job) (*int, error) {
+		status := 503
+		return &status, &paypal.Error{HTTPStatus: 503, Name: "INTERNAL_SERVER_ERROR"}
+	})
+	key := "probe:" + a.ID
+	if err := e.runner.Enqueue(e.ctx, "probe", key, &e.workshop.ID, &a.ID, nil, e.clock.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	e.runKey(key)
+
+	j := e.wantJob(key, "pending")
+	if j.Attempts != 1 || !j.RunAt.Equal(e.clock.Now().Add(5*time.Second)) {
+		t.Errorf("probe job attempts/run_at = %d/%s, want 1/now+5s", j.Attempts, j.RunAt)
+	}
+	if r, err := e.st.JobByKey(e.ctx, "reconcile:"+a.ID+":1"); err != nil || r != nil {
+		t.Errorf("reconcile job = %+v, %v; want none: a reconcile cannot resolve this kind", r, err)
 	}
 }

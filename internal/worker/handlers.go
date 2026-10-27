@@ -161,10 +161,11 @@ func (r *Runner) authorize(ctx context.Context, job *store.Job) (*int, error) {
 }
 
 // capture captures the authorization of the enrollment's latest attempt once,
-// in full and as the final capture. A first run starts only from AUTHORIZED,
-// which moves to CAPTURING before the request leaves; only a later run of the
-// same job (attempts > 1) resumes a CAPTURING enrollment, sending again under
-// the same key, because an earlier run of it may have reached PayPal.
+// in full and as the final capture. The enrollment moves AUTHORIZED →
+// CAPTURING before the request leaves. A CAPTURING enrollment is resumed,
+// sending again under the same key: a new attempt can only be opened while
+// SEAT_RESERVED, so CAPTURING belongs to the latest attempt, whose only
+// capture job is this one, and an earlier run of it may have reached PayPal.
 //
 // Past the capture deadline (the earlier of the payment close and the
 // authorization's expiry) the capture is failed without sending it. A resumed
@@ -178,10 +179,7 @@ func (r *Runner) capture(ctx context.Context, job *store.Job) (*int, error) {
 		return nil, err
 	}
 	a := s.attempt
-	from := statuses(domain.EnrollmentAuthorized)
-	if job.Attempts > 1 {
-		from = append(from, domain.EnrollmentCapturing)
-	}
+	from := statuses(domain.EnrollmentAuthorized, domain.EnrollmentCapturing)
 	if !slices.Contains(from, s.enrollment.Status) {
 		return s.skip()
 	}
@@ -337,8 +335,9 @@ func (r *Runner) void(ctx context.Context, job *store.Job) (*int, error) {
 	return refused(pe)
 }
 
-// refund refunds the capture in full. The enrollment goes PAID → REFUNDING
-// before the request leaves and then follows the refund's status.
+// refund refunds the capture of the enrollment's latest attempt in full. The
+// enrollment goes PAID → REFUNDING before the request leaves and then follows
+// the refund's status; a job of an older attempt is skipped.
 // CAPTURE_FULLY_REFUNDED means the money is already back and counts as
 // refunded, the refund id being filled in by a later reconcile; any other
 // final refusal flags the enrollment NEEDS_ATTENTION.
@@ -350,6 +349,12 @@ func (r *Runner) refund(ctx context.Context, job *store.Job) (*int, error) {
 	a := s.attempt
 	if st := s.enrollment.Status; st != domain.EnrollmentPaid && st != domain.EnrollmentRefunding {
 		return s.skip()
+	}
+	if driving, err := r.driving(ctx, a); err != nil || !driving {
+		if err != nil {
+			return nil, err
+		}
+		return s.skipOlderAttempt()
 	}
 	if a.CaptureID == nil {
 		return nil, errors.New("payment attempt has no capture to refund")

@@ -45,10 +45,8 @@ const (
 
 // Job statuses as the store writes them.
 const (
-	jobPending        = "pending"
-	jobUnknown        = "unknown"
-	jobFailed         = "failed"
-	jobNeedsAttention = "needs_attention"
+	jobPending = "pending"
+	jobUnknown = "unknown"
 )
 
 // maxReconcileGenerations is how many reconciles an ambiguous action gets: the
@@ -200,25 +198,36 @@ func (r *Runner) Enqueue(ctx context.Context, kind, key string, workshopID, atte
 	return err
 }
 
-// EnqueueOrRevive adds a pending job due at runAt, or, when a job with the key
-// already exists and was refused or skipped (failed) or gave up
-// (needs_attention), sends that job back to pending at runAt under its own
-// key, keeping its payload. A job that is pending, running, unknown or
-// succeeded is left as it is. created reports whether a new job was written.
+// EnqueueOrRevive adds a pending job due at runAt or, when a job with the key
+// already exists and failed without a provider answer (a skip), sends that
+// job back to pending at runAt under its own key, keeping its payload. A job
+// PayPal refused, one that gave up, and one that is pending, running, unknown
+// or succeeded are left as they are, so an automatic path never re-sends an
+// action PayPal already refused. created reports whether a new job was
+// written. Callers with new information about a refused job use Revive.
 func (r *Runner) EnqueueOrRevive(ctx context.Context, kind, key string, workshopID, attemptID *string, payload any, runAt time.Time) (created bool, err error) {
 	created, err = r.st.EnqueueJob(ctx, kind, key, workshopID, attemptID, payload, runAt)
 	if err != nil || created {
 		return created, err
 	}
-	existing, err := r.st.JobByKey(ctx, key)
-	if err != nil || existing == nil {
-		return false, err
+	revived, err := r.st.ReviveJob(ctx, key, runAt, false)
+	if revived {
+		r.log.Info("worker: revived a skipped job under its own key", "kind", kind, "key", key)
 	}
-	if existing.Status == jobFailed || existing.Status == jobNeedsAttention {
-		r.log.Info("worker: reviving a job under its own key", "job_id", existing.ID, "kind", existing.Kind, "key", key, "was", existing.Status)
-		return false, r.st.ReenqueueJob(ctx, key, runAt)
+	return false, err
+}
+
+// Revive sends the job with this key back to pending now, under its own key,
+// when it failed or gave up, whatever the reason: it is for callers that know
+// something changed since, such as the HTTP layer once the buyer is back from
+// PayPal with an approved order, or an operator. It reports whether a job was
+// revived.
+func (r *Runner) Revive(ctx context.Context, key string) (bool, error) {
+	revived, err := r.st.ReviveJob(ctx, key, r.clock.Now(), true)
+	if revived {
+		r.log.Info("worker: revived a job under its own key", "key", key)
 	}
-	return false, nil
+	return revived, err
 }
 
 // ReturnURLs are where PayPal sends the buyer back after approving or
@@ -271,7 +280,7 @@ func (r *Runner) settle(ctx context.Context, job *store.Job, status *int, err er
 		issue, debugID := ref.details()
 		log.Warn("job refused; it keeps its key and can be revived", "error", err)
 		return r.tolerate(log, r.st.FailJob(ctx, job.ID, err.Error(), status, issue, debugID))
-	case paypal.IsAmbiguous(err) && job.AttemptID != nil && job.Kind != kindReconcile:
+	case paypal.IsAmbiguous(err) && job.AttemptID != nil && reconcilable(job.Kind):
 		log.Warn("PayPal result is ambiguous; reconciling before acting again", "error", err)
 		if rerr := r.scheduleReconcile(ctx, job); rerr != nil {
 			return rerr
@@ -328,6 +337,16 @@ func (r *Runner) scheduleReconcile(ctx context.Context, job *store.Job) error {
 	key := reconcilePrefix(*job.AttemptID) + strconv.Itoa(next)
 	_, err = r.st.EnqueueJob(ctx, kindReconcile, key, job.WorkshopID, job.AttemptID, nil, now.Add(reconcileDelay))
 	return err
+}
+
+// reconcilable reports whether a reconcile can resolve an ambiguous result of
+// a job of this kind; any other kind, a reconcile included, is retried.
+func reconcilable(kind string) bool {
+	switch kind {
+	case kindCreateOrder, kindAuthorize, kindCapture, kindVoid, kindRefund:
+		return true
+	}
+	return false
 }
 
 func reconcilePrefix(attemptID string) string {

@@ -370,18 +370,88 @@ func TestCapture_ResumedPastDeadlineRefreshesBeforeFailing(t *testing.T) {
 
 func TestCapture_FirstRunDoesNotResumeAnotherCapture(t *testing.T) {
 	e := newEnv(t)
-	en, a := e.authorized("Ana")
+	en, older := e.enroll("Ana")
+	latest, err := e.st.CreateAttempt(e.ctx, en.ID, e.proposal.PriceMinor, e.proposal.Currency)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.runKey(e.enqueue("create_order", latest))
+	latest = e.attempt(latest.ID)
+	e.fake.Approve(*latest.OrderID)
+	e.runKey(e.enqueue("authorize", latest))
+	e.wantStatus(en.ID, domain.EnrollmentAuthorized)
 	e.transition(en.ID, domain.EnrollmentAuthorized, domain.EnrollmentCapturing)
-	key := e.enqueue("capture", a)
+	key := e.enqueue("capture", older)
 
 	e.runOnce()
 
 	j := e.wantJob(key, "failed")
-	wantString(t, "last_error", j.LastError, "skipped: enrollment CAPTURING")
+	wantString(t, "last_error", j.LastError, "skipped: not the enrollment's latest attempt")
 	if n := len(e.fake.Requests("capture")); n != 0 {
 		t.Errorf("capture requests = %d, want 0", n)
 	}
 	e.wantStatus(en.ID, domain.EnrollmentCapturing)
+}
+
+func TestCapture_RevivedSkippedJobResumesUnderTheSameKey(t *testing.T) {
+	e := newEnv(t)
+	en, a := e.withOrder("Ana")
+	key := e.enqueue("capture", a)
+	e.runKey(key)
+	j := e.wantJob(key, "failed")
+	wantString(t, "last_error", j.LastError, "skipped: enrollment SEAT_RESERVED")
+
+	e.fake.Approve(*a.OrderID)
+	e.runKey(e.enqueue("authorize", a))
+	created, err := e.runner.EnqueueOrRevive(e.ctx, "capture", key, &e.workshop.ID, &a.ID, nil, e.clock.Now())
+	if err != nil || created {
+		t.Fatalf("EnqueueOrRevive = %v, %v; want the skipped job revived (false, nil)", created, err)
+	}
+	e.fake.FailNext("capture", 429, "RATE_LIMIT_REACHED")
+	e.runOnce()
+	e.wantStatus(en.ID, domain.EnrollmentCapturing)
+	e.clock.Set(e.wantJob(key, "pending").RunAt)
+	e.runOnce()
+
+	e.wantStatus(en.ID, domain.EnrollmentPaid)
+	e.wantJob(key, "succeeded")
+	if e.fake.Captures() != 1 {
+		t.Errorf("captures = %d, want 1", e.fake.Captures())
+	}
+	reqs := e.fake.Requests("capture")
+	if len(reqs) != 2 {
+		t.Fatalf("capture requests = %d, want 2 (the rate-limited one and the capture)", len(reqs))
+	}
+	for i, r := range reqs {
+		if r.RequestID != key {
+			t.Errorf("capture request %d PayPal-Request-Id = %q, want %q", i+1, r.RequestID, key)
+		}
+	}
+}
+
+func TestRefund_OlderAttemptIsSkipped(t *testing.T) {
+	e := newEnv(t)
+	en, older := e.enroll("Ana")
+	latest, err := e.st.CreateAttempt(e.ctx, en.ID, e.proposal.PriceMinor, e.proposal.Currency)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.runKey(e.enqueue("create_order", latest))
+	latest = e.attempt(latest.ID)
+	e.fake.Approve(*latest.OrderID)
+	e.runKey(e.enqueue("authorize", latest))
+	e.runKey(e.enqueue("capture", latest))
+	e.wantStatus(en.ID, domain.EnrollmentPaid)
+	key := e.enqueue("refund", older)
+
+	e.runKey(key)
+
+	j := e.wantJob(key, "failed")
+	wantString(t, "last_error", j.LastError, "skipped: not the enrollment's latest attempt")
+	e.wantStatus(en.ID, domain.EnrollmentPaid)
+	if n := len(e.fake.Requests("refund")); n != 0 {
+		t.Errorf("refund requests = %d, want 0", n)
+	}
 }
 
 func TestAuthorize_OrderNotApprovedFailsJobAndCanBeRevived(t *testing.T) {
@@ -399,9 +469,13 @@ func TestAuthorize_OrderNotApprovedFailsJobAndCanBeRevived(t *testing.T) {
 	e.wantStatus(en.ID, domain.EnrollmentSeatReserved)
 
 	e.fake.Approve(*a.OrderID)
-	created, err := e.runner.EnqueueOrRevive(e.ctx, "authorize", key, &e.workshop.ID, &a.ID, nil, e.clock.Now())
-	if err != nil || created {
-		t.Fatalf("EnqueueOrRevive = %v, %v; want the existing job revived (false, nil)", created, err)
+	if created, err := e.runner.EnqueueOrRevive(e.ctx, "authorize", key, &e.workshop.ID, &a.ID, nil, e.clock.Now()); err != nil || created {
+		t.Fatalf("EnqueueOrRevive = %v, %v; want false, nil", created, err)
+	}
+	e.wantJob(key, "failed")
+	revived, err := e.runner.Revive(e.ctx, key)
+	if err != nil || !revived {
+		t.Fatalf("Revive = %v, %v; want the refused job revived", revived, err)
 	}
 	e.wantJob(key, "pending")
 	e.runKey(key)

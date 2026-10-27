@@ -109,7 +109,7 @@ func (r *Runner) applyOrder(ctx context.Context, attemptID string, o paypal.Orde
 		}
 		setStatus(&a.OrderStatus, o.Status)
 		return nil
-	}, nil)
+	}, nil, false)
 	if err != nil || !res.ok || len(o.PurchaseUnits) == 0 {
 		return res.ok, err
 	}
@@ -148,7 +148,7 @@ func (r *Runner) ApplyAuthorization(ctx context.Context, attemptID string, au pa
 			a.AuthExpiresAt = &expires
 		}
 		return nil
-	}, lookup(authorizationMoves, au.Status))
+	}, lookup(authorizationMoves, au.Status), false)
 	if err != nil || !res.ok || au.Status != ppCreated || res.moved {
 		return err
 	}
@@ -181,7 +181,7 @@ func (r *Runner) ApplyCapture(ctx context.Context, attemptID string, c paypal.Ca
 		setStatus(&a.CaptureStatus, c.Status)
 		a.CaptureReason = reason(c.StatusDetails)
 		return nil
-	}, lookup(captureMoves, c.Status))
+	}, lookup(captureMoves, c.Status), c.Status == ppCompleted || c.Status == ppPending)
 	if err != nil || !res.ok {
 		return err
 	}
@@ -202,7 +202,7 @@ func (r *Runner) ApplyRefund(ctx context.Context, attemptID string, rf paypal.Re
 		setStatus(&a.RefundStatus, rf.Status)
 		a.RefundReason = reason(rf.StatusDetails)
 		return nil
-	}, lookup(refundMoves, rf.Status))
+	}, lookup(refundMoves, rf.Status), true)
 	return err
 }
 
@@ -229,7 +229,7 @@ func (r *Runner) failCapture(ctx context.Context, attemptID, issue, debugID stri
 		a.CaptureIssue = nonEmpty(issue)
 		a.CaptureDebugID = nonEmpty(debugID)
 		return nil
-	}, &move{statuses(domain.EnrollmentCapturing), domain.EnrollmentCaptureFailed})
+	}, &move{statuses(domain.EnrollmentCapturing), domain.EnrollmentCaptureFailed}, false)
 	if err != nil || !res.ok {
 		return err
 	}
@@ -256,9 +256,13 @@ type recorded struct {
 
 // record updates the attempt under its row lock with fn and then, when the
 // attempt is its enrollment's latest, moves the enrollment as m says (nil: no
-// move). When fn finds a conflicting PayPal id the attempt is left untouched
-// and the enrollment is flagged NEEDS_ATTENTION.
-func (r *Runner) record(ctx context.Context, attemptID string, fn func(a *store.AttemptRow) error, m *move) (recorded, error) {
+// move). money marks money that moved (a completed or pending capture, any
+// refund): recorded on an older attempt it should not exist, since a new
+// attempt opens only while SEAT_RESERVED, so the enrollment is flagged
+// NEEDS_ATTENTION instead (unless it is paid or finished). When fn finds a
+// conflicting PayPal id the attempt is left untouched and the enrollment is
+// flagged too.
+func (r *Runner) record(ctx context.Context, attemptID string, fn func(a *store.AttemptRow) error, m *move, money bool) (recorded, error) {
 	log := r.log.With("attempt_id", attemptID)
 	saved, err := r.st.UpdateAttemptFunc(ctx, attemptID, fn)
 	if errors.Is(err, errIDConflict) {
@@ -277,15 +281,22 @@ func (r *Runner) record(ctx context.Context, attemptID string, fn func(a *store.
 		return recorded{}, err
 	}
 	res := recorded{attempt: saved, ok: true}
-	if m == nil {
+	if m == nil && !money {
 		return res, nil
 	}
 	log = log.With("enrollment_id", saved.EnrollmentID)
 	if res.driving, err = r.driving(ctx, saved); err != nil {
 		return res, err
 	}
+	if !res.driving && money {
+		log.Error("PayPal moved money on an older attempt of the enrollment; flagging it")
+		return res, r.flag(ctx, log, saved.EnrollmentID, unpaidActiveStatuses)
+	}
 	if !res.driving {
 		log.Debug("enrollment left as it is: it follows its latest attempt, not this one")
+		return res, nil
+	}
+	if m == nil {
 		return res, nil
 	}
 	res.moved, err = r.transition(ctx, log, saved.EnrollmentID, *m)

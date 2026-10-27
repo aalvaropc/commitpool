@@ -3,6 +3,7 @@ package paypal
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -56,6 +57,40 @@ func TestFake_SameRequestIdReturnsSameCapture(t *testing.T) {
 	}
 	if n := f.Captures(); n != 1 {
 		t.Fatalf("Captures() = %d, want 1", n)
+	}
+}
+
+func TestFake_SameRequestIdReturnsSameOrder(t *testing.T) {
+	f := newFake(t)
+	c := newTestClient(t, f)
+	orderCount := func() int {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return len(f.orders)
+	}
+
+	first := createOrder(t, c, "1")
+	second := createOrder(t, c, "1")
+	if first.ID == "" || first.ID != second.ID {
+		t.Fatalf("order ids = %q and %q, want the same one", first.ID, second.ID)
+	}
+	if n := orderCount(); n != 1 {
+		t.Fatalf("orders created = %d, want 1", n)
+	}
+	if other := createOrder(t, c, "2"); other.ID == first.ID {
+		t.Fatal("a different key returned the same order")
+	}
+
+	f.FailNext("create_order", 500, "")
+	if _, err := c.CreateOrder(context.Background(), createParams("3")); err == nil {
+		t.Fatal("injected 500 was not returned")
+	}
+	if n := orderCount(); n != 2 {
+		t.Fatalf("orders after an injected failure = %d, want 2 (the operation must not run)", n)
+	}
+	retried := createOrder(t, c, "3")
+	if n := orderCount(); n != 3 || retried.ID == "" {
+		t.Fatalf("orders after the same-key retry = %d, want 3: a failure is not recorded for replay", n)
 	}
 }
 
@@ -422,7 +457,10 @@ func TestFake_TimedOutCaptureStillHappensAndReplays(t *testing.T) {
 	if err == nil || !IsAmbiguous(err) {
 		t.Fatalf("hanging capture = %v, want an ambiguous error", err)
 	}
-	waitFor(t, 8*time.Second, func() bool { return f.Captures() == 1 })
+	f.WaitHung()
+	if n := f.Captures(); n != 1 {
+		t.Fatalf("Captures() after WaitHung = %d, want 1: the hung capture must have run", n)
+	}
 
 	cp, err := c.CaptureAuthorization(ctx, CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1"})
 	if err != nil {
@@ -439,6 +477,46 @@ func TestFake_TimedOutCaptureStillHappensAndReplays(t *testing.T) {
 	if len(captures) != 1 || captures[0].ID != cp.ID {
 		t.Errorf("order captures = %+v, want only %q", captures, cp.ID)
 	}
+}
+
+func TestFake_WaitHungReturnsWhenIdleOrClosed(t *testing.T) {
+	returnsWithin := func(t *testing.T, f *FakeServer, limit time.Duration) {
+		t.Helper()
+		done := make(chan struct{})
+		go func() { f.WaitHung(); close(done) }()
+		select {
+		case <-done:
+		case <-time.After(limit):
+			t.Fatalf("WaitHung did not return within %v", limit)
+		}
+	}
+
+	idle := newFake(t)
+	returnsWithin(t, idle, time.Second)
+
+	f := NewFakeServer()
+	c := newTestClient(t, f)
+	_, auth := authorizedOrder(t, c, f, "1")
+	f.FailNext("capture", 0, "")
+	go func() {
+		_, _ = c.CaptureAuthorization(context.Background(), CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1"})
+	}()
+	waitFor(t, 5*time.Second, func() bool { return len(f.Requests("capture")) == 1 })
+
+	waiting := make(chan struct{})
+	go func() { f.WaitHung(); close(waiting) }()
+	select {
+	case <-waiting:
+		t.Fatal("WaitHung returned while a capture was still hanging")
+	case <-time.After(200 * time.Millisecond):
+	}
+	f.Close()
+	select {
+	case <-waiting:
+	case <-time.After(2 * time.Second):
+		t.Fatal("WaitHung did not return after Close")
+	}
+	returnsWithin(t, f, time.Second)
 }
 
 func TestFake_CloseReturnsWhileARequestHangs(t *testing.T) {
@@ -502,6 +580,30 @@ func TestFake_FailNextShapesAndOrder(t *testing.T) {
 	}
 	if _, err := c.GetOrder(ctx, order.ID); err != nil {
 		t.Fatalf("GetOrder after the queued failures: %v", err)
+	}
+}
+
+func TestFake_FailNextRejectsStatusesBelow400(t *testing.T) {
+	f := newFake(t)
+	mustPanic := func(name string, call func()) {
+		t.Helper()
+		defer func() {
+			if recover() == nil {
+				t.Errorf("%s did not panic", name)
+			}
+		}()
+		call()
+	}
+	for _, status := range []int{-1, 1, 100, 200, 201, 204, 302, 399} {
+		mustPanic(fmt.Sprintf("FailNext with status %d", status), func() { f.FailNext("capture", status, "") })
+	}
+	mustPanic("RespondOnce with status 0", func() { f.RespondOnce("capture", 0, nil) })
+
+	for _, status := range []int{0, 400, 404, 409, 422, 429, 500, 503} {
+		f.FailNext("get_order", status, "")
+	}
+	if n := len(f.failures["get_order"]); n != 8 {
+		t.Errorf("queued failures = %d, want 8", n)
 	}
 }
 

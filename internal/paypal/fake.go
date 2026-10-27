@@ -42,7 +42,7 @@ var (
 		"get_capture": true, "get_refund": true, "verify_webhook": true,
 	}
 	// replayedOps record a successful answer per PayPal-Request-Id.
-	replayedOps = map[string]bool{"authorize": true, "capture": true, "void": true, "refund": true}
+	replayedOps = map[string]bool{"create_order": true, "authorize": true, "capture": true, "void": true, "refund": true}
 )
 
 // RecordedRequest is one API request the fake received.
@@ -85,6 +85,9 @@ type FakeServer struct {
 	replays     map[replayKey]fakeResponse
 	verify      bool
 	expireToken bool
+	pending     int
+	closed      bool
+	idle        *sync.Cond
 }
 
 type fakeOrder struct {
@@ -120,6 +123,8 @@ type fakeRefund struct {
 type fakeFailure struct {
 	status int
 	issue  string
+	canned bool
+	body   []byte
 }
 
 type replayKey struct{ op, requestID string }
@@ -142,6 +147,7 @@ func NewFakeServer() *FakeServer {
 		replays:  map[replayKey]fakeResponse{},
 		verify:   true,
 	}
+	f.idle = sync.NewCond(&f.mu)
 	f.srv = httptest.NewUnstartedServer(f.routes())
 	f.URL = "http://" + f.srv.Listener.Addr().String() + fakePrefix
 	f.srv.Start()
@@ -151,7 +157,13 @@ func NewFakeServer() *FakeServer {
 // Close stops the server. A request hanging because of FailNext(op, 0, "") is
 // released without executing, so Close returns promptly.
 func (f *FakeServer) Close() {
-	f.once.Do(func() { close(f.done) })
+	f.once.Do(func() {
+		close(f.done)
+		f.mu.Lock()
+		f.closed = true
+		f.idle.Broadcast()
+		f.mu.Unlock()
+	})
 	f.srv.Close()
 }
 
@@ -182,15 +194,48 @@ func (f *FakeServer) ExpireToken() {
 // calls for the same op are consumed in order. A status of 400 or above is
 // answered without running the operation: 5xx with an INTERNAL_SERVER_ERROR
 // body and anything else with the 422 shape carrying issue (a 409 defaults to
-// PREVIOUS_REQUEST_IN_PROGRESS). A status of 0 hangs the request for up to
-// five seconds, or until the client gives up, and then runs the operation
-// normally: the client times out while PayPal still does the work, the
-// ambiguous case callers must reconcile.
+// PREVIOUS_REQUEST_IN_PROGRESS). Any other status except 0 is a programming
+// error and panics: a "failure" must not look like a success.
+//
+// A status of 0 hangs the request, then runs the operation normally: the
+// client times out while PayPal still does the work, the ambiguous case
+// callers must reconcile. The operation runs once the server notices the
+// client has gone, or after five seconds, whichever comes first. That is not
+// instantaneous, so a Captures() or GET issued right after the client's
+// timeout can still miss it: call WaitHung first.
 func (f *FakeServer) FailNext(op string, status int, issue string) {
 	mustBeOp(op)
+	if status < 0 || (status > 0 && status < 400) {
+		panic(fmt.Sprintf("paypal fake: FailNext needs status 0 or an HTTP error status, got %d", status))
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.failures[op] = append(f.failures[op], fakeFailure{status: status, issue: issue})
+}
+
+// RespondOnce answers the next request of op with status and body exactly as
+// given, without running the operation or recording a replay. It is how a test
+// makes PayPal answer with a body of an unexpected shape, such as a 201 that
+// does not identify the resource. Like FailNext it is queued per op.
+func (f *FakeServer) RespondOnce(op string, status int, body []byte) {
+	mustBeOp(op)
+	if status <= 0 {
+		panic(fmt.Sprintf("paypal fake: RespondOnce needs an HTTP status, got %d", status))
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.failures[op] = append(f.failures[op], fakeFailure{status: status, canned: true, body: append([]byte(nil), body...)})
+}
+
+// WaitHung blocks until every request held by FailNext(op, 0, "") has run its
+// operation, so a test can read the result deterministically after the client
+// timed out. It returns at once when none is pending, and also after Close.
+func (f *FakeServer) WaitHung() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for f.pending > 0 && !f.closed {
+		f.idle.Wait()
+	}
 }
 
 // Requests returns every request received for op, in arrival order. A request
@@ -322,6 +367,10 @@ func (f *FakeServer) handler(op string, authed bool, h opFunc) http.HandlerFunc 
 			fail, failing = f.failures[op][0], true
 			f.failures[op] = f.failures[op][1:]
 		}
+		hung := failing && fail.status == 0
+		if hung {
+			f.pending++
+		}
 		f.mu.Unlock()
 
 		if unauthorized {
@@ -329,17 +378,33 @@ func (f *FakeServer) handler(op string, authed bool, h opFunc) http.HandlerFunc 
 				"Authentication failed due to invalid authentication credentials or a missing Authorization header."))
 			return
 		}
+		if failing && fail.canned {
+			writeResponse(w, fakeResponse{status: fail.status, body: fail.body})
+			return
+		}
 		if failing && fail.status > 0 {
 			writeResponse(w, failureResponse(fail.status, fail.issue))
 			return
 		}
-		if failing && !f.hang(r) {
+		if hung && !f.hang(r) {
+			f.mu.Lock()
+			f.pending--
+			f.idle.Broadcast()
+			f.mu.Unlock()
 			panic(http.ErrAbortHandler)
 		}
 
-		f.mu.Lock()
-		resp := f.runLocked(op, r, body, h)
-		f.mu.Unlock()
+		resp := func() fakeResponse {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			if hung {
+				defer func() {
+					f.pending--
+					f.idle.Broadcast()
+				}()
+			}
+			return f.runLocked(op, r, body, h)
+		}()
 		writeResponse(w, resp)
 	}
 }

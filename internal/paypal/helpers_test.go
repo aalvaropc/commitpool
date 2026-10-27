@@ -41,16 +41,20 @@ func newTestClient(t *testing.T, f *FakeServer, edit ...func(*Config)) *Client {
 	return c
 }
 
-func createOrder(t *testing.T, c *Client, key string) Order {
-	t.Helper()
-	o, err := c.CreateOrder(context.Background(), CreateOrderParams{
+func createParams(key string) CreateOrderParams {
+	return CreateOrderParams{
 		RequestID:   "create-" + key,
 		ReferenceID: "attempt-" + key,
 		CustomID:    "enrollment-" + key,
 		Amount:      usd10,
 		ReturnURL:   testReturnURL,
 		CancelURL:   testCancelURL,
-	})
+	}
+}
+
+func createOrder(t *testing.T, c *Client, key string) Order {
+	t.Helper()
+	o, err := c.CreateOrder(context.Background(), createParams(key))
 	if err != nil {
 		t.Fatalf("CreateOrder: %v", err)
 	}

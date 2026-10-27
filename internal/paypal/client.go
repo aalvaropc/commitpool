@@ -110,6 +110,9 @@ func (c *Client) CreateOrder(ctx context.Context, p CreateOrderParams) (Order, e
 	if err := c.post(ctx, "/v2/checkout/orders", p.RequestID, "", body, &o); err != nil {
 		return Order{}, err
 	}
+	if o.ID == "" {
+		return Order{}, unidentified("create order", "order id")
+	}
 	return o, nil
 }
 
@@ -129,6 +132,10 @@ func (c *Client) AuthorizeOrder(ctx context.Context, orderID, requestID string) 
 	var o Order
 	if err := c.post(ctx, path, requestID, "", struct{}{}, &o); err != nil {
 		return Order{}, err
+	}
+	if len(o.PurchaseUnits) == 0 || len(o.PurchaseUnits[0].Payments.Authorizations) == 0 ||
+		o.PurchaseUnits[0].Payments.Authorizations[0].ID == "" {
+		return Order{}, unidentified("authorize order", "authorization")
 	}
 	return o, nil
 }
@@ -151,6 +158,9 @@ func (c *Client) CaptureAuthorization(ctx context.Context, p CaptureParams) (Cap
 		FinalCapture bool `json:"final_capture"`
 	}{true}, &cp); err != nil {
 		return Capture{}, err
+	}
+	if cp.ID == "" {
+		return Capture{}, unidentified("capture", "capture id")
 	}
 	return cp, nil
 }
@@ -180,6 +190,9 @@ func (c *Client) RefundCapture(ctx context.Context, p RefundParams) (Refund, err
 	var r Refund
 	if err := c.post(ctx, path, p.RequestID, p.MockCode, struct{}{}, &r); err != nil {
 		return Refund{}, err
+	}
+	if r.ID == "" {
+		return Refund{}, unidentified("refund", "refund id")
 	}
 	return r, nil
 }
@@ -230,6 +243,14 @@ func (c *Client) VerifyWebhookSignature(ctx context.Context, h http.Header, body
 		return false, err
 	}
 	return out.VerificationStatus == "SUCCESS", nil
+}
+
+// unidentified is the error for a 2xx answer to a money POST that does not
+// identify the resource it created. PayPal may well have created it, so the
+// outcome is unconfirmed and the caller must reconcile, never persist an
+// empty PayPal id.
+func unidentified(op, what string) error {
+	return &unconfirmedError{fmt.Errorf("paypal: %s response carries no %s", op, what)}
 }
 
 func resource(prefix, id, suffix string) (string, error) {

@@ -232,6 +232,84 @@ func TestClient_MalformedSuccessBodyIsAmbiguous(t *testing.T) {
 	}
 }
 
+func TestClient_ShapelessSuccessIsUnconfirmed(t *testing.T) {
+	ctx := context.Background()
+	cases := []struct {
+		name string
+		op   string
+		body string
+		call func(c *Client) (any, error)
+	}{
+		{"create order without an id", "create_order", `{}`, func(c *Client) (any, error) {
+			return c.CreateOrder(ctx, createParams("1"))
+		}},
+		{"create order with status only", "create_order", `{"status":"PAYER_ACTION_REQUIRED"}`, func(c *Client) (any, error) {
+			return c.CreateOrder(ctx, createParams("1"))
+		}},
+		{"authorize without purchase units", "authorize", `{"id":"ORDER","status":"COMPLETED"}`, func(c *Client) (any, error) {
+			return c.AuthorizeOrder(ctx, "ORDER", "authorize-1")
+		}},
+		{"authorize without authorizations", "authorize", `{"id":"ORDER","purchase_units":[{"payments":{}}]}`, func(c *Client) (any, error) {
+			return c.AuthorizeOrder(ctx, "ORDER", "authorize-1")
+		}},
+		{"authorize with an authorization lacking an id", "authorize", `{"id":"ORDER","purchase_units":[{"payments":{"authorizations":[{"status":"CREATED"}]}}]}`, func(c *Client) (any, error) {
+			return c.AuthorizeOrder(ctx, "ORDER", "authorize-1")
+		}},
+		{"capture with an empty object", "capture", `{}`, func(c *Client) (any, error) {
+			return c.CaptureAuthorization(ctx, CaptureParams{AuthorizationID: "AUTH", RequestID: "capture-1"})
+		}},
+		{"capture with status only", "capture", `{"status":"COMPLETED"}`, func(c *Client) (any, error) {
+			return c.CaptureAuthorization(ctx, CaptureParams{AuthorizationID: "AUTH", RequestID: "capture-1"})
+		}},
+		{"refund with an empty object", "refund", `{}`, func(c *Client) (any, error) {
+			return c.RefundCapture(ctx, RefundParams{CaptureID: "CAP", RequestID: "refund-1"})
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFake(t)
+			c := newTestClient(t, f)
+			f.RespondOnce(tc.op, http.StatusCreated, []byte(tc.body))
+
+			got, err := tc.call(c)
+			if err == nil {
+				t.Fatalf("a 201 with %s was accepted as %+v", tc.body, got)
+			}
+			if !IsAmbiguous(err) {
+				t.Errorf("error %v is not ambiguous, the worker would not reconcile", err)
+			}
+			var pe *Error
+			if errors.As(err, &pe) {
+				t.Errorf("error %v is a PayPal *Error, want an unconfirmed outcome", err)
+			}
+			if !reflect.ValueOf(got).IsZero() {
+				t.Errorf("returned %+v, want no resource", got)
+			}
+			if n := len(f.Requests(tc.op)); n != 1 {
+				t.Errorf("%s requests = %d, want 1", tc.op, n)
+			}
+			if n := f.Captures(); n != 0 {
+				t.Errorf("Captures() = %d: a canned answer must not run the operation", n)
+			}
+		})
+	}
+}
+
+func TestClient_ReadsKeepWhateverPayPalSent(t *testing.T) {
+	f := newFake(t)
+	c := newTestClient(t, f)
+	ctx := context.Background()
+
+	f.RespondOnce("get_capture", http.StatusOK, []byte(`{}`))
+	if got, err := c.GetCapture(ctx, "CAP"); err != nil || got.ID != "" {
+		t.Errorf("GetCapture = %+v, %v, want the empty object as sent", got, err)
+	}
+	f.RespondOnce("get_order", http.StatusOK, []byte(`{}`))
+	if got, err := c.GetOrder(ctx, "ORDER"); err != nil || got.ID != "" {
+		t.Errorf("GetOrder = %+v, %v, want the empty object as sent", got, err)
+	}
+}
+
 func TestClient_TimeoutIsAmbiguous(t *testing.T) {
 	f := newFake(t)
 	c := newTestClient(t, f, func(cfg *Config) { cfg.HTTPClient = &http.Client{Timeout: time.Second} })

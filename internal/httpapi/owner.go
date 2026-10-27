@@ -123,9 +123,10 @@ var proposalRefusals = []struct {
 
 // openProposal opens payments on one candidate date. The proposal is built
 // from the workshop's own terms and the chosen date, never from the request,
-// and domain.ValidateProposal decides whether it may open. Opening moves the
-// workshop COLLECTING → FUNDING by compare-and-set, which locks its terms,
-// and schedules close:{proposal} for when the window ends.
+// and domain.ValidateProposal decides whether it may open. store.OpenProposal
+// moves the workshop COLLECTING → FUNDING by compare-and-set, which locks its
+// terms, and schedules close:{proposal} for when the window ends, in one
+// transaction.
 func (s *server) openProposal(w http.ResponseWriter, r *http.Request) error {
 	ws, err := s.ownerWorkshop(r)
 	if err != nil {
@@ -215,17 +216,14 @@ func (s *server) openProposal(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	if err := s.scheduleClose(ctx, opened); err != nil {
-		return err
-	}
 	ws.Status = domain.WorkshopFunding
 	writeJSON(w, http.StatusCreated, map[string]*proposalDTO{"proposal": proposalView(&opened, ws, now)})
 	return nil
 }
 
 // alreadyOpen refuses a second proposal. It first makes sure the open one has
-// its close job, so an owner retrying after a failure that lost the enqueue
-// gets the workshop closing on time; the enqueue is a no-op otherwise.
+// its close job, a repair for proposals opened before the close was enqueued
+// with them; the enqueue is a no-op otherwise.
 func (s *server) alreadyOpen(ctx context.Context, open *store.ProposalRow) error {
 	if open != nil {
 		if err := s.scheduleClose(ctx, *open); err != nil {

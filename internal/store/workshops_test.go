@@ -446,3 +446,34 @@ func TestWorkshop_KeepsTheShareTokenButOnlyTheOwnerTokenHash(t *testing.T) {
 		}
 	}
 }
+
+func TestOpenProposal_SchedulesItsCloseInTheSameTransaction(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	w, _, _ := newWorkshop(t, s, 1, 3)
+	p := openFunding(t, s, w, baseTime)
+
+	j, err := s.JobByKey(ctx, store.JobKey(store.KindClose, p.ID))
+	if err != nil || j == nil {
+		t.Fatalf("close job after OpenProposal = %+v, %v; want one", j, err)
+	}
+	if j.Kind != store.KindClose || j.Status != "pending" || !j.RunAt.Equal(p.ClosesAt) ||
+		j.WorkshopID == nil || *j.WorkshopID != w.ID || j.AttemptID != nil {
+		t.Errorf("close job = %+v, want pending close of workshop %s at %s", j, w.ID, p.ClosesAt)
+	}
+
+	other, _, _ := newWorkshop(t, s, 1, 3)
+	_, err = s.OpenProposal(ctx, store.ProposalRow{
+		WorkshopID: other.ID, ChosenDateID: missingUUID, PriceMinor: 1000, Currency: "USD", Minimum: 1, Capacity: 3,
+		OpensAt: baseTime, ClosesAt: baseTime.Add(24 * time.Hour), StartsAt: friday,
+	})
+	if err == nil {
+		t.Fatal("OpenProposal with a date that does not exist succeeded")
+	}
+	if got, err := s.WorkshopByID(ctx, other.ID); err != nil || got.Status != domain.WorkshopCollecting {
+		t.Errorf("workshop after a failed OpenProposal = %s, %v; want COLLECTING", got.Status, err)
+	}
+	if n := count(t, s, `select count(*) from jobs where workshop_id = $1`, other.ID); n != 0 {
+		t.Errorf("jobs after a failed OpenProposal = %d, want 0", n)
+	}
+}

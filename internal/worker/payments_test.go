@@ -191,7 +191,7 @@ func TestCapture_DeadlinePassedFailsWithoutCallingPayPal(t *testing.T) {
 	e.clock.Set(e.proposal.ClosesAt.Add(time.Minute))
 	key := e.enqueue("capture", a)
 
-	e.runOnce()
+	e.runKey(key)
 
 	if n := len(e.fake.Requests("capture")); n != 0 {
 		t.Fatalf("capture requests = %d, want 0 past the deadline", n)

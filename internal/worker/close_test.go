@@ -82,8 +82,10 @@ func TestClose_TwoPaidCancelsVoidsRefundsAndTracksPending(t *testing.T) {
 	e.wantJob("capture:"+a3.ID, "pending")
 	e.clock.Set(e.proposal.ClosesAt)
 
-	if !e.enqueueClose() {
-		t.Fatal("close job was not created")
+	// Opening the proposal scheduled its close; enqueueing it again adds nothing.
+	e.wantJob(e.closeKey(), "pending")
+	if e.enqueueClose() {
+		t.Fatal("enqueueing the close job again created a second one")
 	}
 	e.runKey(e.closeKey())
 
@@ -144,11 +146,9 @@ func TestClose_RepeatedCloseJobIsNoop(t *testing.T) {
 	a3 = e.authorizeJustBeforeClose(cleo, a3)
 	e.clock.Set(e.proposal.ClosesAt)
 
-	if !e.enqueueClose() {
-		t.Fatal("first close enqueue: created = false, want true")
-	}
+	e.wantJob(e.closeKey(), "pending")
 	if e.enqueueClose() {
-		t.Fatal("second close enqueue: created = true, want false")
+		t.Fatal("close enqueue after opening the proposal: created = true, want false")
 	}
 	e.runKey(e.closeKey())
 	attempts := []store.AttemptRow{a1, a2, a3}

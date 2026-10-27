@@ -134,10 +134,11 @@ func (s *Store) CandidateDates(ctx context.Context, workshopID string) ([]Candid
 		`select `+candidateDateCols+` from candidate_dates where workshop_id = $1 order by starts_at, id`, workshopID)
 }
 
-// OpenProposal stores the workshop's first proposal as version 1 and moves the
+// OpenProposal stores the workshop's first proposal as version 1, moves the
 // workshop from COLLECTING to FUNDING, by the same compare-and-set as
-// TransitionWorkshop, in one transaction. The ID and Version of p are
-// ignored. It fails with ErrProposalExists when the workshop is no longer
+// TransitionWorkshop, and enqueues the proposal's close:{proposal} job, due
+// when payments close, all in one transaction: a FUNDING workshop never lacks
+// its close. The ID and Version of p are ignored. It fails with ErrProposalExists when the workshop is no longer
 // COLLECTING, because payments were already opened, and with ErrNotFound for
 // an unknown workshop.
 func (s *Store) OpenProposal(ctx context.Context, p ProposalRow) (ProposalRow, error) {
@@ -161,6 +162,12 @@ func (s *Store) OpenProposal(ctx context.Context, p ProposalRow) (ProposalRow, e
 			p.WorkshopID, p.ChosenDateID, p.PriceMinor, p.Currency, p.Minimum, p.Capacity, p.OpensAt, p.ClosesAt, p.StartsAt)
 		if err != nil {
 			return wrap("insert proposal", err)
+		}
+		if _, err := tx.Exec(ctx,
+			`insert into jobs (kind, idempotency_key, workshop_id, run_at) values ($1, $2, $3, $4)
+			 on conflict (idempotency_key) do nothing`,
+			KindClose, JobKey(KindClose, row.ID), p.WorkshopID, row.ClosesAt); err != nil {
+			return wrap("schedule close", err)
 		}
 		opened = row
 		return nil

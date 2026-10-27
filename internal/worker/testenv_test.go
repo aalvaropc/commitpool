@@ -253,7 +253,8 @@ func (e *env) advance(d time.Duration) { e.clock.Set(e.clock.Now().Add(d)) }
 func (e *env) closeKey() string { return "close:" + e.proposal.ID }
 
 // enqueueClose adds the env proposal's close job, due when payments close,
-// and reports whether it was created.
+// and reports whether it was created; opening the proposal already scheduled
+// it, so this is false unless the test removed it.
 func (e *env) enqueueClose() bool {
 	e.t.Helper()
 	created, err := e.runner.EnqueueOrRevive(e.ctx, "close", e.closeKey(), &e.workshop.ID, nil, nil, e.proposal.ClosesAt)

@@ -108,10 +108,10 @@ func (s *server) submitAvailability(w http.ResponseWriter, r *http.Request) erro
 	if n := utf8.RuneCountInString(message); n == 0 || n > maxMessageLength {
 		return badRequest("invalid_message", "Describe your availability in 1 to %d characters.", maxMessageLength)
 	}
-	if !accepting(ws) {
-		return errWorkshopClosed
-	}
 	ctx := r.Context()
+	if err := s.open(ctx, ws); err != nil {
+		return err
+	}
 	st, err := s.loadState(ctx, ws)
 	if err != nil {
 		return err
@@ -171,10 +171,10 @@ func (s *server) correctAvailability(w http.ResponseWriter, r *http.Request) err
 	if req.Corrected == nil {
 		return badRequest("invalid_correction", "Send the corrected reading as corrected.")
 	}
-	if !accepting(ws) {
-		return errWorkshopClosed
-	}
 	ctx := r.Context()
+	if err := s.open(ctx, ws); err != nil {
+		return err
+	}
 	dates, err := s.Store.CandidateDates(ctx, ws.ID)
 	if err != nil {
 		return err

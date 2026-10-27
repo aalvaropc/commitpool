@@ -21,16 +21,21 @@ const ConsentText = "You authorize a temporary hold. We will attempt to charge i
 	"If the minimum is not reached by the deadline, the workshop is cancelled and we request a refund of any charge already made. " +
 	"Refunds can take time and you will be able to follow their status."
 
-// statusLabel is the participant-facing copy for an enrollment status.
-// seatHeld matters for SEAT_RESERVED only: whether the seat still counts,
-// because payments are open (domain.PaymentsOpen) and the seat has not
-// expired. The workshop status refines the two other cases where the next
-// step depends on it: a failed capture can only be retried while the workshop
-// is funding, and a payment kept in a cancelled workshop is being refunded.
-func statusLabel(s domain.EnrollmentStatus, w domain.WorkshopStatus, seatHeld bool) string {
+// labelState is what an enrollment's label depends on besides its status.
+type labelState struct {
+	workshop     domain.WorkshopStatus
+	paymentsOpen bool // domain.PaymentsOpen when the label is shown
+	seatLive     bool // the enrollment's seat has not expired
+}
+
+// statusLabel is the participant-facing copy for an enrollment status. A
+// reserved seat counts only while payments are open and the seat has not
+// expired; a failed capture can be retried, with a new enrollment, only while
+// payments are open; a payment kept in a cancelled workshop is being refunded.
+func statusLabel(s domain.EnrollmentStatus, st labelState) string {
 	switch s {
 	case domain.EnrollmentSeatReserved:
-		if seatHeld {
+		if st.paymentsOpen && st.seatLive {
 			return "Seat reserved"
 		}
 		return "Seat expired"
@@ -41,12 +46,12 @@ func statusLabel(s domain.EnrollmentStatus, w domain.WorkshopStatus, seatHeld bo
 	case domain.EnrollmentCapturePending:
 		return "Payment pending verification"
 	case domain.EnrollmentPaid:
-		if w == domain.WorkshopCancelled {
+		if st.workshop == domain.WorkshopCancelled {
 			return "Refund in progress"
 		}
 		return "Seat paid"
 	case domain.EnrollmentCaptureFailed:
-		if w == domain.WorkshopFunding {
+		if st.paymentsOpen {
 			return "Payment failed — you can try again"
 		}
 		return "Hold released"
@@ -160,8 +165,11 @@ func paymentsOpen(ws store.WorkshopRow, p *store.ProposalRow, now time.Time) boo
 
 // enrollmentLabel is statusLabel for a stored enrollment at now.
 func enrollmentLabel(en store.EnrollmentRow, ws store.WorkshopRow, p *store.ProposalRow, now time.Time) string {
-	held := paymentsOpen(ws, p, now) && now.Before(en.SeatExpiresAt)
-	return statusLabel(en.Status, ws.Status, held)
+	return statusLabel(en.Status, labelState{
+		workshop:     ws.Status,
+		paymentsOpen: paymentsOpen(ws, p, now),
+		seatLive:     now.Before(en.SeatExpiresAt),
+	})
 }
 
 // proposalView is nil while payments have not been opened.

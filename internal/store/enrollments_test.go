@@ -183,18 +183,16 @@ func TestReserveSeat_RefusesWhenNotFunding(t *testing.T) {
 		}
 	})
 
-	t.Run("confirmed or cancelled", func(t *testing.T) {
-		for _, status := range []domain.WorkshopStatus{domain.WorkshopConfirmed, domain.WorkshopCancelled} {
-			w, _, _ := newWorkshop(t, s, 1, 3)
-			p := openFunding(t, s, w, baseTime)
-			ana := newParticipant(t, s, w, "Ana")
-			if err := s.SetWorkshopStatus(ctx, w.ID, status, domain.ResolutionOpen); err != nil {
-				t.Fatal(err)
-			}
-			_, created, err := s.ReserveSeatAndCreateEnrollment(ctx, reserveParams(w, p, ana.ID, baseTime.Add(time.Hour)))
-			if !errors.Is(err, store.ErrProposalNotOpen) || created {
-				t.Errorf("%s workshop: created=%v err=%v; want ErrProposalNotOpen", status, created, err)
-			}
+	t.Run("cancelled", func(t *testing.T) {
+		w, _, _ := newWorkshop(t, s, 1, 3)
+		p := openFunding(t, s, w, baseTime)
+		ana := newParticipant(t, s, w, "Ana")
+		if err := s.SetWorkshopStatus(ctx, w.ID, domain.WorkshopCancelled, domain.ResolutionResolving); err != nil {
+			t.Fatal(err)
+		}
+		_, created, err := s.ReserveSeatAndCreateEnrollment(ctx, reserveParams(w, p, ana.ID, baseTime.Add(time.Hour)))
+		if !errors.Is(err, store.ErrProposalNotOpen) || created {
+			t.Errorf("CANCELLED workshop: created=%v err=%v; want ErrProposalNotOpen", created, err)
 		}
 	})
 
@@ -726,5 +724,40 @@ func TestWorkshopIDsWithReservedSeats_ListsEachWorkshopOnce(t *testing.T) {
 	slices.Sort(want)
 	if !slices.Equal(ids, want) {
 		t.Errorf("WorkshopIDsWithReservedSeats = %v, want %v (each workshop with a SEAT_RESERVED enrollment once, expired or not)", ids, want)
+	}
+}
+
+func TestReserveSeat_AllowedInConfirmedWorkshopBeforeClose(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	confirmed := func(capacity int) (store.WorkshopRow, store.ProposalRow) {
+		t.Helper()
+		w, _, _ := newWorkshop(t, s, 1, capacity)
+		p := openFunding(t, s, w, baseTime)
+		if err := s.SetWorkshopStatus(ctx, w.ID, domain.WorkshopConfirmed, domain.ResolutionOpen); err != nil {
+			t.Fatal(err)
+		}
+		return w, p
+	}
+
+	w, p := confirmed(2)
+	beforeClose := p.ClosesAt.Add(-time.Minute)
+	for _, name := range []string{"Ana", "Ben"} {
+		if _, created, err := s.ReserveSeatAndCreateEnrollment(ctx, reserveParams(w, p, newParticipant(t, s, w, name).ID, beforeClose)); err != nil || !created {
+			t.Fatalf("%s in a CONFIRMED workshop before close: created=%v err=%v; want a seat", name, created, err)
+		}
+	}
+	if _, created, err := s.ReserveSeatAndCreateEnrollment(ctx, reserveParams(w, p, newParticipant(t, s, w, "Cleo").ID, beforeClose)); !errors.Is(err, domain.ErrCapacityFull) || created {
+		t.Errorf("CONFIRMED and full: created=%v err=%v; want ErrCapacityFull", created, err)
+	}
+
+	w, p = confirmed(3)
+	for name, now := range map[string]time.Time{"at closes_at": p.ClosesAt, "after closes_at": p.ClosesAt.Add(time.Second)} {
+		if _, created, err := s.ReserveSeatAndCreateEnrollment(ctx, reserveParams(w, p, newParticipant(t, s, w, name).ID, now)); !errors.Is(err, store.ErrProposalNotOpen) || created {
+			t.Errorf("CONFIRMED %s: created=%v err=%v; want ErrProposalNotOpen", name, created, err)
+		}
+	}
+	if n := count(t, s, `select count(*) from enrollments where workshop_id = $1`, w.ID); n != 0 {
+		t.Errorf("%d enrollments created after the window closed, want 0", n)
 	}
 }

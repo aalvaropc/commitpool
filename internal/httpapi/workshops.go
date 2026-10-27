@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"time"
@@ -183,12 +184,32 @@ func (s *server) publicWorkshop(w http.ResponseWriter, r *http.Request) error {
 }
 
 // accepting reports whether the workshop still takes participants and their
-// availability: until it is confirmed or cancelled.
-func accepting(ws store.WorkshopRow) bool {
-	return ws.Status == domain.WorkshopCollecting || ws.Status == domain.WorkshopFunding
+// availability: while it collects availability and, once payments open, for
+// as long as it sells seats (domain.PaymentsOpen), confirmed included.
+func (s *server) accepting(ctx context.Context, ws store.WorkshopRow) (bool, error) {
+	if ws.Status == domain.WorkshopCollecting {
+		return true, nil
+	}
+	p, err := s.Store.ActiveProposal(ctx, ws.ID)
+	if err != nil {
+		return false, err
+	}
+	return paymentsOpen(ws, p, s.Clock.Now()), nil
 }
 
-var errWorkshopClosed = conflict("workshop_closed", "This workshop is already decided and no longer takes changes.")
+// open fails with errWorkshopClosed unless the workshop is accepting.
+func (s *server) open(ctx context.Context, ws store.WorkshopRow) error {
+	ok, err := s.accepting(ctx, ws)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errWorkshopClosed
+	}
+	return nil
+}
+
+var errWorkshopClosed = conflict("workshop_closed", "This workshop no longer takes new participants or changes.")
 
 // joinWorkshop adds a participant through the share link and returns the
 // participant's private URL, the only time its token is shown.
@@ -207,8 +228,8 @@ func (s *server) joinWorkshop(w http.ResponseWriter, r *http.Request) error {
 	if n := utf8.RuneCountInString(name); n == 0 || n > maxDisplayName {
 		return badRequest("invalid_display_name", "The name must have between 1 and %d characters.", maxDisplayName)
 	}
-	if !accepting(ws) {
-		return errWorkshopClosed
+	if err := s.open(r.Context(), ws); err != nil {
+		return err
 	}
 	_, token, err := s.Store.CreateParticipant(r.Context(), ws.ID, name)
 	if err != nil {

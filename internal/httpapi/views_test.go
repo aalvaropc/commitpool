@@ -9,39 +9,45 @@ import (
 )
 
 func TestStatusLabel_CopyForEveryStatus(t *testing.T) {
+	open := func(w domain.WorkshopStatus) labelState {
+		return labelState{workshop: w, paymentsOpen: true, seatLive: true}
+	}
+	closed := func(w domain.WorkshopStatus) labelState { return labelState{workshop: w} }
 	funding, confirmed, cancelled := domain.WorkshopFunding, domain.WorkshopConfirmed, domain.WorkshopCancelled
 	cases := []struct {
-		status   domain.EnrollmentStatus
-		workshop domain.WorkshopStatus
-		seatHeld bool
-		want     string
+		status domain.EnrollmentStatus
+		state  labelState
+		want   string
 	}{
-		{domain.EnrollmentSeatReserved, funding, true, "Seat reserved"},
-		{domain.EnrollmentSeatReserved, confirmed, true, "Seat reserved"},
-		{domain.EnrollmentSeatReserved, funding, false, "Seat expired"},
-		{domain.EnrollmentSeatReserved, confirmed, false, "Seat expired"},
-		{domain.EnrollmentSeatReserved, cancelled, false, "Seat expired"},
-		{domain.EnrollmentAuthorized, funding, false, "Hold authorized"},
-		{domain.EnrollmentCapturing, funding, false, "Charging…"},
-		{domain.EnrollmentCapturePending, confirmed, false, "Payment pending verification"},
-		{domain.EnrollmentPaid, confirmed, false, "Seat paid"},
-		{domain.EnrollmentPaid, funding, false, "Seat paid"},
-		{domain.EnrollmentPaid, cancelled, false, "Refund in progress"},
-		{domain.EnrollmentCaptureFailed, funding, false, "Payment failed — you can try again"},
-		{domain.EnrollmentCaptureFailed, confirmed, false, "Hold released"},
-		{domain.EnrollmentVoiding, cancelled, false, "Hold released"},
-		{domain.EnrollmentVoided, cancelled, false, "Hold released"},
-		{domain.EnrollmentRefunding, cancelled, false, "Refund in progress"},
-		{domain.EnrollmentRefundPending, cancelled, false, "Refund in progress"},
-		{domain.EnrollmentRefunded, cancelled, false, "Refund completed"},
-		{domain.EnrollmentRefundFailed, cancelled, false, "Refund needs attention"},
-		{domain.EnrollmentNeedsAttention, funding, false, "Needs attention"},
-		{domain.EnrollmentReleased, funding, false, "Seat expired"},
-		{"SOMETHING_NEW", funding, false, "Needs attention"},
+		{domain.EnrollmentSeatReserved, open(funding), "Seat reserved"},
+		{domain.EnrollmentSeatReserved, open(confirmed), "Seat reserved"},
+		{domain.EnrollmentSeatReserved, labelState{workshop: funding, paymentsOpen: true}, "Seat expired"},
+		{domain.EnrollmentSeatReserved, labelState{workshop: confirmed, paymentsOpen: true}, "Seat expired"},
+		{domain.EnrollmentSeatReserved, labelState{workshop: confirmed, seatLive: true}, "Seat expired"},
+		{domain.EnrollmentSeatReserved, closed(cancelled), "Seat expired"},
+		{domain.EnrollmentAuthorized, open(funding), "Hold authorized"},
+		{domain.EnrollmentCapturing, open(funding), "Charging…"},
+		{domain.EnrollmentCapturePending, closed(confirmed), "Payment pending verification"},
+		{domain.EnrollmentPaid, closed(confirmed), "Seat paid"},
+		{domain.EnrollmentPaid, open(funding), "Seat paid"},
+		{domain.EnrollmentPaid, closed(cancelled), "Refund in progress"},
+		{domain.EnrollmentCaptureFailed, open(funding), "Payment failed — you can try again"},
+		{domain.EnrollmentCaptureFailed, open(confirmed), "Payment failed — you can try again"},
+		{domain.EnrollmentCaptureFailed, closed(confirmed), "Hold released"},
+		{domain.EnrollmentCaptureFailed, closed(cancelled), "Hold released"},
+		{domain.EnrollmentVoiding, closed(cancelled), "Hold released"},
+		{domain.EnrollmentVoided, closed(cancelled), "Hold released"},
+		{domain.EnrollmentRefunding, closed(cancelled), "Refund in progress"},
+		{domain.EnrollmentRefundPending, closed(cancelled), "Refund in progress"},
+		{domain.EnrollmentRefunded, closed(cancelled), "Refund completed"},
+		{domain.EnrollmentRefundFailed, closed(cancelled), "Refund needs attention"},
+		{domain.EnrollmentNeedsAttention, open(funding), "Needs attention"},
+		{domain.EnrollmentReleased, open(funding), "Seat expired"},
+		{"SOMETHING_NEW", open(funding), "Needs attention"},
 	}
 	for _, c := range cases {
-		if got := statusLabel(c.status, c.workshop, c.seatHeld); got != c.want {
-			t.Errorf("statusLabel(%s, %s, seat held %v) = %q, want %q", c.status, c.workshop, c.seatHeld, got, c.want)
+		if got := statusLabel(c.status, c.state); got != c.want {
+			t.Errorf("statusLabel(%s, %+v) = %q, want %q", c.status, c.state, got, c.want)
 		}
 	}
 }

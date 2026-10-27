@@ -769,8 +769,8 @@ func TestParticipant_ReservedSeatInAConfirmedWorkshopUntilClose(t *testing.T) {
 	e.runPayment("capture", wid, e.latestAttempt(luis.EnrollmentID))
 	e.wantStatus(luis.EnrollmentID, domain.EnrollmentPaid)
 
-	// A confirmed workshop takes no new seats, even while payments are open.
-	e.wantError(http.MethodPost, marta.path+"/enrollment", enrollBody(p.ID), http.StatusConflict, "proposal_not_open")
+	// A confirmed workshop keeps selling seats until payments close.
+	e.enroll(marta, p.ID, http.StatusCreated)
 }
 
 func TestParticipant_ReservedSeatExpiresWithTheSeatOrTheWindow(t *testing.T) {
@@ -992,4 +992,47 @@ func TestEnrollment_DatabaseFailureIs500NotPayPal(t *testing.T) {
 	if n := len(e.fake.Requests("create_order")); n != 0 {
 		t.Errorf("create_order requests = %d, want none", n)
 	}
+}
+
+func TestEnrollment_LateJoinerInConfirmedWorkshopGetsApproveURL(t *testing.T) {
+	e := newEnv(t)
+	h, p, ps := e.fundingWorkshop(func(b map[string]any) { b["minimum"] = 1 })
+	wid := h.created.Workshop.ID
+	ana := e.enroll(ps[0], p.ID, http.StatusCreated)
+	e.runPayment("capture", wid, e.authorize(wid, ana.EnrollmentID))
+	if v := e.owner(h); v.Workshop.Status != "CONFIRMED" {
+		t.Fatalf("workshop = %s, want CONFIRMED after the minimum paid", v.Workshop.Status)
+	}
+
+	marta := e.join(h, "Marta")
+	e.say(marta, "Saturday works for me")
+	late := e.enroll(marta, p.ID, http.StatusCreated)
+	if late.ApproveURL == "" || late.Status != "SEAT_RESERVED" || late.StatusLabel != "Seat reserved" {
+		t.Fatalf("late enrollment = %+v, want a reserved seat with an approval link", late)
+	}
+
+	a := e.authorize(wid, late.EnrollmentID)
+	// The confirmed workshop's round enqueues this capture by itself.
+	key := store.JobKey(store.KindCapture, a.ID)
+	if j := e.job(key); j.Status != "pending" {
+		t.Fatalf("capture job of the late joiner = %s, want pending", j.Status)
+	}
+	if err := e.runner.RunKey(e.ctx, key); err != nil {
+		t.Fatalf("RunKey(%s): %v", key, err)
+	}
+	e.wantStatus(late.EnrollmentID, domain.EnrollmentPaid)
+	e.wantStatus(ana.EnrollmentID, domain.EnrollmentPaid)
+	captures := e.fake.Requests("capture")
+	if len(captures) != 2 || captures[1].RequestID != key {
+		t.Errorf("capture request ids = %v, want Ana's and then only %s", requestIDs(captures), key)
+	}
+	v := e.owner(h)
+	if v.Workshop.Status != "CONFIRMED" || v.Tally.Paid != 2 {
+		t.Errorf("workshop after the late payment = %s, paid %d; want CONFIRMED with 2 paid", v.Workshop.Status, v.Tally.Paid)
+	}
+
+	nora := e.join(h, "Nora")
+	e.clock.Set(p.ClosesAt)
+	e.wantError(http.MethodPost, nora.path+"/enrollment", enrollBody(p.ID), http.StatusConflict, "proposal_not_open")
+	e.wantError(http.MethodPost, h.sharePath+"/participants", map[string]string{"display_name": "Omar"}, http.StatusConflict, "workshop_closed")
 }

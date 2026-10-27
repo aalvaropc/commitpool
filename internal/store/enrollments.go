@@ -33,9 +33,10 @@ const enrollmentCols = `id, workshop_id, participant_id, proposal_id, status, co
 // the active proposal.
 //
 // A participant who already has an active enrollment gets it back with
-// created=false and nothing is inserted. Otherwise the workshop must be
-// FUNDING with p.Now before the proposal closes (ErrProposalNotOpen) and a seat
-// must be free (domain.ErrCapacityFull).
+// created=false and nothing is inserted. Otherwise payments must be open
+// (domain.PaymentsOpen: FUNDING, or CONFIRMED and still selling seats, with
+// p.Now before the proposal closes; else ErrProposalNotOpen) and a seat must
+// be free (domain.ErrCapacityFull).
 func (s *Store) ReserveSeatAndCreateEnrollment(ctx context.Context, p ReserveParams) (EnrollmentRow, bool, error) {
 	var (
 		enrollment EnrollmentRow
@@ -60,8 +61,8 @@ func (s *Store) ReserveSeatAndCreateEnrollment(ctx context.Context, p ReservePar
 		if err != nil {
 			return err
 		}
-		if status != domain.WorkshopFunding || proposal == nil ||
-			!strings.EqualFold(proposal.ID, p.ProposalID) || !p.Now.Before(proposal.ClosesAt) {
+		if proposal == nil || !strings.EqualFold(proposal.ID, p.ProposalID) ||
+			!domain.PaymentsOpen(domain.Workshop{Status: status}, domain.Proposal{ClosesAt: proposal.ClosesAt}, p.Now) {
 			return ErrProposalNotOpen
 		}
 

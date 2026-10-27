@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -120,11 +121,12 @@ func (r *Runner) enqueueLatest(ctx context.Context, kind string, en store.Enroll
 	return r.EnqueueOrRevive(ctx, kind, kind+":"+a.ID+suffix, &en.WorkshopID, &a.ID, nil, r.clock.Now())
 }
 
-// afterMove runs what an enrollment's move sets off: a new authorization may
-// start a capture round, a completed payment may confirm the workshop or have
-// to be refunded, and a finished enrollment may settle the workshop. It only
-// runs for a move that happened, so applying the same PayPal answer again
-// sets off nothing.
+// afterMove runs what an enrollment's move sets off: a new authorization is
+// captured or, once payments are closed, voided; a completed payment may
+// confirm the workshop or have to be refunded; a failed capture may leave the
+// round short of the minimum; a finished enrollment may settle the workshop.
+// It only runs for a move that happened, so applying the same PayPal answer
+// again sets off nothing.
 func (r *Runner) afterMove(ctx context.Context, enrollmentID string, to domain.EnrollmentStatus) error {
 	if to != domain.EnrollmentAuthorized && to != domain.EnrollmentPaid && !to.Terminal() {
 		return nil
@@ -135,16 +137,38 @@ func (r *Runner) afterMove(ctx context.Context, enrollmentID string, to domain.E
 	}
 	switch to {
 	case domain.EnrollmentAuthorized:
-		return r.StartCaptureRoundIfReady(ctx, en.WorkshopID)
+		return r.afterAuthorized(ctx, en)
 	case domain.EnrollmentPaid:
 		return r.afterPaid(ctx, en)
+	case domain.EnrollmentCaptureFailed:
+		return errors.Join(r.StartCaptureRoundIfReady(ctx, en.WorkshopID), r.SettleIfResolved(ctx, en.WorkshopID))
 	default:
 		return r.SettleIfResolved(ctx, en.WorkshopID)
 	}
 }
 
+// afterAuthorized starts the captures a new authorization makes ready. An
+// authorization that lands once the workshop is cancelled or payments have
+// closed is a hold nobody will capture, so it is voided under the same
+// void:{attempt} key close would use.
+func (r *Runner) afterAuthorized(ctx context.Context, en store.EnrollmentRow) error {
+	open, status, err := r.paymentsOpen(ctx, en, r.clock.Now())
+	if err != nil {
+		return err
+	}
+	if open {
+		return r.StartCaptureRoundIfReady(ctx, en.WorkshopID)
+	}
+	r.log.Warn("authorization landed after payments closed; voiding it",
+		"workshop_id", en.WorkshopID, "enrollment_id", en.ID, "workshop_status", status)
+	_, err = r.enqueueLatest(ctx, kindVoid, en, "")
+	return err
+}
+
 // afterPaid acts on a payment that has just completed. A FUNDING workshop is
-// confirmed once enough payments have completed (domain.AfterCaptureResult).
+// confirmed once enough payments have completed (domain.AfterCaptureResult);
+// short of that, the round is evaluated again, since authorizations that
+// arrived while this capture was in flight may now reach the minimum.
 // A payment completed after the workshop was cancelled is refunded
 // (domain.LateCaptureAfterCancel), and one completed after it was confirmed
 // keeps its seat until the workshop starts and is refunded after that
@@ -165,7 +189,7 @@ func (r *Runner) afterPaid(ctx context.Context, en store.EnrollmentRow) error {
 		t := domain.Counts(es)
 		status, resolution := domain.AfterCaptureResult(w, p, t)
 		if status == w.Status && resolution == w.Resolution {
-			return nil
+			return r.StartCaptureRoundIfReady(ctx, w.ID)
 		}
 		log.Info("workshop confirmed: enough payments completed", "paid", t.Paid, "minimum", p.Minimum)
 		return r.st.SetWorkshopStatus(ctx, w.ID, status, resolution)

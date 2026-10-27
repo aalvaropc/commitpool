@@ -75,9 +75,10 @@ func (r *Runner) authorizeApproved(ctx context.Context, log *slog.Logger, a stor
 		return nil
 	}
 	now := r.clock.Now()
-	if open, err := r.paymentsOpen(ctx, en, now); err != nil || !open {
+	open, status, err := r.paymentsOpen(ctx, en, now)
+	if err != nil || !open {
 		if err == nil {
-			log.Info("order approved after payments closed; not authorizing it")
+			log.Info("order approved after payments closed; not authorizing it", "workshop_status", status)
 		}
 		return err
 	}
@@ -95,7 +96,7 @@ func (r *Runner) authorizeApproved(ctx context.Context, log *slog.Logger, a stor
 			return err
 		}
 		if !reserved {
-			log.Info("order approved after the seat expired and no seat is free; not authorizing it")
+			log.Info("order approved after the seat expired; seat not re-reserved, not authorizing it", "workshop_status", status)
 			return nil
 		}
 		log.Info("order approved after the seat expired; seat taken again")
@@ -120,23 +121,24 @@ func (r *Runner) authorizeApproved(ctx context.Context, log *slog.Logger, a stor
 }
 
 // paymentsOpen reports whether the enrollment's workshop still takes
-// authorizations: funding or confirmed, before its payments close.
-func (r *Runner) paymentsOpen(ctx context.Context, en store.EnrollmentRow, now time.Time) (bool, error) {
+// authorizations: funding or confirmed, before its payments close. status is
+// the workshop's status.
+func (r *Runner) paymentsOpen(ctx context.Context, en store.EnrollmentRow, now time.Time) (open bool, status domain.WorkshopStatus, err error) {
 	w, err := r.st.WorkshopByID(ctx, en.WorkshopID)
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
 	if w.Status != domain.WorkshopFunding && w.Status != domain.WorkshopConfirmed {
-		return false, nil
+		return false, w.Status, nil
 	}
 	p, err := r.st.ProposalByID(ctx, en.ProposalID)
 	if err != nil {
-		return false, err
+		return false, w.Status, err
 	}
 	if p == nil {
-		return false, fmt.Errorf("proposal %s: %w", en.ProposalID, store.ErrNotFound)
+		return false, w.Status, fmt.Errorf("proposal %s: %w", en.ProposalID, store.ErrNotFound)
 	}
-	return now.Before(p.ClosesAt), nil
+	return now.Before(p.ClosesAt), w.Status, nil
 }
 
 // refresh applies the order, with every payment it lists, and then the

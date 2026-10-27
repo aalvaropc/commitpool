@@ -48,17 +48,23 @@ func (e *env) runAgain(key string) {
 // reserved now is still held when they close.
 func (e *env) nearClose() { e.clock.Set(e.proposal.ClosesAt.Add(-20 * time.Minute)) }
 
-// authorizeAtClose plays a buyer who approved just before payments closed and
-// whose authorization lands at the close: too late for a capture. It leaves
-// the clock at the close.
-func (e *env) authorizeAtClose(en store.EnrollmentRow, a store.AttemptRow) store.AttemptRow {
+// authorizeJustBeforeClose plays a buyer who approves a minute before
+// payments close, while they still take authorizations. It leaves the clock
+// there.
+func (e *env) authorizeJustBeforeClose(en store.EnrollmentRow, a store.AttemptRow) store.AttemptRow {
 	e.t.Helper()
-	e.fake.Approve(*a.OrderID)
-	e.clock.Set(e.proposal.ClosesAt)
-	e.runKey(e.enqueue("authorize", a))
-	e.wantStatus(en.ID, domain.EnrollmentAuthorized)
-	e.wantNoJob("capture:" + a.ID)
-	return e.attempt(a.ID)
+	e.clock.Set(e.proposal.ClosesAt.Add(-time.Minute))
+	return e.authorize(en, a)
+}
+
+// dropJob deletes the job, as if the step that enqueues it had failed after
+// the move that called for it.
+func (e *env) dropJob(key string) {
+	e.t.Helper()
+	tag, err := e.st.Pool.Exec(e.ctx, `delete from jobs where idempotency_key = $1`, key)
+	if err != nil || tag.RowsAffected() != 1 {
+		e.t.Fatalf("delete job %s: %v (%d rows)", key, err, tag.RowsAffected())
+	}
 }
 
 func TestClose_TwoPaidCancelsVoidsRefundsAndTracksPending(t *testing.T) {
@@ -70,7 +76,11 @@ func TestClose_TwoPaidCancelsVoidsRefundsAndTracksPending(t *testing.T) {
 	captureID := e.capturePending(e4, a4)
 	e.nearClose()
 	e3, a3 := e.withOrder("Cleo")
-	a3 = e.authorizeAtClose(e3, a3)
+	a3 = e.authorizeJustBeforeClose(e3, a3)
+	// Two paid and Cleo authorized reach the minimum, so the round enqueues
+	// Cleo's capture; the worker has not run it when payments close.
+	e.wantJob("capture:"+a3.ID, "pending")
+	e.clock.Set(e.proposal.ClosesAt)
 
 	if !e.enqueueClose() {
 		t.Fatal("close job was not created")
@@ -90,6 +100,8 @@ func TestClose_TwoPaidCancelsVoidsRefundsAndTracksPending(t *testing.T) {
 	e.runKey("refund:" + a1.ID)
 	refundID := e.refundPending(e2, a2)
 	e.runKey("reconcile:" + a4.ID + ":close")
+	e.runKey("capture:" + a3.ID)
+	e.wantJob("capture:"+a3.ID, "failed")
 
 	e.wantStatus(e1.ID, domain.EnrollmentRefunded)
 	e.wantStatus(e2.ID, domain.EnrollmentRefundPending)
@@ -129,7 +141,8 @@ func TestClose_RepeatedCloseJobIsNoop(t *testing.T) {
 	dan, _ := e.enroll("Dan")
 	e.nearClose()
 	cleo, a3 := e.withOrder("Cleo")
-	a3 = e.authorizeAtClose(cleo, a3)
+	a3 = e.authorizeJustBeforeClose(cleo, a3)
+	e.clock.Set(e.proposal.ClosesAt)
 
 	if !e.enqueueClose() {
 		t.Fatal("first close enqueue: created = false, want true")
@@ -151,6 +164,7 @@ func TestClose_RepeatedCloseJobIsNoop(t *testing.T) {
 		}
 	}
 
+	e.runKey("void:" + a3.ID)
 	e.runUntilIdle()
 	e.runAgain(e.closeKey())
 	e.runUntilIdle()
@@ -189,7 +203,9 @@ func TestClose_ConfirmedVoidsOnlyUncapturedAuthorizations(t *testing.T) {
 	paid := e.confirmed()
 	danAttempt = e.authorize(dan, danAttempt)
 	e.capturePending(dan, danAttempt)
-	eveAttempt = e.authorizeAtClose(eve, eveAttempt)
+	eveAttempt = e.authorizeJustBeforeClose(eve, eveAttempt)
+	e.dropJob("capture:" + eveAttempt.ID)
+	e.clock.Set(e.proposal.ClosesAt)
 
 	e.enqueueClose()
 	e.runKey(e.closeKey())
@@ -361,4 +377,64 @@ func TestReleaseSeatsTick_EnqueuesOnePerWorkshopPerMinute(t *testing.T) {
 	for _, key := range []string{releaseSeatsKey(e.workshop.ID, first), releaseSeatsKey(other.ID, next)} {
 		e.wantJob(key, "succeeded")
 	}
+}
+
+func TestAuthorize_SkippedOncePaymentsClosed(t *testing.T) {
+	e := newEnv(t)
+	e.nearClose()
+	en, a := e.withOrder("Ana")
+	e.fake.Approve(*a.OrderID)
+	key := e.enqueue("authorize", a)
+	e.clock.Set(e.proposal.ClosesAt.Add(time.Minute))
+	e.enqueueClose()
+	e.runKey(e.closeKey())
+	e.wantWorkshop(domain.WorkshopCancelled, domain.ResolutionResolving)
+
+	e.runKey(key)
+
+	j := e.wantJob(key, "failed")
+	if j.LastError == nil || *j.LastError != "skipped: payments closed" {
+		t.Errorf("authorize last_error = %v, want \"skipped: payments closed\"", deref(j.LastError))
+	}
+	if n := len(e.fake.Requests("authorize")); n != 0 {
+		t.Errorf("authorize requests = %d, want 0", n)
+	}
+	e.wantStatus(en.ID, domain.EnrollmentSeatReserved)
+	e.wantNoJob("void:" + a.ID)
+
+	e.advance(10 * time.Minute)
+	e.runKey(e.releaseSeatsNow())
+	e.wantStatus(en.ID, domain.EnrollmentReleased)
+	e.wantWorkshop(domain.WorkshopCancelled, domain.ResolutionSettled)
+}
+
+func TestReconcile_AuthorizationFoundAfterCloseIsVoided(t *testing.T) {
+	e := newEnv(t, withClientTimeout(time.Second))
+	e.nearClose()
+	en, a := e.withOrder("Ana")
+	e.fake.Approve(*a.OrderID)
+	e.fake.FailNext("authorize", 0, "")
+	key := e.enqueue("authorize", a)
+	e.runKey(key)
+	e.fake.WaitHung()
+	e.wantJob(key, "unknown")
+	e.wantStatus(en.ID, domain.EnrollmentSeatReserved)
+
+	e.clock.Set(e.proposal.ClosesAt.Add(time.Minute))
+	e.enqueueClose()
+	e.runKey(e.closeKey())
+	e.wantWorkshop(domain.WorkshopCancelled, domain.ResolutionResolving)
+	e.runKey("reconcile:" + a.ID + ":1")
+
+	e.wantStatus(en.ID, domain.EnrollmentAuthorized)
+	e.wantJob(key, "succeeded")
+	e.wantJob("void:"+a.ID, "pending")
+
+	e.runUntilIdle()
+	e.wantStatus(en.ID, domain.EnrollmentVoided)
+	wantString(t, "authorization_status", e.attempt(a.ID).AuthorizationStatus, "VOIDED")
+	if reqs := e.fake.Requests("void"); len(reqs) != 1 || reqs[0].RequestID != "void:"+a.ID {
+		t.Errorf("void requests = %+v, want one under void:%s", reqs, a.ID)
+	}
+	e.wantWorkshop(domain.WorkshopCancelled, domain.ResolutionSettled)
 }

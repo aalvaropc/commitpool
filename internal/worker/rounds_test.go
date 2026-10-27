@@ -124,7 +124,9 @@ func TestRound_ConfirmedWorkshopKeepsAuthorizedWhoseCaptureStartedAtClose(t *tes
 	e.confirmed()
 	danAttempt = e.authorize(dan, danAttempt)
 	e.wantJob("capture:"+danAttempt.ID, "pending")
-	eveAttempt = e.authorizeAtClose(eve, eveAttempt)
+	eveAttempt = e.authorizeJustBeforeClose(eve, eveAttempt)
+	e.dropJob("capture:" + eveAttempt.ID)
+	e.clock.Set(e.proposal.ClosesAt)
 
 	e.enqueueClose()
 	e.runKey(e.closeKey())
@@ -300,5 +302,34 @@ func TestReconcile_RevivesAuthorizeRefusedBeforeApproval(t *testing.T) {
 	e.wantJob(key, "succeeded")
 	if n := e.requestsWithID("authorize", key); n != 2 {
 		t.Errorf("authorize requests under %s = %d, want the refused one and the revived one", key, n)
+	}
+}
+
+func TestRound_ReevaluatedAfterRefusalAndLateAuthorization(t *testing.T) {
+	e := newEnv(t)
+	ana, anaAttempt := e.authorized("Ana")
+	ben, _ := e.authorized("Ben")
+	cleo, _ := e.authorized("Cleo")
+	dan, danAttempt := e.withOrder("Dan")
+	e.setMockCode(anaAttempt, "TRANSACTION_REFUSED")
+	e.runKey("capture:" + anaAttempt.ID)
+	e.wantStatus(ana.ID, domain.EnrollmentCaptureFailed)
+	// Ben's capture request is in flight: its handler has moved him to CAPTURING.
+	e.transition(ben.ID, domain.EnrollmentAuthorized, domain.EnrollmentCapturing)
+	danAttempt = e.authorize(dan, danAttempt)
+	e.wantNoJob("capture:" + danAttempt.ID)
+
+	e.runUntilIdle()
+
+	e.wantJob("capture:"+danAttempt.ID, "succeeded")
+	for _, en := range []store.EnrollmentRow{ben, cleo, dan} {
+		e.wantStatus(en.ID, domain.EnrollmentPaid)
+	}
+	e.wantWorkshop(domain.WorkshopConfirmed, domain.ResolutionOpen)
+	if got := e.fake.Captures(); got != 3 {
+		t.Errorf("captures at PayPal = %d, want 3", got)
+	}
+	if n := len(e.fake.Requests("refund")); n != 0 {
+		t.Errorf("refund requests = %d, want 0", n)
 	}
 }

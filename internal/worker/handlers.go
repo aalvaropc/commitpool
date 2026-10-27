@@ -121,11 +121,14 @@ func (r *Runner) createOrder(ctx context.Context, job *store.Job) (*int, error) 
 }
 
 // authorize authorizes the approved order of the enrollment's latest attempt
-// while the enrollment holds its seat, recording the authorization and its
-// expiry and moving the enrollment SEAT_RESERVED → AUTHORIZED. PayPal answers
-// an order the buyer has not approved with 422 ORDER_NOT_APPROVED, and one
-// that expired unapproved with 404 INVALID_RESOURCE_ID, recorded as order
-// status EXPIRED. Both refusals leave the enrollment SEAT_RESERVED.
+// while the enrollment holds its seat and payments are open, recording the
+// authorization and its expiry and moving the enrollment SEAT_RESERVED →
+// AUTHORIZED. Once payments have closed, or the workshop was cancelled, the
+// job is skipped without asking PayPal and the seat waits for its expiry.
+// PayPal answers an order the buyer has not approved with 422
+// ORDER_NOT_APPROVED, and one that expired unapproved with 404
+// INVALID_RESOURCE_ID, recorded as order status EXPIRED. Both refusals leave
+// the enrollment SEAT_RESERVED.
 func (r *Runner) authorize(ctx context.Context, job *store.Job) (*int, error) {
 	s, err := r.load(ctx, job)
 	if err != nil {
@@ -140,6 +143,12 @@ func (r *Runner) authorize(ctx context.Context, job *store.Job) (*int, error) {
 			return nil, err
 		}
 		return s.skipOlderAttempt()
+	}
+	if open, _, err := r.paymentsOpen(ctx, s.enrollment, r.clock.Now()); err != nil || !open {
+		if err != nil {
+			return nil, err
+		}
+		return s.refuse("skipped: payments closed")
 	}
 	if a.OrderID == nil {
 		return nil, errors.New("payment attempt has no order to authorize")

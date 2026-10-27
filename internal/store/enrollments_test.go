@@ -611,7 +611,7 @@ func TestReReserveSeat(t *testing.T) {
 		}
 	})
 
-	t.Run("workshop no longer funding", func(t *testing.T) {
+	t.Run("workshop cancelled", func(t *testing.T) {
 		w, p := setup(t, 2)
 		e := released(t, w, p, "Ana")
 		if err := s.SetWorkshopStatus(ctx, w.ID, domain.WorkshopCancelled, domain.ResolutionResolving); err != nil {
@@ -620,6 +620,39 @@ func TestReReserveSeat(t *testing.T) {
 		ok, err := s.ReReserveSeat(ctx, e.ID, later, 30*time.Minute)
 		if err != nil || ok {
 			t.Errorf("ReReserveSeat on a cancelled workshop = %v, %v; want false, nil", ok, err)
+		}
+	})
+
+	t.Run("confirmed workshop while payments are open", func(t *testing.T) {
+		w, p := setup(t, 2)
+		e := released(t, w, p, "Ana")
+		closed := released(t, w, p, "Ben")
+		if err := s.SetWorkshopStatus(ctx, w.ID, domain.WorkshopConfirmed, domain.ResolutionOpen); err != nil {
+			t.Fatal(err)
+		}
+		ok, err := s.ReReserveSeat(ctx, e.ID, p.ClosesAt.Add(-time.Minute), 30*time.Minute)
+		if err != nil || !ok {
+			t.Errorf("ReReserveSeat in a CONFIRMED workshop before close = %v, %v; want true, nil", ok, err)
+		}
+		ok, err = s.ReReserveSeat(ctx, closed.ID, p.ClosesAt, 30*time.Minute)
+		if err != nil || ok {
+			t.Errorf("ReReserveSeat in a CONFIRMED workshop at closes_at = %v, %v; want false, nil", ok, err)
+		}
+		if got, _ := s.EnrollmentByID(ctx, closed.ID); got.Status != domain.EnrollmentReleased {
+			t.Errorf("status after the refused re-reservation = %s, want RELEASED", got.Status)
+		}
+	})
+
+	t.Run("confirmed and full", func(t *testing.T) {
+		w, p := setup(t, 1)
+		e := released(t, w, p, "Ana")
+		reserve(t, s, w, p, newParticipant(t, s, w, "Ben").ID, baseTime.Add(time.Hour))
+		if err := s.SetWorkshopStatus(ctx, w.ID, domain.WorkshopConfirmed, domain.ResolutionOpen); err != nil {
+			t.Fatal(err)
+		}
+		ok, err := s.ReReserveSeat(ctx, e.ID, later, 30*time.Minute)
+		if err != nil || ok {
+			t.Errorf("ReReserveSeat in a full CONFIRMED workshop = %v, %v; want false, nil", ok, err)
 		}
 	})
 
@@ -759,5 +792,54 @@ func TestReserveSeat_AllowedInConfirmedWorkshopBeforeClose(t *testing.T) {
 	}
 	if n := count(t, s, `select count(*) from enrollments where workshop_id = $1`, w.ID); n != 0 {
 		t.Errorf("%d enrollments created after the window closed, want 0", n)
+	}
+}
+
+func TestMarkApprovalCancelled_StampsOnlyAReservedSeat(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	w, _, _ := newWorkshop(t, s, 1, 3)
+	p := openFunding(t, s, w, baseTime)
+	reservedAt := baseTime.Add(time.Hour)
+	e := reserve(t, s, w, p, newParticipant(t, s, w, "Ana").ID, reservedAt)
+
+	cancelledAt := reservedAt.Add(5 * time.Minute)
+	ok, err := s.MarkApprovalCancelled(ctx, e.ID, cancelledAt)
+	if err != nil || !ok {
+		t.Fatalf("MarkApprovalCancelled = %v, %v; want true, nil", ok, err)
+	}
+	got, err := s.EnrollmentByID(ctx, e.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ApprovalCancelledAt == nil || !got.ApprovalCancelledAt.Equal(cancelledAt) {
+		t.Errorf("approval_cancelled_at = %v, want %v", got.ApprovalCancelledAt, cancelledAt)
+	}
+	if got.Status != domain.EnrollmentSeatReserved || !got.SeatExpiresAt.Equal(e.SeatExpiresAt) || got.ReleasedAt != nil {
+		t.Errorf("after the cancel: status %s, seat expires %v, released_at %v; want the seat kept until %v",
+			got.Status, got.SeatExpiresAt, got.ReleasedAt, e.SeatExpiresAt)
+	}
+
+	again := cancelledAt.Add(time.Minute)
+	if ok, err := s.MarkApprovalCancelled(ctx, e.ID, again); err != nil || !ok {
+		t.Fatalf("second MarkApprovalCancelled = %v, %v; want true, nil", ok, err)
+	}
+	if got, _ := s.EnrollmentByID(ctx, e.ID); got.ApprovalCancelledAt == nil || !got.ApprovalCancelledAt.Equal(again) {
+		t.Errorf("approval_cancelled_at after a second cancel = %v, want the latest %v", got.ApprovalCancelledAt, again)
+	}
+
+	held := reserve(t, s, w, p, newParticipant(t, s, w, "Ben").ID, reservedAt)
+	mustTransition(t, s, held.ID, []domain.EnrollmentStatus{domain.EnrollmentSeatReserved}, domain.EnrollmentAuthorized)
+	if ok, err := s.MarkApprovalCancelled(ctx, held.ID, cancelledAt); err != nil || ok {
+		t.Errorf("MarkApprovalCancelled on an AUTHORIZED enrollment = %v, %v; want false, nil", ok, err)
+	}
+	if got, _ := s.EnrollmentByID(ctx, held.ID); got.ApprovalCancelledAt != nil {
+		t.Errorf("an AUTHORIZED enrollment got approval_cancelled_at %v", got.ApprovalCancelledAt)
+	}
+
+	for _, id := range []string{"00000000-0000-4000-8000-000000000000", "not-a-uuid"} {
+		if ok, err := s.MarkApprovalCancelled(ctx, id, cancelledAt); err != nil || ok {
+			t.Errorf("MarkApprovalCancelled(%q) = %v, %v; want false, nil", id, ok, err)
+		}
 	}
 }

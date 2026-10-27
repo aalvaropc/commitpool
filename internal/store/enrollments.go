@@ -88,10 +88,12 @@ func (s *Store) ReserveSeatAndCreateEnrollment(ctx context.Context, p ReservePar
 }
 
 // ReReserveSeat gives a RELEASED enrollment a fresh seat when payments are
-// still open and a seat is free, under the same workshop lock as
-// ReserveSeatAndCreateEnrollment. It reports false, without error, whenever
-// the seat cannot be given back: no capacity, payments closed, the enrollment
-// is not RELEASED, or the participant already holds a newer active enrollment.
+// still open (domain.PaymentsOpen: FUNDING, or CONFIRMED before the proposal
+// closes) and a seat is free, under the same workshop lock and the same rule
+// as ReserveSeatAndCreateEnrollment. It reports false, without error,
+// whenever the seat cannot be given back: no capacity, payments closed, the
+// enrollment is not RELEASED, or the participant already holds a newer
+// active enrollment.
 func (s *Store) ReReserveSeat(ctx context.Context, enrollmentID string, now time.Time, ttl time.Duration) (bool, error) {
 	reserved := false
 	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
@@ -115,7 +117,8 @@ func (s *Store) ReReserveSeat(ctx context.Context, enrollmentID string, now time
 		if err != nil {
 			return err
 		}
-		if status != domain.WorkshopFunding || proposal == nil || !now.Before(proposal.ClosesAt) {
+		if proposal == nil ||
+			!domain.PaymentsOpen(domain.Workshop{Status: status}, domain.Proposal{ClosesAt: proposal.ClosesAt}, now) {
 			return nil
 		}
 		newer, err := activeEnrollment(ctx, tx, current.ParticipantID)
@@ -262,4 +265,25 @@ func (s *Store) ReleaseExpiredSeats(ctx context.Context, workshopID string, now 
 		return 0, wrap("release expired seats", err)
 	}
 	return int(tag.RowsAffected()), nil
+}
+
+// MarkApprovalCancelled records that the buyer cancelled the enrollment's
+// checkout at PayPal, setting approval_cancelled_at to now (a later cancel
+// moves it forward). Only a SEAT_RESERVED enrollment is marked, and nothing
+// else changes: the seat stays reserved until it expires on its own, so the
+// buyer can still approve the same checkout. It reports whether a row was
+// marked; a missing or malformed ID, or an enrollment past checkout, is false
+// without error.
+func (s *Store) MarkApprovalCancelled(ctx context.Context, enrollmentID string, now time.Time) (bool, error) {
+	tag, err := s.Pool.Exec(ctx,
+		`update enrollments set approval_cancelled_at = $2, updated_at = now()
+		 where id = $1 and status = $3`,
+		enrollmentID, now, string(domain.EnrollmentSeatReserved))
+	if err != nil {
+		if isMissing(err) {
+			return false, nil
+		}
+		return false, wrap("mark approval cancelled", err)
+	}
+	return tag.RowsAffected() == 1, nil
 }

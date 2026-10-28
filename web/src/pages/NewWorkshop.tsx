@@ -1,0 +1,256 @@
+import { useMemo, useState, type FormEvent } from 'react'
+import { api, type CreateWorkshopResponse } from '../api'
+import CopyField from '../components/CopyField'
+import { Button, ButtonLink, Field, Notice, Page, describedBy, inputClass } from '../components/ui'
+import { browserTimeZone, TIME_ZONES, windowLabel, zonedPlusMinutes, zonedToRFC3339 } from '../lib/time'
+
+const WINDOWS = [1440, 2880, 60, 15, 5]
+const PRICE = /^\d{1,7}(\.\d{1,2})?$/
+const DAY_MS = 86400000
+
+interface Form {
+  title: string
+  description: string
+  duration: string
+  timezone: string
+  minimum: string
+  capacity: string
+  price: string
+  window: string
+  date1: string
+  time1: string
+  date2: string
+  time2: string
+}
+
+type Errors = Partial<Record<keyof Form | 'form', string>>
+
+function isoDay(offsetDays: number): string {
+  const d = new Date(Date.now() + offsetDays * DAY_MS)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function validate(f: Form): { errors: Errors; dates?: { starts_at: string; ends_at: string }[] } {
+  const errors: Errors = {}
+  if (!f.title.trim()) errors.title = 'Give the workshop a title.'
+  const duration = Number(f.duration)
+  if (!Number.isInteger(duration) || duration < 1 || duration > 1440) errors.duration = 'Use whole minutes between 1 and 1440.'
+  const minimum = Number(f.minimum)
+  const capacity = Number(f.capacity)
+  if (!Number.isInteger(minimum) || minimum < 1) errors.minimum = 'The minimum is at least 1 paid seat.'
+  if (!Number.isInteger(capacity) || capacity < 1 || capacity > 500) errors.capacity = 'Capacity is between 1 and 500 seats.'
+  else if (!errors.minimum && minimum > capacity) errors.capacity = 'Capacity cannot be below the minimum.'
+  if (!PRICE.test(f.price.trim()) || Number(f.price) <= 0) errors.price = 'Write an amount above zero such as 10 or 10.00.'
+
+  const earliest = Date.now() + (Number(f.window) * 60000 + DAY_MS)
+  const dates: { starts_at: string; ends_at: string }[] = []
+  for (const [d, t, key] of [
+    [f.date1, f.time1, 'date1'],
+    [f.date2, f.time2, 'date2'],
+  ] as const) {
+    let starts: string
+    try {
+      starts = zonedToRFC3339(d, t, f.timezone)
+    } catch {
+      errors[key] = 'Pick a date and a start time.'
+      continue
+    }
+    if (Date.parse(starts) < earliest) {
+      errors[key] = 'This date is too soon: it must start at least a full day after the payment window would close.'
+      continue
+    }
+    dates.push({ starts_at: starts, ends_at: Number.isInteger(duration) ? zonedPlusMinutes(starts, duration, f.timezone) : starts })
+  }
+  if (dates.length === 2 && dates[0].starts_at === dates[1].starts_at) errors.date2 = 'Offer two different dates.'
+  return Object.keys(errors).length ? { errors } : { errors, dates }
+}
+
+export default function NewWorkshop() {
+  const zone = browserTimeZone()
+  const zones = useMemo(() => (TIME_ZONES.includes(zone) ? TIME_ZONES : [zone, ...TIME_ZONES]), [zone])
+  const [form, setForm] = useState<Form>({
+    title: '',
+    description: '',
+    duration: '120',
+    timezone: zone,
+    minimum: '3',
+    capacity: '8',
+    price: '10.00',
+    window: '1440',
+    date1: isoDay(7),
+    time1: '15:00',
+    date2: isoDay(8),
+    time2: '10:00',
+  })
+  const [errors, setErrors] = useState<Errors>({})
+  const [busy, setBusy] = useState(false)
+  const [created, setCreated] = useState<CreateWorkshopResponse | null>(null)
+
+  const set = (key: keyof Form) => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [key]: e.target.value }))
+
+  async function submit(e: FormEvent) {
+    e.preventDefault()
+    const { errors: found, dates } = validate(form)
+    setErrors(found)
+    if (!dates) return
+    setBusy(true)
+    try {
+      const price = form.price.trim()
+      const res = await api.createWorkshop({
+        title: form.title.trim(),
+        description: form.description.trim(),
+        duration_min: Number(form.duration),
+        timezone: form.timezone,
+        minimum: Number(form.minimum),
+        capacity: Number(form.capacity),
+        price: price.includes('.') ? price : `${price}.00`,
+        currency: 'USD',
+        payment_window_min: Number(form.window),
+        dates,
+      })
+      setCreated(res)
+      window.scrollTo({ top: 0 })
+    } catch (err) {
+      setErrors({ form: err instanceof Error ? err.message : 'The workshop could not be created.' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (created) {
+    const ownerPath = new URL(created.owner_url).pathname
+    return (
+      <Page>
+        <title>Workshop created – CommitPool</title>
+        <div className="flex flex-col gap-8">
+          <h1 className="text-3xl font-bold sm:text-4xl">{created.workshop.title} is ready</h1>
+          <Notice tone="hold" title="Save your organizer link now" role="alert">
+            It is the only way back to your organizer page and it will not be shown again. Anyone who has it can open payments.
+          </Notice>
+          <CopyField id="owner-url" label="Organizer link (keep it private)" value={created.owner_url} />
+          <CopyField id="share-url" label="Link for participants" value={created.share_url} hint="Send this one to the people you want to invite." />
+          <div>
+            <ButtonLink to={ownerPath}>Open the organizer page</ButtonLink>
+          </div>
+        </div>
+      </Page>
+    )
+  }
+
+  const input = (key: keyof Form, hint = false) => ({
+    id: `f-${key}`,
+    value: form[key],
+    onChange: set(key),
+    'aria-invalid': errors[key] ? true : undefined,
+    'aria-describedby': describedBy(`f-${key}`, hint, errors[key]),
+    className: inputClass,
+  })
+
+  return (
+    <Page>
+      <title>Create a workshop – CommitPool</title>
+      <form onSubmit={submit} noValidate className="flex flex-col gap-10">
+        <div className="flex flex-col gap-2">
+          <h1 className="text-3xl font-bold sm:text-4xl">Create a workshop</h1>
+          <p className="max-w-prose text-ink-soft">Nothing is charged until you open payments for a date and enough people pay.</p>
+        </div>
+
+        <fieldset className="flex flex-col gap-5">
+          <legend className="mb-4 text-xl font-bold">The workshop</legend>
+          <Field id="f-title" label="Title" error={errors.title}>
+            <input {...input('title')} maxLength={120} />
+          </Field>
+          <Field id="f-description" label="Description" hint="Optional. What people will learn and what to bring.">
+            <textarea {...input('description', true)} rows={3} maxLength={2000} />
+          </Field>
+          <Field id="f-duration" label="Duration in minutes" error={errors.duration}>
+            <input {...input('duration')} type="number" inputMode="numeric" min={1} max={1440} step={1} className={`${inputClass} sm:max-w-40`} />
+          </Field>
+        </fieldset>
+
+        <fieldset className="flex flex-col gap-5">
+          <legend className="mb-4 text-xl font-bold">Money and seats</legend>
+          <div className="grid gap-5 sm:grid-cols-3">
+            <Field id="f-price" label="Price per seat, USD" hint="Prices are in US dollars." error={errors.price}>
+              <input {...input('price', true)} inputMode="decimal" autoComplete="off" />
+            </Field>
+            <Field id="f-minimum" label="Minimum paid seats" error={errors.minimum}>
+              <input {...input('minimum')} type="number" inputMode="numeric" min={1} step={1} />
+            </Field>
+            <Field id="f-capacity" label="Capacity" error={errors.capacity}>
+              <input {...input('capacity')} type="number" inputMode="numeric" min={1} max={500} step={1} />
+            </Field>
+          </div>
+          <Field id="f-window" label="Payment window" hint="How long participants have to authorize once you open payments.">
+            <select {...input('window', true)} className={`${inputClass} sm:max-w-xs`}>
+              {WINDOWS.map((m) => (
+                <option key={m} value={m}>
+                  {windowLabel(m)}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </fieldset>
+
+        <fieldset className="flex flex-col gap-5">
+          <legend className="mb-4 text-xl font-bold">Candidate dates</legend>
+          <Field id="f-timezone" label="Time zone" hint="Dates and deadlines are shown in this zone, with its name.">
+            <select {...input('timezone', true)} className={`${inputClass} sm:max-w-sm`}>
+              {zones.map((z) => (
+                <option key={z} value={z}>
+                  {z.replaceAll('_', ' ')}
+                </option>
+              ))}
+            </select>
+          </Field>
+          {(
+            [
+              ['First date', 'date1', 'time1'],
+              ['Second date', 'date2', 'time2'],
+            ] as const
+          ).map(([legend, dk, tk]) => (
+            <fieldset key={dk} className="flex flex-col gap-2 border-t border-rule pt-4">
+              <legend className="font-semibold">{legend}</legend>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor={`f-${dk}`} className="text-sm text-ink-soft">
+                    Day
+                  </label>
+                  <input {...input(dk)} type="date" />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor={`f-${tk}`} className="text-sm text-ink-soft">
+                    Starts at
+                  </label>
+                  <input {...input(tk)} aria-describedby={describedBy(`f-${dk}`, false, errors[dk])} type="time" />
+                </div>
+              </div>
+              {errors[dk] && (
+                <p id={`f-${dk}-error`} className="text-sm font-medium text-cancel">
+                  {errors[dk]}
+                </p>
+              )}
+            </fieldset>
+          ))}
+          <p className="text-sm text-ink-soft">Each date lasts the duration above.</p>
+        </fieldset>
+
+        <div className="flex flex-col items-start gap-4">
+          {errors.form && (
+            <Notice tone="attention" role="alert">
+              {errors.form}
+            </Notice>
+          )}
+          {Object.keys(errors).some((k) => k !== 'form') && (
+            <p role="alert" className="font-medium text-cancel">
+              Some fields need a fix before the workshop can be created.
+            </p>
+          )}
+          <Button type="submit" busy={busy} busyLabel="Creating…" className="px-6 py-3 text-lg">
+            Create workshop
+          </Button>
+        </div>
+      </form>
+    </Page>
+  )
+}

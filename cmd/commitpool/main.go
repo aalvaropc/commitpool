@@ -81,9 +81,11 @@ func run(log *slog.Logger) error {
 		IdleTimeout:       2 * time.Minute,
 	}
 
-	// The worker runs on its own context so it keeps serving inline jobs while
-	// the HTTP server drains, and stops after it. Run also enqueues the seat
-	// releases once a minute.
+	// The worker runs on its own context. On shutdown it stops claiming jobs
+	// while the HTTP server drains (requests run their jobs inline through
+	// RunKey, not through Run), and the process waits for the job it is
+	// running, which Run bounds. Run also enqueues the seat releases once a
+	// minute and reconciles and heals every two.
 	workerCtx, stopWorker := context.WithCancel(context.Background())
 	workerDone := make(chan struct{})
 	go func() {
@@ -108,6 +110,7 @@ func run(log *slog.Logger) error {
 	case <-ctx.Done():
 	}
 	log.Info("shutting down")
+	stopWorker()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {

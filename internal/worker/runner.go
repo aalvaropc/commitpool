@@ -30,6 +30,9 @@ const (
 	staleAfter     = 5 * time.Minute
 	reconcileDelay = 30 * time.Second
 	settleTimeout  = 10 * time.Second
+	// shutdownGrace is how long a job Run is running may go on once Run's
+	// context is done.
+	shutdownGrace = 10 * time.Second
 )
 
 // maxReconcileGenerations is how many reconciles an ambiguous action gets: the
@@ -100,9 +103,13 @@ func (r *Runner) Register(kind string, h Handler) {
 // Run claims and runs due jobs until ctx is done, then returns ctx.Err(). When
 // nothing is due it waits two seconds before looking again. Once a minute it
 // takes back jobs claimed more than five minutes ago and never finished, and
-// enqueues the minute's seat release for every workshop with a reserved seat.
+// enqueues the minute's seat release for every workshop with a reserved seat;
+// every two minutes it reconciles what PayPal may still change and heals the
+// workshops still funding or resolving (RunPeriodic). Once ctx is done it
+// claims nothing new and returns when the job in flight has finished, which
+// RunOnce lets go on for up to shutdownGrace.
 func (r *Runner) Run(ctx context.Context) error {
-	var lastTick time.Time
+	var lastTick, lastPeriodic time.Time
 	for {
 		if lastTick.IsZero() || time.Since(lastTick) >= tickInterval {
 			r.requeueStale(ctx)
@@ -110,6 +117,12 @@ func (r *Runner) Run(ctx context.Context) error {
 				r.log.Error("worker: enqueue seat releases", "error", err)
 			}
 			lastTick = time.Now()
+		}
+		if lastPeriodic.IsZero() || time.Since(lastPeriodic) >= periodicInterval {
+			if err := r.RunPeriodic(ctx); err != nil && ctx.Err() == nil {
+				r.log.Error("worker: periodic reconcile and heal", "error", err)
+			}
+			lastPeriodic = time.Now()
 		}
 		r.drain(ctx)
 		select {
@@ -149,12 +162,36 @@ func (r *Runner) requeueStale(ctx context.Context) {
 
 // RunOnce claims the next due job, runs it and records its outcome. It
 // reports whether a job ran; the error is a failure to claim or to record.
+// A job claimed before ctx is done runs on for up to shutdownGrace after
+// that, so a shutdown lets a PayPal call already sent finish instead of
+// turning its answer into an unknown result.
 func (r *Runner) RunOnce(ctx context.Context) (bool, error) {
 	job, err := r.st.ClaimJob(ctx, r.workerID, r.clock.Now())
 	if err != nil || job == nil {
 		return false, err
 	}
-	return true, r.run(ctx, job)
+	jobCtx, cancel := withShutdownGrace(ctx)
+	defer cancel()
+	return true, r.run(jobCtx, job)
+}
+
+// withShutdownGrace returns a context with ctx's values that is done
+// shutdownGrace after ctx is, or as soon as cancel is called.
+func withShutdownGrace(ctx context.Context) (context.Context, context.CancelFunc) {
+	jobCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	stop := context.AfterFunc(ctx, func() {
+		grace := time.NewTimer(shutdownGrace)
+		defer grace.Stop()
+		select {
+		case <-grace.C:
+			cancel()
+		case <-jobCtx.Done():
+		}
+	})
+	return jobCtx, func() {
+		stop()
+		cancel()
+	}
 }
 
 // RunKey runs the job with this key now, for a caller that needs its outcome

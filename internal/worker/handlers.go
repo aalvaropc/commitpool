@@ -21,6 +21,7 @@ const (
 	issueAuthorizationExpired = "AUTHORIZATION_EXPIRED"
 	issueCaptureFullyRefunded = "CAPTURE_FULLY_REFUNDED"
 	issueDeadlinePassed       = "CAPTURE_DEADLINE_PASSED"
+	issueExpiredLocally       = "AUTHORIZATION_EXPIRED_LOCAL"
 )
 
 // subject is what a payment job acts on, as it stood when the job started.
@@ -186,11 +187,13 @@ func (r *Runner) authorize(ctx context.Context, job *store.Job) (*int, error) {
 // capture job is this one, and an earlier run of it may have reached PayPal.
 //
 // Past the capture deadline (the earlier of the payment close and the
-// authorization's expiry) the capture is failed without sending it. A resumed
-// run first reads the attempt back from PayPal and fails only when no capture
-// exists. A failed capture leaves the authorization open, so both that and a
-// final refusal from PayPal mark the enrollment CAPTURE_FAILED and enqueue its
-// void.
+// authorization's expiry) the capture is failed without sending it, with
+// issue AUTHORIZATION_EXPIRED_LOCAL when the expiry came first and
+// CAPTURE_DEADLINE_PASSED otherwise. A resumed run first reads the attempt
+// back from PayPal and fails only when no capture exists. A failed capture
+// leaves the authorization open, so both that and a final refusal from PayPal
+// mark the enrollment CAPTURE_FAILED, which runs the same hooks, and enqueue
+// its void.
 func (r *Runner) capture(ctx context.Context, job *store.Job) (*int, error) {
 	s, err := r.load(ctx, job)
 	if err != nil {
@@ -226,12 +229,8 @@ func (r *Runner) capture(ctx context.Context, job *store.Job) (*int, error) {
 		return s.skip()
 	}
 
-	var authExpires time.Time
-	if a.AuthExpiresAt != nil {
-		authExpires = *a.AuthExpiresAt
-	}
-	if r.clock.Now().After(domain.CaptureDeadline(p.ClosesAt, authExpires)) {
-		return r.captureTooLate(ctx, s, resumed)
+	if deadline, missed := captureDeadline(p.ClosesAt, a.AuthExpiresAt); r.clock.Now().After(deadline) {
+		return r.captureTooLate(ctx, s, resumed, missed)
 	}
 
 	c, err := r.pp.CaptureAuthorization(ctx, paypal.CaptureParams{
@@ -256,10 +255,27 @@ func (r *Runner) capture(ctx context.Context, job *store.Job) (*int, error) {
 	return refused(pe)
 }
 
-// captureTooLate fails a capture past its deadline without sending it. A
-// resumed run may already have captured, so it reads the attempt back from
-// PayPal first and keeps a capture it finds.
-func (r *Runner) captureTooLate(ctx context.Context, s subject, resumed bool) (*int, error) {
+// captureDeadline is domain.CaptureDeadline for the attempt's authorization
+// and the issue a capture past it fails with: AUTHORIZATION_EXPIRED_LOCAL
+// when the authorization expires before payments close, and
+// CAPTURE_DEADLINE_PASSED otherwise. A nil expiry is unknown and the close
+// applies.
+func captureDeadline(closesAt time.Time, authExpiresAt *time.Time) (deadline time.Time, issue string) {
+	var expires time.Time
+	if authExpiresAt != nil {
+		expires = *authExpiresAt
+	}
+	deadline = domain.CaptureDeadline(closesAt, expires)
+	if deadline.Before(closesAt) {
+		return deadline, issueExpiredLocally
+	}
+	return deadline, issueDeadlinePassed
+}
+
+// captureTooLate fails a capture past its deadline without sending it, with
+// issue as the reason. A resumed run may already have captured, so it reads
+// the attempt back from PayPal first and keeps a capture it finds.
+func (r *Runner) captureTooLate(ctx context.Context, s subject, resumed bool, issue string) (*int, error) {
 	if resumed {
 		if status, err := r.refresh(ctx, s); err != nil {
 			return status, err
@@ -276,15 +292,19 @@ func (r *Runner) captureTooLate(ctx context.Context, s subject, resumed bool) (*
 			return nil, nil
 		}
 	}
-	s.log.Warn("capture deadline passed; failing the capture without sending it")
-	err := r.failCapture(ctx, s.attempt.ID, issueDeadlinePassed, "")
+	reason := "capture deadline passed"
+	if issue == issueExpiredLocally {
+		reason = "authorization expired before the capture"
+	}
+	s.log.Warn(reason+"; failing the capture without sending it", "issue", issue)
+	err := r.failCapture(ctx, s.attempt.ID, issue, "")
 	if errors.Is(err, errCaptureRecorded) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	return nil, &refusal{reason: "capture deadline passed", issue: issueDeadlinePassed}
+	return nil, &refusal{reason: reason, issue: issue}
 }
 
 // void releases the attempt's authorization. For the enrollment's latest

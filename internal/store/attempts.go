@@ -133,6 +133,24 @@ func (s *Store) LatestAttempt(ctx context.Context, enrollmentID string) (*Attemp
 		`select `+attemptCols+` from payment_attempts where enrollment_id = $1 order by attempt_no desc limit 1`, enrollmentID)
 }
 
+// AttemptRef names a payment attempt and the workshop of its enrollment.
+type AttemptRef struct {
+	AttemptID, WorkshopID string
+}
+
+// LatestAttemptsInStatus returns the latest attempt of every enrollment in
+// one of statuses, with its workshop, ordered by attempt ID. It is an empty
+// list when there are none.
+func (s *Store) LatestAttemptsInStatus(ctx context.Context, statuses ...domain.EnrollmentStatus) ([]AttemptRef, error) {
+	return many[AttemptRef](ctx, s.Pool, "latest attempts in status",
+		`select id, workshop_id from (
+		     select distinct on (a.enrollment_id) a.id::text as id, e.workshop_id::text as workshop_id
+		     from payment_attempts a join enrollments e on e.id = a.enrollment_id
+		     where e.status = any($1)
+		     order by a.enrollment_id, a.attempt_no desc) latest
+		 order by id`, texts(statuses))
+}
+
 // AttemptByID returns the attempt, or nil when there is none.
 func (s *Store) AttemptByID(ctx context.Context, id string) (*AttemptRow, error) {
 	return oneOrNil[AttemptRow](ctx, s.Pool, "attempt by id",

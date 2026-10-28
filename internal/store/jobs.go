@@ -356,6 +356,17 @@ func (s *Store) JobsByAttempt(ctx context.Context, attemptID string) ([]Job, err
 		`select `+jobCols+` from jobs where attempt_id = $1 order by created_at, id`, attemptID)
 }
 
+// UnknownJobs returns the jobs whose outcome has been unknown for longer
+// than olderThan, oldest first. A job's age is its updated_at, which the
+// database stamped when the job was parked, against the database's own
+// clock.
+func (s *Store) UnknownJobs(ctx context.Context, olderThan time.Duration) ([]Job, error) {
+	return many[Job](ctx, s.Pool, "unknown jobs",
+		`select `+jobCols+` from jobs
+		 where status = $1 and updated_at < now() - make_interval(secs => $2)
+		 order by updated_at, id`, JobUnknown, olderThan.Seconds())
+}
+
 // RequeueStale recovers jobs a worker claimed and never finished: every
 // running job locked more than olderThan before now goes back to pending, due
 // at now, with the lock released. A job that has already used up its attempts

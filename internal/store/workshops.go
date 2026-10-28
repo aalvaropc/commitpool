@@ -262,6 +262,27 @@ func transitionWorkshop(ctx context.Context, q execer, id string, fromStatus []d
 	return tag.RowsAffected() == 1, nil
 }
 
+// WorkshopIDsFundingOrResolving returns, in order, the workshops still
+// taking payments (FUNDING) and the ones whose money is still being released
+// or returned (resolution RESOLVING). It is an empty list when there are
+// none.
+func (s *Store) WorkshopIDsFundingOrResolving(ctx context.Context) ([]string, error) {
+	rows, err := s.Pool.Query(ctx,
+		`select id::text from workshops where status = $1 or resolution = $2 order by id`,
+		string(domain.WorkshopFunding), string(domain.ResolutionResolving))
+	if err != nil {
+		return nil, wrap("workshops funding or resolving", err)
+	}
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, wrap("workshops funding or resolving", err)
+	}
+	if ids == nil {
+		ids = []string{}
+	}
+	return ids, nil
+}
+
 // texts turns a list of string-like values into a text array; nil stays nil,
 // which is sent as NULL.
 func texts[T ~string](vs []T) []string {

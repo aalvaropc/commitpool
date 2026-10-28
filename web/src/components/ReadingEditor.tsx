@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { api, type Availability, type CandidateDate, type ConditionType, type DateVerdict, type Verdict } from '../api'
-import { correctedReading, verdictText } from '../lib/reading'
+import { correctedReading, saveButton, verdictText } from '../lib/reading'
 import { Button, Notice, inputClass } from './ui'
 
 interface Props {
@@ -27,6 +27,7 @@ export default function ReadingEditor({ token, availability, dates, editable, on
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const dirty = JSON.stringify(draft) !== JSON.stringify(reading.per_date)
+  const button = saveButton(dirty, reading.needs_clarification)
 
   function update(i: number, patch: Partial<DateVerdict>) {
     setDraft((d) => d.map((v, j) => (j === i ? { ...v, ...patch } : v)))
@@ -78,7 +79,10 @@ export default function ReadingEditor({ token, availability, dates, editable, on
               ))}
             </ul>
           )}
-          <p>Until it is answered your message counts for no date. Pick an answer for each date below and save, or rewrite your message.</p>
+          <p>
+            Until it is answered your message counts for no date. Check the answer for each date below and confirm it, or rewrite your
+            message.
+          </p>
         </Notice>
       )}
 
@@ -143,8 +147,8 @@ export default function ReadingEditor({ token, availability, dates, editable, on
 
       {editable && (
         <div className="flex flex-col items-start gap-3">
-          <Button variant="secondary" onClick={save} disabled={!dirty} busy={busy} busyLabel="Saving…">
-            Save my correction
+          <Button variant={reading.needs_clarification ? 'primary' : 'secondary'} onClick={save} disabled={!button.enabled} busy={busy} busyLabel="Saving…">
+            {button.label}
           </Button>
           {error && (
             <Notice tone="attention" role="alert">

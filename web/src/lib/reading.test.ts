@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Interpretation } from '../api'
-import { blockerText, correctedReading, verdictText } from './reading'
+import { blockerText, correctedReading, saveButton, verdictText } from './reading'
 
 const none = { type: 'none', time: '' } as const
 
@@ -52,5 +52,20 @@ describe('correctedReading', () => {
       { candidate_date_id: 'd1', verdict: 'available', condition: { type: 'end_before', time: '18:00' }, evidence: '' },
     ])
     expect(out.per_date[0].condition).toEqual({ type: 'none', time: '' })
+  })
+})
+
+describe('saveButton', () => {
+  it('lets a reading that needs clarification be confirmed as it is', () => {
+    expect(saveButton(false, true)).toEqual({ enabled: true, label: 'Confirm reading' })
+  })
+
+  it('saves corrections once something changed', () => {
+    expect(saveButton(true, false)).toEqual({ enabled: true, label: 'Save corrections' })
+    expect(saveButton(true, true)).toEqual({ enabled: true, label: 'Save corrections' })
+  })
+
+  it('has nothing to save for an unchanged, clear reading', () => {
+    expect(saveButton(false, false)).toEqual({ enabled: false, label: 'Save corrections' })
   })
 })

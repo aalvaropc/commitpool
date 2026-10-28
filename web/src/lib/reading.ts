@@ -28,6 +28,17 @@ export function blockerText(blocker: string): string {
 }
 
 /**
+ * The save button of a reading: a reading that needs clarification can be
+ * confirmed as it stands (saving it answers the open question), and any
+ * change can be saved.
+ */
+export function saveButton(dirty: boolean, needsClarification: boolean): { enabled: boolean; label: string } {
+  if (dirty) return { enabled: true, label: 'Save corrections' }
+  if (needsClarification) return { enabled: true, label: 'Confirm reading' }
+  return { enabled: false, label: 'Save corrections' }
+}
+
+/**
  * The reading a participant saves: their verdict for each date, a condition
  * only on a conditional verdict, and their choices as the answer to every
  * open question, so the reading no longer needs clarification.

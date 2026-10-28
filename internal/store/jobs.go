@@ -367,19 +367,24 @@ func (s *Store) UnknownJobs(ctx context.Context, olderThan time.Duration) ([]Job
 		 order by updated_at, id`, JobUnknown, olderThan.Seconds())
 }
 
+// abandonedReason is the last_error of a job RequeueStale parks.
+const abandonedReason = "abandoned by its worker after the last attempt"
+
 // RequeueStale recovers jobs a worker claimed and never finished: every
 // running job locked more than olderThan before now goes back to pending, due
 // at now, with the lock released. A job that has already used up its attempts
-// is parked as needs_attention instead (keeping its run_at), so a job that
-// hangs its worker every time is not taken back forever. It returns how many
-// jobs it recovered or parked.
+// is parked as needs_attention instead (keeping its run_at, with
+// abandonedReason as its last error), so a job that hangs its worker every
+// time is not taken back forever. It returns how many jobs it recovered or
+// parked.
 func (s *Store) RequeueStale(ctx context.Context, now time.Time, olderThan time.Duration) (int, error) {
 	tag, err := s.Pool.Exec(ctx,
 		`update jobs set
 			status = case when attempts >= $3 then 'needs_attention' else 'pending' end,
 			run_at = case when attempts >= $3 then run_at else $1 end,
+			last_error = case when attempts >= $3 then $4 else last_error end,
 			locked_at = null, locked_by = null, updated_at = now()
-		 where status = 'running' and locked_at < $2`, now, now.Add(-olderThan), maxJobAttempts)
+		 where status = 'running' and locked_at < $2`, now, now.Add(-olderThan), maxJobAttempts, abandonedReason)
 	if err != nil {
 		return 0, wrap("requeue stale jobs", err)
 	}

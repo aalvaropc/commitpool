@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -133,4 +135,59 @@ func Load(getenv func(string) string) (Config, error) {
 		return Config{}, fmt.Errorf("config: %s", strings.Join(problems, "; "))
 	}
 	return cfg, nil
+}
+
+// redactedValue stands in for a secret in logs and printouts.
+const redactedValue = "[REDACTED]"
+
+// LogValue is the configuration as it may be logged: the PayPal client
+// secret is replaced and the database URL's password masked, so logging the
+// configuration, or anything holding it, never writes a secret.
+func (c Config) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.String("port", c.Port),
+		slog.String("base_url", c.BaseURL),
+		slog.String("database_url", redactURL(c.DatabaseURL)),
+		slog.String("paypal_base_url", c.PayPalBaseURL),
+		slog.String("paypal_client_id", c.PayPalClientID),
+		slog.String("paypal_client_secret", redact(c.PayPalClientSecret)),
+		slog.String("paypal_webhook_id", c.PayPalWebhookID),
+		slog.String("aws_region", c.AWSRegion),
+		slog.String("ai_provider", c.AIProvider),
+		slog.String("bedrock_model", c.BedrockModel),
+		slog.String("bedrock_fallback_model", c.BedrockFallbackModel),
+		slog.String("bedrock_effort", c.BedrockEffort),
+		slog.Bool("demo_mode", c.DemoMode),
+		slog.Bool("sandbox_mocks", c.SandboxMocks),
+		slog.Duration("seat_ttl", c.SeatTTL),
+		slog.Bool("fake_paypal", c.FakePayPal),
+	)
+}
+
+// String renders the configuration with LogValue's redactions, so printing
+// it with any verb never shows a secret.
+func (c Config) String() string { return c.LogValue().String() }
+
+// GoString is String, for the %#v verb.
+func (c Config) GoString() string { return c.String() }
+
+func redact(secret string) string {
+	if secret == "" {
+		return ""
+	}
+	return redactedValue
+}
+
+// redactURL masks the password of a database URL, in its user info and in a
+// password query parameter; a URL that does not parse is replaced whole.
+func redactURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return redact(raw)
+	}
+	if q := u.Query(); q.Has("password") {
+		q.Set("password", redactedValue)
+		u.RawQuery = q.Encode()
+	}
+	return u.Redacted()
 }

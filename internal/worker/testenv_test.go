@@ -365,11 +365,16 @@ func (e *env) refundPending(en store.EnrollmentRow, a store.AttemptRow) string {
 	return refunds[0].ID
 }
 
+// periodicKey is the key RunPeriodic gives the attempt's reconcile at now.
+func (e *env) periodicKey(a store.AttemptRow) string {
+	return "reconcile:" + a.ID + ":periodic:" + e.clock.Now().UTC().Format("2006-01-02T15:04")
+}
+
 // reconcileNow enqueues a periodic reconcile of the attempt due now and
 // returns its key.
 func (e *env) reconcileNow(a store.AttemptRow) string {
 	e.t.Helper()
-	key := "reconcile:" + a.ID + ":periodic:" + e.clock.Now().UTC().Format("2006-01-02T15:04")
+	key := e.periodicKey(a)
 	e.enqueueKey("reconcile", key, a, e.clock.Now())
 	return key
 }

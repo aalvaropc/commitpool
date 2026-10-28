@@ -4,12 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
+	"testing/fstest"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/aalvaropc/commitpool/internal/ai"
 	"github.com/aalvaropc/commitpool/internal/domain"
@@ -282,6 +288,32 @@ func TestEnrollment_PayPalFailureIs502AndTheRetryKeepsTheKey(t *testing.T) {
 	}
 	if b := e.latestAttempt(rows[0].ID); b.ID != a.ID {
 		t.Errorf("a retry opened attempt %d, want attempt %d reused", b.AttemptNo, a.AttemptNo)
+	}
+}
+
+func TestEnrollment_StoreFailureRunningTheCheckoutIs500(t *testing.T) {
+	e := newEnv(t)
+	_, p, ps := e.fundingWorkshop()
+	// The database refuses to claim the create_order job the request runs.
+	for _, stmt := range []string{
+		`create function test_refuse_claim() returns trigger language plpgsql as $$
+		 begin raise exception 'claim refused by the test'; end $$`,
+		`create trigger test_refuse_claim before update on jobs for each row
+		 when (new.status = 'running' and new.kind = 'create_order') execute function test_refuse_claim()`,
+	} {
+		if _, err := e.st.Pool.Exec(e.ctx, stmt); err != nil {
+			t.Fatalf("install the failing trigger: %v", err)
+		}
+	}
+	t.Cleanup(func() {
+		_, _ = e.st.Pool.Exec(context.Background(), `drop trigger if exists test_refuse_claim on jobs`)
+		_, _ = e.st.Pool.Exec(context.Background(), `drop function if exists test_refuse_claim()`)
+	})
+
+	e.wantError(http.MethodPost, ps[0].path+"/enrollment", enrollBody(p.ID), http.StatusInternalServerError, "internal_error")
+
+	if n := len(e.fake.Requests("create_order")); n != 0 {
+		t.Errorf("create_order requests = %d, want 0", n)
 	}
 }
 
@@ -583,6 +615,65 @@ func TestDemoEndpoints_DisabledWithoutFlags(t *testing.T) {
 		e.wantStatus(en.EnrollmentID, domain.EnrollmentCaptureFailed)
 		e.wantError(http.MethodPost, h.ownerPath+"/demo/fail-next-capture", map[string]string{"enrollment_id": en.EnrollmentID}, http.StatusConflict, "capture_already_started")
 	})
+}
+
+func TestHealthz_FailsWithinItsTimeoutWhenTheDatabaseHangs(t *testing.T) {
+	e := newEnv(t)
+	if rec := e.request(http.MethodGet, "/healthz", nil); rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != `{"ok":true}` {
+		t.Fatalf("GET /healthz = %d %s, want 200 {\"ok\":true}", rec.Code, rec.Body.String())
+	}
+
+	// A database that accepts connections and never answers.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var conns []net.Conn
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			conns = append(conns, c)
+			mu.Unlock()
+		}
+	}()
+	pool, err := pgxpool.New(e.ctx, "postgres://commitpool:commitpool@"+ln.Addr().String()+"/commitpool?sslmode=disable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = ln.Close()
+		mu.Lock()
+		for _, c := range conns {
+			_ = c.Close()
+		}
+		mu.Unlock()
+		pool.Close()
+	})
+	h := httpapi.New(httpapi.Deps{Store: &store.Store{Pool: pool}, Log: slog.New(slog.DiscardHandler), Dist: fstest.MapFS{}})
+
+	start := time.Now()
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequestWithContext(e.ctx, http.MethodGet, "/healthz", nil))
+		done <- rec
+	}()
+	select {
+	case rec := <-done:
+		if rec.Code != http.StatusServiceUnavailable || strings.TrimSpace(rec.Body.String()) != `{"ok":false}` {
+			t.Errorf("GET /healthz on a hung database = %d %s, want 503 {\"ok\":false}", rec.Code, rec.Body.String())
+		}
+		if took := time.Since(start); took > 5*time.Second {
+			t.Errorf("GET /healthz took %s, want it bounded by its ping timeout", took)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("GET /healthz on a hung database did not answer within 10s")
+	}
 }
 
 func TestSPA_FallbackServesIndex(t *testing.T) {

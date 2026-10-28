@@ -77,8 +77,10 @@ func run(log *slog.Logger) error {
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      90 * time.Second,
-		IdleTimeout:       2 * time.Minute,
+		// The longest handler waits are an interpretation (30 s) and the
+		// PayPal calls of a checkout or a return (20 s each).
+		WriteTimeout: 60 * time.Second,
+		IdleTimeout:  2 * time.Minute,
 	}
 
 	// The worker runs on its own context. On shutdown it stops claiming jobs
@@ -101,8 +103,7 @@ func run(log *slog.Logger) error {
 
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
-	log.Info("commitpool listening", "addr", srv.Addr, "base_url", cfg.BaseURL,
-		"ai_provider", cfg.AIProvider, "demo_mode", cfg.DemoMode, "sandbox_mocks", cfg.SandboxMocks)
+	log.Info("commitpool listening", "addr", srv.Addr, "config", cfg)
 
 	select {
 	case err := <-errc:

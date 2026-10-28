@@ -10,11 +10,6 @@ import (
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
-// periodicKey is the key RunPeriodic gives the attempt's reconcile at now.
-func (e *env) periodicKey(a store.AttemptRow) string {
-	return "reconcile:" + a.ID + ":periodic:" + e.clock.Now().UTC().Format("2006-01-02T15:04")
-}
-
 // unknownCapture runs the authorized attempt's capture into an ambiguous 503,
 // which leaves the job unknown.
 func (e *env) unknownCapture(a store.AttemptRow) string {

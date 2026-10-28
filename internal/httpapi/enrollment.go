@@ -201,16 +201,15 @@ func (s *server) lastApprovalLink(ctx context.Context, enrollmentID string) (str
 // job's payload. When another request is running that job, as on a double
 // click, it waits for the link (checkoutWait) and then answers
 // checkout_in_progress. A PayPal failure, which leaves the job to retry under
-// the same key, is paypal_unavailable; a database failure is returned as is
-// and answered as a 500.
+// the same key, is paypal_unavailable; a database failure, also one that
+// stops the job from running, is returned as is and answered as a 500.
 func (s *server) approvalLink(ctx context.Context, workshopID string, a store.AttemptRow) (string, error) {
 	key := store.JobKey(store.KindCreateOrder, a.ID)
 	if err := s.Worker.Enqueue(ctx, store.KindCreateOrder, key, &workshopID, &a.ID, nil, s.Clock.Now()); err != nil {
 		return "", err
 	}
 	if err := s.Worker.RunKey(ctx, key); err != nil {
-		s.Log.Error("enrollment: create_order did not run", "workshop_id", workshopID, "attempt_id", a.ID, "error", err)
-		return "", errPayPalUnavailable
+		return "", fmt.Errorf("run %s: %w", key, err)
 	}
 	for waited := time.Duration(0); ; waited += checkoutPoll {
 		job, err := s.Store.JobByKey(ctx, key)

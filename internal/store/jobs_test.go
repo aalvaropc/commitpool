@@ -1098,6 +1098,9 @@ func TestRequeueStale_ParksExhaustedJobsAsNeedsAttention(t *testing.T) {
 	if got.Status != "needs_attention" || got.Attempts != 5 {
 		t.Errorf("exhausted job status/attempts = %s/%d, want needs_attention/5", got.Status, got.Attempts)
 	}
+	if want := "abandoned by its worker after the last attempt"; got.LastError == nil || *got.LastError != want {
+		t.Errorf("exhausted job last_error = %v, want %q", got.LastError, want)
+	}
 	assertUnlocked(t, s, hangs.ID)
 
 	got = jobByKey(t, s, "capture:below-cap")

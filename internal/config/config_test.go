@@ -1,6 +1,8 @@
 package config_test
 
 import (
+	"fmt"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -185,5 +187,40 @@ func TestLoad_BedrockEffort(t *testing.T) {
 	env["COMMITPOOL_BEDROCK_EFFORT"] = "extreme"
 	if _, err := load(env); err == nil || !strings.Contains(err.Error(), "COMMITPOOL_BEDROCK_EFFORT") {
 		t.Errorf("unknown effort: err = %v, want an error naming COMMITPOOL_BEDROCK_EFFORT", err)
+	}
+}
+
+func TestConfig_LogValueAndStringRedactSecrets(t *testing.T) {
+	cfg, err := load(map[string]string{
+		"COMMITPOOL_BASE_URL":  "https://commitpool.example",
+		"DATABASE_URL":         "postgres://commitpool:db-password-1@db.internal:5432/commitpool?sslmode=disable&password=db-password-2",
+		"PAYPAL_CLIENT_ID":     "client-id-visible",
+		"PAYPAL_CLIENT_SECRET": "paypal-secret-3",
+		"AWS_REGION":           "us-east-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var logged strings.Builder
+	slog.New(slog.NewJSONHandler(&logged, nil)).Info("starting", "config", cfg)
+	renderings := map[string]string{
+		"slog":  logged.String(),
+		"%v":    fmt.Sprintf("%v", cfg),
+		"%+v":   fmt.Sprintf("%+v", cfg),
+		"%#v":   fmt.Sprintf("%#v", cfg),
+		"%s":    fmt.Sprintf("%s", cfg),
+		"Print": fmt.Sprint(cfg),
+	}
+	for name, out := range renderings {
+		for _, secret := range []string{"db-password-1", "db-password-2", "paypal-secret-3"} {
+			if strings.Contains(out, secret) {
+				t.Errorf("%s rendering contains %q: %s", name, secret, out)
+			}
+		}
+		for _, visible := range []string{"https://commitpool.example", "client-id-visible", "db.internal"} {
+			if !strings.Contains(out, visible) {
+				t.Errorf("%s rendering lacks %q: %s", name, visible, out)
+			}
+		}
 	}
 }

@@ -6,6 +6,9 @@
 package httpapi
 
 import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -22,8 +25,16 @@ import (
 	"github.com/aalvaropc/commitpool/internal/worker"
 )
 
-// maxBodyBytes caps every request body but a webhook's (maxWebhookBytes).
-const maxBodyBytes = 64 << 10
+const (
+	// maxBodyBytes caps every request body but a webhook's (maxWebhookBytes).
+	maxBodyBytes = 64 << 10
+	// healthTimeout bounds a health check's database ping, so a database
+	// that does not answer fails the check instead of hanging it.
+	healthTimeout = 2 * time.Second
+	// requestIDHeader carries the request's id back to the caller; the
+	// request's log lines carry the same id.
+	requestIDHeader = "X-Request-Id"
+)
 
 type Deps struct {
 	Store  *store.Store
@@ -95,7 +106,7 @@ func (s *server) handle(h handlerFunc) http.Handler {
 		}
 		var ae *apiError
 		if !errors.As(err, &ae) {
-			s.Log.Error("request failed", "method", r.Method, "route", r.Pattern, "error", err)
+			s.Log.Error("request failed", "request_id", requestID(r.Context()), "method", r.Method, "route", r.Pattern, "error", err)
 			ae = errInternal
 		}
 		writeError(w, ae)
@@ -103,7 +114,9 @@ func (s *server) handle(h handlerFunc) http.Handler {
 }
 
 func (s *server) healthz(w http.ResponseWriter, r *http.Request) {
-	if err := s.Store.Pool.Ping(r.Context()); err != nil {
+	ctx, cancel := context.WithTimeout(r.Context(), healthTimeout)
+	defer cancel()
+	if err := s.Store.Pool.Ping(ctx); err != nil {
 		s.Log.Error("health check: database unreachable", "error", err)
 		writeJSON(w, http.StatusServiceUnavailable, map[string]bool{"ok": false})
 		return
@@ -111,12 +124,18 @@ func (s *server) healthz(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-// observe caps the request body, turns a panic into a logged 500 and logs one
-// line per request. The line names the route pattern, never the path or the
-// query, so no token in a URL reaches the log; bodies are never logged.
+// observe gives the request an id, caps its body, turns a panic into a
+// logged 500 and logs one line per request with its id, route, status and
+// duration. The id goes back in the X-Request-Id header and on the request's
+// error lines. The line names the route pattern, never the path or the
+// query, so no token in a URL reaches the log; headers and bodies are never
+// logged.
 func (s *server) observe(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
+		id := newRequestID()
+		w.Header().Set(requestIDHeader, id)
+		r = r.WithContext(context.WithValue(r.Context(), requestIDKey{}, id))
 		sw := &statusWriter{ResponseWriter: w}
 		limit := int64(maxBodyBytes)
 		if r.URL.Path == webhookPath {
@@ -128,7 +147,7 @@ func (s *server) observe(next http.Handler) http.Handler {
 				if p == http.ErrAbortHandler {
 					panic(p)
 				}
-				s.Log.Error("handler panicked", "method", r.Method, "route", route(r),
+				s.Log.Error("handler panicked", "request_id", id, "method", r.Method, "route", route(r),
 					"panic", fmt.Sprint(p), "stack", string(debug.Stack()))
 				if !sw.wrote {
 					writeError(sw, errInternal)
@@ -137,11 +156,26 @@ func (s *server) observe(next http.Handler) http.Handler {
 			if r.Pattern == "GET /healthz" {
 				return
 			}
-			s.Log.Info("request", "method", r.Method, "route", route(r), "status", sw.code(),
+			s.Log.Info("request", "request_id", id, "method", r.Method, "route", route(r), "status", sw.code(),
 				"duration_ms", time.Since(start).Milliseconds())
 		}()
 		next.ServeHTTP(sw, r)
 	})
+}
+
+type requestIDKey struct{}
+
+// newRequestID returns eight random bytes in hex.
+func newRequestID() string {
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+// requestID is the id observe gave the request, or "".
+func requestID(ctx context.Context) string {
+	id, _ := ctx.Value(requestIDKey{}).(string)
+	return id
 }
 
 func route(r *http.Request) string {

@@ -89,7 +89,7 @@ func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	recommendation := recommendationView(rec)
-	recommendation.Explanation = s.explanation(ctx, st, rec, names, len(avails))
+	recommendation.Explanation, recommendation.ExplanationPending = s.explanation(ctx, st, rec, names, len(avails))
 
 	shareURL := ""
 	if ws.ShareToken != "" {

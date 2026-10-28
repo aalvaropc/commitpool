@@ -341,7 +341,7 @@ func TestOwner_CountsInterestedAuthorizedPaidSeparately(t *testing.T) {
 	e.wantStatus(paid.EnrollmentID, domain.EnrollmentPaid)
 	e.authorize(wid, held.EnrollmentID)
 
-	v := e.owner(h)
+	v := e.settledOwner(h)
 	tl := v.Tally
 	if tl.Interested != 3 || tl.Authorized != 1 || tl.Paid != 1 || tl.Minimum != 3 || tl.Capacity != 4 {
 		t.Errorf("tally = %+v, want interested 3, authorized 1, paid 1, minimum 3, capacity 4", tl)

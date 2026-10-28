@@ -64,8 +64,10 @@ date is refused. The message is data, never instructions, and the schema has
 no field for the price, the currency, the minimum or the capacity: those come
 from the workshop alone. The server, not the model, decides which date is
 compatible for whom and which date to recommend; the model only writes the
-owner's one-paragraph explanation of that recommendation (at most 80 words,
-cached in memory per input). If the model declines a request, the SDK's
+owner's one-paragraph explanation of that recommendation (at most 80 words).
+The owner view never waits for it: the explanation is written once per input
+in the background and kept in memory, and until it is ready the view answers
+with `explanation_pending: true`. If the model declines a request, the SDK's
 client-side refusal fallback retries it once on the fallback model.
 
 Model IDs on Bedrock carry the `anthropic.` prefix (`anthropic.claude-opus-5-5`).

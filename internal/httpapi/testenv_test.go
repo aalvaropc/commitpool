@@ -50,6 +50,9 @@ type env struct {
 	cfg    config.Config
 	h      http.Handler
 	logs   *logBuffer
+	// explained receives a value each time a background explanation is
+	// stored.
+	explained chan struct{}
 }
 
 type setup struct {
@@ -166,6 +169,14 @@ func newEnv(t *testing.T, opts ...option) *env {
 		api = s.paypal(api)
 	}
 
+	explained := make(chan struct{}, 64)
+	httpapi.SetAfterExplanation(t, func() {
+		select {
+		case explained <- struct{}{}:
+		default:
+		}
+	})
+
 	clk := &clock.Fake{}
 	clk.Set(t0)
 	logs := &logBuffer{}
@@ -189,7 +200,7 @@ func newEnv(t *testing.T, opts ...option) *env {
 			"assets/app.js": {Data: []byte("console.log('commitpool')")},
 		},
 	})
-	return &env{t: t, ctx: ctx, st: st, fake: fake, clock: clk, runner: runner, cfg: s.cfg, h: h, logs: logs}
+	return &env{t: t, ctx: ctx, st: st, fake: fake, clock: clk, runner: runner, cfg: s.cfg, h: h, logs: logs, explained: explained}
 }
 
 // request sends body as JSON (a string or []byte is sent as is) and returns
@@ -312,6 +323,35 @@ func (e *env) owner(h workshopHandle) ownerViewJSON {
 	var v ownerViewJSON
 	e.call(http.MethodGet, h.ownerPath, nil, http.StatusOK, &v)
 	return v
+}
+
+// ownerRequest reads the owner view without touching e.t, so other
+// goroutines can call it.
+func (e *env) ownerRequest(h workshopHandle) *httptest.ResponseRecorder {
+	rec := httptest.NewRecorder()
+	e.h.ServeHTTP(rec, httptest.NewRequestWithContext(e.ctx, http.MethodGet, h.ownerPath, nil))
+	return rec
+}
+
+// settledOwner reads the owner view until its explanation is no longer
+// pending, waiting for a background explanation to be stored between reads.
+func (e *env) settledOwner(h workshopHandle) ownerViewJSON {
+	e.t.Helper()
+	for {
+		v := e.owner(h)
+		pending := v.Recommendation.ExplanationPending
+		if pending == nil {
+			e.t.Fatalf("recommendation has no explanation_pending: %+v", v.Recommendation)
+		}
+		if !*pending {
+			return v
+		}
+		select {
+		case <-e.explained:
+		case <-time.After(10 * time.Second):
+			e.t.Fatalf("the explanation is still pending after 10s")
+		}
+	}
 }
 
 type participantHandle struct {
@@ -535,7 +575,8 @@ type recommendationJSON struct {
 		Compatible []string          `json:"compatible"`
 		Blockers   map[string]string `json:"blockers"`
 	} `json:"per_date"`
-	Explanation *string `json:"explanation"`
+	Explanation        *string `json:"explanation"`
+	ExplanationPending *bool   `json:"explanation_pending"`
 }
 
 type ownerViewJSON struct {

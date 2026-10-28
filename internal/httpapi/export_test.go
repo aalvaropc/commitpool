@@ -15,6 +15,18 @@ func SetCheckoutWait(t testing.TB, wait time.Duration, pause func(context.Contex
 	t.Cleanup(func() { checkoutWait, checkoutPause = oldWait, oldPause })
 }
 
+// ExplanationRetryAfter is how long a failed explanation's plain text is
+// served before the interpreter is asked again.
+const ExplanationRetryAfter = explanationRetryAfter
+
+// SetAfterExplanation runs f, for the rest of the test, each time a
+// background explanation has been stored.
+func SetAfterExplanation(t testing.TB, f func()) {
+	old := afterExplanation.Load()
+	afterExplanation.Store(&f)
+	t.Cleanup(func() { afterExplanation.Store(old) })
+}
+
 // SetBeforeSeatRenewal replaces, for the rest of the test, what runs as an
 // expired seat starts being renewed, so a test can let another request act
 // first.

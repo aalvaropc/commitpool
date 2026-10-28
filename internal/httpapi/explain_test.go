@@ -41,29 +41,47 @@ func TestNamesAnotherDate(t *testing.T) {
 	}
 }
 
-func TestExplanationCache_EvictsTheOldestAndHonoursRetry(t *testing.T) {
+func TestExplanationCache_SingleFlightEvictionAndRetry(t *testing.T) {
 	c := newExplanationCache()
 	now := time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
 	key := func(i int) [sha256.Size]byte { return sha256.Sum256([]byte{byte(i), byte(i >> 8)}) }
-	for i := 0; i <= explanationCacheSize; i++ {
-		c.put(key(i), "text", time.Time{})
+
+	if text, fresh, start := c.claim(key(0), now); fresh || !start || text != "" {
+		t.Fatalf("first claim = %q, fresh %v, start %v; want a miss the caller must write", text, fresh, start)
+	}
+	if _, fresh, start := c.claim(key(0), now); fresh || start {
+		t.Fatalf("claim while in flight: fresh %v, start %v; want pending without a second writer", fresh, start)
+	}
+	c.finish(key(0), "text 0", time.Time{})
+	if text, fresh, _ := c.claim(key(0), now); !fresh || text != "text 0" {
+		t.Fatalf("claim after finish = %q, fresh %v", text, fresh)
+	}
+	if len(c.inFlight) != 0 {
+		t.Errorf("in-flight marks left after finish: %d", len(c.inFlight))
+	}
+
+	for i := 1; i <= explanationCacheSize; i++ {
+		c.claim(key(i), now)
+		c.finish(key(i), "text", time.Time{})
 	}
 	if len(c.entries) != explanationCacheSize || len(c.order) != explanationCacheSize {
 		t.Fatalf("cache holds %d entries (%d in order), want %d", len(c.entries), len(c.order), explanationCacheSize)
 	}
-	if _, ok := c.get(key(0), now); ok {
+	if _, fresh, _ := c.claim(key(0), now); fresh {
 		t.Error("the oldest entry survived eviction")
 	}
-	if _, ok := c.get(key(explanationCacheSize), now); !ok {
+	c.finish(key(0), "text 0", time.Time{})
+	if _, fresh, _ := c.claim(key(explanationCacheSize), now); !fresh {
 		t.Error("the newest entry is missing")
 	}
 
-	c.put(key(1), "plain", now.Add(time.Minute))
-	if text, ok := c.get(key(1), now); !ok || text != "plain" {
-		t.Errorf("before the retry time: %q, %v", text, ok)
+	c.finish(key(5), "plain", now.Add(time.Minute))
+	if text, fresh, _ := c.claim(key(5), now); !fresh || text != "plain" {
+		t.Errorf("before the retry time: %q, fresh %v", text, fresh)
 	}
-	if _, ok := c.get(key(1), now.Add(time.Minute)); ok {
-		t.Error("an entry past its retry time is still served")
+	text, fresh, start := c.claim(key(5), now.Add(time.Minute))
+	if fresh || !start || text != "plain" {
+		t.Errorf("at the retry time: %q, fresh %v, start %v; want the stale text and one writer", text, fresh, start)
 	}
 	if len(c.order) != explanationCacheSize {
 		t.Errorf("replacing an entry grew the order to %d", len(c.order))

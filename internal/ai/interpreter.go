@@ -6,7 +6,9 @@ package ai
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/aalvaropc/commitpool/internal/domain"
@@ -93,4 +95,66 @@ func displayName(names map[string]string, id string) string {
 		return name
 	}
 	return id
+}
+
+// ExplainFacts is everything an explanation may draw on, in the words the
+// model receives: the workshop title, the minimum, the recommended date's
+// label and whether it reaches the minimum, who can attend it, who cannot and
+// why, and only how many can attend each other date. Equal facts call for an
+// equal explanation, so the server keys its cache on them.
+func ExplainFacts(in ExplainInput) string {
+	label := ""
+	for _, d := range in.Dates {
+		if d.ID == in.Recommendation.DateID {
+			label = d.Label
+		}
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "Workshop title: %s\n", jsonString(in.WorkshopTitle))
+	fmt.Fprintf(&sb, "Minimum participants to run it: %d\n", in.Minimum)
+	fmt.Fprintf(&sb, "Recommended date: %s\n", label)
+	reach := "no"
+	if in.Recommendation.MeetsMinimum {
+		reach = "yes"
+	}
+	fmt.Fprintf(&sb, "The recommended date reaches the minimum: %s\n", reach)
+	var others []string
+	for _, s := range in.Recommendation.PerDate {
+		if s.DateID != in.Recommendation.DateID {
+			others = append(others, fmt.Sprint(len(s.Compatible)))
+			continue
+		}
+		names := make([]string, len(s.Compatible))
+		for i, id := range s.Compatible {
+			names[i] = displayName(in.Names, id)
+		}
+		fmt.Fprintf(&sb, "Participants who can attend it (%d): %s\n", len(names), jsonList(names))
+		blocked := make([]string, 0, len(s.Blockers))
+		for id, reason := range s.Blockers {
+			blocked = append(blocked, jsonString(displayName(in.Names, id))+" ("+reason+")")
+		}
+		slices.Sort(blocked)
+		if len(blocked) > 0 {
+			fmt.Fprintf(&sb, "Participants who cannot attend it, with the reason: %s\n", strings.Join(blocked, "; "))
+		}
+	}
+	if len(others) > 0 {
+		fmt.Fprintf(&sb, "Participants who can attend each other candidate date: %s\n", strings.Join(others, ", "))
+	}
+	return sb.String()
+}
+
+// jsonString quotes s as a JSON string, with <, > and & escaped, so text from
+// a participant or an instructor reads as one value.
+func jsonString(s string) string {
+	raw, _ := json.Marshal(s)
+	return string(raw)
+}
+
+func jsonList(items []string) string {
+	if items == nil {
+		items = []string{}
+	}
+	raw, _ := json.Marshal(items)
+	return string(raw)
 }

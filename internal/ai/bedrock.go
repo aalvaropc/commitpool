@@ -3,12 +3,10 @@ package ai
 import (
 	"context"
 	_ "embed"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net"
-	"slices"
 	"strings"
 	"time"
 
@@ -155,7 +153,7 @@ func (b *Bedrock) Explain(ctx context.Context, in ExplainInput) (string, Meta, e
 		MaxTokens: explainMaxTokens,
 		System:    []anthropic.BetaTextBlockParam{{Text: explainSystemPrompt}},
 		Messages: []anthropic.BetaMessageParam{
-			anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(explainFacts(in, label))),
+			anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(ExplainFacts(in))),
 		},
 		OutputConfig: anthropic.BetaOutputConfigParam{Effort: anthropic.BetaOutputConfigEffortLow},
 	})
@@ -167,43 +165,6 @@ func (b *Bedrock) Explain(ctx context.Context, in ExplainInput) (string, Meta, e
 		return "", meta, errors.New("ai: explain: the answer was empty")
 	}
 	return text, meta, nil
-}
-
-// explainFacts is the compatibility table the server computed, in words.
-func explainFacts(in ExplainInput, label string) string {
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "Workshop title: %s\n", jsonString(in.WorkshopTitle))
-	fmt.Fprintf(&sb, "Minimum participants to run it: %d\n", in.Minimum)
-	fmt.Fprintf(&sb, "Recommended date: %s\n", label)
-	reach := "no"
-	if in.Recommendation.MeetsMinimum {
-		reach = "yes"
-	}
-	fmt.Fprintf(&sb, "The recommended date reaches the minimum: %s\n", reach)
-	var others []string
-	for _, s := range in.Recommendation.PerDate {
-		if s.DateID != in.Recommendation.DateID {
-			others = append(others, fmt.Sprint(len(s.Compatible)))
-			continue
-		}
-		names := make([]string, len(s.Compatible))
-		for i, id := range s.Compatible {
-			names[i] = displayName(in.Names, id)
-		}
-		fmt.Fprintf(&sb, "Participants who can attend it (%d): %s\n", len(names), jsonList(names))
-		blocked := make([]string, 0, len(s.Blockers))
-		for id, reason := range s.Blockers {
-			blocked = append(blocked, jsonString(displayName(in.Names, id))+" ("+reason+")")
-		}
-		slices.Sort(blocked)
-		if len(blocked) > 0 {
-			fmt.Fprintf(&sb, "Participants who cannot attend it, with the reason: %s\n", strings.Join(blocked, "; "))
-		}
-	}
-	if len(others) > 0 {
-		fmt.Fprintf(&sb, "Participants who can attend each other candidate date: %s\n", strings.Join(others, ", "))
-	}
-	return sb.String()
 }
 
 // send makes one Messages call and logs its model, latency and token counts,
@@ -303,19 +264,4 @@ func limitWords(s string, n int) string {
 		return strings.Join(words, " ")
 	}
 	return strings.Join(words[:n], " ") + "…"
-}
-
-// jsonString quotes s as a JSON string, with <, > and & escaped, so text from
-// a participant or an instructor reads as one value.
-func jsonString(s string) string {
-	raw, _ := json.Marshal(s)
-	return string(raw)
-}
-
-func jsonList(items []string) string {
-	if items == nil {
-		items = []string{}
-	}
-	raw, _ := json.Marshal(items)
-	return string(raw)
 }

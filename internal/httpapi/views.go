@@ -310,6 +310,9 @@ type recommendationDTO struct {
 	MeetsMinimum bool             `json:"meets_minimum"`
 	PerDate      []dateSummaryDTO `json:"per_date"`
 	Explanation  string           `json:"explanation"`
+	// ExplanationPending is true while the explanation is being written; the
+	// web app reads the view again until it is false.
+	ExplanationPending bool `json:"explanation_pending"`
 }
 
 type dateSummaryDTO struct {

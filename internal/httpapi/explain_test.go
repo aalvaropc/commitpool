@@ -41,6 +41,29 @@ func TestNamesAnotherDate(t *testing.T) {
 	}
 }
 
+func TestContainsWord(t *testing.T) {
+	cases := []struct {
+		text, phrase string
+		want         bool
+	}{
+		{"sunday works", "sunday", true},
+		{"not on sunday.", "sunday", true},
+		{"sundays work", "sunday", false},
+		{"115 nov and 15 nov", "15 nov", true},
+		{"115 nov only", "15 nov", false},
+		{"nov 14", "nov 1", false},
+		{"(nov 1)", "nov 1", true},
+		{"", "nov 1", false},
+		{"sábado 15 nov", "15 nov", true},
+		{"día15 nov", "15 nov", false},
+	}
+	for _, c := range cases {
+		if got := containsWord(c.text, c.phrase); got != c.want {
+			t.Errorf("containsWord(%q, %q) = %v, want %v", c.text, c.phrase, got, c.want)
+		}
+	}
+}
+
 func TestExplanationCache_SingleFlightEvictionAndRetry(t *testing.T) {
 	c := newExplanationCache()
 	now := time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)

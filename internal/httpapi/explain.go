@@ -4,10 +4,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
-	"regexp"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/aalvaropc/commitpool/internal/ai"
 	"github.com/aalvaropc/commitpool/internal/domain"
@@ -119,6 +121,7 @@ func namesAnotherDate(text, recommendedID string, dates []store.CandidateDateRow
 	if !found {
 		return false
 	}
+	lower := strings.ToLower(text)
 	for _, d := range dates {
 		if d.ID == recommendedID {
 			continue
@@ -132,12 +135,41 @@ func namesAnotherDate(text, recommendedID string, dates []store.CandidateDateRow
 			forms = append(forms, start.Weekday().String())
 		}
 		for _, f := range forms {
-			if regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(f) + `\b`).MatchString(text) {
+			if containsWord(lower, strings.ToLower(f)) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+// containsWord reports whether phrase occurs in text as whole words, with no
+// letter or digit right before or after it. Both are already lower case.
+func containsWord(text, phrase string) bool {
+	if phrase == "" {
+		return false
+	}
+	for from := 0; from <= len(text); {
+		i := strings.Index(text[from:], phrase)
+		if i < 0 {
+			return false
+		}
+		start, end := from+i, from+i+len(phrase)
+		before, _ := utf8.DecodeLastRuneInString(text[:start])
+		after, _ := utf8.DecodeRuneInString(text[end:])
+		if !isWordRune(before) && !isWordRune(after) {
+			return true
+		}
+		_, size := utf8.DecodeRuneInString(text[start:])
+		from = start + size
+	}
+	return false
+}
+
+// isWordRune is true for a letter or a digit; utf8.RuneError, which marks
+// the start or end of the text, is neither.
+func isWordRune(r rune) bool {
+	return r != utf8.RuneError && (unicode.IsLetter(r) || unicode.IsDigit(r))
 }
 
 // explanationCache keeps up to explanationCacheSize explanations and evicts

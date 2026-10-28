@@ -121,6 +121,7 @@ func newTestBedrock(t *testing.T, m *mantle, logs io.Writer) *ai.Bedrock {
 		Region:        "us-east-1",
 		Model:         testModel,
 		FallbackModel: testFallbackModel,
+		Effort:        "low",
 		Log:           slog.New(slog.NewTextHandler(logs, nil)),
 	}, m.srv.URL)
 	if err != nil {
@@ -179,6 +180,9 @@ func TestBedrock_RequestShape(t *testing.T) {
 	}
 	if _, ok := body["fallbacks"]; ok {
 		t.Error("the request sends server-side fallbacks; Bedrock takes the client-side middleware only")
+	}
+	if effort := path(t, body, "output_config", "effort"); effort != "low" {
+		t.Errorf("output_config.effort = %v, want the configured low", effort)
 	}
 	if typ := path(t, body, "output_config", "format", "type"); typ != "json_schema" {
 		t.Errorf("output_config.format.type = %v, want json_schema", typ)
@@ -417,5 +421,33 @@ func TestBedrock_WithoutAFallbackModelArmsNoFallback(t *testing.T) {
 	}
 	if beta := reqs[0].header.Values("Anthropic-Beta"); len(beta) != 0 {
 		t.Errorf("anthropic-beta = %v, want none without a fallback model", beta)
+	}
+}
+
+func TestBedrock_EffortNoneLeavesItToTheModel(t *testing.T) {
+	m := newMantle(t, message(testModel, validReading(), "end_turn"), message(testModel, "Saturday works for Ana and Luis.", "end_turn"))
+	b, err := ai.NewBedrockForTest(context.Background(), ai.BedrockConfig{Region: "us-east-1", Model: testModel}, m.srv.URL)
+	if err != nil {
+		t.Fatalf("NewBedrock: %v", err)
+	}
+	if _, _, err := b.Interpret(context.Background(), interpretInput()); err != nil {
+		t.Fatalf("Interpret: %v", err)
+	}
+	if _, _, err := b.Explain(context.Background(), explainInput()); err != nil {
+		t.Fatalf("Explain: %v", err)
+	}
+	reqs := m.recorded()
+	if _, ok := reqs[0].body["output_config"].(map[string]any)["effort"]; ok {
+		t.Errorf("interpret output_config = %v, want no effort", reqs[0].body["output_config"])
+	}
+	if path(t, reqs[0].body, "output_config", "format", "type") != "json_schema" {
+		t.Error("interpret lost its format")
+	}
+	if oc, ok := reqs[1].body["output_config"]; ok {
+		t.Errorf("explain output_config = %v, want none at all", oc)
+	}
+
+	if _, err := ai.NewBedrockForTest(context.Background(), ai.BedrockConfig{Region: "us-east-1", Model: testModel, Effort: "extreme"}, m.srv.URL); err == nil {
+		t.Error("NewBedrock accepted an unknown effort")
 	}
 }

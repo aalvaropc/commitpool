@@ -158,12 +158,13 @@ func newInterpreter(ctx context.Context, cfg config.Config, log *slog.Logger) (a
 			Region:        cfg.AWSRegion,
 			Model:         cfg.BedrockModel,
 			FallbackModel: cfg.BedrockFallbackModel,
+			Effort:        cfg.BedrockEffort,
 			Log:           log,
 		})
 		if err != nil {
 			return nil, err
 		}
-		log.Info("using Claude on Amazon Bedrock", "region", cfg.AWSRegion, "model", cfg.BedrockModel, "fallback_model", cfg.BedrockFallbackModel)
+		log.Info("using Claude on Amazon Bedrock", "region", cfg.AWSRegion, "model", cfg.BedrockModel, "fallback_model", cfg.BedrockFallbackModel, "effort", cfg.BedrockEffort)
 		return b, nil
 	case config.AIProviderFake:
 		log.Warn("using the deterministic fake interpreter")

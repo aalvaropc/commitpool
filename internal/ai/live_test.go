@@ -20,8 +20,8 @@ import (
 //     AWS_BEARER_TOKEN_BEDROCK;
 //   - access to the model enabled in the Bedrock console.
 //
-// COMMITPOOL_BEDROCK_MODEL and COMMITPOOL_BEDROCK_FALLBACK_MODEL override the
-// default model IDs. Run it with:
+// COMMITPOOL_BEDROCK_MODEL, COMMITPOOL_BEDROCK_FALLBACK_MODEL and
+// COMMITPOOL_BEDROCK_EFFORT override the defaults. Run it with:
 //
 //	COMMITPOOL_LIVE_AI=1 go test ./internal/ai/ -run Live -count=1 -v
 func TestBedrock_Live(t *testing.T) {
@@ -34,11 +34,15 @@ func TestBedrock_Live(t *testing.T) {
 	}
 	model := envOr("COMMITPOOL_BEDROCK_MODEL", config.DefaultBedrockModel)
 	fallback := envOr("COMMITPOOL_BEDROCK_FALLBACK_MODEL", config.DefaultBedrockFallbackModel)
+	effort := envOr("COMMITPOOL_BEDROCK_EFFORT", "low")
+	if effort == "none" {
+		effort = ""
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
 	b, err := ai.NewBedrock(ctx, ai.BedrockConfig{
-		Region: region, Model: model, FallbackModel: fallback,
+		Region: region, Model: model, FallbackModel: fallback, Effort: effort,
 		Log: slog.New(slog.NewTextHandler(os.Stderr, nil)),
 	})
 	if err != nil {

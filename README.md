@@ -49,6 +49,7 @@ one of them with its default. Secrets are only ever read from the environment.
 | `COMMITPOOL_AI_PROVIDER` | `bedrock` (default) or `fake`, the deterministic keyword interpreter for tests and demos. |
 | `AWS_REGION` | Required unless `COMMITPOOL_AI_PROVIDER=fake`. |
 | `COMMITPOOL_BEDROCK_MODEL`, `COMMITPOOL_BEDROCK_FALLBACK_MODEL` | Bedrock model IDs; default `anthropic.claude-opus-5-5` and `anthropic.claude-opus-4-8`. `none` as the fallback model turns the refusal fallback off. |
+| `COMMITPOOL_BEDROCK_EFFORT` | Effort for every Bedrock call: `low` (default), `medium`, `high`, `xhigh`, `max`, or `none` to send no effort. |
 | `COMMITPOOL_SANDBOX_MOCKS` | `1` is rejected unless `PAYPAL_BASE_URL` is a sandbox URL. |
 
 ### Availability with Claude on Amazon Bedrock
@@ -71,9 +72,11 @@ with `explanation_pending: true`. If the model declines a request, the SDK's
 client-side refusal fallback retries it once on the fallback model.
 
 Model IDs on Bedrock carry the `anthropic.` prefix (`anthropic.claude-opus-5-5`).
-If Bedrock answers 400 or 404 for a model, check its ID in the Bedrock console's
-model catalog for your region and set `COMMITPOOL_BEDROCK_MODEL` (and
-`COMMITPOOL_BEDROCK_FALLBACK_MODEL`) to it. To use Bedrock:
+If Bedrock answers 400 or 404 for that ID, first try the bare form,
+`COMMITPOOL_BEDROCK_MODEL=claude-opus-5-5` (and
+`COMMITPOOL_BEDROCK_FALLBACK_MODEL=claude-opus-4-8`): the SDK's own Mantle
+tests use bare IDs. If that fails too, copy the ID from the Bedrock console's
+model catalog for your region. To use Bedrock:
 
 1. Run `aws configure` (or set `AWS_PROFILE`, or `AWS_ACCESS_KEY_ID` and
    `AWS_SECRET_ACCESS_KEY`) and pick a region where the model is offered, then

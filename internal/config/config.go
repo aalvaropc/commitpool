@@ -16,6 +16,8 @@ const (
 	// declines a request.
 	DefaultBedrockModel         = "anthropic.claude-opus-5-5"
 	DefaultBedrockFallbackModel = "anthropic.claude-opus-4-8"
+	// defaultBedrockEffort keeps a reading and an explanation quick.
+	defaultBedrockEffort = "low"
 
 	AIProviderBedrock = "bedrock"
 	AIProviderFake    = "fake"
@@ -33,10 +35,13 @@ type Config struct {
 	AIProvider           string
 	BedrockModel         string
 	BedrockFallbackModel string
-	DemoMode             bool
-	SandboxMocks         bool
-	SeatTTL              time.Duration
-	FakePayPal           bool
+	// BedrockEffort is the output_config.effort sent to Bedrock; "" sends
+	// none and leaves the model's default.
+	BedrockEffort string
+	DemoMode      bool
+	SandboxMocks  bool
+	SeatTTL       time.Duration
+	FakePayPal    bool
 }
 
 func Load(getenv func(string) string) (Config, error) {
@@ -88,6 +93,13 @@ func Load(getenv func(string) string) (Config, error) {
 	// "none" turns the refusal fallback off.
 	if strings.EqualFold(cfg.BedrockFallbackModel, "none") {
 		cfg.BedrockFallbackModel = ""
+	}
+	switch effort := strings.ToLower(str("COMMITPOOL_BEDROCK_EFFORT", defaultBedrockEffort)); effort {
+	case "none":
+	case "low", "medium", "high", "xhigh", "max":
+		cfg.BedrockEffort = effort
+	default:
+		problems = append(problems, "COMMITPOOL_BEDROCK_EFFORT must be low, medium, high, xhigh, max or none")
 	}
 
 	var missing []string

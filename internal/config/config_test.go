@@ -37,6 +37,9 @@ func TestLoad_DefaultsAndRequired(t *testing.T) {
 	if cfg.BedrockFallbackModel != "anthropic.claude-opus-4-8" {
 		t.Errorf("BedrockFallbackModel = %q", cfg.BedrockFallbackModel)
 	}
+	if cfg.BedrockEffort != "low" {
+		t.Errorf("BedrockEffort = %q, want low", cfg.BedrockEffort)
+	}
 	if cfg.SeatTTL != 30*time.Minute {
 		t.Errorf("SeatTTL = %v", cfg.SeatTTL)
 	}
@@ -166,5 +169,21 @@ func TestLoad_BedrockModelOverrides(t *testing.T) {
 	env["COMMITPOOL_BEDROCK_FALLBACK_MODEL"] = "none"
 	if cfg, err = load(env); err != nil || cfg.BedrockFallbackModel != "" {
 		t.Errorf("fallback model none = %q, %v; want no fallback", cfg.BedrockFallbackModel, err)
+	}
+}
+
+func TestLoad_BedrockEffort(t *testing.T) {
+	for value, want := range map[string]string{"high": "high", "MAX": "max", "none": "", "low": "low", "medium": "medium", "xhigh": "xhigh"} {
+		env := baseEnv()
+		env["COMMITPOOL_BEDROCK_EFFORT"] = value
+		cfg, err := load(env)
+		if err != nil || cfg.BedrockEffort != want {
+			t.Errorf("COMMITPOOL_BEDROCK_EFFORT=%s: effort %q, %v; want %q", value, cfg.BedrockEffort, err, want)
+		}
+	}
+	env := baseEnv()
+	env["COMMITPOOL_BEDROCK_EFFORT"] = "extreme"
+	if _, err := load(env); err == nil || !strings.Contains(err.Error(), "COMMITPOOL_BEDROCK_EFFORT") {
+		t.Errorf("unknown effort: err = %v, want an error naming COMMITPOOL_BEDROCK_EFFORT", err)
 	}
 }

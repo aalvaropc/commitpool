@@ -38,11 +38,13 @@ var (
 // BedrockConfig selects Claude on Amazon Bedrock. Model and FallbackModel are
 // Bedrock model IDs such as "anthropic.claude-opus-5-5"; FallbackModel
 // answers a request Model declines, and an empty one disables the fallback.
-// A nil Log uses slog.Default.
+// Effort is the output_config.effort of every call (low, medium, high, xhigh
+// or max); an empty one sends none. A nil Log uses slog.Default.
 type BedrockConfig struct {
 	Region        string
 	Model         string
 	FallbackModel string
+	Effort        string
 	Log           *slog.Logger
 }
 
@@ -53,6 +55,7 @@ type BedrockConfig struct {
 type Bedrock struct {
 	messages anthropic.BetaMessageService
 	model    string
+	effort   anthropic.BetaOutputConfigEffort
 	log      *slog.Logger
 }
 
@@ -70,6 +73,11 @@ func newBedrock(ctx context.Context, cfg BedrockConfig, mantle bedrock.MantleCli
 	if cfg.Model == "" {
 		return nil, errors.New("ai: bedrock needs a model id")
 	}
+	switch cfg.Effort {
+	case "", "low", "medium", "high", "xhigh", "max":
+	default:
+		return nil, fmt.Errorf("ai: bedrock effort %q is not low, medium, high, xhigh or max", cfg.Effort)
+	}
 	if cfg.Log == nil {
 		cfg.Log = slog.Default()
 	}
@@ -86,7 +94,7 @@ func newBedrock(ctx context.Context, cfg BedrockConfig, mantle bedrock.MantleCli
 	if err != nil {
 		return nil, fmt.Errorf("ai: bedrock client: %w", err)
 	}
-	return &Bedrock{messages: client.Beta.Messages, model: cfg.Model, log: cfg.Log}, nil
+	return &Bedrock{messages: client.Beta.Messages, model: cfg.Model, effort: anthropic.BetaOutputConfigEffort(cfg.Effort), log: cfg.Log}, nil
 }
 
 // Interpret asks the model for a reading of in.Message held to
@@ -110,7 +118,7 @@ func (b *Bedrock) Interpret(ctx context.Context, in InterpretInput) (domain.Inte
 			anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock("The participant's message, as a JSON string:\n" + jsonString(in.Message))),
 		},
 		OutputConfig: anthropic.BetaOutputConfigParam{
-			Effort: anthropic.BetaOutputConfigEffortLow,
+			Effort: b.effort,
 			Format: anthropic.BetaJSONOutputFormatParam{Schema: InterpretationSchema(ids)},
 		},
 	})
@@ -155,7 +163,7 @@ func (b *Bedrock) Explain(ctx context.Context, in ExplainInput) (string, Meta, e
 		Messages: []anthropic.BetaMessageParam{
 			anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(ExplainFacts(in))),
 		},
-		OutputConfig: anthropic.BetaOutputConfigParam{Effort: anthropic.BetaOutputConfigEffortLow},
+		OutputConfig: anthropic.BetaOutputConfigParam{Effort: b.effort},
 	})
 	if err != nil {
 		return "", meta, err

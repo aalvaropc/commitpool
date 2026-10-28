@@ -19,6 +19,31 @@ export function storedParticipant(): string | null {
   }
 }
 
+// Who joined which workshop in this tab, so the share page can offer to
+// continue; it counts only while that token is still this tab's participant.
+const JOIN_KEY = 'cp.participant.join'
+
+export function rememberJoin(share: string, token: string, name: string): void {
+  rememberParticipant(token)
+  try {
+    globalThis.sessionStorage?.setItem(JOIN_KEY, JSON.stringify({ share, token, name }))
+  } catch {
+    // As above: the personal link is enough.
+  }
+}
+
+export function joinedAs(share: string): { token: string; name: string } | null {
+  try {
+    const raw = globalThis.sessionStorage?.getItem(JOIN_KEY)
+    if (!raw) return null
+    const j = JSON.parse(raw) as { share?: unknown; token?: unknown; name?: unknown }
+    if (j.share !== share || typeof j.token !== 'string' || typeof j.name !== 'string') return null
+    return j.token === storedParticipant() ? { token: j.token, name: j.name } : null
+  } catch {
+    return null
+  }
+}
+
 /** The token in a participant URL from the server, or null for any other address. */
 export function tokenFromParticipantURL(url: string): string | null {
   let path: string

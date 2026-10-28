@@ -1,4 +1,5 @@
 import type { OwnerView } from '../api'
+import { count } from '../lib/plural'
 import { blockerText } from '../lib/reading'
 import OpenPayments from './OpenPayments'
 import { Button, Tag } from './ui'
@@ -29,7 +30,7 @@ export default function RecommendationPanel({ token, view, explanationStalled, o
           {anyone
             ? rec.meets_minimum
               ? 'The recommended date has enough people who can come to reach the minimum.'
-              : `No date has ${workshop.minimum} people who can come yet.`
+              : `No date has ${count(workshop.minimum, 'person', 'people')} who can come yet.`
             : 'No availability yet. Share the link so participants can say when they can come.'}
         </p>
       </div>
@@ -67,9 +68,9 @@ export default function RecommendationPanel({ token, view, explanationStalled, o
               </div>
               <p>
                 <span className="semiwide font-semibold tabular-nums">
-                  {compatible.length} of {workshop.minimum}
+                  {compatible.length > 0 ? `${compatible.length} can come` : 'Nobody can come yet'}
                 </span>{' '}
-                needed can come{compatible.length > 0 ? `: ${compatible.map(name).join(', ')}` : ''}.
+                ({workshop.minimum} needed){compatible.length > 0 ? `: ${compatible.map(name).join(', ')}` : ''}.
               </p>
               {blockers.length > 0 && (
                 <ul className="flex flex-col gap-0.5 text-sm text-ink-soft">

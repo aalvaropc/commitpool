@@ -28,16 +28,39 @@ export function isInFlight(s: EnrollmentStatus): boolean {
   return IN_FLIGHT.has(s)
 }
 
+/**
+ * The own seat is still held for checkout: reserved, payments open and its
+ * expiry ahead. The server's "Seat reserved" label means the same.
+ */
+export function seatHeld(
+  e: { status: EnrollmentStatus; seat_expires_at: string } | null | undefined,
+  paymentsOpen: boolean,
+  now: number,
+): boolean {
+  return !!e && e.status === 'SEAT_RESERVED' && paymentsOpen && Date.parse(e.seat_expires_at) > now
+}
+
+// After these the server takes a new checkout: a new enrollment, or a renewed seat.
+const RETRYABLE: ReadonlySet<EnrollmentStatus> = new Set(['SEAT_RESERVED', 'RELEASED', 'CAPTURE_FAILED'])
+
+/** Whether to offer "Authorize with PayPal": no enrollment yet, a reserved seat, or a retryable outcome. */
+export function canStartCheckout(paymentsOpen: boolean, status: EnrollmentStatus | null | undefined): boolean {
+  return paymentsOpen && (!status || RETRYABLE.has(status))
+}
+
 export interface HeadlineInput {
   status: WorkshopStatus
   resolution: Resolution
   /** The viewer's own enrollment status; absent for the owner. */
   enrollment?: EnrollmentStatus | null
+  /** For a SEAT_RESERVED enrollment, whether the seat is still held (seatHeld); a lapsed one reads as expired. */
+  seatHeld?: boolean
 }
 
 /** The one-line state of a workshop for whoever is looking at it. */
-export function headline({ status, resolution, enrollment }: HeadlineInput): string {
+export function headline({ status, resolution, enrollment, seatHeld = true }: HeadlineInput): string {
   if (resolution === 'NEEDS_ATTENTION') return 'Needs attention'
+  if ((status === 'FUNDING' || status === 'CONFIRMED') && enrollment === 'SEAT_RESERVED' && !seatHeld) return 'Seat expired'
   switch (status) {
     case 'COLLECTING':
       return 'Collecting availability'
@@ -88,6 +111,10 @@ function confirmedHeadline(e?: EnrollmentStatus | null): string {
       return 'Workshop confirmed — refund in progress'
     case 'REFUNDED':
       return 'Workshop confirmed — refund completed'
+    case 'CAPTURE_FAILED':
+      return 'Workshop confirmed — your payment failed'
+    case 'RELEASED':
+      return 'Seat expired'
     case 'NEEDS_ATTENTION':
     case 'REFUND_FAILED':
       return 'Needs attention'
@@ -111,9 +138,11 @@ function cancelledHeadline(r: Resolution, e?: EnrollmentStatus | null): string {
     case 'AUTHORIZED':
     case 'VOIDING':
     case 'VOIDED':
+    case 'CAPTURE_FAILED':
+      return 'Workshop cancelled — your hold was released'
     case 'SEAT_RESERVED':
     case 'RELEASED':
-      return 'Workshop cancelled — your hold was released'
+      return 'Workshop cancelled — nothing was charged'
     case 'REFUND_FAILED':
     case 'NEEDS_ATTENTION':
       return 'Workshop cancelled — refund needs attention'
@@ -121,8 +150,12 @@ function cancelledHeadline(r: Resolution, e?: EnrollmentStatus | null): string {
   return 'Workshop cancelled'
 }
 
-export function tone(status: WorkshopStatus, resolution: Resolution): Tone {
+/** The banner's tone; a viewer whose payment failed in a confirmed workshop is not shown good news. */
+export function tone(status: WorkshopStatus, resolution: Resolution, enrollment?: EnrollmentStatus | null): Tone {
   if (resolution === 'NEEDS_ATTENTION') return 'attention'
+  if (status === 'CONFIRMED' && (enrollment === 'CAPTURE_FAILED' || enrollment === 'NEEDS_ATTENTION' || enrollment === 'REFUND_FAILED')) {
+    return 'attention'
+  }
   switch (status) {
     case 'COLLECTING':
       return 'neutral'
@@ -135,7 +168,15 @@ export function tone(status: WorkshopStatus, resolution: Resolution): Tone {
   }
 }
 
-export function enrollmentTone(s: EnrollmentStatus): Tone {
+/**
+ * An enrollment tag's tone, matching its server label: a failed charge is
+ * "Payment failed" (attention) only while payments are open and "Hold
+ * released" (neutral) after; a lapsed reserved seat is "Seat expired".
+ */
+export function enrollmentTone(s: EnrollmentStatus, ctx: { paymentsOpen?: boolean; seatHeld?: boolean } = {}): Tone {
+  const { paymentsOpen = true, seatHeld = true } = ctx
+  if (s === 'CAPTURE_FAILED') return paymentsOpen ? 'attention' : 'neutral'
+  if (s === 'SEAT_RESERVED' && !seatHeld) return 'neutral'
   switch (s) {
     case 'PAID':
     case 'REFUNDED':
@@ -148,7 +189,6 @@ export function enrollmentTone(s: EnrollmentStatus): Tone {
     case 'REFUND_PENDING':
     case 'VOIDING':
       return 'hold'
-    case 'CAPTURE_FAILED':
     case 'REFUND_FAILED':
     case 'NEEDS_ATTENTION':
       return 'attention'

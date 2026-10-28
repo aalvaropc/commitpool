@@ -74,7 +74,10 @@ export function rfc3339InZone(instant: number, timeZone: string): string {
 /**
  * Reads a date ("2026-11-14") and a time ("15:00") on the zone's wall clock
  * and returns the instant in RFC 3339 with the zone's offset. A time skipped
- * by a daylight saving change resolves to the instant after the gap.
+ * by a daylight saving change does not exist and moves one hour, backwards
+ * in zones west of UTC (02:30 on 2026-03-08 in America/New_York becomes
+ * 01:30-05:00) and forwards east of it (02:30 on 2026-03-29 in
+ * Europe/Madrid becomes 03:30+02:00).
  */
 export function zonedToRFC3339(date: string, time: string, timeZone: string): string {
   const d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date)

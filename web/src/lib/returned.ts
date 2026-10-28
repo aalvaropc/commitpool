@@ -1,4 +1,5 @@
 import { storedParticipant } from './participant'
+import type { Tone } from './status'
 
 export const RESULTS = [
   'authorized',
@@ -14,12 +15,10 @@ export const RESULTS = [
 
 export type ReturnResult = (typeof RESULTS)[number]
 
-export type ReturnTone = 'paid' | 'hold' | 'neutral' | 'cancel' | 'attention'
-
 export interface ReturnedMessage {
   title: string
   body: string
-  tone: ReturnTone
+  tone: Tone
 }
 
 const MESSAGES: Record<ReturnResult, ReturnedMessage> = {

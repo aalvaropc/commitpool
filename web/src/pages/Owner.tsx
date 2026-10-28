@@ -6,31 +6,28 @@ import CopyField from '../components/CopyField'
 import Deadline from '../components/Deadline'
 import DemoControls from '../components/DemoControls'
 import EnrollmentList from '../components/EnrollmentList'
-import { Loading, LoadError } from '../components/PageState'
+import { Loading, LoadError, RefreshError } from '../components/PageState'
 import RecommendationPanel from '../components/RecommendationPanel'
 import SeatMeter from '../components/SeatMeter'
 import StatusBanner from '../components/StatusBanner'
-import Terms from '../components/Terms'
-import { Button, Notice, Page } from '../components/ui'
+import Terms, { TermsList } from '../components/Terms'
+import { Button, Page } from '../components/ui'
 import { usePolling, useResource } from '../lib/hooks'
-import { formatMoney } from '../lib/money'
+import { count } from '../lib/plural'
 import { headline, shouldPollOwner, tone } from '../lib/status'
-import { durationLabel, formatInZone, windowLabel } from '../lib/time'
+import { lockedTerms, workshopTerms } from '../lib/terms'
+import { windowLabel } from '../lib/time'
 
 const EXPLANATION_TRIES = 6
 
 function cancellationDetail(v: OwnerView): string {
-  const count = (pred: (s: string) => boolean) => v.enrollments.filter((e) => pred(e.status)).length
-  const released = count((s) => s === 'VOIDED' || s === 'VOIDING' || s === 'CAPTURE_FAILED')
-  const refunded = count((s) => s === 'REFUNDED')
-  const refunding = count((s) => s === 'PAID' || s === 'REFUNDING' || s === 'REFUND_PENDING')
-  const failed = count((s) => s === 'REFUND_FAILED' || s === 'NEEDS_ATTENTION')
-  const parts = [
-    `${released} ${released === 1 ? 'hold' : 'holds'} released`,
-    `${refunded} ${refunded === 1 ? 'refund' : 'refunds'} completed`,
-    `${refunding} in progress`,
-  ]
-  if (failed) parts.push(`${failed} need attention`)
+  const howMany = (pred: (s: string) => boolean) => v.enrollments.filter((e) => pred(e.status)).length
+  const released = howMany((s) => s === 'VOIDED' || s === 'VOIDING' || s === 'CAPTURE_FAILED')
+  const refunded = howMany((s) => s === 'REFUNDED')
+  const refunding = howMany((s) => s === 'PAID' || s === 'REFUNDING' || s === 'REFUND_PENDING')
+  const failed = howMany((s) => s === 'REFUND_FAILED' || s === 'NEEDS_ATTENTION')
+  const parts = [count(released, 'hold') + ' released', count(refunded, 'refund') + ' completed', `${refunding} in progress`]
+  if (failed) parts.push(`${failed} ${failed === 1 ? 'needs' : 'need'} attention`)
   return parts.join(', ') + '.'
 }
 
@@ -86,9 +83,13 @@ export default function Owner() {
           <StatusBanner headline={headline({ status: w.status, resolution: w.resolution })} tone={tone(w.status, w.resolution)}>
             {d.proposal && d.proposal.payments_open && <Deadline closesAt={d.proposal.closes_at} timeZone={w.timezone} open />}
             {w.status === 'CANCELLED' && <p>{cancellationDetail(d)}</p>}
-            {w.status === 'CONFIRMED' && <p>{t.paid} paid seats reached the minimum of {t.minimum}.</p>}
+            {w.status === 'CONFIRMED' && (
+              <p>
+                {count(t.paid, 'paid seat')} reached the minimum of {t.minimum}.
+              </p>
+            )}
           </StatusBanner>
-          {view.error && <Notice tone="attention">This page could not refresh. It will try again.</Notice>}
+          {view.error && <RefreshError polling={polling} onRetry={() => void view.reload()} />}
 
           <section aria-labelledby="counts-title" className="flex flex-col gap-4">
             <div className="flex items-center justify-between gap-3">
@@ -118,7 +119,7 @@ export default function Owner() {
             </dl>
             <SeatMeter capacity={t.capacity} minimum={t.minimum} paid={t.paid} authorized={t.authorized} reserved={t.reserved} />
             <p className="text-sm text-ink-soft">
-              {t.seats_taken} of {t.capacity} seats taken. {t.capturing + t.pending} {t.capturing + t.pending === 1 ? 'charge' : 'charges'} in progress
+              {t.seats_taken} of {count(t.capacity, 'seat')} taken. {count(t.capturing + t.pending, 'charge')} in progress
               {t.failed ? `, ${t.failed} failed` : ''}.
             </p>
           </section>
@@ -143,16 +144,7 @@ export default function Owner() {
               Terms
             </h2>
             {w.description && <p className="max-w-prose whitespace-pre-line">{w.description}</p>}
-            {!d.proposal && (
-              <Terms
-                items={[
-                  { label: 'Price per seat', value: formatMoney(w.price) },
-                  { label: 'Minimum paid seats', value: w.minimum },
-                  { label: 'Capacity', value: w.capacity },
-                  { label: 'Duration', value: durationLabel(w.duration_min) },
-                ]}
-              />
-            )}
+            {!d.proposal && <Terms items={workshopTerms(w)} />}
             <p className="text-sm text-ink-soft">
               Times in {w.timezone}. {w.payment_window_min < 1440 ? windowLabel(w.payment_window_min) : `Payment window: ${windowLabel(w.payment_window_min)}`}.
             </p>
@@ -164,30 +156,18 @@ export default function Owner() {
                 Payments opened
               </h2>
               <p className="wide text-xl font-semibold tabular-nums">{d.dates.find((x) => x.id === d.proposal?.date_id)?.label}</p>
-              <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
-                <div>
-                  <dt className="text-sm text-ink-soft">Price per seat</dt>
-                  <dd className="wide text-lg font-semibold tabular-nums">{formatMoney(d.proposal.price)}</dd>
-                </div>
-                <div>
-                  <dt className="text-sm text-ink-soft">Duration</dt>
-                  <dd className="semiwide text-lg font-semibold tabular-nums">{durationLabel(w.duration_min)}</dd>
-                </div>
-                <div>
-                  <dt className="text-sm text-ink-soft">Minimum and capacity</dt>
-                  <dd className="semiwide text-lg font-semibold tabular-nums">
-                    {d.proposal.minimum} to {d.proposal.capacity} seats
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-sm text-ink-soft">Opened</dt>
-                  <dd className="font-semibold">{formatInZone(d.proposal.opens_at, w.timezone)}</dd>
-                </div>
-                <div>
-                  <dt className="text-sm text-ink-soft">{d.proposal.payments_open ? 'Closes' : 'Closed'}</dt>
-                  <dd className="font-semibold">{formatInZone(d.proposal.closes_at, w.timezone)}</dd>
-                </div>
-              </dl>
+              <TermsList
+                items={lockedTerms({
+                  timeZone: w.timezone,
+                  price: d.proposal.price,
+                  durationMin: w.duration_min,
+                  minimum: d.proposal.minimum,
+                  capacity: d.proposal.capacity,
+                  opensAt: d.proposal.opens_at,
+                  closesAt: d.proposal.closes_at,
+                  paymentsOpen: d.proposal.payments_open,
+                })}
+              />
               <p className="text-sm text-ink-soft">These terms are locked.</p>
             </section>
           ) : null}

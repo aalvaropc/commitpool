@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { headline, isTerminal, shouldPollOwner, shouldPollParticipant, tone } from './status'
+import { canStartCheckout, enrollmentTone, headline, isTerminal, seatHeld, shouldPollOwner, shouldPollParticipant, tone } from './status'
 
 describe('headline', () => {
   it('names a refund still in progress in a cancelled workshop', () => {
@@ -36,6 +36,67 @@ describe('headline', () => {
     expect(headline({ status: 'CANCELLED', resolution: 'SETTLED', enrollment: 'VOIDED' })).toBe(
       'Workshop cancelled — your hold was released',
     )
+  })
+})
+
+describe('headline next to the server’s own label', () => {
+  it('does not call a confirmed workshop good news for a failed payment', () => {
+    expect(headline({ status: 'CONFIRMED', resolution: 'OPEN', enrollment: 'CAPTURE_FAILED' })).toBe('Workshop confirmed — your payment failed')
+    expect(tone('CONFIRMED', 'OPEN', 'CAPTURE_FAILED')).toBe('attention')
+  })
+
+  it('says a lapsed seat expired, as its label does', () => {
+    expect(headline({ status: 'FUNDING', resolution: 'OPEN', enrollment: 'SEAT_RESERVED', seatHeld: false })).toBe('Seat expired')
+    expect(headline({ status: 'CONFIRMED', resolution: 'OPEN', enrollment: 'SEAT_RESERVED', seatHeld: false })).toBe('Seat expired')
+    expect(headline({ status: 'FUNDING', resolution: 'OPEN', enrollment: 'SEAT_RESERVED', seatHeld: true })).toBe(
+      'Seat reserved — authorize your hold',
+    )
+  })
+
+  it('treats a failed charge labelled “Hold released” as neutral once payments closed', () => {
+    expect(enrollmentTone('CAPTURE_FAILED', { paymentsOpen: false })).toBe('neutral')
+    expect(enrollmentTone('CAPTURE_FAILED', { paymentsOpen: true })).toBe('attention')
+    expect(headline({ status: 'CANCELLED', resolution: 'SETTLED', enrollment: 'CAPTURE_FAILED' })).toBe(
+      'Workshop cancelled — your hold was released',
+    )
+  })
+
+  it('never says a hold was released when there was none', () => {
+    expect(headline({ status: 'CANCELLED', resolution: 'SETTLED', enrollment: 'RELEASED' })).toBe('Workshop cancelled — nothing was charged')
+    expect(enrollmentTone('SEAT_RESERVED', { seatHeld: false })).toBe('neutral')
+  })
+})
+
+describe('seatHeld', () => {
+  const now = Date.parse('2026-10-27T20:00:00Z')
+  const seat = (status: 'SEAT_RESERVED' | 'AUTHORIZED', at: string) => ({ status, seat_expires_at: at })
+
+  it('holds a reserved seat until it expires while payments are open', () => {
+    expect(seatHeld(seat('SEAT_RESERVED', '2026-10-27T20:10:00Z'), true, now)).toBe(true)
+    expect(seatHeld(seat('SEAT_RESERVED', '2026-10-27T19:59:00Z'), true, now)).toBe(false)
+    expect(seatHeld(seat('SEAT_RESERVED', '2026-10-27T20:10:00Z'), false, now)).toBe(false)
+    expect(seatHeld(seat('AUTHORIZED', '2026-10-27T20:10:00Z'), true, now)).toBe(false)
+    expect(seatHeld(null, true, now)).toBe(false)
+  })
+})
+
+describe('canStartCheckout', () => {
+  it('offers a checkout without an enrollment, for a reserved seat and after the retryable outcomes', () => {
+    expect(canStartCheckout(true, null)).toBe(true)
+    expect(canStartCheckout(true, 'SEAT_RESERVED')).toBe(true)
+    expect(canStartCheckout(true, 'RELEASED')).toBe(true)
+    expect(canStartCheckout(true, 'CAPTURE_FAILED')).toBe(true)
+  })
+
+  it('never offers one from money that is placed, moving or needs a person', () => {
+    for (const s of ['AUTHORIZED', 'CAPTURING', 'PAID', 'NEEDS_ATTENTION', 'REFUND_FAILED', 'REFUNDED', 'VOIDED'] as const) {
+      expect(canStartCheckout(true, s)).toBe(false)
+    }
+  })
+
+  it('never offers one once payments closed', () => {
+    expect(canStartCheckout(false, null)).toBe(false)
+    expect(canStartCheckout(false, 'RELEASED')).toBe(false)
   })
 })
 

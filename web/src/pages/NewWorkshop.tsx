@@ -1,68 +1,26 @@
-import { useMemo, useState, type FormEvent } from 'react'
-import { api, type CreateWorkshopResponse } from '../api'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { api, ApiError, type CreateWorkshopResponse } from '../api'
 import CopyField from '../components/CopyField'
 import { Button, ButtonLink, Field, Notice, Page, describedBy, inputClass } from '../components/ui'
-import { browserTimeZone, TIME_ZONES, windowLabel, zonedPlusMinutes, zonedToRFC3339 } from '../lib/time'
+import { browserTimeZone, TIME_ZONES, windowLabel } from '../lib/time'
+import { DATES_RULE, firstInvalid, serverField, validateWorkshop, type FormErrors, type WorkshopForm } from '../lib/workshopForm'
 
 const WINDOWS = [1440, 2880, 60, 15, 5]
-const PRICE = /^\d{1,7}(\.\d{1,2})?$/
 const DAY_MS = 86400000
 
-interface Form {
-  title: string
-  description: string
-  duration: string
-  timezone: string
-  minimum: string
-  capacity: string
-  price: string
-  window: string
-  date1: string
-  time1: string
-  date2: string
-  time2: string
-}
-
-type Errors = Partial<Record<keyof Form | 'form', string>>
+type Form = WorkshopForm
+type Errors = FormErrors
 
 function isoDay(offsetDays: number): string {
   const d = new Date(Date.now() + offsetDays * DAY_MS)
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-function validate(f: Form): { errors: Errors; dates?: { starts_at: string; ends_at: string }[] } {
-  const errors: Errors = {}
-  if (!f.title.trim()) errors.title = 'Give the workshop a title.'
-  const duration = Number(f.duration)
-  if (!Number.isInteger(duration) || duration < 1 || duration > 1440) errors.duration = 'Use whole minutes between 1 and 1440.'
-  const minimum = Number(f.minimum)
-  const capacity = Number(f.capacity)
-  if (!Number.isInteger(minimum) || minimum < 1) errors.minimum = 'The minimum is at least 1 paid seat.'
-  if (!Number.isInteger(capacity) || capacity < 1 || capacity > 500) errors.capacity = 'Capacity is between 1 and 500 seats.'
-  else if (!errors.minimum && minimum > capacity) errors.capacity = 'Capacity cannot be below the minimum.'
-  if (!PRICE.test(f.price.trim()) || Number(f.price) <= 0) errors.price = 'Write an amount above zero such as 10 or 10.00.'
-
-  const earliest = Date.now() + (Number(f.window) * 60000 + DAY_MS)
-  const dates: { starts_at: string; ends_at: string }[] = []
-  for (const [d, t, key] of [
-    [f.date1, f.time1, 'date1'],
-    [f.date2, f.time2, 'date2'],
-  ] as const) {
-    let starts: string
-    try {
-      starts = zonedToRFC3339(d, t, f.timezone)
-    } catch {
-      errors[key] = 'Pick a date and a start time.'
-      continue
-    }
-    if (Date.parse(starts) < earliest) {
-      errors[key] = 'This date is too soon: it must start at least a full day after the payment window would close.'
-      continue
-    }
-    dates.push({ starts_at: starts, ends_at: Number.isInteger(duration) ? zonedPlusMinutes(starts, duration, f.timezone) : starts })
-  }
-  if (dates.length === 2 && dates[0].starts_at === dates[1].starts_at) errors.date2 = 'Offer two different dates.'
-  return Object.keys(errors).length ? { errors } : { errors, dates }
+/** Moves focus to the first field that needs a fix, or to the form-wide error. */
+function focusFirstError(errors: Errors) {
+  const key = firstInvalid(errors)
+  const target = key ? document.getElementById(`f-${key}`) : document.getElementById('f-form-error')
+  target?.focus()
 }
 
 export default function NewWorkshop() {
@@ -85,14 +43,28 @@ export default function NewWorkshop() {
   const [errors, setErrors] = useState<Errors>({})
   const [busy, setBusy] = useState(false)
   const [created, setCreated] = useState<CreateWorkshopResponse | null>(null)
+  const createdHeading = useRef<HTMLHeadingElement>(null)
+  const [focusErrors, setFocusErrors] = useState(0)
+
+  useEffect(() => {
+    if (created) createdHeading.current?.focus()
+  }, [created])
+
+  useEffect(() => {
+    if (focusErrors) focusFirstError(errors)
+    // Runs after a submit only, with the errors that submit found.
+  }, [focusErrors])
 
   const set = (key: keyof Form) => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [key]: e.target.value }))
 
   async function submit(e: FormEvent) {
     e.preventDefault()
-    const { errors: found, dates } = validate(form)
+    const { errors: found, dates } = validateWorkshop(form, Date.now())
     setErrors(found)
-    if (!dates) return
+    if (!dates) {
+      setFocusErrors((n) => n + 1)
+      return
+    }
     setBusy(true)
     try {
       const price = form.price.trim()
@@ -111,7 +83,10 @@ export default function NewWorkshop() {
       setCreated(res)
       window.scrollTo({ top: 0 })
     } catch (err) {
-      setErrors({ form: err instanceof Error ? err.message : 'The workshop could not be created.' })
+      const message = err instanceof Error ? err.message : 'The workshop could not be created.'
+      const field = err instanceof ApiError ? serverField(err.code) : null
+      setErrors(field ? { [field]: message } : { form: message })
+      setFocusErrors((n) => n + 1)
     } finally {
       setBusy(false)
     }
@@ -123,7 +98,9 @@ export default function NewWorkshop() {
       <Page>
         <title>Workshop created – CommitPool</title>
         <div className="flex flex-col gap-8">
-          <h1 className="text-3xl font-bold sm:text-4xl">{created.workshop.title} is ready</h1>
+          <h1 ref={createdHeading} tabIndex={-1} className="text-3xl font-bold sm:text-4xl">
+            {created.workshop.title} is ready
+          </h1>
           <Notice tone="hold" title="Save your organizer link now" role="alert">
             It is the only way back to your organizer page and it will not be shown again. Anyone who has it can open payments.
           </Notice>
@@ -160,7 +137,7 @@ export default function NewWorkshop() {
           <Field id="f-title" label="Title" error={errors.title}>
             <input {...input('title')} maxLength={120} />
           </Field>
-          <Field id="f-description" label="Description" hint="Optional. What people will learn and what to bring.">
+          <Field id="f-description" label="Description" hint="Optional. What people will learn and what to bring." error={errors.description}>
             <textarea {...input('description', true)} rows={3} maxLength={2000} />
           </Field>
           <Field id="f-duration" label="Duration in minutes" error={errors.duration}>
@@ -181,7 +158,7 @@ export default function NewWorkshop() {
               <input {...input('capacity')} type="number" inputMode="numeric" min={1} max={500} step={1} />
             </Field>
           </div>
-          <Field id="f-window" label="Payment window" hint="How long participants have to authorize once you open payments.">
+          <Field id="f-window" label="Payment window" hint="How long participants have to authorize once you open payments." error={errors.window}>
             <select {...input('window', true)} className={`${inputClass} sm:max-w-xs`}>
               {WINDOWS.map((m) => (
                 <option key={m} value={m}>
@@ -194,7 +171,10 @@ export default function NewWorkshop() {
 
         <fieldset className="flex flex-col gap-5">
           <legend className="mb-4 text-xl font-bold">Candidate dates</legend>
-          <Field id="f-timezone" label="Time zone" hint="Dates and deadlines are shown in this zone, with its name.">
+          <p id="dates-rule" className="max-w-prose text-ink-soft">
+            {DATES_RULE} Payments open when you choose a date, and the payment window you picked runs from then.
+          </p>
+          <Field id="f-timezone" label="Time zone" hint="Dates and deadlines are shown in this zone, with its name." error={errors.timezone}>
             <select {...input('timezone', true)} className={`${inputClass} sm:max-w-sm`}>
               {zones.map((z) => (
                 <option key={z} value={z}>
@@ -216,7 +196,7 @@ export default function NewWorkshop() {
                   <label htmlFor={`f-${dk}`} className="text-sm text-ink-soft">
                     Day
                   </label>
-                  <input {...input(dk)} type="date" />
+                  <input {...input(dk)} aria-describedby={[describedBy(`f-${dk}`, false, errors[dk]), 'dates-rule'].filter(Boolean).join(' ')} type="date" />
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <label htmlFor={`f-${tk}`} className="text-sm text-ink-soft">
@@ -237,9 +217,11 @@ export default function NewWorkshop() {
 
         <div className="flex flex-col items-start gap-4">
           {errors.form && (
-            <Notice tone="attention" role="alert">
-              {errors.form}
-            </Notice>
+            <div id="f-form-error" tabIndex={-1}>
+              <Notice tone="attention" role="alert">
+                {errors.form}
+              </Notice>
+            </div>
           )}
           {Object.keys(errors).some((k) => k !== 'form') && (
             <p role="alert" className="font-medium text-cancel">

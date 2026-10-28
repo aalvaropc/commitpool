@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react'
+import type { ButtonHTMLAttributes, ReactNode, Ref } from 'react'
 import { Link, type LinkProps } from 'react-router'
 import type { Tone } from '../lib/status'
 
@@ -38,6 +38,7 @@ const buttonBase =
   'inline-flex items-center justify-center gap-2 rounded-md px-4 py-2.5 font-semibold leading-tight transition-colors disabled:cursor-not-allowed disabled:opacity-60'
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  ref?: Ref<HTMLButtonElement>
   variant?: Variant
   busy?: boolean
   busyLabel?: string

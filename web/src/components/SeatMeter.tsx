@@ -1,3 +1,5 @@
+import { count } from '../lib/plural'
+
 interface Props {
   capacity: number
   minimum: number
@@ -43,7 +45,7 @@ export default function SeatMeter({ capacity, minimum, paid, authorized, reserve
   return (
     <figure className="flex flex-col gap-2">
       <figcaption className="sr-only">
-        {label}: {paid} paid of {minimum} needed, {authorized} {authorized === 1 ? 'hold' : 'holds'} authorized
+        {label}: {paid} paid of {minimum} needed, {count(authorized, 'hold')} authorized
         {reserved > 0 ? `, ${reserved} reserved` : ''}, capacity {capacity}.
       </figcaption>
       <div aria-hidden="true" className="relative pt-1 pb-6" style={{ maxWidth: total <= MAX_CELLS ? `${total * cell}px` : undefined }}>
@@ -72,7 +74,7 @@ export default function SeatMeter({ capacity, minimum, paid, authorized, reserve
           <span className="size-3 bg-paid-fill" /> {paid} paid
         </li>
         <li className="flex items-center gap-1.5">
-          <span className="hatch size-3 border border-hold-fill" /> {authorized} {authorized === 1 ? 'hold' : 'holds'} authorized
+          <span className="hatch size-3 border border-hold-fill" /> {count(authorized, 'hold')} authorized
         </li>
         {reserved > 0 && (
           <li className="flex items-center gap-1.5">
@@ -80,7 +82,7 @@ export default function SeatMeter({ capacity, minimum, paid, authorized, reserve
           </li>
         )}
         <li className="flex items-center gap-1.5">
-          <span className="size-3 border border-edge bg-sheet" /> {capacity} {capacity === 1 ? 'seat' : 'seats'}
+          <span className="size-3 border border-edge bg-sheet" /> {count(capacity, 'seat')}
         </li>
       </ul>
     </figure>

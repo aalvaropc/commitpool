@@ -5,11 +5,12 @@ import Deadline from '../components/Deadline'
 import { Loading, LoadError } from '../components/PageState'
 import SeatMeter from '../components/SeatMeter'
 import Terms from '../components/Terms'
-import { Button, Field, Notice, Page, describedBy, inputClass } from '../components/ui'
+import { Button, ButtonLink, Field, Notice, Page, describedBy, inputClass } from '../components/ui'
 import { useResource } from '../lib/hooks'
-import { formatMoney } from '../lib/money'
-import { rememberParticipant, tokenFromParticipantURL } from '../lib/participant'
-import { durationLabel, formatInZone } from '../lib/time'
+import { joinedAs, rememberJoin, tokenFromParticipantURL } from '../lib/participant'
+import { count } from '../lib/plural'
+import { workshopTerms } from '../lib/terms'
+import { formatInZone } from '../lib/time'
 
 export default function Share() {
   const { share = '' } = useParams()
@@ -31,7 +32,7 @@ export default function Share() {
       const res = await api.join(share, name.trim())
       const token = tokenFromParticipantURL(res.participant_url)
       if (!token) throw new Error('The server answered with an address this page cannot open.')
-      rememberParticipant(token)
+      rememberJoin(share, token, name.trim())
       navigate(`/p/${token}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'You could not join right now.')
@@ -48,6 +49,7 @@ export default function Share() {
   const w = d.workshop
   const open = w.status === 'COLLECTING' || (d.proposal?.payments_open ?? false)
   const chosen = d.proposal ? d.dates.find((x) => x.id === d.proposal?.date_id) : undefined
+  const already = joinedAs(share)
 
   return (
     <Page>
@@ -57,14 +59,7 @@ export default function Share() {
           <p className="text-ink-soft">You are invited to</p>
           <h1 className="text-3xl font-bold sm:text-4xl">{w.title}</h1>
           {w.description && <p className="max-w-prose whitespace-pre-line">{w.description}</p>}
-          <Terms
-            items={[
-              { label: 'Price per seat', value: formatMoney(w.price) },
-              { label: 'Minimum paid seats', value: w.minimum },
-              { label: 'Capacity', value: w.capacity },
-              { label: 'Duration', value: durationLabel(w.duration_min) },
-            ]}
-          />
+          <Terms items={workshopTerms(w)} />
         </header>
 
         {d.proposal ? (
@@ -89,15 +84,25 @@ export default function Share() {
               ))}
             </ul>
             <p className="text-ink-soft">
-              {d.tally.interested} {d.tally.interested === 1 ? 'person has' : 'people have'} joined so far.
+              {count(d.tally.interested, 'person', 'people')} {d.tally.interested === 1 ? 'has' : 'have'} joined so far.
             </p>
+          </section>
+        )}
+
+        {already && (
+          <section aria-labelledby="continue-title" className="flex flex-col items-start gap-3">
+            <h2 id="continue-title" className="text-2xl font-bold">
+              You already joined
+            </h2>
+            <p className="text-ink-soft">This browser tab joined as {already.name}.</p>
+            <ButtonLink to={`/p/${already.token}`}>Continue as {already.name}</ButtonLink>
           </section>
         )}
 
         {open ? (
           <section aria-labelledby="join-title" className="flex flex-col gap-4 rounded-sm border border-rule bg-sheet p-5 sm:p-7">
             <h2 id="join-title" className="text-2xl font-bold">
-              Join
+              {already ? 'Join as someone else' : 'Join'}
             </h2>
             <p className="max-w-prose text-ink-soft">
               Joining gives you a personal page to say when you can come and, once the date is set, to authorize your seat. Nothing is

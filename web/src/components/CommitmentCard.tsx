@@ -2,10 +2,13 @@ import { useState } from 'react'
 import { api, ApiError, type ParticipantView } from '../api'
 import { enrollErrorMessage, isSafeRedirect, REFRESH_AFTER } from '../lib/enroll'
 import { formatMoney } from '../lib/money'
-import { enrollmentTone, isTerminal } from '../lib/status'
+import { count } from '../lib/plural'
+import { canStartCheckout, enrollmentTone, seatHeld } from '../lib/status'
+import { lockedTerms } from '../lib/terms'
 import { durationLabel, earlier, formatInZone, formatTimeInZone, windowLabel } from '../lib/time'
 import Deadline from './Deadline'
 import SeatMeter from './SeatMeter'
+import { TermsList } from './Terms'
 import { Button, Notice, Tag } from './ui'
 
 interface Props {
@@ -27,8 +30,8 @@ export default function CommitmentCard({ token, view, onChange }: Props) {
   const [error, setError] = useState<string | null>(null)
   if (!proposal) return null
   const tz = workshop.timezone
-  const status = enrollment?.status
-  const canAuthorize = proposal.payments_open && (!status || status === 'SEAT_RESERVED' || isTerminal(status))
+  const canAuthorize = canStartCheckout(proposal.payments_open, enrollment?.status)
+  const held = seatHeld(enrollment, proposal.payments_open, Date.now())
   const date = view.dates.find((d) => d.id === proposal.date_id)
 
   async function authorize() {
@@ -89,22 +92,16 @@ export default function CommitmentCard({ token, view, onChange }: Props) {
           )}
         </div>
 
-        <dl className="grid grid-cols-2 gap-4 sm:max-w-md">
-          <div>
-            <dt className="text-sm text-ink-soft">Minimum paid seats</dt>
-            <dd className="semiwide text-lg font-semibold tabular-nums">{proposal.minimum}</dd>
-          </div>
-          <div>
-            <dt className="text-sm text-ink-soft">Capacity</dt>
-            <dd className="semiwide text-lg font-semibold tabular-nums">{proposal.capacity}</dd>
-          </div>
-        </dl>
+        <TermsList
+          className="grid-cols-2 sm:max-w-md"
+          items={lockedTerms({ timeZone: tz, minimum: proposal.minimum, capacity: proposal.capacity })}
+        />
 
         <div className="flex flex-col gap-2">
           <h3 className="text-base font-bold">Group progress</h3>
           <SeatMeter capacity={tally.capacity} minimum={tally.minimum} paid={tally.paid} authorized={tally.authorized} label="Group progress" />
           <p className="text-sm text-ink-soft">
-            {tally.interested} {tally.interested === 1 ? 'person' : 'people'} interested.
+            {count(tally.interested, 'person', 'people')} interested.
           </p>
         </div>
 
@@ -113,16 +110,25 @@ export default function CommitmentCard({ token, view, onChange }: Props) {
           {enrollment ? (
             <>
               <p>
-                <Tag tone={enrollmentTone(enrollment.status)}>{enrollment.status_label}</Tag>
+                <Tag tone={enrollmentTone(enrollment.status, { paymentsOpen: proposal.payments_open, seatHeld: held })}>
+                  {enrollment.status_label}
+                </Tag>
               </p>
-              {enrollment.status === 'SEAT_RESERVED' && enrollment.status_label === 'Seat reserved' && (
-                <p className="text-sm text-ink-soft">
-                  Your seat is held until {formatTimeInZone(earlier(enrollment.seat_expires_at, proposal.closes_at), tz)}.{' '}
-                  {enrollment.approval_cancelled_at
-                    ? 'You cancelled at PayPal; authorize again to keep it.'
-                    : 'Authorize the hold at PayPal to keep it.'}
-                </p>
-              )}
+              {enrollment.status === 'SEAT_RESERVED' &&
+                (held ? (
+                  <p className="text-sm text-ink-soft">
+                    Your seat is held until {formatTimeInZone(earlier(enrollment.seat_expires_at, proposal.closes_at), tz)}.{' '}
+                    {enrollment.approval_cancelled_at
+                      ? 'You cancelled at PayPal; authorize again to keep it.'
+                      : 'Authorize the hold at PayPal to keep it.'}
+                  </p>
+                ) : (
+                  <p className="text-sm text-ink-soft">
+                    {proposal.payments_open
+                      ? 'Your seat reservation expired. Authorize again to take a seat if one is still free.'
+                      : 'Your seat reservation expired. Nothing was charged.'}
+                  </p>
+                ))}
             </>
           ) : (
             <p className="text-ink-soft">You have not authorized a hold yet.</p>

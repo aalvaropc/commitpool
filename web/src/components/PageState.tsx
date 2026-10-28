@@ -1,5 +1,5 @@
 import type { ApiError } from '../api'
-import { Button, ButtonLink, Page } from './ui'
+import { Button, ButtonLink, Notice, Page } from './ui'
 
 export function Loading({ what }: { what: string }) {
   return (
@@ -33,5 +33,23 @@ export function LoadError({ error, missing, onRetry }: LoadErrorProps) {
         </div>
       </div>
     </Page>
+  )
+}
+
+/** A refresh of a page already shown failed: it says so, and offers a refresh unless polling will retry. */
+export function RefreshError({ polling, onRetry }: { polling: boolean; onRetry: () => void }) {
+  return (
+    <Notice tone="attention">
+      {polling ? (
+        'This page could not refresh. It will try again in a few seconds.'
+      ) : (
+        <span className="flex flex-wrap items-center gap-3">
+          This page could not refresh.
+          <Button variant="secondary" onClick={onRetry} className="px-3 py-1.5 text-sm">
+            Refresh
+          </Button>
+        </span>
+      )}
+    </Notice>
   )
 }

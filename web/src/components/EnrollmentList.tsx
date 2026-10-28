@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { api, type Enrollment, type OwnerView } from '../api'
-import { enrollmentTone } from '../lib/status'
+import { enrollmentTone, seatHeld } from '../lib/status'
 import { earlier, formatTimeInZone } from '../lib/time'
 import { Button, DemoTag, Notice, Tag } from './ui'
 
@@ -55,20 +55,24 @@ export default function EnrollmentList({ token, view, onChange }: Props) {
         <ul className="flex flex-col">
           {view.enrollments.map((e) => {
             const line = paymentLine(e)
+            const open = view.proposal?.payments_open ?? false
+            const held = seatHeld(e, open, Date.now())
             const canFail = mocks && (e.status === 'SEAT_RESERVED' || e.status === 'AUTHORIZED') && e.payment && !e.payment.capture_status
             return (
               <li key={e.id} className="flex flex-col gap-2 border-t border-rule py-4 sm:flex-row sm:items-start sm:gap-4">
                 <p className="font-semibold sm:w-40 sm:shrink-0">{e.display_name}</p>
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
                   <p className="flex flex-wrap items-center gap-2">
-                    <Tag tone={enrollmentTone(e.status)}>{e.status_label}</Tag>
+                    <Tag tone={enrollmentTone(e.status, { paymentsOpen: open, seatHeld: held })}>{e.status_label}</Tag>
                     <span className="text-sm text-ink-soft">Status: {human(e.status)}</span>
                   </p>
                   {line && <p className="text-sm break-words text-ink-soft">{line}</p>}
                   {e.payment?.capture_issue && <p className="text-sm font-medium text-attention">PayPal answered {e.payment.capture_issue}.</p>}
                   {e.status === 'SEAT_RESERVED' && (
                     <p className="text-sm text-ink-soft">
-                      Seat held until {formatTimeInZone(view.proposal ? earlier(e.seat_expires_at, view.proposal.closes_at) : e.seat_expires_at, tz)}
+                      {held
+                        ? `Seat held until ${formatTimeInZone(view.proposal ? earlier(e.seat_expires_at, view.proposal.closes_at) : e.seat_expires_at, tz)}`
+                        : 'Seat expired'}
                       {e.approval_cancelled_at ? '; the participant cancelled at PayPal once.' : '.'}
                     </p>
                   )}

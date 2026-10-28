@@ -13,6 +13,11 @@ describe('zonedToRFC3339', () => {
     expect(zonedToRFC3339('2026-12-01', '09:30', 'Europe/Madrid')).toBe('2026-12-01T09:30:00+01:00')
   })
 
+  it('moves a time skipped by a daylight saving change one hour away', () => {
+    expect(zonedToRFC3339('2026-03-08', '02:30', 'America/New_York')).toBe('2026-03-08T01:30:00-05:00')
+    expect(zonedToRFC3339('2026-03-29', '02:30', 'Europe/Madrid')).toBe('2026-03-29T03:30:00+02:00')
+  })
+
   it('refuses a malformed date or time', () => {
     expect(() => zonedToRFC3339('2026-13-01', '09:30', 'UTC')).toThrow()
     expect(() => zonedToRFC3339('2026-12-01', '9:3', 'UTC')).toThrow()

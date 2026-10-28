@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 
@@ -63,12 +64,13 @@ func InterpretationSchema(dateIDs []string) map[string]any {
 // ParseInterpretation reads a model's answer: exactly one JSON object that
 // matches InterpretationSchema(dateIDs). Anything else, an extra field or a
 // date the workshop does not have included, is refused. Errors name only the
-// failing location and rule, never the text of the answer.
+// failing location and rule, never the text of the answer. The clarification
+// fields are then made to agree (see genericAmbiguity).
 func ParseInterpretation(raw []byte, dateIDs []string) (domain.Interpretation, error) {
 	if len(dateIDs) == 0 {
 		return domain.Interpretation{}, errors.New("interpretation: the workshop has no candidate dates")
 	}
-	schema, err := compileSchema(dateIDs)
+	schema, err := compiledSchema(dateIDs)
 	if err != nil {
 		return domain.Interpretation{}, err
 	}
@@ -91,7 +93,58 @@ func ParseInterpretation(raw []byte, dateIDs []string) (domain.Interpretation, e
 	if err := strict.Decode(&out); err != nil {
 		return domain.Interpretation{}, errors.New("interpretation: the answer does not decode into a reading")
 	}
+	// The two clarification fields must agree: a reading that needs
+	// clarification asks at least one question, and a question means it does.
+	switch {
+	case out.NeedsClarification && len(out.Ambiguities) == 0:
+		out.Ambiguities = []domain.Ambiguity{genericAmbiguity}
+	case !out.NeedsClarification && len(out.Ambiguities) > 0:
+		out.NeedsClarification = true
+	}
 	return out, nil
+}
+
+// genericAmbiguity stands in when a reading needs clarification but asks
+// nothing.
+var genericAmbiguity = domain.Ambiguity{
+	Question: "Which of the dates and times work for you?",
+	Why:      "The message did not make the availability clear.",
+}
+
+// schemaCacheSize bounds the compiled schemas kept, one per set of dates.
+const schemaCacheSize = 256
+
+var schemas = struct {
+	mu      sync.Mutex
+	byDates map[string]*jsonschema.Schema
+}{byDates: make(map[string]*jsonschema.Schema)}
+
+// compiledSchema is InterpretationSchema compiled for a set of dates, cached
+// by the set (order does not matter to validation). A compiled schema is
+// read-only, so callers may validate with it concurrently.
+func compiledSchema(dateIDs []string) (*jsonschema.Schema, error) {
+	ids := slices.Sorted(slices.Values(dateIDs))
+	key := strings.Join(ids, "\x00")
+	schemas.mu.Lock()
+	cached, ok := schemas.byDates[key]
+	schemas.mu.Unlock()
+	if ok {
+		return cached, nil
+	}
+	schema, err := compileSchema(ids)
+	if err != nil {
+		return nil, err
+	}
+	schemas.mu.Lock()
+	defer schemas.mu.Unlock()
+	if len(schemas.byDates) >= schemaCacheSize {
+		for k := range schemas.byDates {
+			delete(schemas.byDates, k)
+			break
+		}
+	}
+	schemas.byDates[key] = schema
+	return schema, nil
 }
 
 func compileSchema(dateIDs []string) (*jsonschema.Schema, error) {

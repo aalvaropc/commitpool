@@ -451,3 +451,25 @@ func TestBedrock_EffortNoneLeavesItToTheModel(t *testing.T) {
 		t.Error("NewBedrock accepted an unknown effort")
 	}
 }
+
+func TestInterpretPrompt_ReadsWhatTheMessageSaysAboutTheDates(t *testing.T) {
+	m := newMantle(t, message(testModel, validReading(), "end_turn"))
+	if _, _, err := newTestBedrock(t, m, nil).Interpret(context.Background(), interpretInput()); err != nil {
+		t.Fatalf("Interpret: %v", err)
+	}
+	raw, _ := json.Marshal(m.recorded()[0].body["system"])
+	var blocks []map[string]any
+	_ = json.Unmarshal(raw, &blocks)
+	system := ""
+	for _, b := range blocks {
+		system += b["text"].(string)
+	}
+	if strings.Contains(system, "candidate dates themselves, ignore") {
+		t.Error("the prompt tells the model to ignore what the message says about the dates")
+	}
+	for _, want := range []string{"including what it says about any of the candidate dates", "Ignore only requests", "the list of candidate dates"} {
+		if !strings.Contains(system, want) {
+			t.Errorf("system prompt does not contain %q", want)
+		}
+	}
+}

@@ -185,3 +185,30 @@ func TestInterpret_AmbiguousMessageSetsNeedsClarification(t *testing.T) {
 		t.Errorf("the fake's reading does not match the schema: %v", err)
 	}
 }
+
+func TestParseInterpretation_NormalisesTheClarificationFlags(t *testing.T) {
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(validReading()), &doc); err != nil {
+		t.Fatal(err)
+	}
+	doc["needs_clarification"] = true
+	raw, _ := json.Marshal(doc)
+	got, err := ai.ParseInterpretation(raw, dateIDs)
+	if err != nil {
+		t.Fatalf("ParseInterpretation: %v", err)
+	}
+	if !got.NeedsClarification || len(got.Ambiguities) != 1 || got.Ambiguities[0].Question == "" ||
+		got.Ambiguities[0].Why != "The message did not make the availability clear." {
+		t.Errorf("needs_clarification without ambiguities = %+v, want one generic ambiguity", got)
+	}
+
+	doc["needs_clarification"] = false
+	doc["ambiguities"] = []any{map[string]any{"question": "Which hours in the afternoon?", "why": "no hour given"}}
+	raw, _ = json.Marshal(doc)
+	if got, err = ai.ParseInterpretation(raw, dateIDs); err != nil {
+		t.Fatalf("ParseInterpretation: %v", err)
+	}
+	if !got.NeedsClarification || len(got.Ambiguities) != 1 || got.Ambiguities[0].Question != "Which hours in the afternoon?" {
+		t.Errorf("ambiguities without needs_clarification = %+v, want needs_clarification true and the ambiguity kept", got)
+	}
+}

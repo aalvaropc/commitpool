@@ -116,14 +116,10 @@ func (s *server) submitAvailability(w http.ResponseWriter, r *http.Request) erro
 	if err != nil {
 		return err
 	}
-	options := make([]ai.DateOption, len(st.dates))
-	for i, d := range st.dates {
-		options[i] = ai.DateOption{ID: d.ID, Label: dateLabel(d, st.loc)}
-	}
 	actx, cancel := context.WithTimeout(ctx, interpretTimeout)
 	defer cancel()
 	in, meta, err := s.AI.Interpret(actx, ai.InterpretInput{
-		WorkshopTitle: ws.Title, Timezone: ws.Timezone, Dates: options, Message: message,
+		WorkshopTitle: ws.Title, Timezone: ws.Timezone, Dates: st.dateOptions(), Message: message,
 	})
 	if err != nil {
 		s.Log.Error("interpret availability", "workshop_id", ws.ID, "participant_id", p.ID, "error", err)

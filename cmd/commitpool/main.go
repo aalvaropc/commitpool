@@ -58,7 +58,7 @@ func run(log *slog.Logger) error {
 	}
 	defer closePayPal()
 
-	interpreter, err := newInterpreter(cfg)
+	interpreter, err := newInterpreter(ctx, cfg, log)
 	if err != nil {
 		return err
 	}
@@ -149,11 +149,26 @@ func newPayPal(cfg *config.Config, log *slog.Logger) (paypal.API, func(), error)
 	return client, closeFake, nil
 }
 
-func newInterpreter(cfg config.Config) (ai.Interpreter, error) {
+// newInterpreter returns the configured interpreter: Claude on Amazon Bedrock
+// or the deterministic fake. Any other provider fails at startup.
+func newInterpreter(ctx context.Context, cfg config.Config, log *slog.Logger) (ai.Interpreter, error) {
 	switch cfg.AIProvider {
+	case config.AIProviderBedrock:
+		b, err := ai.NewBedrock(ctx, ai.BedrockConfig{
+			Region:        cfg.AWSRegion,
+			Model:         cfg.BedrockModel,
+			FallbackModel: cfg.BedrockFallbackModel,
+			Log:           log,
+		})
+		if err != nil {
+			return nil, err
+		}
+		log.Info("using Claude on Amazon Bedrock", "region", cfg.AWSRegion, "model", cfg.BedrockModel, "fallback_model", cfg.BedrockFallbackModel)
+		return b, nil
 	case config.AIProviderFake:
+		log.Warn("using the deterministic fake interpreter")
 		return ai.Fake{}, nil
 	default:
-		return nil, fmt.Errorf("ai: provider %q is not available in this build yet; set COMMITPOOL_AI_PROVIDER=fake", cfg.AIProvider)
+		return nil, fmt.Errorf("ai: unknown provider %q; set COMMITPOOL_AI_PROVIDER to bedrock or fake", cfg.AIProvider)
 	}
 }

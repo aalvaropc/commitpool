@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/aalvaropc/commitpool/internal/ai"
 	"github.com/aalvaropc/commitpool/internal/domain"
 	"github.com/aalvaropc/commitpool/internal/store"
 )
@@ -419,6 +420,16 @@ func inForce(a store.AvailabilityRow) (domain.Interpretation, error) {
 		return domain.Interpretation{}, fmt.Errorf("availability %s: %w", a.ID, err)
 	}
 	return in, nil
+}
+
+// dateOptions are the candidate dates as the interpreter sees them, labelled
+// on the workshop's clock.
+func (st workshopState) dateOptions() []ai.DateOption {
+	out := make([]ai.DateOption, len(st.dates))
+	for i, d := range st.dates {
+		out[i] = ai.DateOption{ID: d.ID, Label: dateLabel(d, st.loc)}
+	}
+	return out
 }
 
 // recommend runs domain.Recommend over the latest availability of each

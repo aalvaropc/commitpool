@@ -9,28 +9,34 @@ import (
 
 const (
 	defaultPayPalBaseURL = "https://api-m.sandbox.paypal.com"
-	defaultBedrockModel  = "anthropic.claude-opus-5-5"
 	defaultSeatTTLMin    = 30
+
+	// DefaultBedrockModel is the Bedrock model that reads availability and
+	// explains recommendations; DefaultBedrockFallbackModel answers when it
+	// declines a request.
+	DefaultBedrockModel         = "anthropic.claude-opus-5-5"
+	DefaultBedrockFallbackModel = "anthropic.claude-opus-4-8"
 
 	AIProviderBedrock = "bedrock"
 	AIProviderFake    = "fake"
 )
 
 type Config struct {
-	Port               string
-	BaseURL            string
-	DatabaseURL        string
-	PayPalBaseURL      string
-	PayPalClientID     string
-	PayPalClientSecret string
-	PayPalWebhookID    string
-	AWSRegion          string
-	AIProvider         string
-	BedrockModel       string
-	DemoMode           bool
-	SandboxMocks       bool
-	SeatTTL            time.Duration
-	FakePayPal         bool
+	Port                 string
+	BaseURL              string
+	DatabaseURL          string
+	PayPalBaseURL        string
+	PayPalClientID       string
+	PayPalClientSecret   string
+	PayPalWebhookID      string
+	AWSRegion            string
+	AIProvider           string
+	BedrockModel         string
+	BedrockFallbackModel string
+	DemoMode             bool
+	SandboxMocks         bool
+	SeatTTL              time.Duration
+	FakePayPal           bool
 }
 
 func Load(getenv func(string) string) (Config, error) {
@@ -53,19 +59,20 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 
 	cfg := Config{
-		Port:               str("PORT", "8080"),
-		BaseURL:            strings.TrimRight(str("COMMITPOOL_BASE_URL", ""), "/"),
-		DatabaseURL:        str("DATABASE_URL", ""),
-		PayPalBaseURL:      strings.TrimRight(str("PAYPAL_BASE_URL", defaultPayPalBaseURL), "/"),
-		PayPalClientID:     str("PAYPAL_CLIENT_ID", ""),
-		PayPalClientSecret: str("PAYPAL_CLIENT_SECRET", ""),
-		PayPalWebhookID:    str("PAYPAL_WEBHOOK_ID", ""),
-		AWSRegion:          str("AWS_REGION", ""),
-		AIProvider:         str("COMMITPOOL_AI_PROVIDER", AIProviderBedrock),
-		BedrockModel:       str("COMMITPOOL_BEDROCK_MODEL", defaultBedrockModel),
-		DemoMode:           flag("COMMITPOOL_DEMO_MODE"),
-		SandboxMocks:       flag("COMMITPOOL_SANDBOX_MOCKS"),
-		FakePayPal:         flag("E2E_FAKE_PAYPAL"),
+		Port:                 str("PORT", "8080"),
+		BaseURL:              strings.TrimRight(str("COMMITPOOL_BASE_URL", ""), "/"),
+		DatabaseURL:          str("DATABASE_URL", ""),
+		PayPalBaseURL:        strings.TrimRight(str("PAYPAL_BASE_URL", defaultPayPalBaseURL), "/"),
+		PayPalClientID:       str("PAYPAL_CLIENT_ID", ""),
+		PayPalClientSecret:   str("PAYPAL_CLIENT_SECRET", ""),
+		PayPalWebhookID:      str("PAYPAL_WEBHOOK_ID", ""),
+		AWSRegion:            str("AWS_REGION", ""),
+		AIProvider:           str("COMMITPOOL_AI_PROVIDER", AIProviderBedrock),
+		BedrockModel:         str("COMMITPOOL_BEDROCK_MODEL", DefaultBedrockModel),
+		BedrockFallbackModel: str("COMMITPOOL_BEDROCK_FALLBACK_MODEL", DefaultBedrockFallbackModel),
+		DemoMode:             flag("COMMITPOOL_DEMO_MODE"),
+		SandboxMocks:         flag("COMMITPOOL_SANDBOX_MOCKS"),
+		FakePayPal:           flag("E2E_FAKE_PAYPAL"),
 	}
 
 	ttl := defaultSeatTTLMin
@@ -78,6 +85,10 @@ func Load(getenv func(string) string) (Config, error) {
 		}
 	}
 	cfg.SeatTTL = time.Duration(ttl) * time.Minute
+	// "none" turns the refusal fallback off.
+	if strings.EqualFold(cfg.BedrockFallbackModel, "none") {
+		cfg.BedrockFallbackModel = ""
+	}
 
 	var missing []string
 	require := func(name, value string) {

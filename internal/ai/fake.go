@@ -203,34 +203,7 @@ func namedDates(lower string, dates []DateOption) []bool {
 	return named
 }
 
-// Explain names the recommended date and the people who can attend it.
+// Explain returns PlainExplanation.
 func (Fake) Explain(_ context.Context, in ExplainInput) (string, Meta, error) {
-	meta := Meta{Provider: fakeProvider, Model: fakeModel}
-	label := ""
-	for _, d := range in.Dates {
-		if d.ID == in.Recommendation.DateID {
-			label = d.Label
-		}
-	}
-	if label == "" {
-		return "There is no candidate date to recommend yet.", meta, nil
-	}
-	var names []string
-	for _, s := range in.Recommendation.PerDate {
-		if s.DateID != in.Recommendation.DateID {
-			continue
-		}
-		for _, id := range s.Compatible {
-			if name, ok := in.Names[id]; ok {
-				names = append(names, name)
-			} else {
-				names = append(names, id)
-			}
-		}
-	}
-	if len(names) == 0 {
-		return label + " is the earliest date, but nobody can attend it yet.", meta, nil
-	}
-	return fmt.Sprintf("%s works for the most people (%d, minimum %d): %s.",
-		label, len(names), in.Minimum, strings.Join(names, ", ")), meta, nil
+	return PlainExplanation(in), Meta{Provider: fakeProvider, Model: fakeModel}, nil
 }

@@ -34,6 +34,9 @@ func TestLoad_DefaultsAndRequired(t *testing.T) {
 	if cfg.BedrockModel != "anthropic.claude-opus-5-5" {
 		t.Errorf("BedrockModel = %q", cfg.BedrockModel)
 	}
+	if cfg.BedrockFallbackModel != "anthropic.claude-opus-4-8" {
+		t.Errorf("BedrockFallbackModel = %q", cfg.BedrockFallbackModel)
+	}
 	if cfg.SeatTTL != 30*time.Minute {
 		t.Errorf("SeatTTL = %v", cfg.SeatTTL)
 	}
@@ -145,5 +148,23 @@ func TestLoad_BooleansAndOverrides(t *testing.T) {
 	env["COMMITPOOL_SEAT_TTL_MIN"] = "0"
 	if _, err := load(env); err == nil || !strings.Contains(err.Error(), "COMMITPOOL_SEAT_TTL_MIN") {
 		t.Errorf("non-positive TTL: err = %v, want an error naming COMMITPOOL_SEAT_TTL_MIN", err)
+	}
+}
+
+func TestLoad_BedrockModelOverrides(t *testing.T) {
+	env := baseEnv()
+	env["COMMITPOOL_BEDROCK_MODEL"] = "anthropic.claude-sonnet-5-5"
+	env["COMMITPOOL_BEDROCK_FALLBACK_MODEL"] = "anthropic.claude-opus-5"
+	cfg, err := load(env)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.BedrockModel != "anthropic.claude-sonnet-5-5" || cfg.BedrockFallbackModel != "anthropic.claude-opus-5" {
+		t.Errorf("models = %q, %q; want the overrides", cfg.BedrockModel, cfg.BedrockFallbackModel)
+	}
+
+	env["COMMITPOOL_BEDROCK_FALLBACK_MODEL"] = "none"
+	if cfg, err = load(env); err != nil || cfg.BedrockFallbackModel != "" {
+		t.Errorf("fallback model none = %q, %v; want no fallback", cfg.BedrockFallbackModel, err)
 	}
 }

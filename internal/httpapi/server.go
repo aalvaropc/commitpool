@@ -39,6 +39,7 @@ type Deps struct {
 
 type server struct {
 	Deps
+	explanations *explanationCache
 }
 
 // New returns the service's handler. A nil Log uses slog.Default and a nil
@@ -50,7 +51,7 @@ func New(d Deps) http.Handler {
 	if d.Clock == nil {
 		d.Clock = clock.Real{}
 	}
-	s := &server{Deps: d}
+	s := &server{Deps: d, explanations: newExplanationCache()}
 	mux := http.NewServeMux()
 	s.routes(mux)
 	return s.observe(mux)

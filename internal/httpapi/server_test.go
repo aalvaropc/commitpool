@@ -367,8 +367,8 @@ func TestOwner_CountsInterestedAuthorizedPaidSeparately(t *testing.T) {
 		got.Payment == nil || got.Payment.AuthorizationID == nil || got.Payment.CaptureID != nil {
 		t.Errorf("authorized enrollment = %+v (payment %+v)", got, got.Payment)
 	}
-	if v.Recommendation.Explanation == nil || *v.Recommendation.Explanation != "" {
-		t.Errorf("recommendation explanation = %v, want an empty string for now", v.Recommendation.Explanation)
+	if exp := v.Recommendation.Explanation; exp == nil || !strings.Contains(*exp, "Sat 14 Nov 2026") || !strings.Contains(*exp, "Marta") {
+		t.Errorf("recommendation explanation = %v, want the interpreter's words for Saturday and its people", exp)
 	}
 }
 

@@ -38,8 +38,9 @@ type ownerViewDTO struct {
 
 // ownerView is the owner's dashboard: the share link to pass around, every
 // participant with their latest availability (message, reading and
-// correction), the date recommendation, the separated counts and each
-// enrollment's financial status. Only the owner sees the share link here.
+// correction), the date recommendation with its explanation, the separated
+// counts and each enrollment's financial status. Only the owner sees the
+// share link here.
 func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
 	ws, err := s.ownerWorkshop(r)
 	if err != nil {
@@ -87,6 +88,9 @@ func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
 		enrollments[i].DisplayName = names[en.ParticipantID]
 	}
 
+	recommendation := recommendationView(rec)
+	recommendation.Explanation = s.explanation(ctx, st, rec, names, len(avails))
+
 	shareURL := ""
 	if ws.ShareToken != "" {
 		shareURL = s.Cfg.BaseURL + "/w/" + ws.ShareToken
@@ -99,7 +103,7 @@ func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
 		Tally:          st.ownerTally(),
 		Participants:   participants,
 		Availabilities: availabilities,
-		Recommendation: recommendationView(rec),
+		Recommendation: recommendation,
 		Enrollments:    enrollments,
 		Demo:           demoDTO{DemoMode: s.Cfg.DemoMode, SandboxMocks: s.Cfg.SandboxMocks},
 	})

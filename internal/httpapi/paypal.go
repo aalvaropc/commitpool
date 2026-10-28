@@ -13,6 +13,7 @@ import (
 	"github.com/aalvaropc/commitpool/internal/domain"
 	"github.com/aalvaropc/commitpool/internal/paypal"
 	"github.com/aalvaropc/commitpool/internal/store"
+	"github.com/aalvaropc/commitpool/internal/worker"
 )
 
 // The outcomes the web app's /paypal/returned page receives as result.
@@ -184,7 +185,7 @@ func (s *server) completeReturn(ctx context.Context, c *checkout) string {
 	if err != nil {
 		return s.orderUnreadable(ctx, c, err)
 	}
-	if field := orderMismatch(o, c, p); field != "" {
+	if field := worker.OrderMismatch(o, c.attempt, c.enrollment.ID, *p); field != "" {
 		c.log.Warn("paypal return: PayPal reports the order for another checkout; not authorizing it", "field", field)
 		return resultMismatch
 	}
@@ -319,31 +320,6 @@ func seatLive(en store.EnrollmentRow, now time.Time) bool {
 		return !en.SeatExpiresAt.Before(now)
 	}
 	return en.Status.Occupies()
-}
-
-// orderMismatch names the first thing in which PayPal's order differs from
-// the checkout the attempt opened, or "" when it is that checkout: this
-// order, one purchase unit, the enrollment as custom_id, the attempt as
-// reference_id and the proposal's price and currency.
-func orderMismatch(o paypal.Order, c *checkout, p *store.ProposalRow) string {
-	if o.ID != *c.attempt.OrderID {
-		return "order_id"
-	}
-	if len(o.PurchaseUnits) != 1 {
-		return "purchase_units"
-	}
-	u := o.PurchaseUnits[0]
-	switch {
-	case u.CustomID != c.enrollment.ID:
-		return "custom_id"
-	case u.ReferenceID != c.attempt.ID:
-		return "reference_id"
-	case u.Amount.CurrencyCode != p.Currency:
-		return "currency_code"
-	case u.Amount.Value != (domain.Money{Minor: p.PriceMinor, Currency: p.Currency}).String():
-		return "amount"
-	}
-	return ""
 }
 
 // orderUnreadable answers a return whose order PayPal would not show. An

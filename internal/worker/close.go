@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"math"
+	"slices"
 	"time"
 
 	"github.com/aalvaropc/commitpool/internal/domain"
@@ -60,13 +61,17 @@ func (r *Runner) closePayments(ctx context.Context, job *store.Job) (*int, error
 }
 
 // decideClose records the close's outcome and returns it with the view it
-// was taken from. A FUNDING workshop moves to domain.CloseDecision's status
-// by compare-and-set from FUNDING; when that loses, because a capture
-// confirmed the workshop or another close cancelled it meanwhile, the
-// decision is taken again from the new state. For a workshop that is already
-// cancelled it re-derives what the cancellation owes, so a close cut short
-// after writing it enqueues the same keys when it runs again. A confirmed
-// workshop gets CloseDecision's voids and reconciles and never a refund.
+// was taken from. A FUNDING workshop moves to domain.CloseDecision's status,
+// with the resolution fundingResolution gives, by compare-and-set from the
+// status and resolution it read; when that loses, because a capture
+// confirmed the workshop, another close cancelled it or it was flagged
+// meanwhile, the decision is taken again from the new state. Once the
+// cancellation is written, what it owes is re-derived from a fresh view, so a
+// payment that completed between the first read and the write is refunded
+// by this close. For a workshop that is already cancelled it re-derives what
+// the cancellation owes, so a close cut short after writing it enqueues the
+// same keys when it runs again. A confirmed workshop gets CloseDecision's
+// voids and reconciles and never a refund.
 func (r *Runner) decideClose(ctx context.Context, workshopID string) (view, domain.Close, error) {
 	now := r.clock.Now()
 	for range casRetries {
@@ -77,12 +82,20 @@ func (r *Runner) decideClose(ctx context.Context, workshopID string) (view, doma
 		c := domain.CloseDecision(v.w, v.p, v.es, now)
 		switch v.w.Status {
 		case domain.WorkshopFunding:
-			ok, err := r.st.TransitionWorkshop(ctx, workshopID, []domain.WorkshopStatus{domain.WorkshopFunding}, nil, c.NewStatus, c.Resolution)
+			c.Resolution = fundingResolution(v, c.NewStatus, c.Resolution)
+			ok, err := r.st.TransitionWorkshop(ctx, workshopID,
+				[]domain.WorkshopStatus{domain.WorkshopFunding}, []domain.Resolution{v.w.Resolution}, c.NewStatus, c.Resolution)
 			if err != nil {
 				return view{}, domain.Close{}, err
 			}
-			if ok {
+			if ok && c.NewStatus != domain.WorkshopCancelled {
 				return v, c, nil
+			}
+			if ok {
+				if v, err = r.workshopView(ctx, workshopID); err != nil {
+					return view{}, domain.Close{}, err
+				}
+				return v, cancellationOwed(v, now), nil
 			}
 			r.log.Info("workshop changed while payments were closing; deciding again", "workshop_id", workshopID)
 		case domain.WorkshopCancelled:
@@ -96,12 +109,34 @@ func (r *Runner) decideClose(ctx context.Context, workshopID string) (view, doma
 
 // cancellationOwed is what cancelling the workshop owes as things stand: the
 // lists domain.CloseDecision gives for a FUNDING workshop that misses its
-// minimum, whatever the payments now add up to.
+// minimum, whatever the payments now add up to, with the cancelled
+// workshop's own status and resolution.
 func cancellationOwed(v view, now time.Time) domain.Close {
 	w, p := v.w, v.p
 	w.Status = domain.WorkshopFunding
 	p.Minimum = math.MaxInt
-	return domain.CloseDecision(w, p, v.es, now)
+	c := domain.CloseDecision(w, p, v.es, now)
+	c.NewStatus, c.Resolution = v.w.Status, v.w.Resolution
+	return c
+}
+
+// fundingResolution is the resolution a FUNDING workshop takes as it moves to
+// status, where the domain rule decided resolution: a workshop already
+// flagged for an operator stays flagged, and one confirmed while an
+// enrollment needs an operator is flagged, since a confirmed workshop is
+// never settled and nothing else would show it.
+func fundingResolution(v view, status domain.WorkshopStatus, resolution domain.Resolution) domain.Resolution {
+	if v.w.Resolution == domain.ResolutionNeedsAttention ||
+		status == domain.WorkshopConfirmed && slices.ContainsFunc(v.es, needsOperator) {
+		return domain.ResolutionNeedsAttention
+	}
+	return resolution
+}
+
+// needsOperator reports an enrollment only an operator can finish: a refund
+// PayPal failed, or one flagged NEEDS_ATTENTION.
+func needsOperator(e domain.Enrollment) bool {
+	return e.Status == domain.EnrollmentRefundFailed || e.Status == domain.EnrollmentNeedsAttention
 }
 
 // SettleIfResolved records how a resolving workshop ended: SETTLED once every
@@ -146,7 +181,7 @@ func settlement(v view) domain.Resolution {
 	settled := true
 	for i, e := range v.es {
 		switch {
-		case e.Status == domain.EnrollmentRefundFailed || e.Status == domain.EnrollmentNeedsAttention:
+		case needsOperator(e):
 			return domain.ResolutionNeedsAttention
 		case (e.Status == domain.EnrollmentCaptureFailed || e.Status == domain.EnrollmentReleased) && v.mayHold(i):
 			settled = false
@@ -162,11 +197,11 @@ func settlement(v view) domain.Resolution {
 }
 
 // mayHold reports whether enrollment i's latest attempt may still hold the
-// buyer's money: an authorization not yet released, or an authorize whose
-// outcome is unknown, which a seat release does not stop.
+// buyer's money: an authorization not yet released, or an authorize that is
+// running or whose outcome is unknown, which a seat release does not stop.
 func (v view) mayHold(i int) bool {
 	j, ok := v.job(i, store.KindAuthorize)
-	return holdsAuthorization(v.att[i]) || ok && j.Status == store.JobUnknown
+	return holdsAuthorization(v.att[i]) || ok && (j.Status == store.JobRunning || j.Status == store.JobUnknown)
 }
 
 // holdsAuthorization reports whether the attempt has an authorization PayPal
@@ -179,13 +214,15 @@ func holdsAuthorization(a *store.AttemptRow) bool {
 
 // HealWorkshop redoes, idempotently by key, the follow-ups a hook that failed
 // after its move would have left undone, from a fresh view of the workshop:
-//   - a failed capture or a released seat whose authorization still holds,
-//     with no void job, is voided;
+//   - a failed capture or a released seat whose authorization still holds is
+//     voided: void:{attempt} is enqueued, or revived when it was skipped
+//     (EnqueueOrRevive never sends again a void PayPal refused);
 //   - a FUNDING workshop whose payments reach the minimum is confirmed;
 //   - in a cancelled workshop a payment with no refund job is refunded, and an
 //     authorization with no void job is voided;
 //   - in a confirmed workshop an authorization with neither a capture nor a
-//     void job is captured while payments are open and voided after;
+//     void job is captured while payments are open and voided after, and an
+//     enrollment that needs an operator flags the workshop (flagIfConfirmed);
 //   - a resolving or settled workshop is settled again.
 //
 // A payment kept in a confirmed workshop past its start is left alone:
@@ -211,8 +248,7 @@ func (r *Runner) HealWorkshop(ctx context.Context, workshopID string) error {
 	round := false
 	for i, en := range v.rows {
 		switch {
-		case (en.Status == domain.EnrollmentCaptureFailed || en.Status == domain.EnrollmentReleased) &&
-			holdsAuthorization(v.att[i]) && !v.has(i, store.KindVoid):
+		case (en.Status == domain.EnrollmentCaptureFailed || en.Status == domain.EnrollmentReleased) && holdsAuthorization(v.att[i]):
 			heal(store.KindVoid, en, "authorization left holding after the enrollment ended")
 		case v.w.Status == domain.WorkshopCancelled && en.Status == domain.EnrollmentPaid && !v.has(i, store.KindRefund):
 			heal(store.KindRefund, en, "payment kept in a cancelled workshop")
@@ -230,8 +266,24 @@ func (r *Runner) HealWorkshop(ctx context.Context, workshopID string) error {
 	if round {
 		errs = append(errs, r.StartCaptureRoundIfReady(ctx, workshopID))
 	}
+	if v.w.Status == domain.WorkshopConfirmed && slices.ContainsFunc(v.es, needsOperator) {
+		errs = append(errs, r.flagWorkshop(ctx, r.log, workshopID))
+	}
 	errs = append(errs, r.SettleIfResolved(ctx, workshopID))
 	return errors.Join(errs...)
+}
+
+// flagIfConfirmed flags a CONFIRMED workshop for an operator. A confirmed
+// workshop keeps resolution OPEN and is never settled, so nothing else would
+// show an enrollment there that needs one; a cancelled workshop is flagged
+// by its settlement, and a funding one when it is confirmed
+// (fundingResolution).
+func (r *Runner) flagIfConfirmed(ctx context.Context, workshopID string) error {
+	w, err := r.st.WorkshopByID(ctx, workshopID)
+	if err != nil || w.Status != domain.WorkshopConfirmed {
+		return err
+	}
+	return r.flagWorkshop(ctx, r.log, workshopID)
 }
 
 // flagWorkshop marks the workshop's resolution NEEDS_ATTENTION and keeps its

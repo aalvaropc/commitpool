@@ -1,6 +1,7 @@
 package worker_test
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/aalvaropc/commitpool/internal/domain"
+	"github.com/aalvaropc/commitpool/internal/paypal"
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
@@ -799,4 +801,74 @@ func TestApply_AuthorizationAfterCloseEnqueuesVoid(t *testing.T) {
 
 	e.wantStatus(en.ID, domain.EnrollmentAuthorized)
 	e.wantJob("void:"+a.ID, "pending")
+}
+
+func TestHeal_RevivesASkippedVoidOfAHoldStillHeld(t *testing.T) {
+	e := newEnv(t)
+	ana, a := e.authorized("Ana")
+	e.transition(ana.ID, domain.EnrollmentAuthorized, domain.EnrollmentCapturing)
+	voidKey := e.enqueue("void", a)
+	e.runKey(voidKey)
+	e.wantJob(voidKey, "failed")
+	// The capture failed, but the revive of the void it calls for was lost.
+	e.transition(ana.ID, domain.EnrollmentCapturing, domain.EnrollmentCaptureFailed)
+
+	if err := e.runner.HealWorkshop(e.ctx, e.workshop.ID); err != nil {
+		t.Fatalf("HealWorkshop: %v", err)
+	}
+
+	e.wantJob(voidKey, "pending")
+	e.runKey(voidKey)
+	wantString(t, "authorization_status", e.attempt(a.ID).AuthorizationStatus, "VOIDED")
+	if n := e.requestsWithID("void", voidKey); n != 1 {
+		t.Errorf("void requests = %d, want 1 under %s", n, voidKey)
+	}
+}
+
+// landPaymentDuringCancellation makes the enrollment's move to PAID commit
+// in the statement that cancels its workshop, as a capture hook landing
+// between close's read of the workshop and its compare-and-set would.
+func (e *env) landPaymentDuringCancellation(enrollmentID string) {
+	e.t.Helper()
+	for _, stmt := range []string{
+		`create function test_land_payment() returns trigger language plpgsql as $$
+		 begin update enrollments set status = 'PAID' where id = '` + enrollmentID + `'; return new; end $$`,
+		`create trigger test_land_payment before update on workshops for each row
+		 when (old.status = 'FUNDING' and new.status = 'CANCELLED') execute function test_land_payment()`,
+	} {
+		if _, err := e.st.Pool.Exec(e.ctx, stmt); err != nil {
+			e.t.Fatalf("install the payment trigger: %v", err)
+		}
+	}
+	e.t.Cleanup(func() {
+		_, _ = e.st.Pool.Exec(context.Background(), `drop trigger if exists test_land_payment on workshops`)
+		_, _ = e.st.Pool.Exec(context.Background(), `drop function if exists test_land_payment()`)
+	})
+}
+
+func TestClose_PaymentLandingWhileTheCancellationIsWrittenIsRefundedByTheClose(t *testing.T) {
+	e := newEnv(t)
+	ana, a := e.authorized("Ana")
+	e.transition(ana.ID, domain.EnrollmentAuthorized, domain.EnrollmentCapturing)
+	c, err := e.api.CaptureAuthorization(e.ctx, paypal.CaptureParams{AuthorizationID: *a.AuthorizationID, RequestID: "capture:" + a.ID})
+	if err != nil {
+		t.Fatalf("capture at PayPal: %v", err)
+	}
+	// PayPal captured and the attempt holds the capture; the enrollment's
+	// move to PAID lands only while close writes the cancellation.
+	if _, err := e.st.UpdateAttemptFunc(e.ctx, a.ID, func(row *store.AttemptRow) error {
+		row.CaptureID, row.CaptureStatus = &c.ID, &c.Status
+		return nil
+	}); err != nil {
+		t.Fatalf("record the capture: %v", err)
+	}
+	e.landPaymentDuringCancellation(ana.ID)
+	e.clock.Set(e.proposal.ClosesAt)
+
+	e.runKey(e.closeKey())
+
+	e.wantWorkshop(domain.WorkshopCancelled, domain.ResolutionResolving)
+	e.wantStatus(ana.ID, domain.EnrollmentPaid)
+	e.wantJob("refund:"+a.ID, "pending")
+	e.wantNoJob("reconcile:" + a.ID + ":close")
 }

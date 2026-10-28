@@ -263,6 +263,42 @@ func (s *Store) UpdateAttemptFunc(ctx context.Context, id string, fn func(a *Att
 	return saved, nil
 }
 
+// SetCaptureMock stores a PayPal-Mock-Response code on the attempt for its
+// capture to send, only while that capture has not started: the attempt's
+// enrollment is SEAT_RESERVED or AUTHORIZED, and the attempt holds no
+// capture, capture status or capture issue. The enrollment's row is locked
+// first, so a capture moving it to CAPTURING either came first, and nothing
+// is stored, or waits until the code is. It reports whether the code was
+// stored; a missing or malformed ID is ErrNotFound.
+func (s *Store) SetCaptureMock(ctx context.Context, attemptID, code string) (bool, error) {
+	var stored bool
+	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+		var status domain.EnrollmentStatus
+		err := tx.QueryRow(ctx,
+			`select e.status from enrollments e join payment_attempts a on a.enrollment_id = e.id
+			 where a.id = $1 for update of e`, attemptID).Scan(&status)
+		if err != nil {
+			return lookupErr("lock enrollment", err)
+		}
+		if status != domain.EnrollmentSeatReserved && status != domain.EnrollmentAuthorized {
+			return nil
+		}
+		tag, err := tx.Exec(ctx,
+			`update payment_attempts set mock_code = $2, updated_at = now()
+			 where id = $1 and capture_id is null and capture_status is null and capture_issue is null`,
+			attemptID, code)
+		if err != nil {
+			return wrap("set capture mock", err)
+		}
+		stored = tag.RowsAffected() == 1
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return stored, nil
+}
+
 // MarkOrderExpired records that PayPal no longer knows the attempt's order,
 // which happens to an order never approved: its status becomes EXPIRED,
 // in one guarded update, unless the attempt holds an authorization by then,

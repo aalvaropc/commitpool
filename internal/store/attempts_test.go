@@ -701,3 +701,58 @@ func newParticipantIn(t *testing.T, s *store.Store, workshopID, name string) sto
 	t.Helper()
 	return newParticipant(t, s, mustWorkshop(t, s, workshopID), name)
 }
+
+func TestSetCaptureMock_OnlyBeforeTheCaptureStarts(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	w, _, _ := newWorkshop(t, s, 1, 6)
+	p := openFunding(t, s, w, baseTime)
+	attempt := func(name string, status domain.EnrollmentStatus) store.AttemptRow {
+		t.Helper()
+		e := reserve(t, s, w, p, newParticipant(t, s, w, name).ID, baseTime.Add(time.Hour))
+		a, err := s.CreateAttempt(ctx, e.ID, 1000, "USD")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if status != domain.EnrollmentSeatReserved {
+			mustTransition(t, s, e.ID, []domain.EnrollmentStatus{domain.EnrollmentSeatReserved}, status)
+		}
+		return a
+	}
+	refusedIssue := attempt("Cleo", domain.EnrollmentAuthorized)
+	if _, err := s.UpdateAttemptFunc(ctx, refusedIssue.ID, func(row *store.AttemptRow) error {
+		row.CaptureIssue = ptr("CAPTURE_DEADLINE_PASSED")
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name string
+		a    store.AttemptRow
+		want bool
+	}{
+		{"seat reserved", attempt("Ana", domain.EnrollmentSeatReserved), true},
+		{"authorized", attempt("Ben", domain.EnrollmentAuthorized), true},
+		{"authorized with a capture issue", refusedIssue, false},
+		{"capturing", attempt("Dan", domain.EnrollmentCapturing), false},
+		{"paid", attempt("Eve", domain.EnrollmentPaid), false},
+	}
+	for _, tc := range cases {
+		stored, err := s.SetCaptureMock(ctx, tc.a.ID, "AUTHORIZATION_EXPIRED")
+		if err != nil || stored != tc.want {
+			t.Errorf("%s: SetCaptureMock = %v, %v; want %v", tc.name, stored, err, tc.want)
+		}
+		got, err := s.AttemptByID(ctx, tc.a.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if has := got.MockCode != nil; has != tc.want {
+			t.Errorf("%s: mock code = %v, want stored %v", tc.name, got.MockCode, tc.want)
+		}
+	}
+	for _, id := range []string{"00000000-0000-4000-8000-000000000000", "not-a-uuid"} {
+		if _, err := s.SetCaptureMock(ctx, id, "AUTHORIZATION_EXPIRED"); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("SetCaptureMock(%s) = %v, want ErrNotFound", id, err)
+		}
+	}
+}

@@ -160,21 +160,21 @@ func (s *Store) CompleteJob(ctx context.Context, id string, httpStatus *int) err
 func (s *Store) RetryJob(ctx context.Context, id string, now time.Time, lastError string, httpStatus *int, issue, debugID *string) (needsAttention bool, err error) {
 	err = pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 		var attempts int
-		err := tx.QueryRow(ctx, `select attempts from jobs where id = $1 and status = 'running' for update`, id).Scan(&attempts)
+		err := tx.QueryRow(ctx, `select attempts from jobs where id = $1 and status = $2 for update`, id, JobRunning).Scan(&attempts)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return jobMissError(ctx, tx, "retry job", id)
 		}
 		if err != nil {
 			return lookupErr("lock job", err)
 		}
-		status := "needs_attention"
+		status := JobNeedsAttention
 		var runAt *time.Time
 		if attempts < maxJobAttempts {
-			status = "pending"
+			status = JobPending
 			next := now.Add(jobBackoff[max(attempts, 1)-1])
 			runAt = &next
 		}
-		needsAttention = status == "needs_attention"
+		needsAttention = status == JobNeedsAttention
 		_, err = tx.Exec(ctx,
 			`update jobs set status = $2, run_at = coalesce($3, run_at), last_error = $4, http_status = $5,
 				provider_issue = $6, debug_id = $7,

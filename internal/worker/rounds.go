@@ -161,7 +161,8 @@ func (r *Runner) enqueueLatest(ctx context.Context, kind string, en store.Enroll
 // afterMove runs what an enrollment's move sets off: a new authorization is
 // captured or, once payments are closed, voided; a completed payment may
 // confirm the workshop or have to be refunded; a failed capture may leave the
-// round short of the minimum; a finished enrollment may settle the workshop.
+// round short of the minimum; an enrollment that needs an operator flags a
+// confirmed workshop; a finished enrollment may settle the workshop.
 // It only runs for a move that happened, so applying the same PayPal answer
 // again sets off nothing.
 func (r *Runner) afterMove(ctx context.Context, enrollmentID string, to domain.EnrollmentStatus) error {
@@ -179,6 +180,8 @@ func (r *Runner) afterMove(ctx context.Context, enrollmentID string, to domain.E
 		return r.afterPaid(ctx, en)
 	case domain.EnrollmentCaptureFailed:
 		return errors.Join(r.StartCaptureRoundIfReady(ctx, en.WorkshopID), r.SettleIfResolved(ctx, en.WorkshopID))
+	case domain.EnrollmentNeedsAttention, domain.EnrollmentRefundFailed:
+		return errors.Join(r.flagIfConfirmed(ctx, en.WorkshopID), r.SettleIfResolved(ctx, en.WorkshopID))
 	default:
 		return r.SettleIfResolved(ctx, en.WorkshopID)
 	}
@@ -243,10 +246,12 @@ func (r *Runner) afterPaid(ctx context.Context, en store.EnrollmentRow) error {
 }
 
 // confirmIfFunded applies domain.AfterCaptureResult to a FUNDING workshop:
-// it is confirmed, by compare-and-set from FUNDING, once enough payments have
-// completed; short of that the capture round is evaluated again, since
-// authorizations that arrived while a capture was in flight may now reach
-// the minimum. done is false when the workshop was no longer FUNDING.
+// it is confirmed, with the resolution fundingResolution gives, by
+// compare-and-set from the status and resolution it read, once enough
+// payments have completed; short of that the capture round is evaluated
+// again, since authorizations that arrived while a capture was in flight may
+// now reach the minimum. done is false when the workshop was no longer
+// FUNDING or changed meanwhile.
 func (r *Runner) confirmIfFunded(ctx context.Context, workshopID string) (done bool, err error) {
 	v, err := r.workshopView(ctx, workshopID)
 	if err != nil || v.w.Status != domain.WorkshopFunding {
@@ -257,7 +262,9 @@ func (r *Runner) confirmIfFunded(ctx context.Context, workshopID string) (done b
 	if status == v.w.Status && resolution == v.w.Resolution {
 		return true, r.StartCaptureRoundIfReady(ctx, workshopID)
 	}
-	ok, err := r.st.TransitionWorkshop(ctx, workshopID, []domain.WorkshopStatus{domain.WorkshopFunding}, nil, status, resolution)
+	resolution = fundingResolution(v, status, resolution)
+	ok, err := r.st.TransitionWorkshop(ctx, workshopID,
+		[]domain.WorkshopStatus{domain.WorkshopFunding}, []domain.Resolution{v.w.Resolution}, status, resolution)
 	if ok {
 		r.log.Info("workshop confirmed: enough payments completed", "workshop_id", workshopID, "paid", t.Paid, "minimum", v.p.Minimum)
 	}

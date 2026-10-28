@@ -393,3 +393,18 @@ func TestRound_ConfirmationLosesToAConcurrentCancellation(t *testing.T) {
 		e.wantNoJob("refund:" + a.ID)
 	}
 }
+
+func TestReconcile_DoesNotAuthorizeAnOrderForAnotherCheckout(t *testing.T) {
+	e := newEnv(t)
+	ana, a := e.withOrder("Ana")
+	e.fake.Approve(*a.OrderID)
+	e.fake.SetOrderAmount(*a.OrderID, "1.00", "USD")
+
+	e.runKey(e.reconcileNow(a))
+
+	e.wantStatus(ana.ID, domain.EnrollmentSeatReserved)
+	e.wantNoJob("authorize:" + a.ID)
+	if n := len(e.fake.Requests("authorize")); n != 0 {
+		t.Errorf("authorize requests = %d, want 0 for an order that is not this checkout's", n)
+	}
+}

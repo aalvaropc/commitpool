@@ -913,6 +913,53 @@ func TestEnrollment_DoubleClickWhileTheCheckoutStillRunsIs409(t *testing.T) {
 	}
 }
 
+func TestDemoFailNextCapture_RefusedWhenTheCaptureStartsMeanwhile(t *testing.T) {
+	e := newEnv(t, withSandboxMocks())
+	h, p, ps := e.fundingWorkshop()
+	en := e.enroll(ps[0], p.ID, http.StatusCreated)
+	e.authorize(h.created.Workshop.ID, en.EnrollmentID)
+	// A capture is moving the enrollment to CAPTURING and holds its row; the
+	// attempt has no capture yet.
+	tx, err := e.st.Pool.Begin(e.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if _, err := tx.Exec(e.ctx, `update enrollments set status = 'CAPTURING' where id = $1`, en.EnrollmentID); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"enrollment_id":"` + en.EnrollmentID + `"}`
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() { done <- e.request(http.MethodPost, h.ownerPath+"/demo/fail-next-capture", body) }()
+	deadline := time.Now().Add(5 * time.Second)
+	for waiting := false; !waiting; {
+		select {
+		case rec := <-done:
+			t.Fatalf("answered %d %s without waiting for the capture holding the enrollment", rec.Code, rec.Body.String())
+		default:
+		}
+		if err := e.st.Pool.QueryRow(e.ctx,
+			`select exists (select 1 from pg_locks where not granted and locktype in ('transactionid', 'tuple'))`).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the request never waited on the enrollment row")
+		}
+	}
+	if err := tx.Commit(e.ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := <-done
+	var got errorJSON
+	if rec.Code != http.StatusConflict || json.Unmarshal(rec.Body.Bytes(), &got) != nil || got.Error != "capture_already_started" {
+		t.Fatalf("fail-next-capture = %d %s, want 409 capture_already_started", rec.Code, rec.Body.String())
+	}
+	if a := e.latestAttempt(en.EnrollmentID); a.MockCode != nil {
+		t.Errorf("mock code = %q, want none once the capture started", *a.MockCode)
+	}
+}
+
 func TestDemoFailNextCapture_RefusedOnceTheAttemptHoldsACapture(t *testing.T) {
 	e := newEnv(t, withSandboxMocks())
 	h, p, ps := e.fundingWorkshop()

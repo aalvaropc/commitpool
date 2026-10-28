@@ -290,7 +290,8 @@ func (s *server) demoCloseNow(w http.ResponseWriter, r *http.Request) error {
 // demoFailNextCapture makes the enrollment's next capture fail at PayPal's
 // sandbox, by storing the AUTHORIZATION_EXPIRED mock on its latest attempt;
 // the capture job sends it as PayPal-Mock-Response. It applies until the
-// capture starts.
+// capture starts: once the enrollment is CAPTURING, or the attempt records a
+// capture, it is refused with 409 (store.SetCaptureMock).
 func (s *server) demoFailNextCapture(w http.ResponseWriter, r *http.Request) error {
 	if !s.Cfg.SandboxMocks {
 		return errNotFound
@@ -328,16 +329,14 @@ func (s *server) demoFailNextCapture(w http.ResponseWriter, r *http.Request) err
 		return conflict("no_payment_attempt", "This enrollment has no payment yet.")
 	}
 	code := mockAuthorizationExpired
-	if _, err := s.Store.UpdateAttemptFunc(ctx, a.ID, func(row *store.AttemptRow) error {
-		// Checked under the attempt's row lock, so a capture recorded while
-		// this request ran is seen: the mock must never reach a refund.
-		if row.CaptureID != nil || row.CaptureStatus != nil || row.CaptureIssue != nil {
-			return errCaptureStarted
-		}
-		row.MockCode = &code
-		return nil
-	}); err != nil {
+	// Checked again under the enrollment's row lock, so a capture that started
+	// while this request ran is seen: the mock must never reach a refund.
+	stored, err := s.Store.SetCaptureMock(ctx, a.ID, code)
+	if err != nil {
 		return err
+	}
+	if !stored {
+		return errCaptureStarted
 	}
 	s.Log.Info("demo: next capture will fail", "workshop_id", ws.ID, "enrollment_id", en.ID, "attempt_id", a.ID)
 	writeJSON(w, http.StatusAccepted, map[string]string{"enrollment_id": en.ID, "attempt_id": a.ID, "mock_code": code})

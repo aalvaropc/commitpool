@@ -277,7 +277,7 @@ func captureDeadline(closesAt time.Time, authExpiresAt *time.Time) (deadline tim
 // the attempt back from PayPal first and keeps a capture it finds.
 func (r *Runner) captureTooLate(ctx context.Context, s subject, resumed bool, issue string) (*int, error) {
 	if resumed {
-		if status, err := r.refresh(ctx, s); err != nil {
+		if _, status, err := r.refresh(ctx, s); err != nil {
 			return status, err
 		}
 		a, err := r.st.AttemptByID(ctx, s.attempt.ID)
@@ -314,7 +314,9 @@ func (r *Runner) captureTooLate(ctx context.Context, s subject, resumed bool, is
 // a released seat, is voided without touching the enrollment.
 // PREVIOUSLY_VOIDED and AUTHORIZATION_EXPIRED mean the hold is already gone
 // and count as voided; any other final refusal flags the enrollment
-// NEEDS_ATTENTION when the authorization was its own.
+// NEEDS_ATTENTION when the authorization was its own, and the workshop when it
+// was not: a finished enrollment cannot carry the flag, and only an operator
+// can release that hold.
 func (r *Runner) void(ctx context.Context, job *store.Job) (*int, error) {
 	s, err := r.load(ctx, job)
 	if err != nil {
@@ -369,6 +371,8 @@ func (r *Runner) void(ctx context.Context, job *store.Job) (*int, error) {
 		if _, err := r.transition(ctx, s.log, s.enrollment.ID, *stuck); err != nil {
 			return nil, err
 		}
+	} else if err := r.flagWorkshop(ctx, s.log, s.enrollment.WorkshopID); err != nil {
+		return nil, err
 	}
 	return refused(pe)
 }

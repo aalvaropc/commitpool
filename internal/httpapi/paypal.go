@@ -461,6 +461,12 @@ func redirectReturned(w http.ResponseWriter, r *http.Request, enrollmentID, resu
 	http.Redirect(w, r, returnedPath+"?"+q.Encode(), http.StatusFound)
 }
 
+// webhookSignatureHeaders are the transmission headers PayPal signs a
+// delivery with; verify-webhook-signature needs every one of them.
+var webhookSignatureHeaders = []string{
+	"PAYPAL-TRANSMISSION-ID", "PAYPAL-TRANSMISSION-TIME", "PAYPAL-TRANSMISSION-SIG", "PAYPAL-CERT-URL", "PAYPAL-AUTH-ALGO",
+}
+
 // webhookEvent is what the webhook reads from a PayPal event; the body is
 // stored whole.
 type webhookEvent struct {
@@ -489,6 +495,13 @@ type webhookEvent struct {
 // count a payment twice. It answers 200 {"inserted"} for every verified
 // event, a repeat included. The log names a verified event and its attempt,
 // never the body, and nothing of a delivery PayPal did not verify.
+//
+// Errors: 503 webhook_not_configured without a webhook ID; 413
+// body_too_large; 400 invalid_json or invalid_event for a body that is not a
+// PayPal event; 400 invalid_signature when one of the five PAYPAL-*
+// transmission headers is missing or empty, without asking PayPal, or when
+// PayPal does not verify the delivery; 502 paypal_unavailable when PayPal
+// could not be asked.
 func (s *server) paypalWebhook(w http.ResponseWriter, r *http.Request) error {
 	if s.Cfg.PayPalWebhookID == "" {
 		return errWebhookNotConfigured
@@ -506,6 +519,12 @@ func (s *server) paypalWebhook(w http.ResponseWriter, r *http.Request) error {
 	var ev webhookEvent
 	if err := json.Unmarshal(body, &ev); err != nil || ev.ID == "" || ev.EventType == "" {
 		return errInvalidEvent
+	}
+	for _, h := range webhookSignatureHeaders {
+		if r.Header.Get(h) == "" {
+			s.Log.Warn("webhook: a signature header is missing; event dropped", "header", h)
+			return errInvalidSignature
+		}
 	}
 	ctx := r.Context()
 	verified, err := s.PayPal.VerifyWebhookSignature(ctx, r.Header, body)

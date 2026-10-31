@@ -1029,6 +1029,37 @@ func TestWebhook_InvalidSignatureIs400AndNotStored(t *testing.T) {
 	}
 }
 
+func TestWebhook_MissingSignatureHeadersIsRejectedWithoutCallingPayPal(t *testing.T) {
+	e := newEnv(t, withWebhookID())
+	body := mustJSON(t, captureCompleted("WH-UNSIGNED-1", "CAPTURE-1", "ORDER-1", "AUTH-1"))
+	for missing := range webhookHeaders {
+		for _, value := range []string{"", "absent"} {
+			req := httptest.NewRequestWithContext(e.ctx, http.MethodPost, "/paypal/webhook", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			for k, v := range webhookHeaders {
+				if k != missing {
+					req.Header.Set(k, v)
+				} else if value == "" {
+					req.Header.Set(k, "")
+				}
+			}
+			rec := httptest.NewRecorder()
+			e.h.ServeHTTP(rec, req)
+			var got errorJSON
+			if rec.Code != http.StatusBadRequest || json.Unmarshal(rec.Body.Bytes(), &got) != nil || got.Error != "invalid_signature" {
+				t.Errorf("delivery with %s %s = %d %s, want 400 invalid_signature", missing, value, rec.Code, rec.Body.String())
+			}
+		}
+	}
+	e.wantRequests("verify_webhook", 0)
+	if n := e.count(`select count(*) from provider_events`); n != 0 {
+		t.Errorf("provider events = %d, want none", n)
+	}
+	if n := e.count(`select count(*) from jobs`); n != 0 {
+		t.Errorf("jobs = %d, want none", n)
+	}
+}
+
 func TestWebhook_DuplicateAndEarlyEventsDoNotDoubleCount(t *testing.T) {
 	lost := &lostAnswers{}
 	e := newEnv(t, withWebhookID(), withPayPal(lost.wrap))

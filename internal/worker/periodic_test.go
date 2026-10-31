@@ -3,6 +3,7 @@ package worker_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -245,4 +246,35 @@ func TestRun_LetsTheJobInFlightFinishOnShutdown(t *testing.T) {
 		t.Fatal("Run did not return after the job in flight finished")
 	}
 	e.wantJob("release_seats:in-flight", "succeeded")
+}
+
+func TestPeriodic_PurgesSucceededJobsOlderThan30Days(t *testing.T) {
+	e := newEnv(t)
+	_, a := e.authorized("Ana")
+	age := func(key string, d time.Duration) {
+		t.Helper()
+		if _, err := e.st.Pool.Exec(e.ctx, `update jobs set status = 'succeeded', updated_at = $2 where idempotency_key = $1`,
+			key, e.clock.Now().Add(-d)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	oldRead := e.reconcileNow(a)
+	age(oldRead, 31*24*time.Hour)
+	recentRelease := e.releaseSeatsNow()
+	age(recentRelease, 29*24*time.Hour)
+	age("authorize:"+a.ID, 31*24*time.Hour)
+
+	e.runPeriodic()
+
+	e.wantNoJob(oldRead)
+	e.wantJob(recentRelease, "succeeded")
+	e.wantJob("authorize:"+a.ID, "succeeded")
+	if n := strings.Count(e.logs.String(), `msg="purged old succeeded jobs" count=1`); n != 1 {
+		t.Errorf("purge log lines = %d, want one with count=1:\n%s", n, e.logs)
+	}
+
+	e.runPeriodic()
+	if n := strings.Count(e.logs.String(), "purged old succeeded jobs"); n != 1 {
+		t.Errorf("purge log lines after a purge of nothing = %d, want still 1", n)
+	}
 }

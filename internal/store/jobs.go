@@ -391,3 +391,23 @@ func (s *Store) RequeueStale(ctx context.Context, now time.Time, olderThan time.
 	}
 	return int(tag.RowsAffected()), nil
 }
+
+// PurgeSucceededJobs deletes the succeeded jobs last updated before before
+// that only read or released something: seat releases and reconciles other
+// than a numbered generation (reconcile:{attempt}:{n}), which are what a
+// periodic tick, a webhook, a return page or a close enqueue. A payment
+// action, a close and a numbered reconcile are kept, since the worker
+// decides from their existence (heal, the next reconcile generation and the
+// last generation that leaves a job to an operator). It returns how many
+// jobs it deleted.
+func (s *Store) PurgeSucceededJobs(ctx context.Context, before time.Time) (int, error) {
+	tag, err := s.Pool.Exec(ctx,
+		`delete from jobs
+		 where status = $1 and updated_at < $2
+		   and (kind = $3 or (kind = $4 and idempotency_key !~ ('^' || $4 || ':' || attempt_id::text || ':[0-9]+$')))`,
+		JobSucceeded, before, KindReleaseSeats, KindReconcile)
+	if err != nil {
+		return 0, wrap("purge succeeded jobs", err)
+	}
+	return int(tag.RowsAffected()), nil
+}

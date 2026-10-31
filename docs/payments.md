@@ -76,7 +76,7 @@ Every PayPal action is a row in `jobs`, written before the request leaves.
 | `unknown` | PayPal may or may not have performed the action. | `succeeded` or `pending` (same key) once a reconcile has read PayPal. |
 | `failed` | Refused: by PayPal for good, by the worker (a passed deadline), or skipped because the action did not apply. | `pending` (same key) when revived. |
 | `needs_attention` | Retries used up. | `pending` (same key) only when revived by hand. |
-| `succeeded` | Done. | Final. |
+| `succeeded` | Done. | Final. A succeeded seat release or read-only reconcile is deleted after 30 days (see Periodic work). |
 
 Automatic paths revive only a job that failed without a PayPal answer (a
 skip), never an action PayPal refused. The one exception is an authorize
@@ -239,8 +239,102 @@ The worker, in process:
   for every attempt with a job unknown for more than five minutes, unless its
   fifth reconcile generation exists; then heals every `FUNDING` workshop and
   every workshop whose money is not settled (`RESOLVING`, or cancelled and
-  not `SETTLED`, `NEEDS_ATTENTION` included).
+  not `SETTLED`, `NEEDS_ATTENTION` included);
+- on the same two-minute tick deletes the `succeeded` jobs last updated
+  more than 30 days ago that only read or released something:
+  `release_seats` and every reconcile except a numbered generation
+  (`reconcile:{attempt}:{n}`). Payment actions, `close` and numbered
+  generations are kept whatever their age, because the worker decides from
+  their existence (healing, the next generation and the last one that leaves
+  a job to an operator). The count is logged when it is not zero.
 
 On shutdown the worker claims nothing new and lets the job it is running
 finish for up to ten seconds; past that the PayPal call is cancelled and its
 result is reconciled like any other ambiguous one.
+
+## Operator runbook
+
+Run these against the application database (`psql "$DATABASE_URL"`). Read
+before you write: every statement below is a compare-and-set that changes
+nothing when the row is not in the state it expects.
+
+### Jobs waiting for an operator
+
+A job is left for an operator when its retries are used up
+(`needs_attention`) or when the last reconcile generation still could not
+tell whether PayPal performed it (`unknown`).
+
+```sql
+select j.kind, j.idempotency_key, j.status, j.attempts, j.http_status,
+       j.provider_issue, j.debug_id, j.last_error, j.updated_at,
+       w.id as workshop_id, w.title, w.status as workshop_status, w.resolution,
+       e.id as enrollment_id, e.status as enrollment_status, a.attempt_no
+from jobs j
+left join workshops w on w.id = j.workshop_id
+left join payment_attempts a on a.id = j.attempt_id
+left join enrollments e on e.id = a.enrollment_id
+where j.status in ('needs_attention', 'unknown')
+order by j.updated_at;
+```
+
+An `unknown` job updated in the last few minutes is still being reconciled
+and needs nothing yet. `debug_id` is PayPal's id for the failed request;
+quote it to PayPal support. `close` and `release_seats` jobs have no attempt, so their
+enrollment columns are empty.
+
+### Reviving a job
+
+```sql
+update jobs
+set status = 'pending', run_at = now(), locked_at = null, locked_by = null, updated_at = now()
+where idempotency_key = $1 and status in ('needs_attention', 'unknown', 'failed');
+```
+
+A revived job runs on the same row under the same key, and the key is its
+`PayPal-Request-Id`, so PayPal replays the answer it gave that request
+instead of performing the action a second time. PayPal remembers a request
+id only for a limited time: for an `unknown` job that is days old, first
+check at PayPal (by the attempt's order, authorization, capture or refund id,
+or the `debug_id`) whether the action happened, and revive only one that did
+not. The job keeps its `attempts`, so a job revived from `needs_attention`
+that fails again is parked again after that one try. Never revive a `succeeded` job, and never
+insert a job by hand under a new key.
+
+### Clearing a workshop flag
+
+A workshop flagged `NEEDS_ATTENTION` is never cleared by the worker. Before
+clearing it, open the owner view (`GET /api/v1/owner/{token}`) and the
+query above, and make sure what flagged it is resolved at PayPal. Then:
+
+```sql
+update workshops set resolution = $2, updated_at = now()
+where id = $1 and resolution = 'NEEDS_ATTENTION';
+```
+
+with `$2`:
+
+- `RESOLVING` for a cancelled workshop that still owes voids or refunds (or
+  has captures in flight); settlement moves it to `SETTLED` by itself once
+  they finish;
+- `SETTLED` for a cancelled workshop only when every enrollment is terminal
+  and no hold may remain;
+- `OPEN` for a `CONFIRMED` workshop.
+
+An enrollment in `REFUND_FAILED` or `NEEDS_ATTENTION` flags its workshop
+again (settlement, healing, the next hook). Once its money is settled at
+PayPal, record what PayPal shows on it first, for example
+`update enrollments set status = 'REFUNDED', updated_at = now() where id = $1 and status = 'REFUND_FAILED';`.
+
+### What the owner view shows and what only `jobs` shows
+
+The owner view lists every enrollment with its status, its seat expiry and,
+for its latest attempt, the PayPal order, authorization, capture and refund
+ids, their statuses and `capture_issue` (the issue PayPal gave for a refused
+capture, or `AUTHORIZATION_EXPIRED_LOCAL` / `CAPTURE_DEADLINE_PASSED`), plus
+the workshop's status and resolution.
+
+Only the `jobs` table shows which action is stuck and why: the job status,
+`attempts`, `run_at`, `http_status`, `provider_issue` (for a capture the
+owner view shows it as `capture_issue`), `debug_id` and `last_error`. Older attempts of an
+enrollment, `auth_expires_at`, `capture_debug_id`, `capture_reason` and
+`refund_reason` are only in `payment_attempts`.

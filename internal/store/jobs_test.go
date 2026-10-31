@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -1152,5 +1153,78 @@ func TestAdvanceJob_OnlyBringsAPendingJobForward(t *testing.T) {
 	}
 	if moved, err := s.AdvanceJob(ctx, "close:missing", now); err != nil || moved {
 		t.Errorf("AdvanceJob(missing key) = %v, %v; want false, nil", moved, err)
+	}
+}
+
+func TestPurgeSucceededJobs_DropsOldReadsAndSeatReleasesOnly(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	en := newEnrollment(t, s)
+	a, err := s.CreateAttempt(ctx, en.ID, 1000, "USD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := baseTime.Add(60 * 24 * time.Hour)
+	add := func(kind, key string, attempt bool, status string, age time.Duration) {
+		t.Helper()
+		var attemptID *string
+		if attempt {
+			attemptID = &a.ID
+		}
+		if _, err := s.EnqueueJob(ctx, kind, key, &en.WorkshopID, attemptID, nil, baseTime); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.Pool.Exec(ctx, `update jobs set status = $2, updated_at = $3 where idempotency_key = $1`,
+			key, status, now.Add(-age)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old, recent := 31*24*time.Hour, 29*24*time.Hour
+	purged := []string{
+		"release_seats:" + en.WorkshopID + ":2026-11-02T09:00",
+		"reconcile:" + a.ID + ":periodic:2026-11-02T09",
+		"reconcile:" + a.ID + ":periodic:2026-11-02T09:04",
+		"reconcile:" + a.ID + ":webhook:WH-1",
+		"reconcile:" + a.ID + ":return:2026-11-02T09:04",
+		"reconcile:" + a.ID + ":close",
+	}
+	for _, key := range purged {
+		kind := "reconcile"
+		if strings.HasPrefix(key, "release_seats:") {
+			kind = "release_seats"
+		}
+		add(kind, key, kind == "reconcile", store.JobSucceeded, old)
+	}
+	kept := map[string]bool{}
+	keep := func(kind, key string, attempt bool, status string, age time.Duration) {
+		add(kind, key, attempt, status, age)
+		kept[key] = true
+	}
+	// Payment actions, the close and numbered reconcile generations are what
+	// the worker decides from, so they stay whatever their age.
+	for _, kind := range []string{"create_order", "authorize", "capture", "void", "refund"} {
+		keep(kind, kind+":"+a.ID, true, store.JobSucceeded, old)
+	}
+	keep("close", "close:"+en.ProposalID, false, store.JobSucceeded, old)
+	keep("reconcile", "reconcile:"+a.ID+":1", true, store.JobSucceeded, old)
+	keep("reconcile", "reconcile:"+a.ID+":5", true, store.JobSucceeded, old)
+	keep("release_seats", "release_seats:"+en.WorkshopID+":2026-11-02T09:01", false, store.JobSucceeded, recent)
+	keep("release_seats", "release_seats:"+en.WorkshopID+":2026-11-02T09:02", false, store.JobFailed, old)
+	keep("reconcile", "reconcile:"+a.ID+":periodic:2026-11-02T10", true, store.JobNeedsAttention, old)
+
+	n, err := s.PurgeSucceededJobs(ctx, now.Add(-30*24*time.Hour))
+	if err != nil || n != len(purged) {
+		t.Fatalf("PurgeSucceededJobs = %d, %v; want %d, nil", n, err, len(purged))
+	}
+	for _, key := range purged {
+		if j, err := s.JobByKey(ctx, key); err != nil || j != nil {
+			t.Errorf("job %s = %+v, %v; want purged", key, j, err)
+		}
+	}
+	for key := range kept {
+		jobByKey(t, s, key)
+	}
+	if n, err := s.PurgeSucceededJobs(ctx, now.Add(-30*24*time.Hour)); err != nil || n != 0 {
+		t.Errorf("second PurgeSucceededJobs = %d, %v; want 0, nil", n, err)
 	}
 }

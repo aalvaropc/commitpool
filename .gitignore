@@ -4,7 +4,6 @@ web/dist/*
 !web/dist/.keep
 web/test-results
 web/playwright-report
-.superpowers/
 deploy/aws/.terraform/
 deploy/aws/*.tfstate*
 deploy/aws/*.tfvars

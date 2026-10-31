@@ -20,6 +20,9 @@ const (
 	// hourLayout is the hour a pending attempt's periodic reconcile key
 	// names, in UTC.
 	hourLayout = "2006-01-02T15"
+	// succeededRetention is how long RunPeriodic keeps a succeeded seat
+	// release or read-only reconcile (store.PurgeSucceededJobs).
+	succeededRetention = 30 * 24 * time.Hour
 )
 
 // RunPeriodic reconciles, with a reconcile job due now, every attempt whose
@@ -28,14 +31,16 @@ const (
 // whose authorization PayPal reports PENDING, gets
 // reconcile:{attempt}:periodic:{hour}, so an authorization, capture or
 // refund that stays pending for days is read back once an hour, the first
-// time within two minutes of it turning pending. An attempt with a job unknown for more than
-// five minutes gets reconcile:{attempt}:periodic:{minute}, unless the
-// attempt's last reconcile generation exists, which leaves that job to an
-// operator. Hours and minutes are UTC, so another call within the same one
-// enqueues nothing new. It then heals every workshop still funding or with
-// money not settled (HealWorkshop), so a step a failed hook left undone does
-// not wait for an unrelated event. Run calls it every two minutes; a failure
-// on one attempt or workshop does not stop the others.
+// time within two minutes of it turning pending. An attempt with a job
+// unknown for more than five minutes gets reconcile:{attempt}:periodic:{minute},
+// unless the attempt's last reconcile generation exists, which leaves that
+// job to an operator. Hours and minutes are UTC, so another call within the
+// same one enqueues nothing new. It deletes the succeeded seat releases and
+// read-only reconciles older than 30 days (store.PurgeSucceededJobs), and
+// then heals every workshop still funding or with money not settled
+// (HealWorkshop), so a step a failed hook left undone does not wait for an
+// unrelated event. Run calls it every two minutes; a failure on one attempt
+// or workshop does not stop the others.
 func (r *Runner) RunPeriodic(ctx context.Context) error {
 	var errs []error
 	now := r.clock.Now()
@@ -66,6 +71,12 @@ func (r *Runner) RunPeriodic(ctx context.Context) error {
 		if !left {
 			enqueue(*j.AttemptID, j.WorkshopID, now.UTC().Format(minuteLayout))
 		}
+	}
+
+	purged, err := r.st.PurgeSucceededJobs(ctx, now.Add(-succeededRetention))
+	errs = append(errs, err)
+	if purged > 0 {
+		r.log.Info("purged old succeeded jobs", "count", purged)
 	}
 
 	ids, err := r.st.WorkshopIDsFundingOrUnsettled(ctx)

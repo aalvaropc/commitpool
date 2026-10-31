@@ -77,9 +77,10 @@ func run(log *slog.Logger) error {
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
-		// The longest handler waits are an interpretation (30 s) and the
-		// PayPal calls of a checkout or a return (20 s each).
-		WriteTimeout: 60 * time.Second,
+		// The longest handler is /paypal/return: an OAuth token fetch, GET
+		// order and the authorize, each bounded by the PayPal client's 20 s
+		// timeout, about 60 s at worst; an interpretation waits up to 30 s.
+		WriteTimeout: 90 * time.Second,
 		IdleTimeout:  2 * time.Minute,
 	}
 

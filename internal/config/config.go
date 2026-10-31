@@ -178,11 +178,13 @@ func redact(secret string) string {
 	return redactedValue
 }
 
-// redactURL masks the password of a database URL, in its user info and in a
-// password query parameter; a URL that does not parse is replaced whole.
+// redactURL masks the password of a postgres:// or postgresql:// URL, in its
+// user info and in a password query parameter. Anything else, such as a
+// keyword/value DSN ("host=... password=..."), which url.Parse accepts
+// without finding its password, is replaced whole.
 func redactURL(raw string) string {
 	u, err := url.Parse(raw)
-	if err != nil {
+	if err != nil || u.Scheme != "postgres" && u.Scheme != "postgresql" {
 		return redact(raw)
 	}
 	if q := u.Query(); q.Has("password") {

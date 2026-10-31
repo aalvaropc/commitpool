@@ -67,7 +67,7 @@ export default function Participant() {
       <div className="flex flex-col gap-10">
         <div className="flex flex-col gap-4">
           <StatusBanner
-            headline={headline({ status: w.status, resolution: w.resolution, enrollment: own, seatHeld: held })}
+            headline={headline({ status: w.status, resolution: w.resolution, enrollment: own, seatHeld: held, paymentsOpen: d.proposal?.payments_open ?? false })}
             tone={tone(w.status, w.resolution, own)}
           >
             {w.status === 'FUNDING' && d.proposal && <Deadline closesAt={d.proposal.closes_at} timeZone={w.timezone} open={d.proposal.payments_open} />}

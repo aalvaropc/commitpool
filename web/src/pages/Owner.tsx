@@ -20,6 +20,9 @@ import { windowLabel } from '../lib/time'
 
 const EXPLANATION_TRIES = 6
 
+// A seat still paid in a cancelled workshop is about to be refunded.
+const REFUND_STATES: ReadonlySet<string> = new Set(['PAID', 'REFUNDING', 'REFUND_PENDING', 'REFUNDED', 'REFUND_FAILED'])
+
 function cancellationDetail(v: OwnerView): string {
   const howMany = (pred: (s: string) => boolean) => v.enrollments.filter((e) => pred(e.status)).length
   const released = howMany((s) => s === 'VOIDED' || s === 'VOIDING' || s === 'CAPTURE_FAILED')
@@ -70,6 +73,7 @@ export default function Owner() {
 
   const w = d.workshop
   const t = d.tally
+  const refunds = d.enrollments.some((e) => REFUND_STATES.has(e.status))
   return (
     <Page wide>
       <title>{`${w.title} – organizer – CommitPool`}</title>
@@ -80,7 +84,7 @@ export default function Owner() {
 
       <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
         <aside className="flex flex-col gap-8 lg:order-2" aria-label="Workshop summary">
-          <StatusBanner headline={headline({ status: w.status, resolution: w.resolution })} tone={tone(w.status, w.resolution)}>
+          <StatusBanner headline={headline({ status: w.status, resolution: w.resolution, refunds })} tone={tone(w.status, w.resolution)}>
             {d.proposal && d.proposal.payments_open && <Deadline closesAt={d.proposal.closes_at} timeZone={w.timezone} open />}
             {w.status === 'CANCELLED' && <p>{cancellationDetail(d)}</p>}
             {w.status === 'CONFIRMED' && (

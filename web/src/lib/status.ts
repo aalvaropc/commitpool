@@ -55,25 +55,39 @@ export interface HeadlineInput {
   enrollment?: EnrollmentStatus | null
   /** For a SEAT_RESERVED enrollment, whether the seat is still held (seatHeld); a lapsed one reads as expired. */
   seatHeld?: boolean
+  /** The proposal's payments_open; a failed charge only invites another try while it is true. */
+  paymentsOpen?: boolean
+  /** For the owner of a cancelled workshop: whether any enrollment was refunded or is being refunded. */
+  refunds?: boolean
+}
+
+/**
+ * The workshop-level NEEDS_ATTENTION flag is an operator signal: it shows to
+ * the owner (no enrollment) and to a participant whose own seat needs
+ * attention; any other participant reads their own seat.
+ */
+function flagged(resolution: Resolution, enrollment?: EnrollmentStatus | null): boolean {
+  if (resolution !== 'NEEDS_ATTENTION') return false
+  return !enrollment || enrollment === 'NEEDS_ATTENTION' || enrollment === 'REFUND_FAILED'
 }
 
 /** The one-line state of a workshop for whoever is looking at it. */
-export function headline({ status, resolution, enrollment, seatHeld = true }: HeadlineInput): string {
-  if (resolution === 'NEEDS_ATTENTION') return 'Needs attention'
+export function headline({ status, resolution, enrollment, seatHeld = true, paymentsOpen = true, refunds = true }: HeadlineInput): string {
+  if (flagged(resolution, enrollment)) return 'Needs attention'
   if ((status === 'FUNDING' || status === 'CONFIRMED') && enrollment === 'SEAT_RESERVED' && !seatHeld) return 'Seat expired'
   switch (status) {
     case 'COLLECTING':
       return 'Collecting availability'
     case 'FUNDING':
-      return fundingHeadline(enrollment)
+      return fundingHeadline(enrollment, paymentsOpen)
     case 'CONFIRMED':
       return confirmedHeadline(enrollment)
     case 'CANCELLED':
-      return cancelledHeadline(resolution, enrollment)
+      return cancelledHeadline(resolution, enrollment, refunds)
   }
 }
 
-function fundingHeadline(e?: EnrollmentStatus | null): string {
+function fundingHeadline(e: EnrollmentStatus | null | undefined, paymentsOpen: boolean): string {
   switch (e) {
     case 'SEAT_RESERVED':
       return 'Seat reserved — authorize your hold'
@@ -86,7 +100,7 @@ function fundingHeadline(e?: EnrollmentStatus | null): string {
     case 'PAID':
       return 'Seat paid'
     case 'CAPTURE_FAILED':
-      return 'Payment failed — you can try again'
+      return paymentsOpen ? 'Payment failed — you can try again' : 'Hold released — nothing was charged'
     case 'RELEASED':
       return 'Seat expired'
     case 'NEEDS_ATTENTION':
@@ -122,10 +136,10 @@ function confirmedHeadline(e?: EnrollmentStatus | null): string {
   return 'Workshop confirmed'
 }
 
-function cancelledHeadline(r: Resolution, e?: EnrollmentStatus | null): string {
+function cancelledHeadline(r: Resolution, e: EnrollmentStatus | null | undefined, refunds: boolean): string {
   if (e === undefined) {
-    if (r === 'RESOLVING') return 'Workshop cancelled — refund in progress'
-    if (r === 'SETTLED') return 'Workshop cancelled — refund completed'
+    if (r === 'RESOLVING') return refunds ? 'Workshop cancelled — refund in progress' : 'Workshop cancelled — releasing holds'
+    if (r === 'SETTLED') return refunds ? 'Workshop cancelled — refund completed' : 'Workshop cancelled — holds released'
     return 'Workshop cancelled'
   }
   switch (e) {
@@ -152,7 +166,7 @@ function cancelledHeadline(r: Resolution, e?: EnrollmentStatus | null): string {
 
 /** The banner's tone; a viewer whose payment failed in a confirmed workshop is not shown good news. */
 export function tone(status: WorkshopStatus, resolution: Resolution, enrollment?: EnrollmentStatus | null): Tone {
-  if (resolution === 'NEEDS_ATTENTION') return 'attention'
+  if (flagged(resolution, enrollment)) return 'attention'
   if (status === 'CONFIRMED' && (enrollment === 'CAPTURE_FAILED' || enrollment === 'NEEDS_ATTENTION' || enrollment === 'REFUND_FAILED')) {
     return 'attention'
   }

@@ -33,7 +33,10 @@ var (
 		domain.EnrollmentCapturePending, domain.EnrollmentVoiding, domain.EnrollmentRefunding, domain.EnrollmentRefundPending)
 
 	// A status missing from a table leaves the enrollment as it is. A capture
-	// REFUNDED moves nothing on its own: the refund's status decides.
+	// REFUNDED moves nothing on its own: the refund's status decides. An
+	// authorization PENDING (held for review) leaves the enrollment
+	// SEAT_RESERVED: the seat release keeps that seat and the periodic
+	// reconcile reads the authorization back until PayPal decides.
 	authorizationMoves = map[string]move{
 		paypal.StatusCreated: {statuses(domain.EnrollmentSeatReserved), domain.EnrollmentAuthorized},
 		paypal.StatusVoided:  {statuses(domain.EnrollmentAuthorized, domain.EnrollmentVoiding), domain.EnrollmentVoided},
@@ -118,7 +121,7 @@ func (r *Runner) applyOrder(ctx context.Context, attemptID string, o paypal.Orde
 
 // ApplyAuthorization records the authorization's id, status and expiry and
 // moves the enrollment: CREATED → AUTHORIZED, VOIDED → VOIDED, DENIED →
-// CAPTURE_FAILED. A CREATED authorization the enrollment cannot use, because
+// CAPTURE_FAILED; PENDING moves nothing. A CREATED authorization the enrollment cannot use, because
 // the attempt is not its latest or its seat was released, is a hold nobody
 // will capture, so it enqueues the attempt's void.
 func (r *Runner) ApplyAuthorization(ctx context.Context, attemptID string, au paypal.Authorization) error {
@@ -260,6 +263,7 @@ func (r *Runner) record(ctx context.Context, attemptID string, fn func(a *store.
 		}
 		log = log.With("enrollment_id", a.EnrollmentID)
 		log.Error("PayPal reports a second resource for one payment attempt; flagging the enrollment")
+		// A second resource may be a second charge, so PAID is flagged too; a job that gave up never is (unpaidActiveStatuses).
 		return recorded{attempt: *a}, r.flag(ctx, log, a.EnrollmentID, activeStatuses)
 	}
 	if err != nil {

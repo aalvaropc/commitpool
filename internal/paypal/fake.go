@@ -85,6 +85,7 @@ type FakeServer struct {
 	replays     map[replayKey]fakeResponse
 	verify      bool
 	expireToken bool
+	nextAuth    string
 	pending     int
 	closed      bool
 	idle        *sync.Cond
@@ -268,6 +269,27 @@ func (f *FakeServer) SetCaptureStatus(captureID, status, reason string) {
 	if reason != "" {
 		cp.StatusDetails = &StatusDetails{Reason: reason}
 	}
+}
+
+// SetNextAuthorizationStatus makes the next authorization the fake creates
+// start in status, such as PENDING for one held for review, instead of
+// CREATED.
+func (f *FakeServer) SetNextAuthorizationStatus(status string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.nextAuth = status
+}
+
+// SetAuthorizationStatus moves an authorization to status, for example
+// PENDING to CREATED or DENIED.
+func (f *FakeServer) SetAuthorizationStatus(authorizationID, status string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	a, ok := f.auths[authorizationID]
+	if !ok {
+		panic("paypal fake: unknown authorization " + authorizationID)
+	}
+	a.Status = status
 }
 
 func (f *FakeServer) SetRefundStatus(refundID, status string) {

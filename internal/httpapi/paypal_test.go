@@ -786,6 +786,26 @@ func TestEnrollment_LapsedSeatRenewedByAConcurrentReconcileKeepsTheLink(t *testi
 	e.wantRequests("create_order", 1)
 }
 
+func TestEnrollment_LapsedSeatWithAPendingAuthorizationIsKept(t *testing.T) {
+	e := newEnv(t)
+	h, p, ps := e.fundingWorkshop()
+	first, a := e.checkout(ps[0], p.ID)
+	e.fake.Approve(*a.OrderID)
+	// PayPal holds the authorization for review.
+	e.fake.SetNextAuthorizationStatus("PENDING")
+	e.runPayment("authorize", h.created.Workshop.ID, a)
+	e.wantStatus(first.EnrollmentID, domain.EnrollmentSeatReserved)
+	e.clock.Set(t0.Add(31 * time.Minute))
+
+	again := e.enroll(ps[0], p.ID, http.StatusOK)
+	if again.EnrollmentID != first.EnrollmentID || again.Status != "SEAT_RESERVED" {
+		t.Errorf("repeated POST while the authorization is pending = %+v, want %s still SEAT_RESERVED", again, first.EnrollmentID)
+	}
+	e.wantStatus(first.EnrollmentID, domain.EnrollmentSeatReserved)
+	e.wantReturn(first.EnrollmentID, *a.OrderID, "pending")
+	e.wantRequests("authorize", 1)
+}
+
 func TestEnrollment_LapsedSeatAfterPaymentsCloseIsProposalNotOpen(t *testing.T) {
 	e := newEnv(t)
 	_, p, ps := e.fundingWorkshop()

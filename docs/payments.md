@@ -43,7 +43,7 @@ and authorizations placed only while payments are open.
 
 | Status | Seat | Reached when | Next |
 |---|---|---|---|
-| `SEAT_RESERVED` | yes | The participant enrolls (capacity permitting), or a released seat is taken again. | `AUTHORIZED`, `RELEASED`, `CAPTURE_FAILED` (authorization denied), `NEEDS_ATTENTION` |
+| `SEAT_RESERVED` | yes | The participant enrolls (capacity permitting), or a released seat is taken again. Also while PayPal holds the authorization `PENDING` (review): the seat is kept past its expiry and read back hourly. | `AUTHORIZED`, `RELEASED`, `CAPTURE_FAILED` (authorization denied), `NEEDS_ATTENTION` |
 | `AUTHORIZED` | yes | PayPal created the authorization. | `CAPTURING`, `VOIDING`, `VOIDED`, `PAID`, `CAPTURE_PENDING`, `CAPTURE_FAILED`, `NEEDS_ATTENTION` |
 | `CAPTURING` | yes | The capture job is about to call PayPal. | `PAID`, `CAPTURE_PENDING`, `CAPTURE_FAILED`, `NEEDS_ATTENTION` |
 | `CAPTURE_PENDING` | yes | PayPal reported the capture `PENDING`. | `PAID`, `CAPTURE_FAILED`, `NEEDS_ATTENTION` |
@@ -55,7 +55,7 @@ and authorizations placed only while payments are open.
 | `REFUNDED` | no | The refund `COMPLETED`. | Terminal. |
 | `REFUND_FAILED` | no | The refund `FAILED` or was `CANCELLED`. | Terminal; needs an operator. |
 | `CAPTURE_FAILED` | no | PayPal declined or refused the capture, or its deadline passed. The hold is voided. | Terminal, or `NEEDS_ATTENTION` when PayPal refuses the void. |
-| `RELEASED` | no | The seat expired before the authorization. | `SEAT_RESERVED` when the buyer comes back to pay while payments are open and a seat is free. |
+| `RELEASED` | no | The seat expired before the authorization (never while the latest attempt's authorization is `PENDING`). | `SEAT_RESERVED` when the buyer comes back to pay while payments are open and a seat is free. |
 | `NEEDS_ATTENTION` | no | An operator must act (see below). | Terminal. |
 
 A move only happens from the statuses listed for it, so applying the same
@@ -104,7 +104,7 @@ it and PayPal performs the action at most once.
 | `reconcile:{attempt}:close` | Read back a capture still in flight at close. |
 | `reconcile:{attempt}:webhook:{event_id}` | Read back after a verified webhook. A webhook never applies a payment state itself. |
 | `reconcile:{attempt}:return:{minute}` | Read back a checkout whose order PayPal did not show on the return page. |
-| `reconcile:{attempt}:periodic:{hour}` | Periodic read-back of a pending capture or refund (see Periodic work). |
+| `reconcile:{attempt}:periodic:{hour}` | Periodic read-back of a pending authorization, capture or refund (see Periodic work). |
 | `reconcile:{attempt}:periodic:{minute}` | Periodic read-back of an attempt with a job unknown for too long. |
 | `close:{proposal}` | Close payments at `closes_at`. |
 | `release_seats:{workshop}:{minute}` | Release the expired seats. |
@@ -209,7 +209,9 @@ written, healing redoes its follow-up from a fresh read, idempotently by key:
 - a failed capture or a released seat whose authorization still holds is
   voided (a skipped void is revived; a void PayPal refused is not sent again);
 - a `FUNDING` workshop whose completed payments reach the minimum is
-  confirmed;
+  confirmed, and one whose authorized plus paid enrollments reach it while
+  payments are open gets its capture round (under `capture:{attempt}`, so a
+  round already started enqueues nothing new);
 - in a cancelled workshop, a payment with no refund job is refunded and an
   authorization with no void job is voided;
 - in a confirmed workshop, an authorization with neither a capture nor a void
@@ -228,9 +230,12 @@ The worker, in process:
   `needs_attention` once their attempts are used up) and enqueues
   `release_seats` for every workshop with a reserved seat;
 - every two minutes enqueues `reconcile:{attempt}:periodic:{hour}` for the
-  latest attempt of every `CAPTURE_PENDING` or `REFUND_PENDING` enrollment (so
-  a pending capture or refund is read back within two minutes of turning
-  pending and then once an hour), and `reconcile:{attempt}:periodic:{minute}`
+  latest attempt of every `CAPTURE_PENDING` or `REFUND_PENDING` enrollment,
+  and of every `SEAT_RESERVED` enrollment whose authorization PayPal reports
+  `PENDING` (so a pending authorization, capture or refund is read back
+  within two minutes of turning pending and then once an hour; the
+  authorization then moves `CREATED` → `AUTHORIZED` or `DENIED` →
+  `CAPTURE_FAILED`, which frees the seat), and `reconcile:{attempt}:periodic:{minute}`
   for every attempt with a job unknown for more than five minutes, unless its
   fifth reconcile generation exists; then heals every `FUNDING` workshop and
   every workshop whose money is not settled (`RESOLVING`, or cancelled and

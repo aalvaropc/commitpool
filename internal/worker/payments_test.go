@@ -803,3 +803,71 @@ func TestCreateOrder_OlderAttemptRevivedIsNotSent(t *testing.T) {
 		t.Errorf("older attempt got order %s, want none: the enrollment follows attempt 2", *a.OrderID)
 	}
 }
+
+// pendingAuthorization plays a buyer whose approved order PayPal authorizes
+// as PENDING (held for review), lets the seat's window pass and runs the
+// seat release and the periodic tick. It wants the seat kept and the
+// attempt's hourly reconcile enqueued, and returns the authorization id.
+func (e *env) pendingAuthorization(en store.EnrollmentRow, a store.AttemptRow) string {
+	e.t.Helper()
+	e.fake.Approve(*a.OrderID)
+	e.fake.SetNextAuthorizationStatus("PENDING")
+	key := e.enqueue("authorize", a)
+	e.runKey(key)
+	e.wantJob(key, "succeeded")
+	got := e.attempt(a.ID)
+	if got.AuthorizationID == nil {
+		e.t.Fatalf("attempt authorization_id = nil, want the pending authorization")
+	}
+	wantString(e.t, "authorization_status", got.AuthorizationStatus, "PENDING")
+	e.wantStatus(en.ID, domain.EnrollmentSeatReserved)
+
+	e.advance(31 * time.Minute)
+	e.runKey(e.releaseSeatsNow())
+	e.wantStatus(en.ID, domain.EnrollmentSeatReserved)
+
+	e.runPeriodic()
+	e.wantStatus(en.ID, domain.EnrollmentSeatReserved)
+	e.wantJob(e.pendingKey(a), "pending")
+	e.wantNoJob("void:" + a.ID)
+	return *got.AuthorizationID
+}
+
+func TestAuthorize_PendingAuthorizationKeepsTheSeatAndIsReconciled(t *testing.T) {
+	e := newEnv(t)
+	en, a := e.withOrder("Ana")
+	authID := e.pendingAuthorization(en, a)
+
+	e.fake.SetAuthorizationStatus(authID, "CREATED")
+	e.runKey(e.pendingKey(a))
+
+	e.wantStatus(en.ID, domain.EnrollmentAuthorized)
+	wantString(t, "authorization_status", e.attempt(a.ID).AuthorizationStatus, "CREATED")
+	e.wantNoJob("void:" + a.ID)
+	if n := len(e.fake.Requests("authorize")); n != 1 {
+		t.Errorf("authorize requests = %d, want 1", n)
+	}
+
+	// Once authorized it is no longer read back every hour.
+	e.clock.Set(e.clock.Now().Truncate(time.Hour).Add(time.Hour))
+	e.runPeriodic()
+	e.wantNoJob(e.pendingKey(a))
+}
+
+func TestAuthorize_PendingAuthorizationDeniedFreesTheSeat(t *testing.T) {
+	e := newEnv(t)
+	en, a := e.withOrder("Ana")
+	authID := e.pendingAuthorization(en, a)
+
+	e.fake.SetAuthorizationStatus(authID, "DENIED")
+	e.runKey(e.pendingKey(a))
+
+	e.wantStatus(en.ID, domain.EnrollmentCaptureFailed)
+	wantString(t, "authorization_status", e.attempt(a.ID).AuthorizationStatus, "DENIED")
+	e.wantNoJob("void:" + a.ID)
+	e.wantNoJob("capture:" + a.ID)
+
+	e.clock.Set(e.clock.Now().Truncate(time.Hour).Add(time.Hour))
+	e.runPeriodic()
+	e.wantNoJob(e.pendingKey(a))
+}

@@ -24,10 +24,11 @@ const (
 
 // RunPeriodic reconciles, with a reconcile job due now, every attempt whose
 // outcome PayPal may still change without telling us. The latest attempt of
-// a CAPTURE_PENDING or REFUND_PENDING enrollment gets
-// reconcile:{attempt}:periodic:{hour}, so a capture or refund that stays
-// pending for days is read back once an hour, the first time within two
-// minutes of it turning pending. An attempt with a job unknown for more than
+// a CAPTURE_PENDING or REFUND_PENDING enrollment, and of a SEAT_RESERVED one
+// whose authorization PayPal reports PENDING, gets
+// reconcile:{attempt}:periodic:{hour}, so an authorization, capture or
+// refund that stays pending for days is read back once an hour, the first
+// time within two minutes of it turning pending. An attempt with a job unknown for more than
 // five minutes gets reconcile:{attempt}:periodic:{minute}, unless the
 // attempt's last reconcile generation exists, which leaves that job to an
 // operator. Hours and minutes are UTC, so another call within the same one
@@ -46,7 +47,9 @@ func (r *Runner) RunPeriodic(ctx context.Context) error {
 	}
 	pending, err := r.st.LatestAttemptsInStatus(ctx, domain.EnrollmentCapturePending, domain.EnrollmentRefundPending)
 	errs = append(errs, err)
-	for _, ref := range pending {
+	held, err := r.st.LatestAttemptsWithPendingAuthorization(ctx)
+	errs = append(errs, err)
+	for _, ref := range append(pending, held...) {
 		enqueue(ref.AttemptID, nonEmpty(ref.WorkshopID), now.UTC().Format(hourLayout))
 	}
 	unknown, err := r.st.UnknownJobs(ctx, unknownAfter)

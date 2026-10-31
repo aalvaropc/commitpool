@@ -873,3 +873,85 @@ func TestClose_PaymentLandingWhileTheCancellationIsWrittenIsRefundedByTheClose(t
 	e.wantJob("refund:"+a.ID, "pending")
 	e.wantNoJob("reconcile:" + a.ID + ":close")
 }
+
+func TestHeal_StartsRoundMissedByFundingHook(t *testing.T) {
+	// missedRound authorizes three holds, the workshop's minimum, and drops
+	// the captures the third authorization's hook enqueued, as if the hook
+	// had failed after the AUTHORIZED move was written.
+	missedRound := func(e *env) []store.AttemptRow {
+		e.t.Helper()
+		var attempts []store.AttemptRow
+		for _, name := range []string{"Ana", "Ben", "Cleo"} {
+			_, a := e.authorized(name)
+			e.wantJob("authorize:"+a.ID, "succeeded")
+			attempts = append(attempts, a)
+		}
+		for _, a := range attempts {
+			e.dropJob("capture:" + a.ID)
+		}
+		e.wantWorkshop(domain.WorkshopFunding, domain.ResolutionOpen)
+		return attempts
+	}
+	wantRound := func(e *env, attempts []store.AttemptRow) {
+		e.t.Helper()
+		for _, a := range attempts {
+			if j := e.wantJob("capture:"+a.ID, "pending"); !j.RunAt.Equal(e.clock.Now()) {
+				e.t.Errorf("capture:%s run_at = %s, want now (%s)", a.ID, j.RunAt, e.clock.Now())
+			}
+		}
+	}
+
+	t.Run("heal", func(t *testing.T) {
+		e := newEnv(t)
+		attempts := missedRound(e)
+		before := len(e.allJobKeys())
+
+		if err := e.runner.HealWorkshop(e.ctx, e.workshop.ID); err != nil {
+			t.Fatalf("HealWorkshop: %v", err)
+		}
+		wantRound(e, attempts)
+		if got := len(e.allJobKeys()); got != before+3 {
+			t.Errorf("jobs after heal = %d, want %d", got, before+3)
+		}
+
+		if err := e.runner.HealWorkshop(e.ctx, e.workshop.ID); err != nil {
+			t.Fatalf("HealWorkshop again: %v", err)
+		}
+		if got := len(e.allJobKeys()); got != before+3 {
+			t.Errorf("jobs after a second heal = %d, want %d", got, before+3)
+		}
+
+		e.runUntilIdle()
+		e.wantWorkshop(domain.WorkshopConfirmed, domain.ResolutionOpen)
+		for _, a := range attempts {
+			if n := e.requestsWithID("capture", "capture:"+a.ID); n != 1 {
+				t.Errorf("capture requests under capture:%s = %d, want 1", a.ID, n)
+			}
+		}
+	})
+
+	t.Run("periodic tick", func(t *testing.T) {
+		e := newEnv(t)
+		attempts := missedRound(e)
+
+		e.runPeriodic()
+
+		wantRound(e, attempts)
+	})
+
+	t.Run("confirmed workshop", func(t *testing.T) {
+		e := newEnv(t)
+		dan, danAttempt := e.withOrder("Dan")
+		e.confirmed()
+		danAttempt = e.authorize(dan, danAttempt)
+		// The capture this authorization called for was lost.
+		e.dropJob("capture:" + danAttempt.ID)
+
+		if err := e.runner.HealWorkshop(e.ctx, e.workshop.ID); err != nil {
+			t.Fatalf("HealWorkshop: %v", err)
+		}
+
+		wantRound(e, []store.AttemptRow{danAttempt})
+		e.wantWorkshop(domain.WorkshopConfirmed, domain.ResolutionOpen)
+	})
+}

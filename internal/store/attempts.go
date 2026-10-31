@@ -151,6 +151,21 @@ func (s *Store) LatestAttemptsInStatus(ctx context.Context, statuses ...domain.E
 		 order by id`, texts(statuses))
 }
 
+// LatestAttemptsWithPendingAuthorization returns the latest attempt of every
+// SEAT_RESERVED enrollment whose authorization PayPal reports PENDING, with
+// its workshop, ordered by attempt ID. It is an empty list when there are
+// none.
+func (s *Store) LatestAttemptsWithPendingAuthorization(ctx context.Context) ([]AttemptRef, error) {
+	return many[AttemptRef](ctx, s.Pool, "latest attempts with a pending authorization",
+		`select id, workshop_id from (
+		     select distinct on (a.enrollment_id) a.id::text as id, e.workshop_id::text as workshop_id, a.authorization_status
+		     from payment_attempts a join enrollments e on e.id = a.enrollment_id
+		     where e.status = $1
+		     order by a.enrollment_id, a.attempt_no desc) latest
+		 where authorization_status = $2
+		 order by id`, string(domain.EnrollmentSeatReserved), paypal.StatusPending)
+}
+
 // AttemptByID returns the attempt, or nil when there is none.
 func (s *Store) AttemptByID(ctx context.Context, id string) (*AttemptRow, error) {
 	return oneOrNil[AttemptRow](ctx, s.Pool, "attempt by id",

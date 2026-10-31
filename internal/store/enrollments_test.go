@@ -547,6 +547,62 @@ func TestReleaseExpiredSeats_ReleasesOnlyExpiredReserved(t *testing.T) {
 	}
 }
 
+func TestReleaseExpiredSeats_KeepsASeatWhoseAuthorizationIsPending(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	w, _, _ := newWorkshop(t, s, 1, 6)
+	p := openFunding(t, s, w, baseTime)
+	reserved := baseTime.Add(time.Hour)
+	withAuthorization := func(name, status string) store.EnrollmentRow {
+		t.Helper()
+		en := reserve(t, s, w, p, newParticipant(t, s, w, name).ID, reserved)
+		a, err := s.CreateAttempt(ctx, en.ID, p.PriceMinor, p.Currency)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.UpdateAttemptFunc(ctx, a.ID, func(row *store.AttemptRow) error {
+			row.AuthorizationID, row.AuthorizationStatus = ptr("AUTH-"+name), ptr(status)
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return en
+	}
+	pending := withAuthorization("pending", "PENDING")
+	voided := withAuthorization("voided", "VOIDED")
+	noAttempt := reserve(t, s, w, p, newParticipant(t, s, w, "no attempt").ID, reserved)
+
+	n, err := s.ReleaseExpiredSeats(ctx, w.ID, reserved.Add(24*time.Hour))
+	if err != nil || n != 2 {
+		t.Fatalf("ReleaseExpiredSeats = %d, %v; want 2, nil", n, err)
+	}
+	for id, want := range map[string]domain.EnrollmentStatus{
+		pending.ID:   domain.EnrollmentSeatReserved,
+		voided.ID:    domain.EnrollmentReleased,
+		noAttempt.ID: domain.EnrollmentReleased,
+	} {
+		got, err := s.EnrollmentByID(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Status != want {
+			t.Errorf("enrollment %s is %s, want %s", id, got.Status, want)
+		}
+	}
+
+	refs, err := s.LatestAttemptsWithPendingAuthorization(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	latest, err := s.LatestAttempt(ctx, pending.ID)
+	if err != nil || latest == nil {
+		t.Fatalf("LatestAttempt = %v, %v", latest, err)
+	}
+	if want := []store.AttemptRef{{AttemptID: latest.ID, WorkshopID: w.ID}}; !slices.Equal(refs, want) {
+		t.Errorf("LatestAttemptsWithPendingAuthorization = %+v, want %+v", refs, want)
+	}
+}
+
 func TestReReserveSeat(t *testing.T) {
 	ctx := context.Background()
 	s := store.TestStore(t)

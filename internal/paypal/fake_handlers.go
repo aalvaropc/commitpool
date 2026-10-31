@@ -86,10 +86,14 @@ func (f *FakeServer) authorize(r *http.Request, body []byte) fakeResponse {
 	if o.status != orderApproved {
 		return unprocessable("ORDER_NOT_APPROVED")
 	}
+	status := authCreated
+	if f.nextAuth != "" {
+		status, f.nextAuth = f.nextAuth, ""
+	}
 	a := &fakeAuth{
 		Authorization: Authorization{
 			ID:             newID(),
-			Status:         authCreated,
+			Status:         status,
 			ExpirationTime: time.Now().UTC().Add(29 * 24 * time.Hour).Truncate(time.Second),
 			Amount:         o.amount,
 		},

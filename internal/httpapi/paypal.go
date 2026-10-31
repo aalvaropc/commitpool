@@ -276,9 +276,10 @@ var beforeSeatRenewal = func(context.Context, string) {}
 // again under the capacity rule (store.ReReserveSeat) for the configured
 // seat TTL, as a new enrollment gets. When that is refused the enrollment is
 // read again: another request or a reconcile may have renewed the seat
-// first, or placed the hold, and then the seat is held. Only an enrollment
-// still RELEASED has lost it: seatClosed when payments have closed since,
-// seatGone otherwise.
+// first, or placed the hold, and then the seat is held; so is a seat the
+// release kept because its authorization is pending at PayPal. Only an
+// enrollment still RELEASED has lost it: seatClosed when payments have
+// closed since, seatGone otherwise.
 func (s *server) holdSeat(ctx context.Context, en store.EnrollmentRow, now time.Time) (seatState, error) {
 	if !seatLive(en, now) && (en.Status == domain.EnrollmentSeatReserved || en.Status == domain.EnrollmentReleased) {
 		beforeSeatRenewal(ctx, en.ID)
@@ -295,6 +296,9 @@ func (s *server) holdSeat(ctx context.Context, en store.EnrollmentRow, now time.
 	}
 	switch {
 	case seatLive(en, now):
+		return seatHeld, nil
+	case en.Status == domain.EnrollmentSeatReserved:
+		// The release kept the seat: its authorization is pending at PayPal.
 		return seatHeld, nil
 	case en.Status != domain.EnrollmentReleased:
 		return seatGone, nil

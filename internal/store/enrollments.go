@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/aalvaropc/commitpool/internal/domain"
+	"github.com/aalvaropc/commitpool/internal/paypal"
 )
 
 type EnrollmentRow struct {
@@ -254,13 +255,18 @@ func (s *Store) WorkshopIDsWithReservedSeats(ctx context.Context) ([]string, err
 }
 
 // ReleaseExpiredSeats moves the workshop's SEAT_RESERVED enrollments whose seat
-// expired before now to RELEASED and returns how many it released.
+// expired before now to RELEASED and returns how many it released. A seat
+// whose latest attempt holds an authorization PayPal reports PENDING (held
+// for review) is kept past its expiry: the buyer approved, and the periodic
+// reconcile moves it once PayPal decides.
 func (s *Store) ReleaseExpiredSeats(ctx context.Context, workshopID string, now time.Time) (int, error) {
 	tag, err := s.Pool.Exec(ctx,
-		`update enrollments
+		`update enrollments e
 		 set status = $3, released_at = $2, updated_at = now()
-		 where workshop_id = $1 and status = $4 and seat_expires_at < $2`,
-		workshopID, now, string(domain.EnrollmentReleased), string(domain.EnrollmentSeatReserved))
+		 where e.workshop_id = $1 and e.status = $4 and e.seat_expires_at < $2
+		   and coalesce((select a.authorization_status from payment_attempts a
+		                 where a.enrollment_id = e.id order by a.attempt_no desc limit 1), '') <> $5`,
+		workshopID, now, string(domain.EnrollmentReleased), string(domain.EnrollmentSeatReserved), paypal.StatusPending)
 	if err != nil {
 		return 0, wrap("release expired seats", err)
 	}

@@ -217,7 +217,10 @@ func holdsAuthorization(a *store.AttemptRow) bool {
 //   - a failed capture or a released seat whose authorization still holds is
 //     voided: void:{attempt} is enqueued, or revived when it was skipped
 //     (EnqueueOrRevive never sends again a void PayPal refused);
-//   - a FUNDING workshop whose payments reach the minimum is confirmed;
+//   - a FUNDING workshop whose payments reach the minimum is confirmed, and
+//     one whose authorized and paid enrollments reach it while payments are
+//     open gets its capture round (StartCaptureRoundIfReady), which the
+//     hook of the authorization that reached it may have missed;
 //   - in a cancelled workshop a payment with no refund job is refunded, and an
 //     authorization with no void job is voided;
 //   - in a confirmed workshop an authorization with neither a capture nor a
@@ -244,8 +247,9 @@ func (r *Runner) HealWorkshop(ctx context.Context, workshopID string) error {
 		_, err := r.confirmIfFunded(ctx, workshopID)
 		errs = append(errs, err)
 	}
-	open := r.clock.Now().Before(v.p.ClosesAt)
-	round := false
+	now := r.clock.Now()
+	open := now.Before(v.p.ClosesAt)
+	round := domain.ShouldStartCaptureRound(v.w, v.p, domain.Counts(v.es), now)
 	for i, en := range v.rows {
 		switch {
 		case (en.Status == domain.EnrollmentCaptureFailed || en.Status == domain.EnrollmentReleased) && holdsAuthorization(v.att[i]):

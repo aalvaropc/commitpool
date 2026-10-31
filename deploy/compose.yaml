@@ -18,5 +18,21 @@ services:
       timeout: 3s
       retries: 30
 
+  app:
+    profiles: [app]
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: commitpool:dev
+    env_file: ../.env
+    environment:
+      DATABASE_URL: postgres://commitpool:commitpool@postgres:5432/commitpool?sslmode=disable
+      PORT: "8080"
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   pgdata:

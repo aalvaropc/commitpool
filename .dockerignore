@@ -1,0 +1,14 @@
+.git
+.github
+.superpowers
+.env*
+!.env.example
+web/node_modules
+web/dist
+web/test-results
+web/playwright-report
+/commitpool
+cmd/commitpool/commitpool
+*.exe
+*.test
+*.out

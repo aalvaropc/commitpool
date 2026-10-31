@@ -94,6 +94,51 @@ model catalog for your region. To use Bedrock:
 The service logs, per call, the model, latency and token counts, never the
 prompt, the message or the answer.
 
+## Run with Docker
+
+The image is a multi-stage build: Node builds the SPA, Go compiles a static
+binary that embeds it, and the result runs on
+`gcr.io/distroless/static-debian12:nonroot` as a non-root user. Build it from
+the repository root:
+
+```sh
+docker build -f deploy/Dockerfile -t commitpool:dev .
+```
+
+The compose file has an `app` profile that builds the same image and runs it
+next to the PostgreSQL service. The `.env` file at the repository root feeds
+the container, so create it first (`cp .env.example .env`) and fill in the
+values you need. Compose always overrides `DATABASE_URL` with
+`postgres://commitpool:commitpool@postgres:5432/commitpool?sslmode=disable`
+and `PORT` with `8080`, so the container reaches the compose database whatever
+`.env` says for a run on the host. Inside the container only environment
+variables are read: there is no `~/.aws`, so Bedrock credentials must be in
+`.env` (`AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, or
+`AWS_BEARER_TOKEN_BEDROCK`).
+
+```sh
+docker compose -f deploy/compose.yaml --profile app up -d --build --wait
+curl -s localhost:8080/healthz   # {"ok":true}
+```
+
+Migrations run at startup, as with `make run`. Stop everything with:
+
+```sh
+docker compose -f deploy/compose.yaml --profile app down
+```
+
+Without `--profile app`, compose starts only PostgreSQL, which is what
+`make db-up` and the end-to-end script use.
+
+## Sandbox test accounts
+
+Buyers approve checkouts with Personal Sandbox accounts. Create them in the
+PayPal Developer Dashboard under Sandbox, Accounts, and log in with one on the
+PayPal approval page. One Personal account may approve several orders: the app
+does not check that buyers are distinct. The Business Sandbox account that owns
+the REST app (the `PAYPAL_CLIENT_ID` and `PAYPAL_CLIENT_SECRET` in `.env`)
+receives the Sandbox payments. No real money moves.
+
 ## Tests
 
 ```sh

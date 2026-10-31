@@ -104,5 +104,5 @@ resource "aws_ecs_service" "app" {
     container_port   = 8080
   }
 
-  depends_on = [aws_lb_listener.http, aws_iam_role_policy.execution]
+  depends_on = [aws_lb_listener.http, aws_iam_role_policy.execution, aws_secretsmanager_secret_version.database_url]
 }

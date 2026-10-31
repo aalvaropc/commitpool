@@ -54,8 +54,10 @@ and `COMMITPOOL_SEAT_TTL_MIN` as plain environment variables, and `DATABASE_URL`
   no route out.
 - **CloudFront for HTTPS.** There is no custom domain, so CloudFront's default
   `*.cloudfront.net` certificate gives the HTTPS origin that PayPal's return,
-  cancel and webhook URLs need. CloudFront talks to the ALB over HTTP inside
-  AWS; the ALB only accepts the CloudFront origin-facing prefix list.
+  cancel and webhook URLs need. CloudFront reaches the ALB over plain HTTP at
+  the ALB's public endpoint; the ALB only accepts the CloudFront
+  origin-facing prefix list (see "Not included" for what that hop leaves
+  open).
 - **`AllViewer` origin request policy.** It forwards every viewer header,
   including PayPal's webhook signature headers and the viewer `Host`
   (the CloudFront domain). The ALB has a single forward action and does not
@@ -106,41 +108,29 @@ destroy and re-apply instead (the database is lost).
 
 ## First deploy, in order
 
-All commands run from the repository root. Pick the region once:
+All commands run from the repository root, in one shell. Set the region and
+the `project` value (the secret name prefix) once:
 
 ```sh
 export AWS_REGION=us-east-2
+project=commitpool
 ```
 
-1. **Create the infrastructure.** Optionally copy
-   `deploy/aws/terraform.tfvars.example` to `deploy/aws/terraform.tfvars` and
-   adjust it.
+Optionally copy `deploy/aws/terraform.tfvars.example` to
+`deploy/aws/terraform.tfvars` and adjust it.
+
+1. **Create the image repository and the PayPal secrets first.** A targeted
+   apply creates only these (Terraform warns that `-target` is for
+   exceptional use; that is expected here), so no service exists yet that
+   could start without an image or credentials:
 
    ```sh
    terraform -chdir=deploy/aws init
-   terraform -chdir=deploy/aws plan -var region="$AWS_REGION"
-   terraform -chdir=deploy/aws apply -var region="$AWS_REGION"
+   terraform -chdir=deploy/aws apply -var region="$AWS_REGION" \
+     -target=aws_ecr_repository.app -target=aws_secretsmanager_secret_version.paypal
    ```
 
-   CloudFront takes several minutes. Until steps 2–4 are done the service's
-   task cannot start (no image yet, placeholder secrets); that is expected.
-
-2. **Build and push the image.**
-
-   ```sh
-   repo="$(terraform -chdir=deploy/aws output -raw ecr_repository_url)"
-   tag="$(git rev-parse --short HEAD)"
-   aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "${repo%%/*}"
-   docker build --platform linux/amd64 -f deploy/Dockerfile -t "$repo:$tag" .
-   docker push "$repo:$tag"
-   terraform -chdir=deploy/aws apply -var region="$AWS_REGION" -var image="$repo:$tag"
-   ```
-
-   Every later `apply` needs the same `image`; put it in
-   `deploy/aws/terraform.tfvars` (`image = "<repo>:<tag>"`) so a plain
-   `apply` does not go back to `:latest`.
-
-3. **Put the PayPal credentials.** Read them into shell variables without
+2. **Put the PayPal credentials.** Read them into shell variables without
    echoing them, then pass them on stdin so they never appear in a command
    line:
 
@@ -149,21 +139,37 @@ export AWS_REGION=us-east-2
    printf 'PayPal client secret: ' && read -rs PAYPAL_CLIENT_SECRET && echo
    export PAYPAL_CLIENT_ID PAYPAL_CLIENT_SECRET
    printf %s "$PAYPAL_CLIENT_ID" | aws secretsmanager put-secret-value --region "$AWS_REGION" \
-     --secret-id commitpool/paypal-client-id --secret-string file:///dev/stdin
+     --secret-id "$project/paypal-client-id" --secret-string file:///dev/stdin
    printf %s "$PAYPAL_CLIENT_SECRET" | aws secretsmanager put-secret-value --region "$AWS_REGION" \
-     --secret-id commitpool/paypal-client-secret --secret-string file:///dev/stdin
+     --secret-id "$project/paypal-client-secret" --secret-string file:///dev/stdin
    ```
 
-   (Replace `commitpool/` if you changed `project`.)
-
-4. **Deploy the task with the secrets.**
+3. **Build and push the image.**
 
    ```sh
+   repo="$(terraform -chdir=deploy/aws output -raw ecr_repository_url)"
+   tag="$(git rev-parse --short HEAD)"
+   aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "${repo%%/*}"
+   docker build --platform linux/amd64 -f deploy/Dockerfile -t "$repo:$tag" .
+   docker push "$repo:$tag"
+   ```
+
+4. **Create everything else.** The service is created last, after the
+   database and its `DATABASE_URL` secret, so its first task starts with the
+   image, the database and the PayPal credentials in place. CloudFront and
+   RDS take several minutes.
+
+   ```sh
+   terraform -chdir=deploy/aws plan -var region="$AWS_REGION" -var image="$repo:$tag"
+   terraform -chdir=deploy/aws apply -var region="$AWS_REGION" -var image="$repo:$tag"
    cluster="$(terraform -chdir=deploy/aws output -raw ecs_cluster)"
    service="$(terraform -chdir=deploy/aws output -raw ecs_service)"
-   aws ecs update-service --region "$AWS_REGION" --cluster "$cluster" --service "$service" --force-new-deployment
    aws ecs wait services-stable --region "$AWS_REGION" --cluster "$cluster" --services "$service"
    ```
+
+   Every later `apply` needs the same `image`; put it in
+   `deploy/aws/terraform.tfvars` (`image = "<repo>:<tag>"`) so a plain
+   `apply` does not go back to `:latest`.
 
 5. **Check the health endpoint.**
 
@@ -175,39 +181,48 @@ export AWS_REGION=us-east-2
    If it fails, read the logs:
    `aws logs tail "$(terraform -chdir=deploy/aws output -raw log_group)" --region "$AWS_REGION" --since 15m`.
 
-6. **Register the PayPal webhook.** With `PAYPAL_CLIENT_ID` and
-   `PAYPAL_CLIENT_SECRET` still exported:
+6. **Register the PayPal webhook and put its id.** With `PAYPAL_CLIENT_ID`
+   and `PAYPAL_CLIENT_SECRET` still exported; the secret is written only if
+   the registration printed an id:
 
    ```sh
-   PAYPAL_WEBHOOK_ID="$(scripts/register-webhook.sh "$base_url")"
+   PAYPAL_WEBHOOK_ID="$(scripts/register-webhook.sh "$base_url")" && [ -n "$PAYPAL_WEBHOOK_ID" ] &&
+     printf %s "$PAYPAL_WEBHOOK_ID" | aws secretsmanager put-secret-value --region "$AWS_REGION" \
+       --secret-id "$project/paypal-webhook-id" --secret-string file:///dev/stdin
    ```
 
    The script subscribes `<base_url>/paypal/webhook` to the seven payment
    events the app handles and prints only the webhook id; running it again
-   reuses the existing webhook.
+   reuses the existing webhook. Until this step `/paypal/webhook` answers 503.
 
-7. **Put the webhook id.**
+7. **Deploy again** so the task reads the webhook id, then forget the
+   credentials:
 
    ```sh
-   printf %s "$PAYPAL_WEBHOOK_ID" | aws secretsmanager put-secret-value --region "$AWS_REGION" \
-     --secret-id commitpool/paypal-webhook-id --secret-string file:///dev/stdin
+   aws ecs update-service --region "$AWS_REGION" --cluster "$cluster" --service "$service" --force-new-deployment
+   aws ecs wait services-stable --region "$AWS_REGION" --cluster "$cluster" --services "$service"
+   unset PAYPAL_CLIENT_ID PAYPAL_CLIENT_SECRET
    ```
-
-8. **Deploy again** so the task reads the webhook id (step 4's commands), then
-   `unset PAYPAL_CLIENT_ID PAYPAL_CLIENT_SECRET`.
 
 ## Redeploying a new version
 
+These commands work in a new shell (the ECR login expires after 12 hours, so
+it is repeated every time):
+
 ```sh
+export AWS_REGION=us-east-2
+repo="$(terraform -chdir=deploy/aws output -raw ecr_repository_url)"
 tag="$(git rev-parse --short HEAD)"
+aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "${repo%%/*}"
 docker build --platform linux/amd64 -f deploy/Dockerfile -t "$repo:$tag" .
 docker push "$repo:$tag"
 terraform -chdir=deploy/aws apply -var region="$AWS_REGION" -var image="$repo:$tag"
 ```
 
 The apply registers a new task definition and the service rolls to it. After
-changing only a secret, use `aws ecs update-service --force-new-deployment`
-(step 4) instead.
+changing only a secret, force a new deployment instead (step 7's
+`update-service` and `wait` commands, with `cluster` and `service` read from
+`terraform -chdir=deploy/aws output -raw ecs_cluster` and `ecs_service`).
 
 ## Teardown
 
@@ -225,7 +240,8 @@ if the deployment will not come back at the same CloudFront domain.
 State is local (`deploy/aws/terraform.tfstate`), and it holds the RDS master
 password and the full `DATABASE_URL` in plain text: keep it on a private
 machine and never commit it. `.gitignore` excludes `deploy/aws/.terraform/`,
-`deploy/aws/*.tfstate*` and `deploy/aws/*.tfvars`; `.terraform.lock.hcl` and
+`deploy/aws/*.tfstate*`, `deploy/aws/*.tfvars`, `deploy/aws/*.tfplan` and
+`deploy/aws/crash.log`; `.terraform.lock.hcl` and
 `terraform.tfvars.example` are committed. The PayPal secrets never pass
 through Terraform: they are put with the AWS CLI and Terraform ignores their
 values.
@@ -235,6 +251,11 @@ values.
 - A custom domain and its certificate (CloudFront's default domain is used).
 - Autoscaling: one task, always on.
 - Multi-AZ RDS, read replicas or final snapshots.
-- A secret header between CloudFront and the ALB: the ALB accepts any
-  CloudFront distribution's origin-facing servers, not only this one's.
+- Encryption and exclusivity on the CloudFront → ALB hop. CloudFront calls
+  the public ALB endpoint over plain HTTP: for an AWS origin the traffic stays
+  on the AWS network, but owner tokens and webhook bodies are not
+  TLS-protected on that hop, and the ALB accepts any CloudFront
+  distribution's origin-facing servers, not only this one's. A later option
+  is a CloudFront VPC origin with an internal ALB, which closes both gaps and
+  also drops the ALB's two public IPv4 addresses.
 - WAF, remote state with locking, and a CI deploy pipeline.

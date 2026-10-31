@@ -8,3 +8,5 @@ web/playwright-report
 deploy/aws/.terraform/
 deploy/aws/*.tfstate*
 deploy/aws/*.tfvars
+deploy/aws/*.tfplan
+deploy/aws/crash.log

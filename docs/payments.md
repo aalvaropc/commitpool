@@ -79,9 +79,10 @@ Every PayPal action is a row in `jobs`, written before the request leaves.
 | `succeeded` | Done. | Final. |
 
 Automatic paths revive only a job that failed without a PayPal answer (a
-skip), never an action PayPal refused. The return page revives an authorize
-PayPal refused as `ORDER_NOT_APPROVED`, because the buyer is back with the
-order approved.
+skip), never an action PayPal refused. The one exception is an authorize
+PayPal refused as `ORDER_NOT_APPROVED`: the return page and a reconcile that
+finds the order `APPROVED` both revive it, because the order is approved
+now.
 
 A job whose retries are used up flags its enrollment `NEEDS_ATTENTION`,
 unless the enrollment is paid or finished; a `close` or `release_seats` job
@@ -103,12 +104,13 @@ it and PayPal performs the action at most once.
 | `reconcile:{attempt}:close` | Read back a capture still in flight at close. |
 | `reconcile:{attempt}:webhook:{event_id}` | Read back after a verified webhook. A webhook never applies a payment state itself. |
 | `reconcile:{attempt}:return:{minute}` | Read back a checkout whose order PayPal did not show on the return page. |
-| `reconcile:{attempt}:periodic:{minute}` | Periodic read-back (see Periodic work). |
+| `reconcile:{attempt}:periodic:{hour}` | Periodic read-back of a pending capture or refund (see Periodic work). |
+| `reconcile:{attempt}:periodic:{minute}` | Periodic read-back of an attempt with a job unknown for too long. |
 | `close:{proposal}` | Close payments at `closes_at`. |
 | `release_seats:{workshop}:{minute}` | Release the expired seats. |
 
-Minutes are UTC (`yyyy-mm-ddThh:mm`), so a second enqueue within the same
-minute is a no-op.
+Minutes (`yyyy-mm-ddThh:mm`) and hours (`yyyy-mm-ddThh`) are UTC, so a
+second enqueue within the same minute or hour is a no-op.
 
 ## Ambiguous results
 
@@ -225,11 +227,14 @@ The worker, in process:
 - every minute takes back jobs claimed more than five minutes ago (parked as
   `needs_attention` once their attempts are used up) and enqueues
   `release_seats` for every workshop with a reserved seat;
-- every two minutes enqueues `reconcile:{attempt}:periodic:{minute}` for the
-  latest attempt of every `CAPTURE_PENDING` or `REFUND_PENDING` enrollment and
+- every two minutes enqueues `reconcile:{attempt}:periodic:{hour}` for the
+  latest attempt of every `CAPTURE_PENDING` or `REFUND_PENDING` enrollment (so
+  a pending capture or refund is read back within two minutes of turning
+  pending and then once an hour), and `reconcile:{attempt}:periodic:{minute}`
   for every attempt with a job unknown for more than five minutes, unless its
-  fifth reconcile generation exists, and heals every `FUNDING` or `RESOLVING`
-  workshop.
+  fifth reconcile generation exists; then heals every `FUNDING` workshop and
+  every workshop whose money is not settled (`RESOLVING`, or cancelled and
+  not `SETTLED`, `NEEDS_ATTENTION` included).
 
 On shutdown the worker claims nothing new and lets the job it is running
 finish for up to ten seconds; past that the PayPal call is cancelled and its

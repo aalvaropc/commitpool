@@ -831,8 +831,9 @@ func TestHeal_RevivesASkippedVoidOfAHoldStillHeld(t *testing.T) {
 func (e *env) landPaymentDuringCancellation(enrollmentID string) {
 	e.t.Helper()
 	for _, stmt := range []string{
-		`create function test_land_payment() returns trigger language plpgsql as $$
+		`create or replace function test_land_payment() returns trigger language plpgsql as $$
 		 begin update enrollments set status = 'PAID' where id = '` + enrollmentID + `'; return new; end $$`,
+		`drop trigger if exists test_land_payment on workshops`,
 		`create trigger test_land_payment before update on workshops for each row
 		 when (old.status = 'FUNDING' and new.status = 'CANCELLED') execute function test_land_payment()`,
 	} {

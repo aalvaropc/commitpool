@@ -296,8 +296,9 @@ func TestEnrollment_StoreFailureRunningTheCheckoutIs500(t *testing.T) {
 	_, p, ps := e.fundingWorkshop()
 	// The database refuses to claim the create_order job the request runs.
 	for _, stmt := range []string{
-		`create function test_refuse_claim() returns trigger language plpgsql as $$
+		`create or replace function test_refuse_claim() returns trigger language plpgsql as $$
 		 begin raise exception 'claim refused by the test'; end $$`,
+		`drop trigger if exists test_refuse_claim on jobs`,
 		`create trigger test_refuse_claim before update on jobs for each row
 		 when (new.status = 'running' and new.kind = 'create_order') execute function test_refuse_claim()`,
 	} {

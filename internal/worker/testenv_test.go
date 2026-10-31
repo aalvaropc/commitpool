@@ -370,6 +370,12 @@ func (e *env) periodicKey(a store.AttemptRow) string {
 	return "reconcile:" + a.ID + ":periodic:" + e.clock.Now().UTC().Format("2006-01-02T15:04")
 }
 
+// pendingKey is the key RunPeriodic gives the reconcile of an attempt whose
+// capture or refund is pending, in now's hour.
+func (e *env) pendingKey(a store.AttemptRow) string {
+	return "reconcile:" + a.ID + ":periodic:" + e.clock.Now().UTC().Format("2006-01-02T15")
+}
+
 // reconcileNow enqueues a periodic reconcile of the attempt due now and
 // returns its key.
 func (e *env) reconcileNow(a store.AttemptRow) string {

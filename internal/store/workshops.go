@@ -262,20 +262,24 @@ func transitionWorkshop(ctx context.Context, q execer, id string, fromStatus []d
 	return tag.RowsAffected() == 1, nil
 }
 
-// WorkshopIDsFundingOrResolving returns, in order, the workshops still
-// taking payments (FUNDING) and the ones whose money is still being released
-// or returned (resolution RESOLVING). It is an empty list when there are
-// none.
-func (s *Store) WorkshopIDsFundingOrResolving(ctx context.Context) ([]string, error) {
+// WorkshopIDsFundingOrUnsettled returns, in order, the workshops still
+// taking payments (FUNDING) and the ones whose money is not settled: a
+// resolution of RESOLVING, or a cancelled workshop not SETTLED, which
+// includes one flagged NEEDS_ATTENTION while its voids and refunds still
+// run. It is an empty list when there are none.
+func (s *Store) WorkshopIDsFundingOrUnsettled(ctx context.Context) ([]string, error) {
 	rows, err := s.Pool.Query(ctx,
-		`select id::text from workshops where status = $1 or resolution = $2 order by id`,
-		string(domain.WorkshopFunding), string(domain.ResolutionResolving))
+		`select id::text from workshops
+		 where status = $1 or resolution = $2 or (status = $3 and resolution <> $4)
+		 order by id`,
+		string(domain.WorkshopFunding), string(domain.ResolutionResolving),
+		string(domain.WorkshopCancelled), string(domain.ResolutionSettled))
 	if err != nil {
-		return nil, wrap("workshops funding or resolving", err)
+		return nil, wrap("workshops funding or unsettled", err)
 	}
 	ids, err := pgx.CollectRows(rows, pgx.RowTo[string])
 	if err != nil {
-		return nil, wrap("workshops funding or resolving", err)
+		return nil, wrap("workshops funding or unsettled", err)
 	}
 	if ids == nil {
 		ids = []string{}

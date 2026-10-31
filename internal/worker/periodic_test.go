@@ -3,6 +3,7 @@ package worker_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -71,26 +72,68 @@ func TestPeriodicReconcile_EnqueuesPendingAttempts(t *testing.T) {
 
 	e.runPeriodic()
 
-	for _, a := range []store.AttemptRow{anaAttempt, benAttempt, cleoAttempt} {
-		if j := e.wantJob(e.periodicKey(a), "pending"); !j.RunAt.Equal(e.clock.Now()) {
+	for _, key := range []string{e.pendingKey(anaAttempt), e.pendingKey(benAttempt), e.periodicKey(cleoAttempt)} {
+		if j := e.wantJob(key, "pending"); !j.RunAt.Equal(e.clock.Now()) {
 			t.Errorf("%s run_at = %s, want now (%s)", j.IdempotencyKey, j.RunAt, e.clock.Now())
 		}
 	}
 	for _, a := range []store.AttemptRow{danAttempt, eveAttempt, fayAttempt} {
 		e.wantNoJob(e.periodicKey(a))
+		e.wantNoJob(e.pendingKey(a))
 	}
-	if after := len(e.allJobKeys()); after != before+3 {
-		t.Errorf("jobs after RunPeriodic = %d, want %d (three periodic reconciles)", after, before+3)
+	wantJobs := func(when string, want int) {
+		t.Helper()
+		if got := len(e.allJobKeys()); got != want {
+			t.Errorf("jobs after RunPeriodic %s = %d, want %d", when, got, want)
+		}
 	}
+	wantJobs("once", before+3)
 
 	e.runPeriodic()
-	if again := len(e.allJobKeys()); again != before+3 {
-		t.Errorf("jobs after a second RunPeriodic within the minute = %d, want %d", again, before+3)
-	}
+	wantJobs("again within the minute", before+3)
+
+	// Later in the same hour only the unknown job is reconciled again: a
+	// pending capture or refund gets one periodic reconcile per hour.
+	e.advance(10 * time.Minute)
+	e.runPeriodic()
+	wantJobs("later in the hour", before+4)
+	e.wantJob(e.periodicKey(cleoAttempt), "pending")
+
+	e.clock.Set(e.clock.Now().Truncate(time.Hour).Add(time.Hour))
+	e.runPeriodic()
+	wantJobs("in the next hour", before+7)
+	e.wantJob(e.pendingKey(anaAttempt), "pending")
+	e.wantJob(e.pendingKey(benAttempt), "pending")
 
 	e.fake.SetCaptureStatus(captureID, "COMPLETED", "")
-	e.runKey(e.periodicKey(anaAttempt))
+	e.runKey(e.pendingKey(anaAttempt))
 	e.wantStatus(ana.ID, domain.EnrollmentPaid)
+}
+
+func TestPeriodic_HealsACancelledWorkshopThatNeedsAttention(t *testing.T) {
+	e := newEnv(t)
+	en, a := e.withOrder("Ana")
+	e.fake.Approve(*a.OrderID)
+	e.transition(en.ID, domain.EnrollmentSeatReserved, domain.EnrollmentReleased)
+	o, err := e.api.AuthorizeOrder(e.ctx, *a.OrderID, "authorize:"+a.ID)
+	if err != nil {
+		t.Fatalf("authorize at PayPal: %v", err)
+	}
+	auth := o.PurchaseUnits[0].Payments.Authorizations[0]
+	// The hold landed on the released seat, but the void it calls for was
+	// never enqueued, and the workshop was cancelled straight into
+	// NEEDS_ATTENTION.
+	if _, err := e.st.UpdateAttemptFunc(e.ctx, a.ID, func(row *store.AttemptRow) error {
+		row.AuthorizationID, row.AuthorizationStatus = &auth.ID, &auth.Status
+		return nil
+	}); err != nil {
+		t.Fatalf("record the authorization: %v", err)
+	}
+	e.moveWorkshop(domain.WorkshopFunding, domain.WorkshopCancelled, domain.ResolutionNeedsAttention)
+
+	e.runPeriodic()
+
+	e.wantJob("void:"+a.ID, "pending")
 }
 
 func TestPeriodic_HealsFundingAndResolvingWorkshops(t *testing.T) {
@@ -162,7 +205,13 @@ func TestRun_LetsTheJobInFlightFinishOnShutdown(t *testing.T) {
 	entered := make(chan struct{})
 	release := make(chan struct{})
 	jobErr := make(chan error, 1)
+	var first sync.Once
 	e.runner.Register("release_seats", func(ctx context.Context, job *store.Job) (*int, error) {
+		held := false
+		first.Do(func() { held = true })
+		if !held {
+			return nil, nil
+		}
 		close(entered)
 		<-release
 		jobErr <- ctx.Err()

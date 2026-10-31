@@ -380,11 +380,12 @@ const abandonedReason = "abandoned by its worker after the last attempt"
 func (s *Store) RequeueStale(ctx context.Context, now time.Time, olderThan time.Duration) (int, error) {
 	tag, err := s.Pool.Exec(ctx,
 		`update jobs set
-			status = case when attempts >= $3 then 'needs_attention' else 'pending' end,
+			status = case when attempts >= $3 then $5 else $6 end,
 			run_at = case when attempts >= $3 then run_at else $1 end,
 			last_error = case when attempts >= $3 then $4 else last_error end,
 			locked_at = null, locked_by = null, updated_at = now()
-		 where status = 'running' and locked_at < $2`, now, now.Add(-olderThan), maxJobAttempts, abandonedReason)
+		 where status = $7 and locked_at < $2`,
+		now, now.Add(-olderThan), maxJobAttempts, abandonedReason, JobNeedsAttention, JobPending, JobRunning)
 	if err != nil {
 		return 0, wrap("requeue stale jobs", err)
 	}

@@ -17,22 +17,38 @@ const (
 	// unknownAfter is how long a job may stay unknown before RunPeriodic
 	// reconciles its attempt, on top of the reconciles the job scheduled.
 	unknownAfter = 5 * time.Minute
+	// hourLayout is the hour a pending attempt's periodic reconcile key
+	// names, in UTC.
+	hourLayout = "2006-01-02T15"
 )
 
-// RunPeriodic enqueues reconcile:{attempt}:periodic:{minute}, due now, for
-// every attempt whose outcome PayPal may still change without telling us: the
-// latest attempt of a CAPTURE_PENDING or REFUND_PENDING enrollment, and an
-// attempt with a job unknown for more than five minutes, unless the attempt's
-// last reconcile generation exists, which leaves that job to an operator.
-// minute is now's minute in UTC, so another call within the same minute
-// enqueues nothing new. It then heals every FUNDING workshop and every
-// workshop whose money is still resolving (HealWorkshop), so a step a failed
-// hook left undone does not wait for an unrelated event. Run calls it every
-// two minutes; a failure on one attempt or workshop does not stop the others.
+// RunPeriodic reconciles, with a reconcile job due now, every attempt whose
+// outcome PayPal may still change without telling us. The latest attempt of
+// a CAPTURE_PENDING or REFUND_PENDING enrollment gets
+// reconcile:{attempt}:periodic:{hour}, so a capture or refund that stays
+// pending for days is read back once an hour, the first time within two
+// minutes of it turning pending. An attempt with a job unknown for more than
+// five minutes gets reconcile:{attempt}:periodic:{minute}, unless the
+// attempt's last reconcile generation exists, which leaves that job to an
+// operator. Hours and minutes are UTC, so another call within the same one
+// enqueues nothing new. It then heals every workshop still funding or with
+// money not settled (HealWorkshop), so a step a failed hook left undone does
+// not wait for an unrelated event. Run calls it every two minutes; a failure
+// on one attempt or workshop does not stop the others.
 func (r *Runner) RunPeriodic(ctx context.Context) error {
 	var errs []error
-	refs, err := r.st.LatestAttemptsInStatus(ctx, domain.EnrollmentCapturePending, domain.EnrollmentRefundPending)
+	now := r.clock.Now()
+	enqueue := func(attemptID string, workshopID *string, bucket string) {
+		key := store.JobKey(store.KindReconcile, attemptID+":periodic:"+bucket)
+		if err := r.Enqueue(ctx, store.KindReconcile, key, workshopID, &attemptID, nil, now); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	pending, err := r.st.LatestAttemptsInStatus(ctx, domain.EnrollmentCapturePending, domain.EnrollmentRefundPending)
 	errs = append(errs, err)
+	for _, ref := range pending {
+		enqueue(ref.AttemptID, nonEmpty(ref.WorkshopID), now.UTC().Format(hourLayout))
+	}
 	unknown, err := r.st.UnknownJobs(ctx, unknownAfter)
 	errs = append(errs, err)
 	for _, j := range unknown {
@@ -45,19 +61,11 @@ func (r *Runner) RunPeriodic(ctx context.Context) error {
 			continue
 		}
 		if !left {
-			refs = append(refs, store.AttemptRef{AttemptID: *j.AttemptID, WorkshopID: deref(j.WorkshopID)})
-		}
-	}
-	now := r.clock.Now()
-	suffix := ":periodic:" + now.UTC().Format(minuteLayout)
-	for _, ref := range refs {
-		key := store.JobKey(store.KindReconcile, ref.AttemptID+suffix)
-		if err := r.Enqueue(ctx, store.KindReconcile, key, nonEmpty(ref.WorkshopID), &ref.AttemptID, nil, now); err != nil {
-			errs = append(errs, err)
+			enqueue(*j.AttemptID, j.WorkshopID, now.UTC().Format(minuteLayout))
 		}
 	}
 
-	ids, err := r.st.WorkshopIDsFundingOrResolving(ctx)
+	ids, err := r.st.WorkshopIDsFundingOrUnsettled(ctx)
 	errs = append(errs, err)
 	for _, id := range ids {
 		if err := r.HealWorkshop(ctx, id); err != nil {

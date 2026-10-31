@@ -36,6 +36,17 @@ curl -s localhost:8080/healthz   # {"ok":true}
 For frontend work, run `pnpm -C web dev`; Vite proxies `/api`, `/paypal` and
 `/healthz` to the Go service on port 8080.
 
+### Seed a demo workshop
+
+With the service running, `make seed` creates the demo through the HTTP API: a
+street photography walk on the next free weekend, minimum 3 of 6 seats at
+US$10, and six participants whose availability messages are already sent (one
+of them deliberately vague, so the organizer sees a clarification request). It
+prints the organizer link, the invite link and one link per participant, and
+needs no credentials. `go run ./cmd/seed -h` lists the flags: another base URL
+(`-base`), price, time zone, payment window, and `-open-payments` to open
+payments on the recommended date right away.
+
 ### Configuration
 
 All configuration comes from environment variables; `.env.example` lists every

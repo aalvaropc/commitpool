@@ -66,6 +66,6 @@ if ((status != 0)); then
   echo "e2e: playwright failed; the last lines of the server log:" >&2
   tail -n 60 "$work/server.log" >&2
   mkdir -p web/test-results
-  cp "$work/server.log" web/test-results/e2e-server.log
+  cp "$work/server.log" web/test-results/e2e-server.log || true
 fi
 exit "$status"

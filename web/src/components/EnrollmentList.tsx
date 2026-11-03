@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { api, type Enrollment, type OwnerView } from '../api'
-import { enrollmentTone, seatHeld } from '../lib/status'
+import { authorizationPending, enrollmentTone, seatHeld } from '../lib/status'
 import { earlier, formatTimeInZone } from '../lib/time'
 import { Button, DemoTag, Notice, Tag } from './ui'
 
@@ -63,7 +63,7 @@ export default function EnrollmentList({ token, view, onChange }: Props) {
                 <p className="font-semibold sm:w-40 sm:shrink-0">{e.display_name}</p>
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
                   <p className="flex flex-wrap items-center gap-2">
-                    <Tag tone={enrollmentTone(e.status, { paymentsOpen: open, seatHeld: held })}>{e.status_label}</Tag>
+                    <Tag tone={enrollmentTone(e.status, { paymentsOpen: open, seatHeld: held, authPending: authorizationPending(e) })}>{e.status_label}</Tag>
                     <span className="text-sm text-ink-soft">Status: {human(e.status)}</span>
                   </p>
                   {line && <p className="text-sm break-words text-ink-soft">{line}</p>}

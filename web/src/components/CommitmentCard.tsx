@@ -3,7 +3,7 @@ import { api, ApiError, type ParticipantView } from '../api'
 import { enrollErrorMessage, isSafeRedirect, REFRESH_AFTER } from '../lib/enroll'
 import { formatMoney } from '../lib/money'
 import { count } from '../lib/plural'
-import { canStartCheckout, enrollmentTone, seatHeld } from '../lib/status'
+import { authorizationPending, canStartCheckout, enrollmentTone, seatHeld } from '../lib/status'
 import { lockedTerms } from '../lib/terms'
 import { durationLabel, earlier, formatInZone, formatTimeInZone, windowLabel } from '../lib/time'
 import Deadline from './Deadline'
@@ -30,7 +30,8 @@ export default function CommitmentCard({ token, view, onChange }: Props) {
   const [error, setError] = useState<string | null>(null)
   if (!proposal) return null
   const tz = workshop.timezone
-  const canAuthorize = canStartCheckout(proposal.payments_open, enrollment?.status)
+  const pending = authorizationPending(enrollment)
+  const canAuthorize = canStartCheckout(proposal.payments_open, enrollment?.status, pending)
   const held = seatHeld(enrollment, proposal.payments_open, Date.now())
   const date = view.dates.find((d) => d.id === proposal.date_id)
 
@@ -110,12 +111,14 @@ export default function CommitmentCard({ token, view, onChange }: Props) {
           {enrollment ? (
             <>
               <p>
-                <Tag tone={enrollmentTone(enrollment.status, { paymentsOpen: proposal.payments_open, seatHeld: held })}>
+                <Tag tone={enrollmentTone(enrollment.status, { paymentsOpen: proposal.payments_open, seatHeld: held, authPending: pending })}>
                   {enrollment.status_label}
                 </Tag>
               </p>
               {enrollment.status === 'SEAT_RESERVED' &&
-                (held ? (
+                (pending ? (
+                  <p className="text-sm text-ink-soft">PayPal is reviewing your authorization. Your seat is kept until PayPal decides.</p>
+                ) : held ? (
                   <p className="text-sm text-ink-soft">
                     Your seat is held until {formatTimeInZone(earlier(enrollment.seat_expires_at, proposal.closes_at), tz)}.{' '}
                     {enrollment.approval_cancelled_at

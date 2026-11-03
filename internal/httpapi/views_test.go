@@ -25,6 +25,8 @@ func TestStatusLabel_CopyForEveryStatus(t *testing.T) {
 		{domain.EnrollmentSeatReserved, labelState{workshop: confirmed, paymentsOpen: true}, "Seat expired"},
 		{domain.EnrollmentSeatReserved, labelState{workshop: confirmed, seatLive: true}, "Seat expired"},
 		{domain.EnrollmentSeatReserved, closed(cancelled), "Seat expired"},
+		{domain.EnrollmentSeatReserved, labelState{workshop: funding, paymentsOpen: true, authPending: true}, "Hold pending verification"},
+		{domain.EnrollmentSeatReserved, labelState{workshop: confirmed, authPending: true}, "Hold pending verification"},
 		{domain.EnrollmentAuthorized, open(funding), "Hold authorized"},
 		{domain.EnrollmentCapturing, open(funding), "Charging…"},
 		{domain.EnrollmentCapturePending, closed(confirmed), "Payment pending verification"},

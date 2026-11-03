@@ -126,7 +126,7 @@ func (s *server) enroll(w http.ResponseWriter, r *http.Request) error {
 		EnrollmentID: en.ID,
 		ApproveURL:   link,
 		Status:       string(en.Status),
-		StatusLabel:  enrollmentLabel(en, ws, proposal, now),
+		StatusLabel:  enrollmentLabel(en, ws, proposal, &attempt, now),
 	})
 	return nil
 }
@@ -166,9 +166,13 @@ func (s *server) pastCheckout(ctx context.Context, w http.ResponseWriter, ws sto
 	if err != nil {
 		return err
 	}
+	latest, err := s.Store.LatestAttempt(ctx, en.ID)
+	if err != nil {
+		return err
+	}
 	link := ""
 	if en.Status == domain.EnrollmentSeatReserved {
-		if link, err = s.lastApprovalLink(ctx, en.ID); err != nil {
+		if link, err = s.attemptApprovalLink(ctx, latest); err != nil {
 			return err
 		}
 	}
@@ -176,17 +180,16 @@ func (s *server) pastCheckout(ctx context.Context, w http.ResponseWriter, ws sto
 		EnrollmentID: en.ID,
 		ApproveURL:   link,
 		Status:       string(en.Status),
-		StatusLabel:  enrollmentLabel(en, ws, p, s.Clock.Now()),
+		StatusLabel:  enrollmentLabel(en, ws, p, latest, s.Clock.Now()),
 	})
 	return nil
 }
 
-// lastApprovalLink is the approval link create_order stored for the
-// enrollment's latest attempt, or "" when there is none.
-func (s *server) lastApprovalLink(ctx context.Context, enrollmentID string) (string, error) {
-	a, err := s.Store.LatestAttempt(ctx, enrollmentID)
-	if err != nil || a == nil {
-		return "", err
+// attemptApprovalLink is the approval link create_order stored for the
+// attempt, or "" when there is no attempt or no link.
+func (s *server) attemptApprovalLink(ctx context.Context, a *store.AttemptRow) (string, error) {
+	if a == nil {
+		return "", nil
 	}
 	job, err := s.Store.JobByKey(ctx, store.JobKey(store.KindCreateOrder, a.ID))
 	if err != nil || job == nil {

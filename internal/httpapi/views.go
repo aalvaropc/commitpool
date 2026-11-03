@@ -8,6 +8,7 @@ import (
 
 	"github.com/aalvaropc/commitpool/internal/ai"
 	"github.com/aalvaropc/commitpool/internal/domain"
+	"github.com/aalvaropc/commitpool/internal/paypal"
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
@@ -27,15 +28,19 @@ type labelState struct {
 	workshop     domain.WorkshopStatus
 	paymentsOpen bool // domain.PaymentsOpen when the label is shown
 	seatLive     bool // the enrollment's seat has not expired
+	authPending  bool // PayPal holds the latest attempt's authorization PENDING (review); the seat is kept
 }
 
 // statusLabel is the participant-facing copy for an enrollment status. A
 // reserved seat counts only while payments are open and the seat has not
-// expired; a failed capture can be retried, with a new enrollment, only while
+// expired, unless PayPal is reviewing its authorization; a failed capture can be retried, with a new enrollment, only while
 // payments are open; a payment kept in a cancelled workshop is being refunded.
 func statusLabel(s domain.EnrollmentStatus, st labelState) string {
 	switch s {
 	case domain.EnrollmentSeatReserved:
+		if st.authPending {
+			return "Hold pending verification"
+		}
 		if st.paymentsOpen && st.seatLive {
 			return "Seat reserved"
 		}
@@ -164,13 +169,21 @@ func paymentsOpen(ws store.WorkshopRow, p *store.ProposalRow, now time.Time) boo
 	return p != nil && domain.PaymentsOpen(domain.Workshop{Status: ws.Status}, domain.Proposal{ClosesAt: p.ClosesAt}, now)
 }
 
-// enrollmentLabel is statusLabel for a stored enrollment at now.
-func enrollmentLabel(en store.EnrollmentRow, ws store.WorkshopRow, p *store.ProposalRow, now time.Time) string {
+// enrollmentLabel is statusLabel for a stored enrollment at now; latest is
+// the enrollment's latest payment attempt, or nil.
+func enrollmentLabel(en store.EnrollmentRow, ws store.WorkshopRow, p *store.ProposalRow, latest *store.AttemptRow, now time.Time) string {
 	return statusLabel(en.Status, labelState{
 		workshop:     ws.Status,
 		paymentsOpen: paymentsOpen(ws, p, now),
 		seatLive:     now.Before(en.SeatExpiresAt),
+		authPending:  authorizationPending(latest),
 	})
+}
+
+// authorizationPending reports whether PayPal holds the attempt's
+// authorization PENDING (under review).
+func authorizationPending(a *store.AttemptRow) bool {
+	return a != nil && a.AuthorizationStatus != nil && *a.AuthorizationStatus == paypal.StatusPending
 }
 
 // proposalView is nil while payments have not been opened.
@@ -269,7 +282,7 @@ func enrollmentView(en store.EnrollmentRow, w store.WorkshopRow, p *store.Propos
 	return enrollmentDTO{
 		ID:                  en.ID,
 		Status:              string(en.Status),
-		StatusLabel:         enrollmentLabel(en, w, p, now),
+		StatusLabel:         enrollmentLabel(en, w, p, latest, now),
 		SeatExpiresAt:       en.SeatExpiresAt.UTC(),
 		ApprovalCancelledAt: cancelled,
 		Payment:             paymentView(latest),

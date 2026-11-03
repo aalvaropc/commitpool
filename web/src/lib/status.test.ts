@@ -68,6 +68,29 @@ describe('headline next to the server’s own label', () => {
   })
 })
 
+describe('a seat kept for a pending authorization', () => {
+  it('says the hold is pending, not that the seat expired, in funding and confirmed workshops', () => {
+    expect(headline({ status: 'FUNDING', resolution: 'OPEN', enrollment: 'SEAT_RESERVED', seatHeld: false, authPending: true })).toBe(
+      'Hold pending verification',
+    )
+    expect(headline({ status: 'CONFIRMED', resolution: 'OPEN', enrollment: 'SEAT_RESERVED', seatHeld: false, authPending: true })).toBe(
+      'Hold pending verification',
+    )
+    expect(headline({ status: 'FUNDING', resolution: 'OPEN', enrollment: 'SEAT_RESERVED', seatHeld: false })).toBe('Seat expired')
+  })
+
+  it('offers no new checkout while the authorization is pending', () => {
+    expect(canStartCheckout(true, 'SEAT_RESERVED', true)).toBe(false)
+    expect(canStartCheckout(true, 'SEAT_RESERVED', false)).toBe(true)
+    expect(canStartCheckout(true, 'SEAT_RESERVED')).toBe(true)
+  })
+
+  it('colours the tag as a hold', () => {
+    expect(enrollmentTone('SEAT_RESERVED', { paymentsOpen: true, seatHeld: false, authPending: true })).toBe('hold')
+    expect(enrollmentTone('SEAT_RESERVED', { paymentsOpen: true, seatHeld: false })).toBe('neutral')
+  })
+})
+
 describe('headline for a participant while the workshop is flagged for the organizer', () => {
   it('describes the participant’s own seat, not the operator flag', () => {
     expect(headline({ status: 'CONFIRMED', resolution: 'NEEDS_ATTENTION', enrollment: 'PAID' })).toBe('Seat confirmed')

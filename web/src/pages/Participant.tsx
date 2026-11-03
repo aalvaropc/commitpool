@@ -10,7 +10,7 @@ import Terms from '../components/Terms'
 import { Notice, Page } from '../components/ui'
 import { useNow, usePolling, useResource } from '../lib/hooks'
 import { rememberParticipant } from '../lib/participant'
-import { headline, seatHeld, shouldPollParticipant, tone } from '../lib/status'
+import { authorizationPending, headline, seatHeld, shouldPollParticipant, tone } from '../lib/status'
 import { workshopTerms } from '../lib/terms'
 
 const CHECK_PATIENCE_MS = 30000
@@ -61,13 +61,14 @@ export default function Participant() {
 
   const w = d.workshop
   const held = seatHeld(d.enrollment, d.proposal?.payments_open ?? false, now)
+  const pending = authorizationPending(d.enrollment)
   return (
     <Page>
       <title>{`${w.title} – CommitPool`}</title>
       <div className="flex flex-col gap-10">
         <div className="flex flex-col gap-4">
           <StatusBanner
-            headline={headline({ status: w.status, resolution: w.resolution, enrollment: own, seatHeld: held, paymentsOpen: d.proposal?.payments_open ?? false })}
+            headline={headline({ status: w.status, resolution: w.resolution, enrollment: own, seatHeld: held, authPending: pending, paymentsOpen: d.proposal?.payments_open ?? false })}
             tone={tone(w.status, w.resolution, own)}
           >
             {w.status === 'FUNDING' && d.proposal && <Deadline closesAt={d.proposal.closes_at} timeZone={w.timezone} open={d.proposal.payments_open} />}

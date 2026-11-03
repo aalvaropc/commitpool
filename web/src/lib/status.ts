@@ -40,12 +40,22 @@ export function seatHeld(
   return !!e && e.status === 'SEAT_RESERVED' && paymentsOpen && Date.parse(e.seat_expires_at) > now
 }
 
+/** PayPal holds the enrollment's latest authorization PENDING (under review); the server keeps the seat while it does. */
+export function authorizationPending(
+  e: { payment: { authorization_status: string | null } | null } | null | undefined,
+): boolean {
+  return e?.payment?.authorization_status === 'PENDING'
+}
+
 // After these the server takes a new checkout: a new enrollment, or a renewed seat.
 const RETRYABLE: ReadonlySet<EnrollmentStatus> = new Set(['SEAT_RESERVED', 'RELEASED', 'CAPTURE_FAILED'])
 
-/** Whether to offer "Authorize with PayPal": no enrollment yet, a reserved seat, or a retryable outcome. */
-export function canStartCheckout(paymentsOpen: boolean, status: EnrollmentStatus | null | undefined): boolean {
-  return paymentsOpen && (!status || RETRYABLE.has(status))
+/**
+ * Whether to offer "Authorize with PayPal": no enrollment yet, a reserved seat,
+ * or a retryable outcome; never while PayPal is still reviewing an authorization.
+ */
+export function canStartCheckout(paymentsOpen: boolean, status: EnrollmentStatus | null | undefined, authPending = false): boolean {
+  return paymentsOpen && !authPending && (!status || RETRYABLE.has(status))
 }
 
 export interface HeadlineInput {
@@ -55,6 +65,8 @@ export interface HeadlineInput {
   enrollment?: EnrollmentStatus | null
   /** For a SEAT_RESERVED enrollment, whether the seat is still held (seatHeld); a lapsed one reads as expired. */
   seatHeld?: boolean
+  /** For a SEAT_RESERVED enrollment, whether PayPal holds its authorization PENDING (authorizationPending); the seat is kept meanwhile. */
+  authPending?: boolean
   /** The proposal's payments_open; a failed charge only invites another try while it is true. */
   paymentsOpen?: boolean
   /** For the owner of a cancelled workshop: whether any enrollment was refunded or is being refunded. */
@@ -72,8 +84,17 @@ function flagged(resolution: Resolution, enrollment?: EnrollmentStatus | null): 
 }
 
 /** The one-line state of a workshop for whoever is looking at it. */
-export function headline({ status, resolution, enrollment, seatHeld = true, paymentsOpen = true, refunds = true }: HeadlineInput): string {
+export function headline({
+  status,
+  resolution,
+  enrollment,
+  seatHeld = true,
+  authPending = false,
+  paymentsOpen = true,
+  refunds = true,
+}: HeadlineInput): string {
   if (flagged(resolution, enrollment)) return 'Needs attention'
+  if ((status === 'FUNDING' || status === 'CONFIRMED') && enrollment === 'SEAT_RESERVED' && authPending) return 'Hold pending verification'
   if ((status === 'FUNDING' || status === 'CONFIRMED') && enrollment === 'SEAT_RESERVED' && !seatHeld) return 'Seat expired'
   switch (status) {
     case 'COLLECTING':
@@ -185,11 +206,13 @@ export function tone(status: WorkshopStatus, resolution: Resolution, enrollment?
 /**
  * An enrollment tag's tone, matching its server label: a failed charge is
  * "Payment failed" (attention) only while payments are open and "Hold
- * released" (neutral) after; a lapsed reserved seat is "Seat expired".
+ * released" (neutral) after; a lapsed reserved seat is "Seat expired" unless
+ * PayPal is reviewing its authorization, which is a hold.
  */
-export function enrollmentTone(s: EnrollmentStatus, ctx: { paymentsOpen?: boolean; seatHeld?: boolean } = {}): Tone {
-  const { paymentsOpen = true, seatHeld = true } = ctx
+export function enrollmentTone(s: EnrollmentStatus, ctx: { paymentsOpen?: boolean; seatHeld?: boolean; authPending?: boolean } = {}): Tone {
+  const { paymentsOpen = true, seatHeld = true, authPending = false } = ctx
   if (s === 'CAPTURE_FAILED') return paymentsOpen ? 'attention' : 'neutral'
+  if (s === 'SEAT_RESERVED' && authPending) return 'hold'
   if (s === 'SEAT_RESERVED' && !seatHeld) return 'neutral'
   switch (s) {
     case 'PAID':

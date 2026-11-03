@@ -806,6 +806,38 @@ func TestEnrollment_LapsedSeatWithAPendingAuthorizationIsKept(t *testing.T) {
 	e.wantRequests("authorize", 1)
 }
 
+func TestParticipantView_PendingAuthorizationIsLabelledAsPending(t *testing.T) {
+	e := newEnv(t)
+	h, p, ps := e.fundingWorkshop()
+	first, a := e.checkout(ps[0], p.ID)
+	e.fake.Approve(*a.OrderID)
+	e.fake.SetNextAuthorizationStatus("PENDING")
+	e.runPayment("authorize", h.created.Workshop.ID, a)
+	// The seat's own expiry has passed; the seat is kept for the pending authorization.
+	e.clock.Set(t0.Add(31 * time.Minute))
+
+	var v participantViewJSON
+	e.call(http.MethodGet, ps[0].path, nil, http.StatusOK, &v)
+	if v.Enrollment == nil || v.Enrollment.Status != "SEAT_RESERVED" || v.Enrollment.StatusLabel != "Hold pending verification" ||
+		v.Enrollment.Payment == nil || v.Enrollment.Payment.AuthorizationStatus == nil || *v.Enrollment.Payment.AuthorizationStatus != "PENDING" {
+		t.Errorf("participant view = %+v, want SEAT_RESERVED labelled \"Hold pending verification\" with a PENDING authorization", v.Enrollment)
+	}
+	owner := e.owner(h)
+	var mine *enrollmentJSON
+	for i := range owner.Enrollments {
+		if owner.Enrollments[i].ID == first.EnrollmentID {
+			mine = &owner.Enrollments[i]
+		}
+	}
+	if mine == nil || mine.StatusLabel != "Hold pending verification" {
+		t.Errorf("owner view enrollment = %+v, want it labelled \"Hold pending verification\"", mine)
+	}
+	again := e.enroll(ps[0], p.ID, http.StatusOK)
+	if again.StatusLabel != "Hold pending verification" {
+		t.Errorf("repeated POST label = %q, want \"Hold pending verification\"", again.StatusLabel)
+	}
+}
+
 func TestEnrollment_LapsedSeatAfterPaymentsCloseIsProposalNotOpen(t *testing.T) {
 	e := newEnv(t)
 	_, p, ps := e.fundingWorkshop()

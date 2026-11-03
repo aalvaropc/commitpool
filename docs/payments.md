@@ -43,7 +43,7 @@ and authorizations placed only while payments are open.
 
 | Status | Seat | Reached when | Next |
 |---|---|---|---|
-| `SEAT_RESERVED` | yes | The participant enrolls (capacity permitting), or a released seat is taken again. Also while PayPal holds the authorization `PENDING` (review): the seat is kept past its expiry and read back hourly. | `AUTHORIZED`, `RELEASED`, `CAPTURE_FAILED` (authorization denied), `NEEDS_ATTENTION` |
+| `SEAT_RESERVED` | yes | The participant enrolls (capacity permitting), or a released seat is taken again. Also while PayPal holds the authorization `PENDING` (review): the seat is kept past its expiry and read back hourly, and the enrollment is labelled “Hold pending verification”. | `AUTHORIZED`, `RELEASED`, `CAPTURE_FAILED` (authorization denied), `NEEDS_ATTENTION` |
 | `AUTHORIZED` | yes | PayPal created the authorization. | `CAPTURING`, `VOIDING`, `VOIDED`, `PAID`, `CAPTURE_PENDING`, `CAPTURE_FAILED`, `NEEDS_ATTENTION` |
 | `CAPTURING` | yes | The capture job is about to call PayPal. | `PAID`, `CAPTURE_PENDING`, `CAPTURE_FAILED`, `NEEDS_ATTENTION` |
 | `CAPTURE_PENDING` | yes | PayPal reported the capture `PENDING`. | `PAID`, `CAPTURE_FAILED`, `NEEDS_ATTENTION` |

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canStartCheckout, enrollmentTone, headline, isTerminal, seatHeld, shouldPollOwner, shouldPollParticipant, tone } from './status'
+import { canStartCheckout, enrollmentTone, headline, heldAny, isTerminal, refundsAny, seatHeld, shouldPollOwner, shouldPollParticipant, tone } from './status'
 
 describe('headline', () => {
   it('names a refund still in progress in a cancelled workshop', () => {
@@ -42,7 +42,12 @@ describe('headline', () => {
 
 describe('headline next to the server’s own label', () => {
   it('does not call a confirmed workshop good news for a failed payment', () => {
-    expect(headline({ status: 'CONFIRMED', resolution: 'OPEN', enrollment: 'CAPTURE_FAILED' })).toBe('Workshop confirmed — your payment failed')
+    expect(headline({ status: 'CONFIRMED', resolution: 'OPEN', enrollment: 'CAPTURE_FAILED' })).toBe(
+      'Workshop confirmed — payment failed, you can try again',
+    )
+    expect(headline({ status: 'CONFIRMED', resolution: 'OPEN', enrollment: 'CAPTURE_FAILED', paymentsOpen: false })).toBe(
+      'Workshop confirmed — your hold was released, nothing was charged',
+    )
     expect(tone('CONFIRMED', 'OPEN', 'CAPTURE_FAILED')).toBe('attention')
   })
 
@@ -103,6 +108,15 @@ describe('headline for a participant while the workshop is flagged for the organ
     }
   })
 
+  it('shows the flag to the owner and to the seat that needs attention, not to someone who never enrolled', () => {
+    expect(headline({ status: 'CONFIRMED', resolution: 'NEEDS_ATTENTION' })).toBe('Needs attention')
+    expect(headline({ status: 'CANCELLED', resolution: 'NEEDS_ATTENTION', enrollment: 'REFUND_FAILED' })).toBe('Needs attention')
+    expect(tone('CANCELLED', 'NEEDS_ATTENTION', 'REFUND_FAILED')).toBe('attention')
+    expect(headline({ status: 'CONFIRMED', resolution: 'NEEDS_ATTENTION', enrollment: null })).toBe('Workshop confirmed')
+    expect(headline({ status: 'FUNDING', resolution: 'NEEDS_ATTENTION', enrollment: null })).toBe('Payments are open')
+    expect(tone('CONFIRMED', 'NEEDS_ATTENTION', null)).toBe('paid')
+  })
+
   it('colours the banner by the participant’s own seat, and the owner’s by the flag', () => {
     expect(tone('CONFIRMED', 'NEEDS_ATTENTION', 'PAID')).toBe('paid')
     expect(tone('FUNDING', 'NEEDS_ATTENTION', 'AUTHORIZED')).toBe('hold')
@@ -120,6 +134,20 @@ describe('the owner’s cancelled headline', () => {
   it('says refund when any refund happened', () => {
     expect(headline({ status: 'CANCELLED', resolution: 'RESOLVING', refunds: true })).toBe('Workshop cancelled — refund in progress')
     expect(headline({ status: 'CANCELLED', resolution: 'SETTLED', refunds: true })).toBe('Workshop cancelled — refund completed')
+  })
+
+  it('says nothing was charged when nobody ever held a seat', () => {
+    expect(headline({ status: 'CANCELLED', resolution: 'RESOLVING', refunds: false, held: false })).toBe('Workshop cancelled — nothing was charged')
+    expect(headline({ status: 'CANCELLED', resolution: 'SETTLED', refunds: false, held: false })).toBe('Workshop cancelled — nothing was charged')
+    expect(headline({ status: 'CANCELLED', resolution: 'SETTLED', refunds: false, held: true })).toBe('Workshop cancelled — holds released')
+  })
+
+  it('derives refunds and holds from the enrollments', () => {
+    expect(refundsAny([{ status: 'VOIDED' }, { status: 'PAID' }])).toBe(true)
+    expect(refundsAny([{ status: 'VOIDED' }, { status: 'CAPTURE_FAILED' }])).toBe(false)
+    expect(heldAny([])).toBe(false)
+    expect(heldAny([{ status: 'SEAT_RESERVED' }, { status: 'RELEASED' }])).toBe(false)
+    expect(heldAny([{ status: 'RELEASED' }, { status: 'VOIDED' }])).toBe(true)
   })
 
   it('leaves a participant’s own cancelled copy alone', () => {

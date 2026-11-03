@@ -20,6 +20,22 @@ const IN_FLIGHT: ReadonlySet<EnrollmentStatus> = new Set([
   'REFUND_PENDING',
 ])
 
+// A seat still paid in a cancelled workshop is about to be refunded.
+const REFUND_STATES: ReadonlySet<EnrollmentStatus> = new Set(['PAID', 'REFUNDING', 'REFUND_PENDING', 'REFUNDED', 'REFUND_FAILED'])
+
+// Enrollments that never placed a hold: nothing of theirs was ever at PayPal.
+const NEVER_HELD: ReadonlySet<string> = new Set(['INTERESTED', 'SEAT_RESERVED', 'RELEASED'])
+
+/** Whether any enrollment was refunded, is being refunded or is still paid. */
+export function refundsAny(enrollments: readonly { status: EnrollmentStatus }[]): boolean {
+  return enrollments.some((e) => REFUND_STATES.has(e.status))
+}
+
+/** Whether any enrollment ever placed a hold at PayPal. */
+export function heldAny(enrollments: readonly { status: EnrollmentStatus }[]): boolean {
+  return enrollments.some((e) => !NEVER_HELD.has(e.status))
+}
+
 export function isTerminal(s: EnrollmentStatus): boolean {
   return TERMINAL.has(s)
 }
@@ -69,18 +85,21 @@ export interface HeadlineInput {
   authPending?: boolean
   /** The proposal's payments_open; a failed charge only invites another try while it is true. */
   paymentsOpen?: boolean
-  /** For the owner of a cancelled workshop: whether any enrollment was refunded or is being refunded. */
+  /** For the owner of a cancelled workshop: whether any enrollment was refunded or is being refunded (refundsAny). */
   refunds?: boolean
+  /** For the owner of a cancelled workshop: whether any enrollment ever placed a hold (heldAny). */
+  held?: boolean
 }
 
 /**
  * The workshop-level NEEDS_ATTENTION flag is an operator signal: it shows to
- * the owner (no enrollment) and to a participant whose own seat needs
- * attention; any other participant reads their own seat.
+ * the owner (enrollment undefined) and to a participant whose own seat needs
+ * attention; any other participant, enrolled (a status) or not (null), reads
+ * the workshop and their own seat.
  */
 function flagged(resolution: Resolution, enrollment?: EnrollmentStatus | null): boolean {
   if (resolution !== 'NEEDS_ATTENTION') return false
-  return !enrollment || enrollment === 'NEEDS_ATTENTION' || enrollment === 'REFUND_FAILED'
+  return enrollment === undefined || enrollment === 'NEEDS_ATTENTION' || enrollment === 'REFUND_FAILED'
 }
 
 /** The one-line state of a workshop for whoever is looking at it. */
@@ -92,6 +111,7 @@ export function headline({
   authPending = false,
   paymentsOpen = true,
   refunds = true,
+  held = true,
 }: HeadlineInput): string {
   if (flagged(resolution, enrollment)) return 'Needs attention'
   if ((status === 'FUNDING' || status === 'CONFIRMED') && enrollment === 'SEAT_RESERVED' && authPending) return 'Hold pending verification'
@@ -102,9 +122,9 @@ export function headline({
     case 'FUNDING':
       return fundingHeadline(enrollment, paymentsOpen)
     case 'CONFIRMED':
-      return confirmedHeadline(enrollment)
+      return confirmedHeadline(enrollment, paymentsOpen)
     case 'CANCELLED':
-      return cancelledHeadline(resolution, enrollment, refunds)
+      return cancelledHeadline(resolution, enrollment, refunds, held)
   }
 }
 
@@ -130,7 +150,7 @@ function fundingHeadline(e: EnrollmentStatus | null | undefined, paymentsOpen: b
   return 'Payments are open'
 }
 
-function confirmedHeadline(e?: EnrollmentStatus | null): string {
+function confirmedHeadline(e: EnrollmentStatus | null | undefined, paymentsOpen: boolean): string {
   switch (e) {
     case 'PAID':
       return 'Seat confirmed'
@@ -147,7 +167,9 @@ function confirmedHeadline(e?: EnrollmentStatus | null): string {
     case 'REFUNDED':
       return 'Workshop confirmed — refund completed'
     case 'CAPTURE_FAILED':
-      return 'Workshop confirmed — your payment failed'
+      return paymentsOpen
+        ? 'Workshop confirmed — payment failed, you can try again'
+        : 'Workshop confirmed — your hold was released, nothing was charged'
     case 'RELEASED':
       return 'Seat expired'
     case 'NEEDS_ATTENTION':
@@ -157,8 +179,9 @@ function confirmedHeadline(e?: EnrollmentStatus | null): string {
   return 'Workshop confirmed'
 }
 
-function cancelledHeadline(r: Resolution, e: EnrollmentStatus | null | undefined, refunds: boolean): string {
+function cancelledHeadline(r: Resolution, e: EnrollmentStatus | null | undefined, refunds: boolean, held: boolean): string {
   if (e === undefined) {
+    if (!refunds && !held && (r === 'RESOLVING' || r === 'SETTLED')) return 'Workshop cancelled — nothing was charged'
     if (r === 'RESOLVING') return refunds ? 'Workshop cancelled — refund in progress' : 'Workshop cancelled — releasing holds'
     if (r === 'SETTLED') return refunds ? 'Workshop cancelled — refund completed' : 'Workshop cancelled — holds released'
     return 'Workshop cancelled'

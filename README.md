@@ -122,7 +122,9 @@ the container, so create it first (`cp .env.example .env`) and fill in the
 values you need. Compose always overrides `DATABASE_URL` with
 `postgres://commitpool:commitpool@postgres:5432/commitpool?sslmode=disable`
 and `PORT` with `8080`, so the container reaches the compose database whatever
-`.env` says for a run on the host. Inside the container only environment
+`.env` says for a run on the host. The host port is `COMMITPOOL_PORT` (default
+8080); `COMMITPOOL_BASE_URL` in `.env` must name that same port, because it
+is the URL PayPal sends buyers back to. Inside the container only environment
 variables are read: there is no `~/.aws`, so Bedrock credentials must be in
 `.env` (`AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, or
 `AWS_BEARER_TOKEN_BEDROCK`).

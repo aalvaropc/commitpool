@@ -9,3 +9,9 @@ cmd/commitpool/commitpool
 *.exe
 *.test
 *.out
+
+# Terraform state, variables and providers never belong in the image
+**/.terraform
+**/*.tfstate*
+**/*.tfvars
+**/*.tfplan

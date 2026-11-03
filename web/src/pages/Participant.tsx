@@ -10,7 +10,7 @@ import Terms from '../components/Terms'
 import { Notice, Page } from '../components/ui'
 import { useNow, usePolling, useResource } from '../lib/hooks'
 import { rememberParticipant } from '../lib/participant'
-import { authorizationPending, headline, seatHeld, shouldPollParticipant, tone } from '../lib/status'
+import { authorizationPending, headline, returnCheckSettled, seatHeld, shouldPollParticipant, tone } from '../lib/status'
 import { workshopTerms } from '../lib/terms'
 
 const CHECK_PATIENCE_MS = 30000
@@ -29,6 +29,7 @@ export default function Participant() {
   const view = useResource(() => api.participant(token), token)
   const d = view.data
   const own = d?.enrollment?.status ?? null
+  const pending = authorizationPending(d?.enrollment)
   const polling = d
     ? shouldPollParticipant({
         status: d.workshop.status,
@@ -39,11 +40,12 @@ export default function Participant() {
     : false
   usePolling(view.reload, 3000, polling)
 
-  // The return from PayPal asks for a check; it ends once the payment moved
-  // past the checkout or nothing more will change on its own.
+  // The return from PayPal asks for a check; it ends once PayPal holds the
+  // authorization for review (the card explains that), the payment moved past
+  // the checkout, or nothing more will change on its own.
   useEffect(() => {
     if (!checking || !d) return
-    if ((own && own !== 'SEAT_RESERVED') || !polling) {
+    if (returnCheckSettled({ enrollment: own, polling, authPending: pending })) {
       setParams(
         (p) => {
           p.delete('paid')
@@ -52,7 +54,7 @@ export default function Participant() {
         { replace: true },
       )
     }
-  }, [checking, d, own, polling, setParams])
+  }, [checking, d, own, polling, pending, setParams])
 
   if (!d) {
     if (view.error) return <LoadError error={view.error} missing="Check that you opened the whole personal link you got when you joined." onRetry={view.reload} />
@@ -61,7 +63,6 @@ export default function Participant() {
 
   const w = d.workshop
   const held = seatHeld(d.enrollment, d.proposal?.payments_open ?? false, now)
-  const pending = authorizationPending(d.enrollment)
   return (
     <Page>
       <title>{`${w.title} – CommitPool`}</title>

@@ -153,7 +153,7 @@ one of them with its default. Secrets are only ever read from the environment.
 
 | Variable | Notes |
 | --- | --- |
-| `PORT` | HTTP port the service listens on (default `8080`). With compose, `COMMITPOOL_PORT` picks the host port. |
+| `PORT` | HTTP port the service listens on (default `8080`). With compose, `COMMITPOOL_PORT` set in the shell picks the host port. |
 | `COMMITPOOL_BASE_URL` | Required. Public URL of the deployment, no trailing slash; PayPal sends buyers back to it. |
 | `DATABASE_URL` | Required. For the local database: `postgres://commitpool:commitpool@localhost:55432/commitpool?sslmode=disable` |
 | `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` | Required unless `E2E_FAKE_PAYPAL=1`. PayPal Sandbox app credentials. |
@@ -226,9 +226,12 @@ the container, so create it first (`cp .env.example .env`) and fill in the
 values you need. Compose always overrides `DATABASE_URL` with
 `postgres://commitpool:commitpool@postgres:5432/commitpool?sslmode=disable`
 and `PORT` with `8080`, so the container reaches the compose database whatever
-`.env` says for a run on the host. The host port is `COMMITPOOL_PORT` (default
-8080); `COMMITPOOL_BASE_URL` in `.env` must name that same port, because it
-is the URL PayPal sends buyers back to. Inside the container only environment
+`.env` says for a run on the host. The host port defaults to 8080; to publish
+another one, set `COMMITPOOL_PORT` in the shell that runs compose
+(`COMMITPOOL_PORT=9090 docker compose …`), because compose reads it from the
+shell, not from `.env`. `COMMITPOOL_BASE_URL` in `.env` must name the
+published port, because it is the URL PayPal sends buyers back to. Inside
+the container only environment
 variables are read: there is no `~/.aws`, so Bedrock credentials must be in
 `.env` (`AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, or
 `AWS_BEARER_TOKEN_BEDROCK`).

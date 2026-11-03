@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canStartCheckout, enrollmentTone, headline, heldAny, isTerminal, refundsAny, seatHeld, shouldPollOwner, shouldPollParticipant, tone } from './status'
+import { canStartCheckout, enrollmentTone, headline, heldAny, isTerminal, refundsAny, reservedSeatNote, returnCheckSettled, seatHeld, shouldPollOwner, shouldPollParticipant, tone } from './status'
 
 describe('headline', () => {
   it('names a refund still in progress in a cancelled workshop', () => {
@@ -264,5 +264,36 @@ describe('shouldPollOwner', () => {
     expect(shouldPollOwner({ status: 'COLLECTING', resolution: 'OPEN', paymentsOpen: false, enrollments: [] })).toBe(false)
     expect(shouldPollOwner({ status: 'CONFIRMED', resolution: 'OPEN', paymentsOpen: false, enrollments: ['PAID'] })).toBe(false)
     expect(shouldPollOwner({ status: 'CANCELLED', resolution: 'SETTLED', paymentsOpen: false, enrollments: ['VOIDED'] })).toBe(false)
+  })
+})
+
+describe('reservedSeatNote', () => {
+  it('says the seat is kept while PayPal reviews the authorization, even past its expiry', () => {
+    expect(reservedSeatNote({ authPending: true, held: false, until: '10:00' })).toBe('Seat kept while PayPal reviews the authorization')
+    expect(reservedSeatNote({ authPending: true, held: true, until: '10:00' })).toBe('Seat kept while PayPal reviews the authorization')
+  })
+
+  it('names the time a live seat is held until', () => {
+    expect(reservedSeatNote({ authPending: false, held: true, until: '10:00' })).toBe('Seat held until 10:00')
+  })
+
+  it('calls a lapsed seat expired', () => {
+    expect(reservedSeatNote({ authPending: false, held: false, until: '10:00' })).toBe('Seat expired')
+  })
+})
+
+describe('returnCheckSettled', () => {
+  it('ends the check once PayPal holds the authorization for review', () => {
+    expect(returnCheckSettled({ enrollment: 'SEAT_RESERVED', polling: true, authPending: true })).toBe(true)
+  })
+
+  it('keeps checking a reserved seat while the page still polls', () => {
+    expect(returnCheckSettled({ enrollment: 'SEAT_RESERVED', polling: true, authPending: false })).toBe(false)
+    expect(returnCheckSettled({ enrollment: null, polling: true, authPending: false })).toBe(false)
+  })
+
+  it('ends the check once the payment moved past the checkout or nothing more will change', () => {
+    expect(returnCheckSettled({ enrollment: 'AUTHORIZED', polling: true, authPending: false })).toBe(true)
+    expect(returnCheckSettled({ enrollment: 'SEAT_RESERVED', polling: false, authPending: false })).toBe(true)
   })
 })

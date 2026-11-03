@@ -63,6 +63,24 @@ export function authorizationPending(
   return e?.payment?.authorization_status === 'PENDING'
 }
 
+/** The line under a reserved seat in the organizer's list; `until` is the formatted end of a live hold. */
+export function reservedSeatNote(input: { authPending: boolean; held: boolean; until: string }): string {
+  if (input.authPending) return 'Seat kept while PayPal reviews the authorization'
+  if (input.held) return `Seat held until ${input.until}`
+  return 'Seat expired'
+}
+
+/**
+ * Whether the check a PayPal return asked for is over: PayPal holds the
+ * authorization for review, the payment moved past the checkout, or nothing
+ * more will change on its own.
+ */
+export function returnCheckSettled(input: { enrollment: EnrollmentStatus | null; polling: boolean; authPending: boolean }): boolean {
+  if (input.authPending) return true
+  if (input.enrollment && input.enrollment !== 'SEAT_RESERVED') return true
+  return !input.polling
+}
+
 // After these the server takes a new checkout: a new enrollment, or a renewed seat.
 const RETRYABLE: ReadonlySet<EnrollmentStatus> = new Set(['SEAT_RESERVED', 'RELEASED', 'CAPTURE_FAILED'])
 

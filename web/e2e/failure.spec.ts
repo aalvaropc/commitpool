@@ -43,6 +43,6 @@ test.describe('induced capture failure', () => {
 
     // Ben's page stops polling once his own status is final, so it reads the confirmation on a reload.
     await ben.page.reload()
-    await expect(headline(ben.page)).toHaveText('Workshop confirmed — your payment failed')
+    await expect(headline(ben.page)).toHaveText('Workshop confirmed — payment failed, you can try again')
   })
 })

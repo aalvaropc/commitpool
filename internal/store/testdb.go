@@ -2,7 +2,10 @@ package store
 
 import (
 	"context"
+	"fmt"
+	"net/url"
 	"os"
+	"path"
 	"strings"
 	"testing"
 	"time"
@@ -18,18 +21,21 @@ const testDBLockKey int64 = 7412530002
 func TestStore(t testing.TB) *Store {
 	t.Helper()
 
-	url := os.Getenv("TEST_DATABASE_URL")
-	if url == "" {
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	if dsn == "" {
 		if os.Getenv("COMMITPOOL_SKIP_DB_TESTS") == "1" {
 			t.Skip("COMMITPOOL_SKIP_DB_TESTS=1: skipping database test")
 		}
 		t.Fatal("TEST_DATABASE_URL is not set: run `make db-up && make test`, or set COMMITPOOL_SKIP_DB_TESTS=1 to skip database tests")
 	}
+	if err := checkTestDatabaseName(dsn); err != nil {
+		t.Fatalf("TEST_DATABASE_URL: %v", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	s, err := Open(ctx, url)
+	s, err := Open(ctx, dsn)
 	if err != nil {
 		t.Fatalf("open test database: %v", err)
 	}
@@ -76,4 +82,18 @@ func TestStore(t testing.TB) *Store {
 		}
 	}
 	return s
+}
+
+// checkTestDatabaseName refuses a database whose name does not end in _test:
+// TestStore truncates every table of the database it is pointed at.
+func checkTestDatabaseName(databaseURL string) error {
+	u, err := url.Parse(databaseURL)
+	if err != nil {
+		return fmt.Errorf("not a URL: %w", err)
+	}
+	name := strings.TrimPrefix(path.Base(u.Path), "/")
+	if name == "" || name == "." || !strings.HasSuffix(name, "_test") {
+		return fmt.Errorf("database %q is not a test database: its name must end in _test, because every table in it is truncated", name)
+	}
+	return nil
 }

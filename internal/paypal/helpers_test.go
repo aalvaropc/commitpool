@@ -1,4 +1,4 @@
-package paypal
+package paypal_test
 
 import (
 	"context"
@@ -6,25 +6,28 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/aalvaropc/commitpool/internal/paypal"
+	"github.com/aalvaropc/commitpool/internal/paypal/paypaltest"
 )
 
-var usd10 = Money{CurrencyCode: "USD", Value: "10.00"}
+var usd10 = paypal.Money{CurrencyCode: "USD", Value: "10.00"}
 
 const (
 	testReturnURL = "https://app.example/paypal/return"
 	testCancelURL = "https://app.example/paypal/cancel"
 )
 
-func newFake(t *testing.T) *FakeServer {
+func newFake(t *testing.T) *paypaltest.Server {
 	t.Helper()
-	f := NewFakeServer()
+	f := paypaltest.NewServer()
 	t.Cleanup(f.Close)
 	return f
 }
 
-func newTestClient(t *testing.T, f *FakeServer, edit ...func(*Config)) *Client {
+func newTestClient(t *testing.T, f *paypaltest.Server, edit ...func(*paypal.Config)) *paypal.Client {
 	t.Helper()
-	cfg := Config{
+	cfg := paypal.Config{
 		BaseURL:      f.URL,
 		ClientID:     "fake-client",
 		ClientSecret: "fake-secret",
@@ -34,15 +37,15 @@ func newTestClient(t *testing.T, f *FakeServer, edit ...func(*Config)) *Client {
 	for _, e := range edit {
 		e(&cfg)
 	}
-	c, err := New(cfg)
+	c, err := paypal.New(cfg)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 	return c
 }
 
-func createParams(key string) CreateOrderParams {
-	return CreateOrderParams{
+func createParams(key string) paypal.CreateOrderParams {
+	return paypal.CreateOrderParams{
 		RequestID:   "create-" + key,
 		ReferenceID: "attempt-" + key,
 		CustomID:    "enrollment-" + key,
@@ -52,7 +55,7 @@ func createParams(key string) CreateOrderParams {
 	}
 }
 
-func createOrder(t *testing.T, c *Client, key string) Order {
+func createOrder(t *testing.T, c *paypal.Client, key string) paypal.Order {
 	t.Helper()
 	o, err := c.CreateOrder(context.Background(), createParams(key))
 	if err != nil {
@@ -61,7 +64,7 @@ func createOrder(t *testing.T, c *Client, key string) Order {
 	return o
 }
 
-func authorizedOrder(t *testing.T, c *Client, f *FakeServer, key string) (Order, Authorization) {
+func authorizedOrder(t *testing.T, c *paypal.Client, f *paypaltest.Server, key string) (paypal.Order, paypal.Authorization) {
 	t.Helper()
 	o := createOrder(t, c, key)
 	f.Approve(o.ID)
@@ -76,19 +79,19 @@ func authorizedOrder(t *testing.T, c *Client, f *FakeServer, key string) (Order,
 	return got, auths[0]
 }
 
-func capturedOrder(t *testing.T, c *Client, f *FakeServer, key string) (Authorization, Capture) {
+func capturedOrder(t *testing.T, c *paypal.Client, f *paypaltest.Server, key string) (paypal.Authorization, paypal.Capture) {
 	t.Helper()
 	_, auth := authorizedOrder(t, c, f, key)
-	cp, err := c.CaptureAuthorization(context.Background(), CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-" + key})
+	cp, err := c.CaptureAuthorization(context.Background(), paypal.CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-" + key})
 	if err != nil {
 		t.Fatalf("CaptureAuthorization: %v", err)
 	}
 	return auth, cp
 }
 
-func requirePayPalError(t *testing.T, err error, status int, name, issue string) *Error {
+func requirePayPalError(t *testing.T, err error, status int, name, issue string) *paypal.Error {
 	t.Helper()
-	var pe *Error
+	var pe *paypal.Error
 	if !errors.As(err, &pe) {
 		t.Fatalf("error = %v (%T), want *Error", err, err)
 	}

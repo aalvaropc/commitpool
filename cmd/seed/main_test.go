@@ -20,7 +20,8 @@ import (
 	"github.com/aalvaropc/commitpool/internal/config"
 	"github.com/aalvaropc/commitpool/internal/httpapi"
 	"github.com/aalvaropc/commitpool/internal/paypal"
-	"github.com/aalvaropc/commitpool/internal/store"
+	"github.com/aalvaropc/commitpool/internal/paypal/paypaltest"
+	"github.com/aalvaropc/commitpool/internal/store/storetest"
 	"github.com/aalvaropc/commitpool/internal/worker"
 )
 
@@ -65,8 +66,8 @@ type ownerView struct {
 // the test server's.
 func newApp(t *testing.T) *httptest.Server {
 	t.Helper()
-	st := store.TestStore(t)
-	fake := paypal.NewFakeServer()
+	st := storetest.New(t)
+	fake := paypaltest.NewServer()
 	t.Cleanup(fake.Close)
 	srv := httptest.NewUnstartedServer(nil)
 	t.Cleanup(srv.Close)

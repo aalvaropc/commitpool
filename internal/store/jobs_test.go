@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/aalvaropc/commitpool/internal/store"
+	"github.com/aalvaropc/commitpool/internal/store/storetest"
 )
 
 const missingUUID = "00000000-0000-4000-8000-000000000000"
@@ -70,7 +71,7 @@ func assertUnlocked(t *testing.T, s *store.Store, id string) {
 
 func TestEnqueueJob_StoresRowWithDefaults(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	e := newEnrollment(t, s)
 	a, err := s.CreateAttempt(ctx, e.ID, 1000, "USD")
 	if err != nil {
@@ -102,7 +103,7 @@ func TestEnqueueJob_StoresRowWithDefaults(t *testing.T) {
 }
 
 func TestEnqueueJob_NilPayloadStoresEmptyObject(t *testing.T) {
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	enqueue(t, s, "close", "close:p1", baseTime)
 
 	j := jobByKey(t, s, "close:p1")
@@ -114,7 +115,7 @@ func TestEnqueueJob_NilPayloadStoresEmptyObject(t *testing.T) {
 
 func TestEnqueue_SameKeyIsNoop(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	key := "authorize:attempt-1"
 
 	created, err := s.EnqueueJob(ctx, "authorize", key, nil, nil, map[string]string{"order_id": "first"}, baseTime)
@@ -144,7 +145,7 @@ func TestEnqueue_SameKeyIsNoop(t *testing.T) {
 
 func TestEnqueueJob_ConcurrentSameKeyCreatesOne(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	const callers = 8
 
 	var wg sync.WaitGroup
@@ -180,7 +181,7 @@ func TestEnqueueJob_ConcurrentSameKeyCreatesOne(t *testing.T) {
 }
 
 func TestClaimJob_ClaimsPendingAndReturnsPostUpdateState(t *testing.T) {
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	enqueue(t, s, "capture", "capture:a1", baseTime)
 
 	now := baseTime.Add(time.Minute)
@@ -208,7 +209,7 @@ func TestClaimJob_ClaimsPendingAndReturnsPostUpdateState(t *testing.T) {
 
 func TestClaimJob_ReturnsNilWhenNothingClaimable(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 
 	if j, err := s.ClaimJob(ctx, "w1", baseTime); err != nil || j != nil {
 		t.Fatalf("ClaimJob on empty queue = %+v, %v; want nil, nil", j, err)
@@ -223,7 +224,7 @@ func TestClaimJob_ReturnsNilWhenNothingClaimable(t *testing.T) {
 
 func TestClaimJob_RespectsRunAt(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	runAt := baseTime.Add(10 * time.Minute)
 	enqueue(t, s, "close", "close:p1", runAt)
 
@@ -241,7 +242,7 @@ func TestClaimJob_RespectsRunAt(t *testing.T) {
 }
 
 func TestClaimJob_OldestRunAtFirst(t *testing.T) {
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	enqueue(t, s, "capture", "capture:late", baseTime.Add(2*time.Minute))
 	enqueue(t, s, "capture", "capture:early", baseTime)
 	enqueue(t, s, "capture", "capture:middle", baseTime.Add(time.Minute))
@@ -258,7 +259,7 @@ func TestClaimJob_OldestRunAtFirst(t *testing.T) {
 
 func TestClaimJob_TwoWorkersNeverRunSameJob(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	const total = 40
 
 	want := make(map[string]bool, total)
@@ -324,7 +325,7 @@ func TestClaimJob_TwoWorkersNeverRunSameJob(t *testing.T) {
 
 func TestClaimJobByKey_ClaimsOnlyThatJob(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	enqueue(t, s, "capture", "capture:older", baseTime)
 	enqueue(t, s, "capture", "capture:wanted", baseTime.Add(time.Minute))
 
@@ -355,7 +356,7 @@ func TestClaimJobByKey_ClaimsOnlyThatJob(t *testing.T) {
 
 func TestClaimJobByKey_SkipsRunningAndFuture(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	enqueue(t, s, "capture", "capture:running", baseTime)
 	enqueue(t, s, "capture", "capture:future", baseTime.Add(10*time.Minute))
 	enqueue(t, s, "capture", "capture:done", baseTime)
@@ -406,7 +407,7 @@ func TestClaimJobByKey_SkipsRunningAndFuture(t *testing.T) {
 
 func TestCompleteJob_SucceedsAndClearsLock(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	enqueue(t, s, "authorize", "authorize:a1", baseTime)
 	j := claim(t, s, "w1", baseTime)
 
@@ -429,7 +430,7 @@ func TestCompleteJob_SucceedsAndClearsLock(t *testing.T) {
 
 func TestCompleteJob_AcceptsUnknownJob(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	enqueue(t, s, "capture", "capture:a1", baseTime)
 	j := claim(t, s, "w1", baseTime)
 	if err := s.MarkJobUnknown(ctx, j.ID, "request timed out", nil); err != nil {
@@ -452,7 +453,7 @@ func TestCompleteJob_AcceptsUnknownJob(t *testing.T) {
 
 func TestCompleteJob_RefusesJobThatIsNotRunningOrUnknown(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	enqueue(t, s, "capture", "capture:pending", baseTime.Add(time.Hour))
 	enqueue(t, s, "capture", "capture:done", baseTime)
 	enqueue(t, s, "capture", "capture:parked", baseTime)
@@ -483,7 +484,7 @@ func TestCompleteJob_RefusesJobThatIsNotRunningOrUnknown(t *testing.T) {
 
 func TestRetryJob_BackoffThenNeedsAttention(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	enqueue(t, s, "capture", "capture:a1", baseTime)
 
 	backoff := []time.Duration{5 * time.Second, 30 * time.Second, 2 * time.Minute, 10 * time.Minute}
@@ -532,7 +533,7 @@ func TestRetryJob_BackoffThenNeedsAttention(t *testing.T) {
 
 func TestRetryJob_StoresFailureDetailsAndReplacesThemOnNextRetry(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	enqueue(t, s, "capture", "capture:a1", baseTime)
 
 	j := claim(t, s, "w1", baseTime)
@@ -568,7 +569,7 @@ func TestRetryJob_StoresFailureDetailsAndReplacesThemOnNextRetry(t *testing.T) {
 
 func TestRetryJob_RefusesSucceededJob(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	enqueue(t, s, "capture", "capture:a1", baseTime)
 	j := claim(t, s, "w1", baseTime)
 	if err := s.CompleteJob(ctx, j.ID, ptr(201)); err != nil {
@@ -596,7 +597,7 @@ func TestRetryJob_RefusesSucceededJob(t *testing.T) {
 
 func TestRetryJob_RefusesJobThatIsNotRunning(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	enqueue(t, s, "capture", "capture:pending", baseTime.Add(time.Hour))
 	enqueue(t, s, "capture", "capture:unknown", baseTime)
 	unknown := claim(t, s, "w1", baseTime)
@@ -617,7 +618,7 @@ func TestRetryJob_RefusesJobThatIsNotRunning(t *testing.T) {
 
 func TestMarkJobUnknown_ParksJobAndClearsLock(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	enqueue(t, s, "refund", "refund:a1", baseTime)
 	j := claim(t, s, "w1", baseTime)
 	if _, err := s.RetryJob(ctx, j.ID, baseTime, "declined", ptr(422), ptr("INSTRUMENT_DECLINED"), ptr("dbg-1")); err != nil {
@@ -654,7 +655,7 @@ func TestMarkJobUnknown_ParksJobAndClearsLock(t *testing.T) {
 }
 
 func TestMarkJobUnknown_StoresHTTPStatus(t *testing.T) {
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	enqueue(t, s, "refund", "refund:a1", baseTime)
 	j := claim(t, s, "w1", baseTime)
 
@@ -669,7 +670,7 @@ func TestMarkJobUnknown_StoresHTTPStatus(t *testing.T) {
 
 func TestMarkJobUnknown_RefusesNonRunningJob(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	enqueue(t, s, "refund", "refund:pending", baseTime.Add(time.Hour))
 	enqueue(t, s, "refund", "refund:done", baseTime)
 	done := claim(t, s, "w1", baseTime)
@@ -697,7 +698,7 @@ func TestMarkJobUnknown_RefusesNonRunningJob(t *testing.T) {
 
 func TestFailJob_MarksFailedAndIsReenqueueable(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	enqueue(t, s, "authorize", "authorize:a1", baseTime)
 	j := claim(t, s, "w1", baseTime)
 
@@ -740,7 +741,7 @@ func TestFailJob_MarksFailedAndIsReenqueueable(t *testing.T) {
 
 func TestJobTransitions_UnknownJobIsNotFound(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 
 	for _, id := range []string{missingUUID, "not-a-uuid"} {
 		if err := s.CompleteJob(ctx, id, nil); !errors.Is(err, store.ErrNotFound) {
@@ -757,7 +758,7 @@ func TestJobTransitions_UnknownJobIsNotFound(t *testing.T) {
 
 func TestReviveJob_PolicyAndSingleStatement(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	failed := func(key string, httpStatus *int, issue *string) {
 		t.Helper()
 		enqueue(t, s, "void", key, baseTime)
@@ -830,7 +831,7 @@ func TestReviveJob_PolicyAndSingleStatement(t *testing.T) {
 
 func TestReenqueueJob_KeepsKeyAndResetsRunAt(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	enqueue(t, s, "capture", "capture:a1", baseTime)
 	j := claim(t, s, "w1", baseTime)
 	if err := s.MarkJobUnknown(ctx, j.ID, "request timed out", nil); err != nil {
@@ -866,7 +867,7 @@ func TestReenqueueJob_KeepsKeyAndResetsRunAt(t *testing.T) {
 
 func TestReenqueueJob_ValidFromFailedAndNeedsAttention(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	enqueue(t, s, "void", "void:a1", baseTime.Add(time.Hour))
 	enqueue(t, s, "refund", "refund:a1", baseTime.Add(time.Hour))
 	if _, err := s.Pool.Exec(ctx, `update jobs set status = 'failed' where idempotency_key = 'void:a1'`); err != nil {
@@ -890,7 +891,7 @@ func TestReenqueueJob_ValidFromFailedAndNeedsAttention(t *testing.T) {
 
 func TestReenqueueJob_LeavesOtherStatusesAlone(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	enqueue(t, s, "authorize", "authorize:done", baseTime)
 	enqueue(t, s, "authorize", "authorize:busy", baseTime)
 	enqueue(t, s, "authorize", "authorize:waiting", baseTime.Add(time.Hour))
@@ -930,14 +931,14 @@ func TestReenqueueJob_LeavesOtherStatusesAlone(t *testing.T) {
 }
 
 func TestReenqueueJob_MissingKeyIsNotFound(t *testing.T) {
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	if err := s.ReenqueueJob(context.Background(), "capture:missing", baseTime); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("ReenqueueJob(missing) = %v, want ErrNotFound", err)
 	}
 }
 
 func TestJobByKey_MissingIsNil(t *testing.T) {
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	if j, err := s.JobByKey(context.Background(), "capture:missing"); err != nil || j != nil {
 		t.Errorf("JobByKey(missing) = %+v, %v; want nil, nil", j, err)
 	}
@@ -945,7 +946,7 @@ func TestJobByKey_MissingIsNil(t *testing.T) {
 
 func TestUpdateJobPayload_ReplacesPayload(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	created, err := s.EnqueueJob(ctx, "create_order", "create_order:a1", nil, nil, map[string]string{"note": "first"}, baseTime)
 	if err != nil || !created {
 		t.Fatalf("EnqueueJob = %v, %v; want true, nil", created, err)
@@ -970,7 +971,7 @@ func TestUpdateJobPayload_ReplacesPayload(t *testing.T) {
 
 func TestJobsByAttempt_OrderedByCreation(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	e := newEnrollment(t, s)
 	a1, err := s.CreateAttempt(ctx, e.ID, 1000, "USD")
 	if err != nil {
@@ -1010,7 +1011,7 @@ func TestJobsByAttempt_OrderedByCreation(t *testing.T) {
 
 func TestRequeueStale_RecoversAbandonedRunningJobs(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	enqueue(t, s, "capture", "capture:abandoned", baseTime)
 	enqueue(t, s, "capture", "capture:done", baseTime)
 	enqueue(t, s, "capture", "capture:fresh", baseTime)
@@ -1068,7 +1069,7 @@ func TestRequeueStale_RecoversAbandonedRunningJobs(t *testing.T) {
 
 func TestRequeueStale_ParksExhaustedJobsAsNeedsAttention(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	enqueue(t, s, "capture", "capture:hangs", baseTime)
 	enqueue(t, s, "capture", "capture:below-cap", baseTime)
 	enqueue(t, s, "capture", "capture:fresh", baseTime)
@@ -1126,7 +1127,7 @@ func TestRequeueStale_ParksExhaustedJobsAsNeedsAttention(t *testing.T) {
 
 func TestAdvanceJob_OnlyBringsAPendingJobForward(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	now := time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
 	later := now.Add(24 * time.Hour)
 
@@ -1158,7 +1159,7 @@ func TestAdvanceJob_OnlyBringsAPendingJobForward(t *testing.T) {
 
 func TestPurgeSucceededJobs_DropsOldReadsAndSeatReleasesOnly(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	en := newEnrollment(t, s)
 	a, err := s.CreateAttempt(ctx, en.ID, 1000, "USD")
 	if err != nil {
@@ -1231,7 +1232,7 @@ func TestPurgeSucceededJobs_DropsOldReadsAndSeatReleasesOnly(t *testing.T) {
 
 func TestRetryJob_KindsThatReturnMoneyOrKeepHouseNeverPark(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	backoff := []time.Duration{5 * time.Second, 30 * time.Second, 2 * time.Minute, 10 * time.Minute, 30 * time.Minute, time.Hour, time.Hour}
 	for _, kind := range []string{"void", "refund", "reconcile", "close", "release_seats"} {
 		key := kind + ":forever"
@@ -1261,7 +1262,7 @@ func TestRetryJob_KindsThatReturnMoneyOrKeepHouseNeverPark(t *testing.T) {
 
 func TestRequeueStale_NeverParksKindsThatRetryForever(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	enqueue(t, s, "close", "close:hangs", baseTime)
 	if _, err := s.Pool.Exec(ctx,
 		`update jobs set status = 'running', attempts = 9, locked_at = $1, locked_by = 'crashed-worker' where idempotency_key = 'close:hangs'`,

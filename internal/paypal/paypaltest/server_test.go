@@ -1,4 +1,4 @@
-package paypal
+package paypaltest
 
 import (
 	"context"
@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/aalvaropc/commitpool/internal/paypal"
 )
 
 var noRedirect = &http.Client{
@@ -41,11 +43,11 @@ func TestFake_SameRequestIdReturnsSameCapture(t *testing.T) {
 	_, auth := authorizedOrder(t, c, f, "1")
 	ctx := context.Background()
 
-	first, err := c.CaptureAuthorization(ctx, CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1"})
+	first, err := c.CaptureAuthorization(ctx, paypal.CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1"})
 	if err != nil {
 		t.Fatalf("first capture: %v", err)
 	}
-	second, err := c.CaptureAuthorization(ctx, CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1"})
+	second, err := c.CaptureAuthorization(ctx, paypal.CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1"})
 	if err != nil {
 		t.Fatalf("second capture with the same key: %v", err)
 	}
@@ -101,7 +103,7 @@ func TestFake_VoidAfterCaptureIs422(t *testing.T) {
 
 	err := c.VoidAuthorization(context.Background(), auth.ID, "void-1")
 	requirePayPalError(t, err, 422, "UNPROCESSABLE_ENTITY", "PREVIOUSLY_CAPTURED")
-	if IsAmbiguous(err) {
+	if paypal.IsAmbiguous(err) {
 		t.Error("a 422 must not be ambiguous")
 	}
 }
@@ -150,7 +152,7 @@ func TestFake_ApprovePageRedirectsToReturnURL(t *testing.T) {
 		t.Fatalf("order after approving = %q, %v, want APPROVED", got.Status, err)
 	}
 
-	withQuery, err := c.CreateOrder(context.Background(), CreateOrderParams{
+	withQuery, err := c.CreateOrder(context.Background(), paypal.CreateOrderParams{
 		RequestID: "create-q", ReferenceID: "attempt-q", CustomID: "enrollment-q", Amount: usd10,
 		ReturnURL: "https://app.example/paypal/return?attempt=q", CancelURL: testCancelURL,
 	})
@@ -241,8 +243,8 @@ func TestFake_RejectsAMalformedOrder(t *testing.T) {
 
 func TestFake_BusinessRules(t *testing.T) {
 	type fixture struct {
-		f *FakeServer
-		c *Client
+		f *Server
+		c *paypal.Client
 	}
 	ctx := context.Background()
 	cases := []struct {
@@ -271,26 +273,26 @@ func TestFake_BusinessRules(t *testing.T) {
 			if err := x.c.VoidAuthorization(ctx, auth.ID, "void-1"); err != nil {
 				t.Fatal(err)
 			}
-			_, err := x.c.CaptureAuthorization(ctx, CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1"})
+			_, err := x.c.CaptureAuthorization(ctx, paypal.CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1"})
 			return err
 		}, 422, "UNPROCESSABLE_ENTITY", "AUTHORIZATION_VOIDED"},
 		{"capture an authorization twice under different keys", func(t *testing.T, x fixture) error {
 			auth, _ := capturedOrder(t, x.c, x.f, "1")
-			_, err := x.c.CaptureAuthorization(ctx, CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-other"})
+			_, err := x.c.CaptureAuthorization(ctx, paypal.CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-other"})
 			return err
 		}, 422, "UNPROCESSABLE_ENTITY", "AUTHORIZATION_ALREADY_CAPTURED"},
 		{"capture with the AUTHORIZATION_EXPIRED mock", func(t *testing.T, x fixture) error {
 			_, auth := authorizedOrder(t, x.c, x.f, "1")
-			_, err := x.c.CaptureAuthorization(ctx, CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1", MockCode: "AUTHORIZATION_EXPIRED"})
+			_, err := x.c.CaptureAuthorization(ctx, paypal.CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1", MockCode: "AUTHORIZATION_EXPIRED"})
 			return err
 		}, 422, "UNPROCESSABLE_ENTITY", "AUTHORIZATION_EXPIRED"},
 		{"capture with the TRANSACTION_REFUSED mock", func(t *testing.T, x fixture) error {
 			_, auth := authorizedOrder(t, x.c, x.f, "1")
-			_, err := x.c.CaptureAuthorization(ctx, CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1", MockCode: "TRANSACTION_REFUSED"})
+			_, err := x.c.CaptureAuthorization(ctx, paypal.CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1", MockCode: "TRANSACTION_REFUSED"})
 			return err
 		}, 422, "UNPROCESSABLE_ENTITY", "TRANSACTION_REFUSED"},
 		{"capture an unknown authorization", func(t *testing.T, x fixture) error {
-			_, err := x.c.CaptureAuthorization(ctx, CaptureParams{AuthorizationID: "NOPE", RequestID: "capture-1"})
+			_, err := x.c.CaptureAuthorization(ctx, paypal.CaptureParams{AuthorizationID: "NOPE", RequestID: "capture-1"})
 			return err
 		}, 404, "RESOURCE_NOT_FOUND", "INVALID_RESOURCE_ID"},
 		{"void a captured authorization", func(t *testing.T, x fixture) error {
@@ -309,19 +311,19 @@ func TestFake_BusinessRules(t *testing.T) {
 		}, 404, "RESOURCE_NOT_FOUND", "INVALID_RESOURCE_ID"},
 		{"refund a capture twice under different keys", func(t *testing.T, x fixture) error {
 			_, cp := capturedOrder(t, x.c, x.f, "1")
-			if _, err := x.c.RefundCapture(ctx, RefundParams{CaptureID: cp.ID, RequestID: "refund-1"}); err != nil {
+			if _, err := x.c.RefundCapture(ctx, paypal.RefundParams{CaptureID: cp.ID, RequestID: "refund-1"}); err != nil {
 				t.Fatal(err)
 			}
-			_, err := x.c.RefundCapture(ctx, RefundParams{CaptureID: cp.ID, RequestID: "refund-other"})
+			_, err := x.c.RefundCapture(ctx, paypal.RefundParams{CaptureID: cp.ID, RequestID: "refund-other"})
 			return err
 		}, 422, "UNPROCESSABLE_ENTITY", "CAPTURE_FULLY_REFUNDED"},
 		{"refund with the REFUND_AMOUNT_EXCEEDED mock", func(t *testing.T, x fixture) error {
 			_, cp := capturedOrder(t, x.c, x.f, "1")
-			_, err := x.c.RefundCapture(ctx, RefundParams{CaptureID: cp.ID, RequestID: "refund-1", MockCode: "REFUND_AMOUNT_EXCEEDED"})
+			_, err := x.c.RefundCapture(ctx, paypal.RefundParams{CaptureID: cp.ID, RequestID: "refund-1", MockCode: "REFUND_AMOUNT_EXCEEDED"})
 			return err
 		}, 422, "UNPROCESSABLE_ENTITY", "REFUND_AMOUNT_EXCEEDED"},
 		{"refund an unknown capture", func(t *testing.T, x fixture) error {
-			_, err := x.c.RefundCapture(ctx, RefundParams{CaptureID: "NOPE", RequestID: "refund-1"})
+			_, err := x.c.RefundCapture(ctx, paypal.RefundParams{CaptureID: "NOPE", RequestID: "refund-1"})
 			return err
 		}, 404, "RESOURCE_NOT_FOUND", "INVALID_RESOURCE_ID"},
 		{"read an unknown authorization", func(t *testing.T, x fixture) error {
@@ -342,7 +344,7 @@ func TestFake_BusinessRules(t *testing.T) {
 			f := newFake(t)
 			err := tc.run(t, fixture{f: f, c: newTestClient(t, f)})
 			requirePayPalError(t, err, tc.status, tc.pp, tc.issue)
-			if IsAmbiguous(err) {
+			if paypal.IsAmbiguous(err) {
 				t.Errorf("%v must not be ambiguous", err)
 			}
 		})
@@ -355,7 +357,7 @@ func TestFake_MockedCaptureCreatesNothingAndUnknownMocksAreIgnored(t *testing.T)
 	_, auth := authorizedOrder(t, c, f, "1")
 	ctx := context.Background()
 
-	_, err := c.CaptureAuthorization(ctx, CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1", MockCode: "TRANSACTION_REFUSED"})
+	_, err := c.CaptureAuthorization(ctx, paypal.CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1", MockCode: "TRANSACTION_REFUSED"})
 	requirePayPalError(t, err, 422, "UNPROCESSABLE_ENTITY", "TRANSACTION_REFUSED")
 	if n := f.Captures(); n != 0 {
 		t.Fatalf("Captures() after a mocked refusal = %d, want 0", n)
@@ -365,7 +367,7 @@ func TestFake_MockedCaptureCreatesNothingAndUnknownMocksAreIgnored(t *testing.T)
 		t.Fatalf("authorization after a mocked refusal = %q, %v, want CREATED", got.Status, err)
 	}
 
-	cp, err := c.CaptureAuthorization(ctx, CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-2", MockCode: "SOMETHING_UNKNOWN"})
+	cp, err := c.CaptureAuthorization(ctx, paypal.CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-2", MockCode: "SOMETHING_UNKNOWN"})
 	if err != nil || cp.Status != "COMPLETED" {
 		t.Fatalf("capture with an unknown mock code = %+v, %v, want the real operation", cp, err)
 	}
@@ -388,12 +390,12 @@ func TestFake_ReplayIsVerbatimEvenAfterTheResourceChanged(t *testing.T) {
 		t.Errorf("authorize replay returned authorization %q, want %q", got, auth.ID)
 	}
 
-	first, err := c.CaptureAuthorization(ctx, CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1"})
+	first, err := c.CaptureAuthorization(ctx, paypal.CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	f.SetCaptureStatus(first.ID, "PENDING", "PENDING_REVIEW")
-	again, err := c.CaptureAuthorization(ctx, CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1"})
+	again, err := c.CaptureAuthorization(ctx, paypal.CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1"})
 	if err != nil {
 		t.Fatalf("capture replay on a captured authorization: %v", err)
 	}
@@ -401,11 +403,11 @@ func TestFake_ReplayIsVerbatimEvenAfterTheResourceChanged(t *testing.T) {
 		t.Errorf("capture replay = %+v, want the recorded %+v", again, first)
 	}
 
-	refund, err := c.RefundCapture(ctx, RefundParams{CaptureID: first.ID, RequestID: "refund-1"})
+	refund, err := c.RefundCapture(ctx, paypal.RefundParams{CaptureID: first.ID, RequestID: "refund-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	refundAgain, err := c.RefundCapture(ctx, RefundParams{CaptureID: first.ID, RequestID: "refund-1"})
+	refundAgain, err := c.RefundCapture(ctx, paypal.RefundParams{CaptureID: first.ID, RequestID: "refund-1"})
 	if err != nil || refundAgain != refund {
 		t.Errorf("refund replay = %+v, %v, want the recorded %+v", refundAgain, err, refund)
 	}
@@ -426,15 +428,15 @@ func TestFake_FailuresAreNotRecordedForReplay(t *testing.T) {
 	ctx := context.Background()
 
 	f.FailNext("capture", 500, "")
-	_, err := c.CaptureAuthorization(ctx, CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1"})
-	var pe *Error
+	_, err := c.CaptureAuthorization(ctx, paypal.CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1"})
+	var pe *paypal.Error
 	if !errors.As(err, &pe) || pe.HTTPStatus != 500 {
 		t.Fatalf("first capture = %v, want a 500", err)
 	}
 	if n := f.Captures(); n != 0 {
 		t.Fatalf("Captures() after an injected 500 = %d, want 0 (the operation must not run)", n)
 	}
-	cp, err := c.CaptureAuthorization(ctx, CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1"})
+	cp, err := c.CaptureAuthorization(ctx, paypal.CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1"})
 	if err != nil || cp.Status != "COMPLETED" {
 		t.Fatalf("retry with the same key = %+v, %v, want the real capture", cp, err)
 	}
@@ -448,13 +450,13 @@ func TestFake_FailuresAreNotRecordedForReplay(t *testing.T) {
 
 func TestFake_TimedOutCaptureStillHappensAndReplays(t *testing.T) {
 	f := newFake(t)
-	c := newTestClient(t, f, func(cfg *Config) { cfg.HTTPClient = &http.Client{Timeout: time.Second} })
+	c := newTestClient(t, f, func(cfg *paypal.Config) { cfg.HTTPClient = &http.Client{Timeout: time.Second} })
 	order, auth := authorizedOrder(t, c, f, "1")
 	ctx := context.Background()
 
 	f.FailNext("capture", 0, "")
-	_, err := c.CaptureAuthorization(ctx, CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1"})
-	if err == nil || !IsAmbiguous(err) {
+	_, err := c.CaptureAuthorization(ctx, paypal.CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1"})
+	if err == nil || !paypal.IsAmbiguous(err) {
 		t.Fatalf("hanging capture = %v, want an ambiguous error", err)
 	}
 	f.WaitHung()
@@ -462,7 +464,7 @@ func TestFake_TimedOutCaptureStillHappensAndReplays(t *testing.T) {
 		t.Fatalf("Captures() after WaitHung = %d, want 1: the hung capture must have run", n)
 	}
 
-	cp, err := c.CaptureAuthorization(ctx, CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1"})
+	cp, err := c.CaptureAuthorization(ctx, paypal.CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1"})
 	if err != nil {
 		t.Fatalf("retry with the same key: %v", err)
 	}
@@ -480,7 +482,7 @@ func TestFake_TimedOutCaptureStillHappensAndReplays(t *testing.T) {
 }
 
 func TestFake_WaitHungReturnsWhenIdleOrClosed(t *testing.T) {
-	returnsWithin := func(t *testing.T, f *FakeServer, limit time.Duration) {
+	returnsWithin := func(t *testing.T, f *Server, limit time.Duration) {
 		t.Helper()
 		done := make(chan struct{})
 		go func() { f.WaitHung(); close(done) }()
@@ -494,12 +496,12 @@ func TestFake_WaitHungReturnsWhenIdleOrClosed(t *testing.T) {
 	idle := newFake(t)
 	returnsWithin(t, idle, time.Second)
 
-	f := NewFakeServer()
+	f := NewServer()
 	c := newTestClient(t, f)
 	_, auth := authorizedOrder(t, c, f, "1")
 	f.FailNext("capture", 0, "")
 	go func() {
-		_, _ = c.CaptureAuthorization(context.Background(), CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1"})
+		_, _ = c.CaptureAuthorization(context.Background(), paypal.CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1"})
 	}()
 	waitFor(t, 5*time.Second, func() bool { return len(f.Requests("capture")) == 1 })
 
@@ -520,14 +522,14 @@ func TestFake_WaitHungReturnsWhenIdleOrClosed(t *testing.T) {
 }
 
 func TestFake_CloseReturnsWhileARequestHangs(t *testing.T) {
-	f := NewFakeServer()
+	f := NewServer()
 	c := newTestClient(t, f)
 	_, auth := authorizedOrder(t, c, f, "1")
 	f.FailNext("capture", 0, "")
 
 	errc := make(chan error, 1)
 	go func() {
-		_, err := c.CaptureAuthorization(context.Background(), CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1"})
+		_, err := c.CaptureAuthorization(context.Background(), paypal.CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1"})
 		errc <- err
 	}()
 	waitFor(t, 5*time.Second, func() bool { return len(f.Requests("capture")) == 1 })
@@ -559,14 +561,14 @@ func TestFake_FailNextShapesAndOrder(t *testing.T) {
 
 	f.FailNext("get_order", 409, "")
 	_, err := c.GetOrder(ctx, order.ID)
-	var pe *Error
-	if !errors.As(err, &pe) || pe.HTTPStatus != 409 || pe.Issue != "PREVIOUS_REQUEST_IN_PROGRESS" || !IsAmbiguous(err) {
+	var pe *paypal.Error
+	if !errors.As(err, &pe) || pe.HTTPStatus != 409 || pe.Issue != "PREVIOUS_REQUEST_IN_PROGRESS" || !paypal.IsAmbiguous(err) {
 		t.Fatalf("409 = %v, want an ambiguous PREVIOUS_REQUEST_IN_PROGRESS", err)
 	}
 
 	f.FailNext("get_order", 500, "")
 	_, err = c.GetOrder(ctx, order.ID)
-	if !errors.As(err, &pe) || pe.HTTPStatus != 500 || pe.Name != "INTERNAL_SERVER_ERROR" || pe.DebugID == "" || !IsAmbiguous(err) {
+	if !errors.As(err, &pe) || pe.HTTPStatus != 500 || pe.Name != "INTERNAL_SERVER_ERROR" || pe.DebugID == "" || !paypal.IsAmbiguous(err) {
 		t.Fatalf("500 = %+v (%v), want an ambiguous INTERNAL_SERVER_ERROR with a debug id", pe, err)
 	}
 
@@ -635,13 +637,13 @@ func TestFake_SetOrderAmountChangesOnlyWhatGetOrderReports(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := (Money{CurrencyCode: "EUR", Value: "12.50"}); got.PurchaseUnits[0].Amount != want {
+	if want := (paypal.Money{CurrencyCode: "EUR", Value: "12.50"}); got.PurchaseUnits[0].Amount != want {
 		t.Errorf("GetOrder amount = %+v, want %+v", got.PurchaseUnits[0].Amount, want)
 	}
 	if a := got.PurchaseUnits[0].Payments.Authorizations[0].Amount; a != usd10 {
 		t.Errorf("authorization amount = %+v, want it unchanged at %+v", a, usd10)
 	}
-	cp, err := c.CaptureAuthorization(ctx, CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1"})
+	cp, err := c.CaptureAuthorization(ctx, paypal.CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1"})
 	if err != nil || cp.Amount != usd10 {
 		t.Errorf("capture = %+v, %v, want the authorized %+v", cp, err, usd10)
 	}
@@ -652,11 +654,11 @@ func TestFake_OrderListsEveryPayment(t *testing.T) {
 	c := newTestClient(t, f)
 	ctx := context.Background()
 	order, auth := authorizedOrder(t, c, f, "1")
-	cp, err := c.CaptureAuthorization(ctx, CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1"})
+	cp, err := c.CaptureAuthorization(ctx, paypal.CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	refund, err := c.RefundCapture(ctx, RefundParams{CaptureID: cp.ID, RequestID: "refund-1"})
+	refund, err := c.RefundCapture(ctx, paypal.RefundParams{CaptureID: cp.ID, RequestID: "refund-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -696,7 +698,7 @@ func TestFake_ConcurrentCapturesWithOneKeyCaptureOnce(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			cp, err := c.CaptureAuthorization(context.Background(), CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1"})
+			cp, err := c.CaptureAuthorization(context.Background(), paypal.CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1"})
 			ids[i], errs[i] = cp.ID, err
 		}()
 	}
@@ -723,7 +725,7 @@ func TestFake_ConcurrentCapturesWithDistinctKeysCaptureOnce(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, errs[i] = c.CaptureAuthorization(context.Background(), CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-" + string(rune('a'+i))})
+			_, errs[i] = c.CaptureAuthorization(context.Background(), paypal.CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-" + string(rune('a'+i))})
 		}()
 	}
 	wg.Wait()

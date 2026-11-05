@@ -1,4 +1,4 @@
-package paypal
+package paypal_test
 
 import (
 	"context"
@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aalvaropc/commitpool/internal/paypal"
 )
 
 func TestClient_SendsIdempotencyHeaderOnEveryPost(t *testing.T) {
@@ -26,11 +28,11 @@ func TestClient_SendsIdempotencyHeaderOnEveryPost(t *testing.T) {
 		t.Fatalf("AuthorizeOrder: %v", err)
 	}
 	authID := authOrder.PurchaseUnits[0].Payments.Authorizations[0].ID
-	capture, err := c.CaptureAuthorization(ctx, CaptureParams{AuthorizationID: authID, RequestID: "capture-1"})
+	capture, err := c.CaptureAuthorization(ctx, paypal.CaptureParams{AuthorizationID: authID, RequestID: "capture-1"})
 	if err != nil {
 		t.Fatalf("CaptureAuthorization: %v", err)
 	}
-	if _, err := c.RefundCapture(ctx, RefundParams{CaptureID: capture.ID, RequestID: "refund-1"}); err != nil {
+	if _, err := c.RefundCapture(ctx, paypal.RefundParams{CaptureID: capture.ID, RequestID: "refund-1"}); err != nil {
 		t.Fatalf("RefundCapture: %v", err)
 	}
 	_, voidable := authorizedOrder(t, c, f, "2")
@@ -82,21 +84,21 @@ func TestClient_SendsIdempotencyHeaderOnEveryPost(t *testing.T) {
 }
 
 func TestClient_MockHeaderRefusedOutsideSandbox(t *testing.T) {
-	_, err := New(Config{BaseURL: "https://api-m.paypal.com", ClientID: "fake-client", ClientSecret: "fake-secret", SandboxMocks: true})
+	_, err := paypal.New(paypal.Config{BaseURL: "https://api-m.paypal.com", ClientID: "fake-client", ClientSecret: "fake-secret", SandboxMocks: true})
 	if err == nil || !strings.Contains(err.Error(), "mocks require sandbox") {
 		t.Fatalf("New with SandboxMocks outside the sandbox = %v, want a %q error", err, "mocks require sandbox")
 	}
-	if _, err := New(Config{BaseURL: "https://api-m.paypal.com", ClientID: "fake-client", ClientSecret: "fake-secret"}); err != nil {
+	if _, err := paypal.New(paypal.Config{BaseURL: "https://api-m.paypal.com", ClientID: "fake-client", ClientSecret: "fake-secret"}); err != nil {
 		t.Fatalf("New without mocks outside the sandbox: %v", err)
 	}
 
 	f := newFake(t)
 	c := newTestClient(t, f)
 	_, auth := authorizedOrder(t, c, f, "1")
-	_, err = c.CaptureAuthorization(context.Background(), CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1", MockCode: "AUTHORIZATION_EXPIRED"})
+	_, err = c.CaptureAuthorization(context.Background(), paypal.CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1", MockCode: "AUTHORIZATION_EXPIRED"})
 	requirePayPalError(t, err, 422, "UNPROCESSABLE_ENTITY", "AUTHORIZATION_EXPIRED")
 
-	_, err = c.CaptureAuthorization(context.Background(), CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1"})
+	_, err = c.CaptureAuthorization(context.Background(), paypal.CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1"})
 	if err != nil {
 		t.Fatalf("CaptureAuthorization without mock: %v", err)
 	}
@@ -114,14 +116,14 @@ func TestClient_MockHeaderRefusedOutsideSandbox(t *testing.T) {
 
 func TestClient_MockCodeWithoutSandboxMocksFailsBeforeSending(t *testing.T) {
 	f := newFake(t)
-	c := newTestClient(t, f, func(cfg *Config) { cfg.SandboxMocks = false })
+	c := newTestClient(t, f, func(cfg *paypal.Config) { cfg.SandboxMocks = false })
 
-	_, err := c.CaptureAuthorization(context.Background(), CaptureParams{AuthorizationID: "AUTH", RequestID: "capture-1", MockCode: "AUTHORIZATION_EXPIRED"})
-	if err == nil || IsAmbiguous(err) {
+	_, err := c.CaptureAuthorization(context.Background(), paypal.CaptureParams{AuthorizationID: "AUTH", RequestID: "capture-1", MockCode: "AUTHORIZATION_EXPIRED"})
+	if err == nil || paypal.IsAmbiguous(err) {
 		t.Fatalf("capture with a mock code and SandboxMocks off = %v, want a definite error", err)
 	}
-	_, err = c.RefundCapture(context.Background(), RefundParams{CaptureID: "CAP", RequestID: "refund-1", MockCode: "REFUND_AMOUNT_EXCEEDED"})
-	if err == nil || IsAmbiguous(err) {
+	_, err = c.RefundCapture(context.Background(), paypal.RefundParams{CaptureID: "CAP", RequestID: "refund-1", MockCode: "REFUND_AMOUNT_EXCEEDED"})
+	if err == nil || paypal.IsAmbiguous(err) {
 		t.Fatalf("refund with a mock code and SandboxMocks off = %v, want a definite error", err)
 	}
 	for _, op := range []string{"token", "capture", "refund"} {
@@ -138,20 +140,20 @@ func TestClient_MoneyPostWithoutRequestIDFailsBeforeSending(t *testing.T) {
 
 	calls := map[string]func() error{
 		"create_order": func() error {
-			_, err := c.CreateOrder(ctx, CreateOrderParams{ReferenceID: "a", CustomID: "e", Amount: usd10, ReturnURL: testReturnURL, CancelURL: testCancelURL})
+			_, err := c.CreateOrder(ctx, paypal.CreateOrderParams{ReferenceID: "a", CustomID: "e", Amount: usd10, ReturnURL: testReturnURL, CancelURL: testCancelURL})
 			return err
 		},
 		"authorize": func() error { _, err := c.AuthorizeOrder(ctx, "ORDER", ""); return err },
 		"capture": func() error {
-			_, err := c.CaptureAuthorization(ctx, CaptureParams{AuthorizationID: "AUTH"})
+			_, err := c.CaptureAuthorization(ctx, paypal.CaptureParams{AuthorizationID: "AUTH"})
 			return err
 		},
 		"void":   func() error { return c.VoidAuthorization(ctx, "AUTH", "") },
-		"refund": func() error { _, err := c.RefundCapture(ctx, RefundParams{CaptureID: "CAP"}); return err },
+		"refund": func() error { _, err := c.RefundCapture(ctx, paypal.RefundParams{CaptureID: "CAP"}); return err },
 	}
 	for op, call := range calls {
 		err := call()
-		if err == nil || IsAmbiguous(err) {
+		if err == nil || paypal.IsAmbiguous(err) {
 			t.Errorf("%s without a request id = %v, want a definite error", op, err)
 		}
 		if n := len(f.Requests(op)); n != 0 {
@@ -169,7 +171,7 @@ func TestClient_ParsesIssueAndDebugID(t *testing.T) {
 	_, auth := authorizedOrder(t, c, f, "1")
 
 	f.FailNext("capture", 422, "AUTHORIZATION_EXPIRED")
-	_, err := c.CaptureAuthorization(context.Background(), CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1"})
+	_, err := c.CaptureAuthorization(context.Background(), paypal.CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1"})
 	pe := requirePayPalError(t, err, 422, "UNPROCESSABLE_ENTITY", "AUTHORIZATION_EXPIRED")
 	if pe.Message == "" {
 		t.Error("Message is empty")
@@ -182,7 +184,7 @@ func TestClient_ParsesIssueAndDebugID(t *testing.T) {
 	if strings.Contains(err.Error(), pe.Message) {
 		t.Errorf("Error() = %q must not print the response message", err.Error())
 	}
-	if IsAmbiguous(err) {
+	if paypal.IsAmbiguous(err) {
 		t.Error("a 422 must not be ambiguous")
 	}
 }
@@ -196,16 +198,16 @@ func TestClient_NonJSONErrorBodyKeepsStatus(t *testing.T) {
 		w.WriteHeader(http.StatusBadGateway)
 		fmt.Fprint(w, "<html>bad gateway</html>")
 	})
-	c, err := New(Config{BaseURL: srv.URL, ClientID: "fake-client", ClientSecret: "fake-secret"})
+	c, err := paypal.New(paypal.Config{BaseURL: srv.URL, ClientID: "fake-client", ClientSecret: "fake-secret"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, err = c.GetOrder(context.Background(), "ORDER")
-	var pe *Error
+	var pe *paypal.Error
 	if !errors.As(err, &pe) || pe.HTTPStatus != 502 || pe.Name != "" || pe.Issue != "" {
 		t.Fatalf("error = %v, want *Error{502} with empty name and issue", err)
 	}
-	if !IsAmbiguous(err) {
+	if !paypal.IsAmbiguous(err) {
 		t.Error("a 502 must be ambiguous")
 	}
 	if strings.Contains(err.Error(), "bad gateway") {
@@ -222,12 +224,12 @@ func TestClient_MalformedSuccessBodyIsAmbiguous(t *testing.T) {
 		w.WriteHeader(http.StatusCreated)
 		fmt.Fprint(w, `{"id": `)
 	})
-	c, err := New(Config{BaseURL: srv.URL, ClientID: "fake-client", ClientSecret: "fake-secret"})
+	c, err := paypal.New(paypal.Config{BaseURL: srv.URL, ClientID: "fake-client", ClientSecret: "fake-secret"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = c.CaptureAuthorization(context.Background(), CaptureParams{AuthorizationID: "AUTH", RequestID: "capture-1"})
-	if err == nil || !IsAmbiguous(err) {
+	_, err = c.CaptureAuthorization(context.Background(), paypal.CaptureParams{AuthorizationID: "AUTH", RequestID: "capture-1"})
+	if err == nil || !paypal.IsAmbiguous(err) {
 		t.Fatalf("capture with a truncated 201 body = %v, want an ambiguous error", err)
 	}
 }
@@ -238,31 +240,31 @@ func TestClient_ShapelessSuccessIsUnconfirmed(t *testing.T) {
 		name string
 		op   string
 		body string
-		call func(c *Client) (any, error)
+		call func(c *paypal.Client) (any, error)
 	}{
-		{"create order without an id", "create_order", `{}`, func(c *Client) (any, error) {
+		{"create order without an id", "create_order", `{}`, func(c *paypal.Client) (any, error) {
 			return c.CreateOrder(ctx, createParams("1"))
 		}},
-		{"create order with status only", "create_order", `{"status":"PAYER_ACTION_REQUIRED"}`, func(c *Client) (any, error) {
+		{"create order with status only", "create_order", `{"status":"PAYER_ACTION_REQUIRED"}`, func(c *paypal.Client) (any, error) {
 			return c.CreateOrder(ctx, createParams("1"))
 		}},
-		{"authorize without purchase units", "authorize", `{"id":"ORDER","status":"COMPLETED"}`, func(c *Client) (any, error) {
+		{"authorize without purchase units", "authorize", `{"id":"ORDER","status":"COMPLETED"}`, func(c *paypal.Client) (any, error) {
 			return c.AuthorizeOrder(ctx, "ORDER", "authorize-1")
 		}},
-		{"authorize without authorizations", "authorize", `{"id":"ORDER","purchase_units":[{"payments":{}}]}`, func(c *Client) (any, error) {
+		{"authorize without authorizations", "authorize", `{"id":"ORDER","purchase_units":[{"payments":{}}]}`, func(c *paypal.Client) (any, error) {
 			return c.AuthorizeOrder(ctx, "ORDER", "authorize-1")
 		}},
-		{"authorize with an authorization lacking an id", "authorize", `{"id":"ORDER","purchase_units":[{"payments":{"authorizations":[{"status":"CREATED"}]}}]}`, func(c *Client) (any, error) {
+		{"authorize with an authorization lacking an id", "authorize", `{"id":"ORDER","purchase_units":[{"payments":{"authorizations":[{"status":"CREATED"}]}}]}`, func(c *paypal.Client) (any, error) {
 			return c.AuthorizeOrder(ctx, "ORDER", "authorize-1")
 		}},
-		{"capture with an empty object", "capture", `{}`, func(c *Client) (any, error) {
-			return c.CaptureAuthorization(ctx, CaptureParams{AuthorizationID: "AUTH", RequestID: "capture-1"})
+		{"capture with an empty object", "capture", `{}`, func(c *paypal.Client) (any, error) {
+			return c.CaptureAuthorization(ctx, paypal.CaptureParams{AuthorizationID: "AUTH", RequestID: "capture-1"})
 		}},
-		{"capture with status only", "capture", `{"status":"COMPLETED"}`, func(c *Client) (any, error) {
-			return c.CaptureAuthorization(ctx, CaptureParams{AuthorizationID: "AUTH", RequestID: "capture-1"})
+		{"capture with status only", "capture", `{"status":"COMPLETED"}`, func(c *paypal.Client) (any, error) {
+			return c.CaptureAuthorization(ctx, paypal.CaptureParams{AuthorizationID: "AUTH", RequestID: "capture-1"})
 		}},
-		{"refund with an empty object", "refund", `{}`, func(c *Client) (any, error) {
-			return c.RefundCapture(ctx, RefundParams{CaptureID: "CAP", RequestID: "refund-1"})
+		{"refund with an empty object", "refund", `{}`, func(c *paypal.Client) (any, error) {
+			return c.RefundCapture(ctx, paypal.RefundParams{CaptureID: "CAP", RequestID: "refund-1"})
 		}},
 	}
 	for _, tc := range cases {
@@ -275,10 +277,10 @@ func TestClient_ShapelessSuccessIsUnconfirmed(t *testing.T) {
 			if err == nil {
 				t.Fatalf("a 201 with %s was accepted as %+v", tc.body, got)
 			}
-			if !IsAmbiguous(err) {
+			if !paypal.IsAmbiguous(err) {
 				t.Errorf("error %v is not ambiguous, the worker would not reconcile", err)
 			}
-			var pe *Error
+			var pe *paypal.Error
 			if errors.As(err, &pe) {
 				t.Errorf("error %v is a PayPal *Error, want an unconfirmed outcome", err)
 			}
@@ -312,16 +314,16 @@ func TestClient_ReadsKeepWhateverPayPalSent(t *testing.T) {
 
 func TestClient_TimeoutIsAmbiguous(t *testing.T) {
 	f := newFake(t)
-	c := newTestClient(t, f, func(cfg *Config) { cfg.HTTPClient = &http.Client{Timeout: time.Second} })
+	c := newTestClient(t, f, func(cfg *paypal.Config) { cfg.HTTPClient = &http.Client{Timeout: time.Second} })
 	_, auth := authorizedOrder(t, c, f, "1")
 
 	f.FailNext("capture", 0, "")
 	start := time.Now()
-	_, err := c.CaptureAuthorization(context.Background(), CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1"})
+	_, err := c.CaptureAuthorization(context.Background(), paypal.CaptureParams{AuthorizationID: auth.ID, RequestID: "capture-1"})
 	if err == nil {
 		t.Fatal("capture against a hanging server succeeded")
 	}
-	if !IsAmbiguous(err) {
+	if !paypal.IsAmbiguous(err) {
 		t.Fatalf("timeout error %v is not ambiguous", err)
 	}
 	if elapsed := time.Since(start); elapsed > 4*time.Second {
@@ -337,7 +339,7 @@ func TestClient_ExpiredOrderIsAPlainNotFound(t *testing.T) {
 	f.ExpireOrder(order.ID)
 	_, err := c.GetOrder(context.Background(), order.ID)
 	requirePayPalError(t, err, 404, "RESOURCE_NOT_FOUND", "INVALID_RESOURCE_ID")
-	if IsAmbiguous(err) {
+	if paypal.IsAmbiguous(err) {
 		t.Error("an expired order 404 must not be ambiguous")
 	}
 
@@ -350,7 +352,7 @@ func TestClient_OAuthTokenRequestAndCache(t *testing.T) {
 	f := newFake(t)
 	c := newTestClient(t, f)
 	now := time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)
-	c.now = func() time.Time { return now }
+	paypal.SetNow(c, func() time.Time { return now })
 	order := createOrder(t, c, "1")
 
 	tokens := f.Requests("token")
@@ -418,11 +420,11 @@ func TestClient_GivesUpAfterOneRefresh(t *testing.T) {
 	f.FailNext("authorize", 401, "")
 	f.FailNext("authorize", 401, "")
 	_, err := c.AuthorizeOrder(context.Background(), order.ID, "authorize-1")
-	var pe *Error
+	var pe *paypal.Error
 	if !errors.As(err, &pe) || pe.HTTPStatus != 401 {
 		t.Fatalf("error = %v, want *Error with status 401", err)
 	}
-	if IsAmbiguous(err) {
+	if paypal.IsAmbiguous(err) {
 		t.Error("a 401 must not be ambiguous")
 	}
 	if n := len(f.Requests("authorize")); n != 2 {
@@ -439,7 +441,7 @@ func TestClient_TokenFailureNeverLeaksCredentials(t *testing.T) {
 
 	f.FailNext("token", 500, "")
 	_, err := c.GetOrder(context.Background(), "ORDER")
-	var pe *Error
+	var pe *paypal.Error
 	if !errors.As(err, &pe) || pe.HTTPStatus != 500 {
 		t.Fatalf("error = %v, want *Error with status 500", err)
 	}
@@ -494,7 +496,7 @@ func TestClient_ActionBodies(t *testing.T) {
 	c := newTestClient(t, f)
 	ctx := context.Background()
 	_, capture := capturedOrder(t, c, f, "1")
-	if _, err := c.RefundCapture(ctx, RefundParams{CaptureID: capture.ID, RequestID: "refund-1"}); err != nil {
+	if _, err := c.RefundCapture(ctx, paypal.RefundParams{CaptureID: capture.ID, RequestID: "refund-1"}); err != nil {
 		t.Fatal(err)
 	}
 	_, auth := authorizedOrder(t, c, f, "2")
@@ -523,7 +525,7 @@ func TestClient_ReadsEveryResourceBack(t *testing.T) {
 	c := newTestClient(t, f)
 	ctx := context.Background()
 	auth, capture := capturedOrder(t, c, f, "1")
-	refund, err := c.RefundCapture(ctx, RefundParams{CaptureID: capture.ID, RequestID: "refund-1"})
+	refund, err := c.RefundCapture(ctx, paypal.RefundParams{CaptureID: capture.ID, RequestID: "refund-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -610,18 +612,18 @@ func TestClient_VerifyWebhookSignature(t *testing.T) {
 func TestOrder_ApproveURLPrefersPayerAction(t *testing.T) {
 	cases := []struct {
 		name  string
-		links []Link
+		links []paypal.Link
 		want  string
 	}{
-		{"payer-action", []Link{{Rel: "self", Href: "https://x/self"}, {Rel: "payer-action", Href: "https://x/payer"}}, "https://x/payer"},
-		{"approve fallback", []Link{{Rel: "self", Href: "https://x/self"}, {Rel: "approve", Href: "https://x/approve"}}, "https://x/approve"},
-		{"payer-action wins over approve", []Link{{Rel: "approve", Href: "https://x/approve"}, {Rel: "payer-action", Href: "https://x/payer"}}, "https://x/payer"},
-		{"none", []Link{{Rel: "self", Href: "https://x/self"}}, ""},
+		{"payer-action", []paypal.Link{{Rel: "self", Href: "https://x/self"}, {Rel: "payer-action", Href: "https://x/payer"}}, "https://x/payer"},
+		{"approve fallback", []paypal.Link{{Rel: "self", Href: "https://x/self"}, {Rel: "approve", Href: "https://x/approve"}}, "https://x/approve"},
+		{"payer-action wins over approve", []paypal.Link{{Rel: "approve", Href: "https://x/approve"}, {Rel: "payer-action", Href: "https://x/payer"}}, "https://x/payer"},
+		{"none", []paypal.Link{{Rel: "self", Href: "https://x/self"}}, ""},
 		{"no links", nil, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := (Order{Links: tc.links}).ApproveURL(); got != tc.want {
+			if got := (paypal.Order{Links: tc.links}).ApproveURL(); got != tc.want {
 				t.Errorf("ApproveURL() = %q, want %q", got, tc.want)
 			}
 		})
@@ -646,18 +648,18 @@ func TestIsAmbiguous(t *testing.T) {
 		{"net timeout", timeoutNetError{}, true},
 		{"net dns error", &net.DNSError{Err: "no such host", Name: "api-m.sandbox.paypal.com"}, true},
 		{"url error from the transport", &url.Error{Op: "Post", URL: "https://x", Err: errors.New("connection reset by peer")}, true},
-		{"500", &Error{HTTPStatus: 500}, true},
-		{"503 wrapped", fmt.Errorf("worker: %w", &Error{HTTPStatus: 503}), true},
-		{"409", &Error{HTTPStatus: 409, Issue: "PREVIOUS_REQUEST_IN_PROGRESS"}, true},
-		{"422", &Error{HTTPStatus: 422, Issue: "AUTHORIZATION_VOIDED"}, false},
-		{"429", &Error{HTTPStatus: 429}, false},
-		{"404", &Error{HTTPStatus: 404, Name: "RESOURCE_NOT_FOUND", Issue: "INVALID_RESOURCE_ID"}, false},
-		{"401", &Error{HTTPStatus: 401}, false},
+		{"500", &paypal.Error{HTTPStatus: 500}, true},
+		{"503 wrapped", fmt.Errorf("worker: %w", &paypal.Error{HTTPStatus: 503}), true},
+		{"409", &paypal.Error{HTTPStatus: 409, Issue: "PREVIOUS_REQUEST_IN_PROGRESS"}, true},
+		{"422", &paypal.Error{HTTPStatus: 422, Issue: "AUTHORIZATION_VOIDED"}, false},
+		{"429", &paypal.Error{HTTPStatus: 429}, false},
+		{"404", &paypal.Error{HTTPStatus: 404, Name: "RESOURCE_NOT_FOUND", Issue: "INVALID_RESOURCE_ID"}, false},
+		{"401", &paypal.Error{HTTPStatus: 401}, false},
 		{"plain error", errors.New("paypal: request id is required"), false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := IsAmbiguous(tc.err); got != tc.want {
+			if got := paypal.IsAmbiguous(tc.err); got != tc.want {
 				t.Errorf("IsAmbiguous(%v) = %v, want %v", tc.err, got, tc.want)
 			}
 		})
@@ -665,18 +667,18 @@ func TestIsAmbiguous(t *testing.T) {
 }
 
 func TestNew_Validation(t *testing.T) {
-	if _, err := New(Config{ClientID: "fake-client", ClientSecret: "fake-secret"}); err == nil {
+	if _, err := paypal.New(paypal.Config{ClientID: "fake-client", ClientSecret: "fake-secret"}); err == nil {
 		t.Error("New without a base URL must fail")
 	}
-	c, err := New(Config{BaseURL: "https://api-m.sandbox.paypal.com/", ClientID: "fake-client", ClientSecret: "fake-secret", SandboxMocks: true})
+	c, err := paypal.New(paypal.Config{BaseURL: "https://api-m.sandbox.paypal.com/", ClientID: "fake-client", ClientSecret: "fake-secret", SandboxMocks: true})
 	if err != nil {
 		t.Fatalf("New with a sandbox URL and mocks: %v", err)
 	}
-	if c.base != "https://api-m.sandbox.paypal.com" {
-		t.Errorf("base = %q, want the trailing slash trimmed", c.base)
+	if got := paypal.BaseURL(c); got != "https://api-m.sandbox.paypal.com" {
+		t.Errorf("base = %q, want the trailing slash trimmed", got)
 	}
-	if c.hc == nil || c.hc.Timeout != 20*time.Second {
-		t.Errorf("default HTTP client = %+v, want a 20s timeout", c.hc)
+	if hc := paypal.HTTPClient(c); hc == nil || hc.Timeout != 20*time.Second {
+		t.Errorf("default HTTP client = %+v, want a 20s timeout", hc)
 	}
 }
 
@@ -686,20 +688,20 @@ func TestDefinitive_OnlyFinalAnswersAboutTheResource(t *testing.T) {
 		err   error
 		final bool
 	}{
-		{"422 refusal", &Error{HTTPStatus: 422, Issue: "INSTRUMENT_DECLINED"}, true},
-		{"404 missing order", &Error{HTTPStatus: 404, Issue: IssueInvalidResourceID}, true},
-		{"400 malformed", &Error{HTTPStatus: 400}, true},
-		{"wrapped 422", fmt.Errorf("capture: %w", &Error{HTTPStatus: 422}), true},
-		{"401 credentials", &Error{HTTPStatus: 401}, false},
-		{"403 credentials", &Error{HTTPStatus: 403}, false},
-		{"409 in progress", &Error{HTTPStatus: 409}, false},
-		{"429 rate limited", &Error{HTTPStatus: 429}, false},
-		{"500", &Error{HTTPStatus: 500}, false},
+		{"422 refusal", &paypal.Error{HTTPStatus: 422, Issue: "INSTRUMENT_DECLINED"}, true},
+		{"404 missing order", &paypal.Error{HTTPStatus: 404, Issue: paypal.IssueInvalidResourceID}, true},
+		{"400 malformed", &paypal.Error{HTTPStatus: 400}, true},
+		{"wrapped 422", fmt.Errorf("capture: %w", &paypal.Error{HTTPStatus: 422}), true},
+		{"401 credentials", &paypal.Error{HTTPStatus: 401}, false},
+		{"403 credentials", &paypal.Error{HTTPStatus: 403}, false},
+		{"409 in progress", &paypal.Error{HTTPStatus: 409}, false},
+		{"429 rate limited", &paypal.Error{HTTPStatus: 429}, false},
+		{"500", &paypal.Error{HTTPStatus: 500}, false},
 		{"timeout", context.DeadlineExceeded, false},
 		{"none", nil, false},
 	}
 	for _, c := range cases {
-		if got := Definitive(c.err); (got != nil) != c.final {
+		if got := paypal.Definitive(c.err); (got != nil) != c.final {
 			t.Errorf("%s: Definitive = %v, want final %v", c.name, got, c.final)
 		}
 	}

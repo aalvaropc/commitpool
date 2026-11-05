@@ -8,11 +8,12 @@ import (
 	"time"
 
 	"github.com/aalvaropc/commitpool/internal/store"
+	"github.com/aalvaropc/commitpool/internal/store/storetest"
 )
 
 func TestProviderEvents_InsertIsIdempotent(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 
 	payload := json.RawMessage(`{"id":"WH-1","event_type":"PAYMENT.CAPTURE.COMPLETED"}`)
 	inserted, err := s.InsertProviderEvent(ctx, "WH-1", "PAYMENT.CAPTURE.COMPLETED", "capture", "CAPTURE-1", true, payload)
@@ -55,7 +56,7 @@ func TestProviderEvents_InsertIsIdempotent(t *testing.T) {
 
 func TestProviderEvents_MarkProcessed(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 
 	if _, err := s.InsertProviderEvent(ctx, "WH-1", "PAYMENT.CAPTURE.COMPLETED", "capture", "CAPTURE-1", true, json.RawMessage(`{}`)); err != nil {
 		t.Fatal(err)

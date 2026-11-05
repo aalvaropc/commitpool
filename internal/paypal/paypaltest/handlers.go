@@ -1,4 +1,4 @@
-package paypal
+package paypaltest
 
 import (
 	"encoding/json"
@@ -7,11 +7,13 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/aalvaropc/commitpool/internal/paypal"
 )
 
 // Every opFunc below runs with the state lock held.
 
-func (f *FakeServer) token(r *http.Request, body []byte) fakeResponse {
+func (f *Server) token(r *http.Request, body []byte) fakeResponse {
 	if _, _, ok := r.BasicAuth(); !ok {
 		return jsonResponse(http.StatusUnauthorized, map[string]string{
 			"error": "invalid_client", "error_description": "Client Authentication failed",
@@ -28,7 +30,7 @@ func (f *FakeServer) token(r *http.Request, body []byte) fakeResponse {
 	})
 }
 
-func (f *FakeServer) verifyWebhook(r *http.Request, body []byte) fakeResponse {
+func (f *Server) verifyWebhook(r *http.Request, body []byte) fakeResponse {
 	status := "FAILURE"
 	if f.verify {
 		status = "SUCCESS"
@@ -36,10 +38,10 @@ func (f *FakeServer) verifyWebhook(r *http.Request, body []byte) fakeResponse {
 	return jsonResponse(http.StatusOK, map[string]string{"verification_status": status})
 }
 
-func (f *FakeServer) createOrder(r *http.Request, body []byte) fakeResponse {
+func (f *Server) createOrder(r *http.Request, body []byte) fakeResponse {
 	var req struct {
-		Intent        string         `json:"intent"`
-		PurchaseUnits []PurchaseUnit `json:"purchase_units"`
+		Intent        string                `json:"intent"`
+		PurchaseUnits []paypal.PurchaseUnit `json:"purchase_units"`
 		PaymentSource struct {
 			PayPal struct {
 				ExperienceContext struct {
@@ -69,7 +71,7 @@ func (f *FakeServer) createOrder(r *http.Request, body []byte) fakeResponse {
 	return jsonResponse(http.StatusCreated, f.orderView(o, false))
 }
 
-func (f *FakeServer) getOrder(r *http.Request, body []byte) fakeResponse {
+func (f *Server) getOrder(r *http.Request, body []byte) fakeResponse {
 	o, ok := f.liveOrder(r.PathValue("id"))
 	if !ok {
 		return notFound()
@@ -77,7 +79,7 @@ func (f *FakeServer) getOrder(r *http.Request, body []byte) fakeResponse {
 	return jsonResponse(http.StatusOK, f.orderView(o, true))
 }
 
-func (f *FakeServer) authorize(r *http.Request, body []byte) fakeResponse {
+func (f *Server) authorize(r *http.Request, body []byte) fakeResponse {
 	o, ok := f.liveOrder(r.PathValue("id"))
 	if !ok || o.status == orderCompleted {
 		// PayPal answers a completed order like a missing one.
@@ -91,7 +93,7 @@ func (f *FakeServer) authorize(r *http.Request, body []byte) fakeResponse {
 		status, f.nextAuth = f.nextAuth, ""
 	}
 	a := &fakeAuth{
-		Authorization: Authorization{
+		Authorization: paypal.Authorization{
 			ID:             newID(),
 			Status:         status,
 			ExpirationTime: time.Now().UTC().Add(29 * 24 * time.Hour).Truncate(time.Second),
@@ -105,7 +107,7 @@ func (f *FakeServer) authorize(r *http.Request, body []byte) fakeResponse {
 	return jsonResponse(http.StatusCreated, f.orderView(o, false))
 }
 
-func (f *FakeServer) getAuthorization(r *http.Request, body []byte) fakeResponse {
+func (f *Server) getAuthorization(r *http.Request, body []byte) fakeResponse {
 	a, ok := f.auths[r.PathValue("id")]
 	if !ok {
 		return notFound()
@@ -113,7 +115,7 @@ func (f *FakeServer) getAuthorization(r *http.Request, body []byte) fakeResponse
 	return jsonResponse(http.StatusOK, a.Authorization)
 }
 
-func (f *FakeServer) capture(r *http.Request, body []byte) fakeResponse {
+func (f *Server) capture(r *http.Request, body []byte) fakeResponse {
 	a, ok := f.auths[r.PathValue("id")]
 	if !ok {
 		return notFound()
@@ -129,7 +131,7 @@ func (f *FakeServer) capture(r *http.Request, body []byte) fakeResponse {
 		return unprocessable(code)
 	}
 	cp := &fakeCapture{
-		Capture: Capture{ID: newID(), Status: captureCompleted, Amount: a.Amount},
+		Capture: paypal.Capture{ID: newID(), Status: captureCompleted, Amount: a.Amount},
 		orderID: a.orderID,
 	}
 	f.captures[cp.ID] = cp
@@ -139,7 +141,7 @@ func (f *FakeServer) capture(r *http.Request, body []byte) fakeResponse {
 	return jsonResponse(http.StatusCreated, cp.Capture)
 }
 
-func (f *FakeServer) void(r *http.Request, body []byte) fakeResponse {
+func (f *Server) void(r *http.Request, body []byte) fakeResponse {
 	a, ok := f.auths[r.PathValue("id")]
 	if !ok {
 		return notFound()
@@ -154,7 +156,7 @@ func (f *FakeServer) void(r *http.Request, body []byte) fakeResponse {
 	return fakeResponse{status: http.StatusNoContent}
 }
 
-func (f *FakeServer) getCapture(r *http.Request, body []byte) fakeResponse {
+func (f *Server) getCapture(r *http.Request, body []byte) fakeResponse {
 	cp, ok := f.captures[r.PathValue("id")]
 	if !ok {
 		return notFound()
@@ -162,7 +164,7 @@ func (f *FakeServer) getCapture(r *http.Request, body []byte) fakeResponse {
 	return jsonResponse(http.StatusOK, cp.Capture)
 }
 
-func (f *FakeServer) refund(r *http.Request, body []byte) fakeResponse {
+func (f *Server) refund(r *http.Request, body []byte) fakeResponse {
 	cp, ok := f.captures[r.PathValue("id")]
 	if !ok {
 		return notFound()
@@ -174,7 +176,7 @@ func (f *FakeServer) refund(r *http.Request, body []byte) fakeResponse {
 		return unprocessable("REFUND_AMOUNT_EXCEEDED")
 	}
 	rf := &fakeRefund{
-		Refund:  Refund{ID: newID(), Status: refundCompleted, Amount: cp.Amount},
+		Refund:  paypal.Refund{ID: newID(), Status: refundCompleted, Amount: cp.Amount},
 		orderID: cp.orderID,
 	}
 	f.refunds[rf.ID] = rf
@@ -184,7 +186,7 @@ func (f *FakeServer) refund(r *http.Request, body []byte) fakeResponse {
 	return jsonResponse(http.StatusCreated, rf.Refund)
 }
 
-func (f *FakeServer) getRefund(r *http.Request, body []byte) fakeResponse {
+func (f *Server) getRefund(r *http.Request, body []byte) fakeResponse {
 	rf, ok := f.refunds[r.PathValue("id")]
 	if !ok {
 		return notFound()
@@ -193,7 +195,7 @@ func (f *FakeServer) getRefund(r *http.Request, body []byte) fakeResponse {
 }
 
 // liveOrder finds an order that exists and has not been expired.
-func (f *FakeServer) liveOrder(id string) (*fakeOrder, bool) {
+func (f *Server) liveOrder(id string) (*fakeOrder, bool) {
 	o, ok := f.orders[id]
 	if !ok || o.expired {
 		return nil, false
@@ -203,8 +205,8 @@ func (f *FakeServer) liveOrder(id string) (*fakeOrder, bool) {
 
 // orderView renders an order. forGet shows the amount SetOrderAmount
 // overrides; the creation and authorization answers always carry the real one.
-func (f *FakeServer) orderView(o *fakeOrder, forGet bool) Order {
-	unit := PurchaseUnit{ReferenceID: o.referenceID, CustomID: o.customID, Amount: o.amount}
+func (f *Server) orderView(o *fakeOrder, forGet bool) paypal.Order {
+	unit := paypal.PurchaseUnit{ReferenceID: o.referenceID, CustomID: o.customID, Amount: o.amount}
 	if forGet && o.reported != nil {
 		unit.Amount = *o.reported
 	}
@@ -217,11 +219,11 @@ func (f *FakeServer) orderView(o *fakeOrder, forGet bool) Order {
 	for _, id := range o.refundIDs {
 		unit.Payments.Refunds = append(unit.Payments.Refunds, f.refunds[id].Refund)
 	}
-	links := []Link{{Rel: "self", Href: f.URL + "/v2/checkout/orders/" + o.id, Method: "GET"}}
+	links := []paypal.Link{{Rel: "self", Href: f.URL + "/v2/checkout/orders/" + o.id, Method: "GET"}}
 	if o.status == orderPayerActionRequired {
-		links = append(links, Link{Rel: "payer-action", Href: f.URL + "/approve?order=" + o.id, Method: "GET"})
+		links = append(links, paypal.Link{Rel: "payer-action", Href: f.URL + "/approve?order=" + o.id, Method: "GET"})
 	}
-	return Order{ID: o.id, Status: o.status, Links: links, PurchaseUnits: []PurchaseUnit{unit}}
+	return paypal.Order{ID: o.id, Status: o.status, Links: links, PurchaseUnits: []paypal.PurchaseUnit{unit}}
 }
 
 // mockCode reads the code out of PayPal-Mock-Response; an absent or
@@ -251,7 +253,7 @@ var approveTemplate = template.Must(template.New("approve").Parse(`<!doctype htm
 </html>
 `))
 
-func (f *FakeServer) approvePage(w http.ResponseWriter, r *http.Request) {
+func (f *Server) approvePage(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	o, ok := f.liveOrder(r.URL.Query().Get("order"))
 	var data struct{ ID, Value, Currency string }
@@ -267,7 +269,7 @@ func (f *FakeServer) approvePage(w http.ResponseWriter, r *http.Request) {
 	_ = approveTemplate.Execute(w, data)
 }
 
-func (f *FakeServer) approveSubmit(w http.ResponseWriter, r *http.Request) {
+func (f *Server) approveSubmit(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	o, ok := f.liveOrder(r.FormValue("order"))
 	var returnURL, id string
@@ -283,7 +285,7 @@ func (f *FakeServer) approveSubmit(w http.ResponseWriter, r *http.Request) {
 	redirectWithToken(w, returnURL, "token="+id+"&PayerID=FAKE")
 }
 
-func (f *FakeServer) cancelPage(w http.ResponseWriter, r *http.Request) {
+func (f *Server) cancelPage(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	o, ok := f.liveOrder(r.URL.Query().Get("order"))
 	var cancelURL, id string

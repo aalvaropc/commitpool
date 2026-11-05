@@ -15,7 +15,9 @@ import (
 	"github.com/aalvaropc/commitpool/internal/domain"
 	"github.com/aalvaropc/commitpool/internal/mail"
 	"github.com/aalvaropc/commitpool/internal/paypal"
+	"github.com/aalvaropc/commitpool/internal/paypal/paypaltest"
 	"github.com/aalvaropc/commitpool/internal/store"
+	"github.com/aalvaropc/commitpool/internal/store/storetest"
 	"github.com/aalvaropc/commitpool/internal/worker"
 )
 
@@ -30,7 +32,7 @@ type env struct {
 	t        *testing.T
 	ctx      context.Context
 	st       *store.Store
-	fake     *paypal.FakeServer
+	fake     *paypaltest.Server
 	api      paypal.API
 	clock    *clock.Fake
 	runner   *worker.Runner
@@ -60,8 +62,8 @@ func (b *logBuffer) String() string {
 func newEnv(t *testing.T, edit ...func(*paypal.Config)) *env {
 	t.Helper()
 	ctx := context.Background()
-	st := store.TestStore(t)
-	fake := paypal.NewFakeServer()
+	st := storetest.New(t)
+	fake := paypaltest.NewServer()
 	t.Cleanup(fake.Close)
 
 	ppCfg := paypal.Config{

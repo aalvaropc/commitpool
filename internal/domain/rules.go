@@ -68,7 +68,7 @@ func ReserveSeat(t Tally, capacity int) error {
 
 // ValidateProposal checks that opening payments for date is allowed. The
 // returned error wraps one sentinel per violated rule, the first one found.
-func ValidateProposal(w Workshop, p Proposal, date CandidateDate, compatible int, _ time.Time) error {
+func ValidateProposal(w Workshop, p Proposal, date CandidateDate, compatible int) error {
 	if w.Status != WorkshopCollecting {
 		return fmt.Errorf("%w: status is %s", ErrWorkshopNotCollecting, w.Status)
 	}
@@ -144,7 +144,7 @@ type Close struct {
 // capture has already started. A funding workshop below its minimum is
 // cancelled, voiding open authorizations and refunding completed payments.
 // Captures still in flight are reconciled and never counted as paid.
-func CloseDecision(w Workshop, p Proposal, es []Enrollment, _ time.Time) Close {
+func CloseDecision(w Workshop, p Proposal, es []Enrollment) Close {
 	c := Close{NewStatus: w.Status, Resolution: w.Resolution, Voids: []string{}, Refunds: []string{}, Reconciles: []string{}}
 	switch {
 	case w.Status == WorkshopConfirmed,

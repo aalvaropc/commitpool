@@ -1,4 +1,6 @@
-package paypal
+// Package paypaltest is an in-memory PayPal sandbox for tests and for
+// end-to-end runs of a binary built with -tags e2e.
+package paypaltest
 
 import (
 	"crypto/rand"
@@ -10,28 +12,33 @@ import (
 	"net/http/httptest"
 	"sync"
 	"time"
+
+	"github.com/aalvaropc/commitpool/internal/paypal"
 )
 
 const (
 	fakePrefix = "/sandbox"
 	fakeToken  = "fake-token"
 	fakeHang   = 5 * time.Second
+
+	headerRequestID    = "PayPal-Request-Id"
+	headerMockResponse = "PayPal-Mock-Response"
 )
 
 // Order, authorization, capture and refund statuses the fake moves through.
 const (
-	orderPayerActionRequired = StatusPayerActionRequired
-	orderApproved            = StatusApproved
-	orderCompleted           = StatusCompleted
+	orderPayerActionRequired = paypal.StatusPayerActionRequired
+	orderApproved            = paypal.StatusApproved
+	orderCompleted           = paypal.StatusCompleted
 
-	authCreated  = StatusCreated
-	authCaptured = StatusCaptured
-	authVoided   = StatusVoided
+	authCreated  = paypal.StatusCreated
+	authCaptured = paypal.StatusCaptured
+	authVoided   = paypal.StatusVoided
 
-	captureCompleted = StatusCompleted
-	captureRefunded  = StatusRefunded
+	captureCompleted = paypal.StatusCompleted
+	captureRefunded  = paypal.StatusRefunded
 
-	refundCompleted = StatusCompleted
+	refundCompleted = paypal.StatusCompleted
 )
 
 var (
@@ -52,7 +59,7 @@ type RecordedRequest struct {
 	Body      []byte
 }
 
-// FakeServer is an in-memory PayPal sandbox for tests. Point a Client at URL;
+// Server is an in-memory PayPal sandbox. Point a paypal.Client at URL;
 // the client then runs the same code paths as against the real sandbox.
 //
 // URL ends in "/sandbox" and every route is mounted under that prefix, so a
@@ -68,7 +75,7 @@ type RecordedRequest struct {
 // All methods are safe for concurrent use. The Approve, ExpireOrder, Set*
 // helpers panic on an identifier the fake never issued, and FailNext and
 // Requests panic on a misspelled operation, so a typo fails loudly.
-type FakeServer struct {
+type Server struct {
 	URL string
 
 	srv  *httptest.Server
@@ -96,8 +103,8 @@ type fakeOrder struct {
 	status      string
 	referenceID string
 	customID    string
-	amount      Money
-	reported    *Money
+	amount      paypal.Money
+	reported    *paypal.Money
 	returnURL   string
 	cancelURL   string
 	expired     bool
@@ -107,17 +114,17 @@ type fakeOrder struct {
 }
 
 type fakeAuth struct {
-	Authorization
+	paypal.Authorization
 	orderID string
 }
 
 type fakeCapture struct {
-	Capture
+	paypal.Capture
 	orderID string
 }
 
 type fakeRefund struct {
-	Refund
+	paypal.Refund
 	orderID string
 }
 
@@ -135,9 +142,9 @@ type fakeResponse struct {
 	body   []byte
 }
 
-// NewFakeServer starts the server; call Close when done.
-func NewFakeServer() *FakeServer {
-	f := &FakeServer{
+// NewServer starts the server; call Close when done.
+func NewServer() *Server {
+	f := &Server{
 		done:     make(chan struct{}),
 		orders:   map[string]*fakeOrder{},
 		auths:    map[string]*fakeAuth{},
@@ -157,7 +164,7 @@ func NewFakeServer() *FakeServer {
 
 // Close stops the server. A request hanging because of FailNext(op, 0, "") is
 // released without executing, so Close returns promptly.
-func (f *FakeServer) Close() {
+func (f *Server) Close() {
 	f.once.Do(func() {
 		close(f.done)
 		f.mu.Lock()
@@ -169,7 +176,7 @@ func (f *FakeServer) Close() {
 }
 
 // Approve plays the buyer approving the order without going through HTTP.
-func (f *FakeServer) Approve(orderID string) {
+func (f *Server) Approve(orderID string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.approveLocked(f.order(orderID))
@@ -177,7 +184,7 @@ func (f *FakeServer) Approve(orderID string) {
 
 // ExpireOrder makes the order vanish, as an unapproved order does at PayPal
 // after a few hours: GET and authorize answer 404 INVALID_RESOURCE_ID.
-func (f *FakeServer) ExpireOrder(orderID string) {
+func (f *Server) ExpireOrder(orderID string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.order(orderID).expired = true
@@ -185,7 +192,7 @@ func (f *FakeServer) ExpireOrder(orderID string) {
 
 // ExpireToken makes the next API call answer 401 once, as when PayPal revokes
 // the cached access token before its expiry.
-func (f *FakeServer) ExpireToken() {
+func (f *Server) ExpireToken() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.expireToken = true
@@ -204,7 +211,7 @@ func (f *FakeServer) ExpireToken() {
 // client has gone, or after five seconds, whichever comes first. That is not
 // instantaneous, so a Captures() or GET issued right after the client's
 // timeout can still miss it: call WaitHung first.
-func (f *FakeServer) FailNext(op string, status int, issue string) {
+func (f *Server) FailNext(op string, status int, issue string) {
 	mustBeOp(op)
 	if status < 0 || (status > 0 && status < 400) {
 		panic(fmt.Sprintf("paypal fake: FailNext needs status 0 or an HTTP error status, got %d", status))
@@ -218,7 +225,7 @@ func (f *FakeServer) FailNext(op string, status int, issue string) {
 // given, without running the operation or recording a replay. It is how a test
 // makes PayPal answer with a body of an unexpected shape, such as a 201 that
 // does not identify the resource. Like FailNext it is queued per op.
-func (f *FakeServer) RespondOnce(op string, status int, body []byte) {
+func (f *Server) RespondOnce(op string, status int, body []byte) {
 	mustBeOp(op)
 	if status <= 0 {
 		panic(fmt.Sprintf("paypal fake: RespondOnce needs an HTTP status, got %d", status))
@@ -231,7 +238,7 @@ func (f *FakeServer) RespondOnce(op string, status int, body []byte) {
 // WaitHung blocks until every request held by FailNext(op, 0, "") has run its
 // operation, so a test can read the result deterministically after the client
 // timed out. It returns at once when none is pending, and also after Close.
-func (f *FakeServer) WaitHung() {
+func (f *Server) WaitHung() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	for f.pending > 0 && !f.closed {
@@ -241,7 +248,7 @@ func (f *FakeServer) WaitHung() {
 
 // Requests returns every request received for op, in arrival order. A request
 // answered with an injected failure or a 401 is included.
-func (f *FakeServer) Requests(op string) []RecordedRequest {
+func (f *Server) Requests(op string) []RecordedRequest {
 	mustBeOp(op)
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -249,7 +256,7 @@ func (f *FakeServer) Requests(op string) []RecordedRequest {
 }
 
 // Captures is the number of captures actually created.
-func (f *FakeServer) Captures() int {
+func (f *Server) Captures() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return len(f.captures)
@@ -257,7 +264,7 @@ func (f *FakeServer) Captures() int {
 
 // SetCaptureStatus moves a capture to status, for example PENDING to
 // COMPLETED. A non-empty reason is reported as status_details.reason.
-func (f *FakeServer) SetCaptureStatus(captureID, status, reason string) {
+func (f *Server) SetCaptureStatus(captureID, status, reason string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	cp, ok := f.captures[captureID]
@@ -267,14 +274,14 @@ func (f *FakeServer) SetCaptureStatus(captureID, status, reason string) {
 	cp.Status = status
 	cp.StatusDetails = nil
 	if reason != "" {
-		cp.StatusDetails = &StatusDetails{Reason: reason}
+		cp.StatusDetails = &paypal.StatusDetails{Reason: reason}
 	}
 }
 
 // SetNextAuthorizationStatus makes the next authorization the fake creates
 // start in status, such as PENDING for one held for review, instead of
 // CREATED.
-func (f *FakeServer) SetNextAuthorizationStatus(status string) {
+func (f *Server) SetNextAuthorizationStatus(status string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.nextAuth = status
@@ -282,7 +289,7 @@ func (f *FakeServer) SetNextAuthorizationStatus(status string) {
 
 // SetAuthorizationStatus moves an authorization to status, for example
 // PENDING to CREATED or DENIED.
-func (f *FakeServer) SetAuthorizationStatus(authorizationID, status string) {
+func (f *Server) SetAuthorizationStatus(authorizationID, status string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	a, ok := f.auths[authorizationID]
@@ -292,7 +299,7 @@ func (f *FakeServer) SetAuthorizationStatus(authorizationID, status string) {
 	a.Status = status
 }
 
-func (f *FakeServer) SetRefundStatus(refundID, status string) {
+func (f *Server) SetRefundStatus(refundID, status string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	r, ok := f.refunds[refundID]
@@ -304,14 +311,14 @@ func (f *FakeServer) SetRefundStatus(refundID, status string) {
 
 // SetOrderAmount changes only the amount GET order reports, to exercise the
 // mismatch check; authorizations and captures keep the original amount.
-func (f *FakeServer) SetOrderAmount(orderID, value, currency string) {
+func (f *Server) SetOrderAmount(orderID, value, currency string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.order(orderID).reported = &Money{CurrencyCode: currency, Value: value}
+	f.order(orderID).reported = &paypal.Money{CurrencyCode: currency, Value: value}
 }
 
 // SetVerify sets the outcome of verify-webhook-signature (true by default).
-func (f *FakeServer) SetVerify(result bool) {
+func (f *Server) SetVerify(result bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.verify = result
@@ -323,7 +330,7 @@ func mustBeOp(op string) {
 	}
 }
 
-func (f *FakeServer) order(id string) *fakeOrder {
+func (f *Server) order(id string) *fakeOrder {
 	o, ok := f.orders[id]
 	if !ok {
 		panic("paypal fake: unknown order " + id)
@@ -331,30 +338,30 @@ func (f *FakeServer) order(id string) *fakeOrder {
 	return o
 }
 
-func (f *FakeServer) approveLocked(o *fakeOrder) {
+func (f *Server) approveLocked(o *fakeOrder) {
 	if o.status == orderPayerActionRequired {
 		o.status = orderApproved
 	}
 }
 
-type opFunc func(f *FakeServer, r *http.Request, body []byte) fakeResponse
+type opFunc func(f *Server, r *http.Request, body []byte) fakeResponse
 
-func (f *FakeServer) routes() http.Handler {
+func (f *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	route := func(method, path, op string, authed bool, h opFunc) {
 		mux.HandleFunc(method+" "+fakePrefix+path, f.handler(op, authed, h))
 	}
-	route("POST", "/v1/oauth2/token", "token", false, (*FakeServer).token)
-	route("POST", "/v1/notifications/verify-webhook-signature", "verify_webhook", true, (*FakeServer).verifyWebhook)
-	route("POST", "/v2/checkout/orders", "create_order", true, (*FakeServer).createOrder)
-	route("GET", "/v2/checkout/orders/{id}", "get_order", true, (*FakeServer).getOrder)
-	route("POST", "/v2/checkout/orders/{id}/authorize", "authorize", true, (*FakeServer).authorize)
-	route("GET", "/v2/payments/authorizations/{id}", "get_authorization", true, (*FakeServer).getAuthorization)
-	route("POST", "/v2/payments/authorizations/{id}/capture", "capture", true, (*FakeServer).capture)
-	route("POST", "/v2/payments/authorizations/{id}/void", "void", true, (*FakeServer).void)
-	route("GET", "/v2/payments/captures/{id}", "get_capture", true, (*FakeServer).getCapture)
-	route("POST", "/v2/payments/captures/{id}/refund", "refund", true, (*FakeServer).refund)
-	route("GET", "/v2/payments/refunds/{id}", "get_refund", true, (*FakeServer).getRefund)
+	route("POST", "/v1/oauth2/token", "token", false, (*Server).token)
+	route("POST", "/v1/notifications/verify-webhook-signature", "verify_webhook", true, (*Server).verifyWebhook)
+	route("POST", "/v2/checkout/orders", "create_order", true, (*Server).createOrder)
+	route("GET", "/v2/checkout/orders/{id}", "get_order", true, (*Server).getOrder)
+	route("POST", "/v2/checkout/orders/{id}/authorize", "authorize", true, (*Server).authorize)
+	route("GET", "/v2/payments/authorizations/{id}", "get_authorization", true, (*Server).getAuthorization)
+	route("POST", "/v2/payments/authorizations/{id}/capture", "capture", true, (*Server).capture)
+	route("POST", "/v2/payments/authorizations/{id}/void", "void", true, (*Server).void)
+	route("GET", "/v2/payments/captures/{id}", "get_capture", true, (*Server).getCapture)
+	route("POST", "/v2/payments/captures/{id}/refund", "refund", true, (*Server).refund)
+	route("GET", "/v2/payments/refunds/{id}", "get_refund", true, (*Server).getRefund)
 	mux.HandleFunc("GET "+fakePrefix+"/approve", f.approvePage)
 	mux.HandleFunc("POST "+fakePrefix+"/approve", f.approveSubmit)
 	mux.HandleFunc("GET "+fakePrefix+"/cancel", f.cancelPage)
@@ -364,7 +371,7 @@ func (f *FakeServer) routes() http.Handler {
 // handler wraps one API operation: it records the request, applies the
 // bearer check and any queued failure, replays a recorded answer for a
 // repeated PayPal-Request-Id, and otherwise runs h under the state lock.
-func (f *FakeServer) handler(op string, authed bool, h opFunc) http.HandlerFunc {
+func (f *Server) handler(op string, authed bool, h opFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 
@@ -434,7 +441,7 @@ func (f *FakeServer) handler(op string, authed bool, h opFunc) http.HandlerFunc 
 // hang waits out a status-0 failure. It reports false when the server is
 // closing, in which case the operation must not run. A client that gave up
 // does not stop it: PayPal would still have processed the request.
-func (f *FakeServer) hang(r *http.Request) bool {
+func (f *Server) hang(r *http.Request) bool {
 	timer := time.NewTimer(fakeHang)
 	defer timer.Stop()
 	select {
@@ -446,7 +453,7 @@ func (f *FakeServer) hang(r *http.Request) bool {
 	return true
 }
 
-func (f *FakeServer) runLocked(op string, r *http.Request, body []byte, h opFunc) fakeResponse {
+func (f *Server) runLocked(op string, r *http.Request, body []byte, h opFunc) fakeResponse {
 	key := replayKey{op: op, requestID: r.Header.Get(headerRequestID)}
 	replayable := replayedOps[op] && key.requestID != ""
 	if replayable {

@@ -190,7 +190,7 @@ func (s *server) openProposal(w http.ResponseWriter, r *http.Request) error {
 		Minimum:  ws.Minimum,
 		Capacity: ws.Capacity,
 	}
-	if err := domain.ValidateProposal(dw, p, domain.CandidateDate{ID: date.ID, StartsAt: date.StartsAt, EndsAt: date.EndsAt}, compatible, now); err != nil {
+	if err := domain.ValidateProposal(dw, p, domain.CandidateDate{ID: date.ID, StartsAt: date.StartsAt, EndsAt: date.EndsAt}, compatible); err != nil {
 		if errors.Is(err, domain.ErrWorkshopNotCollecting) {
 			return s.alreadyOpen(ctx, st.proposal)
 		}

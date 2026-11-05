@@ -12,11 +12,12 @@ import (
 
 	"github.com/aalvaropc/commitpool/internal/domain"
 	"github.com/aalvaropc/commitpool/internal/store"
+	"github.com/aalvaropc/commitpool/internal/store/storetest"
 )
 
 func TestReserveSeat_ConcurrentRequestsNeverExceedCapacity(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	w, _, _ := newWorkshop(t, s, 3, 6)
 	p := openFunding(t, s, w, baseTime)
 
@@ -66,7 +67,7 @@ func TestReserveSeat_ConcurrentRequestsNeverExceedCapacity(t *testing.T) {
 
 func TestReserveSeat_ConcurrentRequestsFromOneParticipantCreateOneEnrollment(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	w, _, _ := newWorkshop(t, s, 1, 6)
 	p := openFunding(t, s, w, baseTime)
 	ana := newParticipant(t, s, w, "Ana")
@@ -114,7 +115,7 @@ func TestReserveSeat_ConcurrentRequestsFromOneParticipantCreateOneEnrollment(t *
 
 func TestReserveSeat_SecondActiveEnrollmentReturnsExisting(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	w, _, _ := newWorkshop(t, s, 1, 3)
 	p := openFunding(t, s, w, baseTime)
 	ana := newParticipant(t, s, w, "Ana")
@@ -146,7 +147,7 @@ func TestReserveSeat_SecondActiveEnrollmentReturnsExisting(t *testing.T) {
 
 func TestReserveSeat_RefusesWhenNotFunding(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 
 	t.Run("collecting", func(t *testing.T) {
 		w, _, _ := newWorkshop(t, s, 1, 3)
@@ -219,7 +220,7 @@ func TestReserveSeat_RefusesWhenNotFunding(t *testing.T) {
 
 func TestReserveSeat_StoresSeatWindowAndConsent(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	w, _, _ := newWorkshop(t, s, 1, 3)
 	p := openFunding(t, s, w, baseTime)
 	ana := newParticipant(t, s, w, "Ana")
@@ -255,7 +256,7 @@ func TestReserveSeat_StoresSeatWindowAndConsent(t *testing.T) {
 
 func TestReserveSeat_FreedSeatsCanBeReserved(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	w, _, _ := newWorkshop(t, s, 1, 2)
 	p := openFunding(t, s, w, baseTime)
 	now := baseTime.Add(time.Hour)
@@ -282,7 +283,7 @@ func TestReserveSeat_FreedSeatsCanBeReserved(t *testing.T) {
 
 func TestReserveSeat_ReleasedParticipantGetsANewEnrollment(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	w, _, _ := newWorkshop(t, s, 1, 3)
 	p := openFunding(t, s, w, baseTime)
 	ana := newParticipant(t, s, w, "Ana")
@@ -305,7 +306,7 @@ func TestReserveSeat_ReleasedParticipantGetsANewEnrollment(t *testing.T) {
 
 func TestEnrollment_ActiveMatchesPartialIndex(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	w, _, _ := newWorkshop(t, s, 1, 20)
 	p := openFunding(t, s, w, baseTime)
 
@@ -349,7 +350,7 @@ func TestEnrollment_ActiveMatchesPartialIndex(t *testing.T) {
 
 func TestEnrollment_Lookups(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	w, _, _ := newWorkshop(t, s, 1, 5)
 	p := openFunding(t, s, w, baseTime)
 	now := baseTime.Add(time.Hour)
@@ -381,7 +382,7 @@ func TestEnrollment_Lookups(t *testing.T) {
 
 func TestTransitionEnrollment_CAS(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	w, _, _ := newWorkshop(t, s, 1, 3)
 	p := openFunding(t, s, w, baseTime)
 	ana := newParticipant(t, s, w, "Ana")
@@ -446,7 +447,7 @@ func TestTransitionEnrollment_CAS(t *testing.T) {
 
 func TestTransitionEnrollment_ExactlyOneConcurrentWinner(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	w, _, _ := newWorkshop(t, s, 1, 3)
 	p := openFunding(t, s, w, baseTime)
 	e := reserve(t, s, w, p, newParticipant(t, s, w, "Ana").ID, baseTime.Add(time.Hour))
@@ -483,7 +484,7 @@ func TestTransitionEnrollment_ExactlyOneConcurrentWinner(t *testing.T) {
 
 func TestReleaseExpiredSeats_ReleasesOnlyExpiredReserved(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	w, _, _ := newWorkshop(t, s, 1, 6)
 	p := openFunding(t, s, w, baseTime)
 	other, _, _ := newWorkshop(t, s, 1, 6)
@@ -549,7 +550,7 @@ func TestReleaseExpiredSeats_ReleasesOnlyExpiredReserved(t *testing.T) {
 
 func TestReleaseExpiredSeats_KeepsASeatWhoseAuthorizationIsPending(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	w, _, _ := newWorkshop(t, s, 1, 6)
 	p := openFunding(t, s, w, baseTime)
 	reserved := baseTime.Add(time.Hour)
@@ -605,7 +606,7 @@ func TestReleaseExpiredSeats_KeepsASeatWhoseAuthorizationIsPending(t *testing.T)
 
 func TestReReserveSeat(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	setup := func(t *testing.T, capacity int) (store.WorkshopRow, store.ProposalRow) {
 		t.Helper()
 		w, _, _ := newWorkshop(t, s, 1, capacity)
@@ -782,7 +783,7 @@ func TestReReserveSeat(t *testing.T) {
 
 func TestWorkshopIDsWithExpiredSeats_ListsEachWorkshopOnce(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	if ids, err := s.WorkshopIDsWithExpiredSeats(ctx, baseTime); err != nil || ids == nil || len(ids) != 0 {
 		t.Fatalf("WorkshopIDsWithExpiredSeats on an empty database = %v, %v; want an empty list", ids, err)
 	}
@@ -820,7 +821,7 @@ func TestWorkshopIDsWithExpiredSeats_ListsEachWorkshopOnce(t *testing.T) {
 
 func TestReserveSeat_AllowedInConfirmedWorkshopBeforeClose(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	confirmed := func(capacity int) (store.WorkshopRow, store.ProposalRow) {
 		t.Helper()
 		w, _, _ := newWorkshop(t, s, 1, capacity)
@@ -855,7 +856,7 @@ func TestReserveSeat_AllowedInConfirmedWorkshopBeforeClose(t *testing.T) {
 
 func TestMarkApprovalCancelled_StampsOnlyAReservedSeat(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	w, _, _ := newWorkshop(t, s, 1, 3)
 	p := openFunding(t, s, w, baseTime)
 	reservedAt := baseTime.Add(time.Hour)
@@ -904,7 +905,7 @@ func TestMarkApprovalCancelled_StampsOnlyAReservedSeat(t *testing.T) {
 
 func TestFlagEnrollment_KeepsTheStatusAndIsSticky(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	en := newEnrollment(t, s)
 
 	first, err := s.FlagEnrollment(ctx, en.ID, "capture gave up")
@@ -934,7 +935,7 @@ func TestFlagEnrollment_KeepsTheStatusAndIsSticky(t *testing.T) {
 
 func TestSchema_RejectsUnknownStatuses(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	en := newEnrollment(t, s)
 	for _, q := range []string{
 		`update workshops set status = 'BOGUS' where id = $1`,
@@ -951,7 +952,7 @@ func TestSchema_RejectsUnknownStatuses(t *testing.T) {
 
 func TestReleaseExpiredSeats_AgreesWithDomainSeatExpired(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	en := newEnrollment(t, s)
 
 	for _, now := range []time.Time{en.SeatExpiresAt, en.SeatExpiresAt.Add(time.Second)} {
@@ -967,7 +968,7 @@ func TestReleaseExpiredSeats_AgreesWithDomainSeatExpired(t *testing.T) {
 
 func TestWorkshopIDsWithExpiredSeats_OnlyWhenASeatCanBeReleased(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	en := newEnrollment(t, s)
 
 	ids, err := s.WorkshopIDsWithExpiredSeats(ctx, en.SeatExpiresAt.Add(-time.Second))
@@ -995,7 +996,7 @@ func TestWorkshopIDsWithExpiredSeats_OnlyWhenASeatCanBeReleased(t *testing.T) {
 
 func TestReserveSeat_ReleasesExpiredSeatsBeforeCountingCapacity(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	w, _, _ := newWorkshop(t, s, 1, 1)
 	p := openFunding(t, s, w, baseTime)
 	reserveAt := func(name string, now time.Time) (store.EnrollmentRow, error) {

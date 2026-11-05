@@ -144,7 +144,6 @@ func TestReserveSeat_PendingOccupiesCapacity(t *testing.T) {
 }
 
 func TestValidateProposal_StartsAtLeast24hAfterClose(t *testing.T) {
-	now := opensAt
 	tests := []struct {
 		name       string
 		mutate     func(w *domain.Workshop, p *domain.Proposal, d *domain.CandidateDate)
@@ -230,7 +229,7 @@ func TestValidateProposal_StartsAtLeast24hAfterClose(t *testing.T) {
 			if tt.mutate != nil {
 				tt.mutate(&w, &p, &date)
 			}
-			err := domain.ValidateProposal(w, p, date, tt.compatible, now)
+			err := domain.ValidateProposal(w, p, date, tt.compatible)
 			if tt.wantErr == nil {
 				if err != nil {
 					t.Fatalf("ValidateProposal() = %v, want nil", err)
@@ -324,7 +323,7 @@ func TestCloseDecision_TwoPaidOfThreeCancelsVoidsAndRefunds(t *testing.T) {
 		enr("e3", domain.EnrollmentAuthorized),
 		enr("e4", domain.EnrollmentCaptureFailed),
 	}
-	got := domain.CloseDecision(w, p, es, closesAt)
+	got := domain.CloseDecision(w, p, es)
 	assertClose(t, got, domain.WorkshopCancelled, domain.ResolutionResolving, []string{"e3"}, []string{"e1", "e2"}, nil)
 }
 
@@ -337,7 +336,7 @@ func TestCloseDecision_PendingCaptureIsReconciledNotCounted(t *testing.T) {
 		enr("e3", domain.EnrollmentCapturePending),
 		enr("e4", domain.EnrollmentCapturing),
 	}
-	got := domain.CloseDecision(w, p, es, closesAt)
+	got := domain.CloseDecision(w, p, es)
 	assertClose(t, got, domain.WorkshopCancelled, domain.ResolutionResolving, nil, []string{"e1", "e2"}, []string{"e3", "e4"})
 }
 
@@ -350,7 +349,7 @@ func TestCloseDecision_ConfirmedWorkshopNeverCancels(t *testing.T) {
 		enr("e3", domain.EnrollmentPaid),
 		enr("e4", domain.EnrollmentAuthorized),
 	}
-	got := domain.CloseDecision(w, p, es, closesAt)
+	got := domain.CloseDecision(w, p, es)
 	assertClose(t, got, domain.WorkshopConfirmed, domain.ResolutionOpen, []string{"e4"}, nil, nil)
 }
 
@@ -367,7 +366,7 @@ func TestCloseDecision_ConfirmedKeepsAuthorizedWhoseCaptureStarted(t *testing.T)
 		inFlight,
 		enr("e5", domain.EnrollmentCapturing),
 	}
-	got := domain.CloseDecision(w, p, es, closesAt)
+	got := domain.CloseDecision(w, p, es)
 	assertClose(t, got, domain.WorkshopConfirmed, domain.ResolutionOpen, []string{"e3"}, nil, []string{"e2", "e5"})
 }
 
@@ -381,7 +380,7 @@ func TestCloseDecision_FundingWithMinimumReachedConfirms(t *testing.T) {
 		enr("e4", domain.EnrollmentAuthorized),
 		enr("e5", domain.EnrollmentCapturePending),
 	}
-	got := domain.CloseDecision(w, p, es, closesAt)
+	got := domain.CloseDecision(w, p, es)
 	assertClose(t, got, domain.WorkshopConfirmed, domain.ResolutionOpen, []string{"e4"}, nil, []string{"e5"})
 }
 
@@ -391,7 +390,7 @@ func TestCloseDecision_NothingToCloseLeavesWorkshopAlone(t *testing.T) {
 			w := workshopIn(status, domain.ResolutionResolving)
 			p := proposalFor(w)
 			es := []domain.Enrollment{enr("e1", domain.EnrollmentPaid), enr("e2", domain.EnrollmentAuthorized)}
-			got := domain.CloseDecision(w, p, es, closesAt)
+			got := domain.CloseDecision(w, p, es)
 			assertClose(t, got, status, domain.ResolutionResolving, nil, nil, nil)
 		})
 	}

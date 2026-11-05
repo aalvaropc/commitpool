@@ -1,5 +1,5 @@
-// Package paypal is a thin typed client over PayPal Orders v2 and Payments v2,
-// plus FakeServer, an in-memory stand-in for the sandbox used by tests.
+// Package paypal is a thin typed client over PayPal Orders v2 and Payments v2.
+// Package paypaltest holds an in-memory stand-in for the sandbox.
 package paypal
 
 import (

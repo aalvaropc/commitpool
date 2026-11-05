@@ -21,6 +21,7 @@ import (
 	"github.com/aalvaropc/commitpool/internal/domain"
 	"github.com/aalvaropc/commitpool/internal/httpapi"
 	"github.com/aalvaropc/commitpool/internal/paypal"
+	"github.com/aalvaropc/commitpool/internal/paypal/paypaltest"
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
@@ -926,7 +927,7 @@ func TestEnrollment_RefusedOrderOpensANewAttempt(t *testing.T) {
 	}
 }
 
-func requestIDs(reqs []paypal.RecordedRequest) []string {
+func requestIDs(reqs []paypaltest.RecordedRequest) []string {
 	ids := make([]string, len(reqs))
 	for i, r := range reqs {
 		ids[i] = r.RequestID

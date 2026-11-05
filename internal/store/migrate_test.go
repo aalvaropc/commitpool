@@ -6,12 +6,13 @@ import (
 	"testing"
 
 	"github.com/aalvaropc/commitpool/internal/store"
+	"github.com/aalvaropc/commitpool/internal/store/storetest"
 	"github.com/aalvaropc/commitpool/migrations"
 )
 
 func TestMigrate_AppliesOnceAndIsIdempotent(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 
 	files, err := fs.Glob(migrations.FS, "*.sql")
 	if err != nil || len(files) == 0 {

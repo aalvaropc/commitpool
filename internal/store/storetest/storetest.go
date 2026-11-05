@@ -1,4 +1,5 @@
-package store
+// Package storetest opens the test database for tests in other packages.
+package storetest
 
 import (
 	"context"
@@ -9,16 +10,18 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aalvaropc/commitpool/internal/store"
 )
 
 const testDBLockKey int64 = 7412530002
 
-// TestStore returns a migrated Store on TEST_DATABASE_URL with every table
+// New returns a migrated Store on TEST_DATABASE_URL with every table
 // emptied. It holds a database-wide advisory lock until the test ends so test
 // packages running in parallel (go test ./...) never truncate each other's data.
 //
 // Without TEST_DATABASE_URL the test fails, unless COMMITPOOL_SKIP_DB_TESTS=1.
-func TestStore(t testing.TB) *Store {
+func New(t testing.TB) *store.Store {
 	t.Helper()
 
 	dsn := os.Getenv("TEST_DATABASE_URL")
@@ -35,7 +38,7 @@ func TestStore(t testing.TB) *Store {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	s, err := Open(ctx, dsn)
+	s, err := store.Open(ctx, dsn)
 	if err != nil {
 		t.Fatalf("open test database: %v", err)
 	}
@@ -56,7 +59,7 @@ func TestStore(t testing.TB) *Store {
 		_, _ = lock.Exec(context.Background(), `select pg_advisory_unlock($1)`, testDBLockKey)
 	})
 
-	if err := Migrate(ctx, s.Pool); err != nil {
+	if err := store.Migrate(ctx, s.Pool); err != nil {
 		t.Fatalf("migrate test database: %v", err)
 	}
 
@@ -85,7 +88,7 @@ func TestStore(t testing.TB) *Store {
 }
 
 // checkTestDatabaseName refuses a database whose name does not end in _test:
-// TestStore truncates every table of the database it is pointed at.
+// New truncates every table of the database it is pointed at.
 func checkTestDatabaseName(databaseURL string) error {
 	u, err := url.Parse(databaseURL)
 	if err != nil {

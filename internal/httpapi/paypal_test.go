@@ -15,6 +15,7 @@ import (
 	"github.com/aalvaropc/commitpool/internal/domain"
 	"github.com/aalvaropc/commitpool/internal/httpapi"
 	"github.com/aalvaropc/commitpool/internal/paypal"
+	"github.com/aalvaropc/commitpool/internal/paypal/paypaltest"
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
@@ -139,7 +140,7 @@ func (e *env) noJob(key string) {
 	}
 }
 
-func (e *env) wantRequests(op string, n int) []paypal.RecordedRequest {
+func (e *env) wantRequests(op string, n int) []paypaltest.RecordedRequest {
 	e.t.Helper()
 	reqs := e.fake.Requests(op)
 	if len(reqs) != n {

@@ -37,7 +37,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-go build -o "$work/commitpool" ./cmd/commitpool
+go build -tags e2e -o "$work/commitpool" ./cmd/commitpool
 
 PORT="$port" \
   COMMITPOOL_BASE_URL="$base_url" \

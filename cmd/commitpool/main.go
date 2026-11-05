@@ -140,7 +140,7 @@ func run(log *slog.Logger) error {
 
 // newPayPal returns the PayPal client. With E2E_FAKE_PAYPAL=1 it first starts
 // the in-process fake and points the configuration at it; the returned func
-// stops the fake.
+// stops the fake. Only a binary built with -tags e2e carries the fake.
 func newPayPal(cfg *config.Config, log *slog.Logger) (paypal.API, func(), error) {
 	ppCfg := paypal.Config{
 		BaseURL:      cfg.PayPalBaseURL,
@@ -151,17 +151,20 @@ func newPayPal(cfg *config.Config, log *slog.Logger) (paypal.API, func(), error)
 	}
 	closeFake := func() {}
 	if cfg.FakePayPal {
-		fake := paypal.NewFakeServer()
-		closeFake = fake.Close
-		cfg.PayPalBaseURL = fake.URL
-		ppCfg.BaseURL = fake.URL
+		url, stop, err := startFakePayPal()
+		if err != nil {
+			return nil, nil, err
+		}
+		closeFake = stop
+		cfg.PayPalBaseURL = url
+		ppCfg.BaseURL = url
 		if ppCfg.ClientID == "" {
 			ppCfg.ClientID = "fake-client"
 		}
 		if ppCfg.ClientSecret == "" {
 			ppCfg.ClientSecret = "fake-secret"
 		}
-		log.Warn("using the in-process fake PayPal server", "url", fake.URL)
+		log.Warn("using the in-process fake PayPal server", "url", url)
 	}
 	client, err := paypal.New(ppCfg)
 	if err != nil {

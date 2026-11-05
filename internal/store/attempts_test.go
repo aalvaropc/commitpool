@@ -11,6 +11,7 @@ import (
 
 	"github.com/aalvaropc/commitpool/internal/domain"
 	"github.com/aalvaropc/commitpool/internal/store"
+	"github.com/aalvaropc/commitpool/internal/store/storetest"
 )
 
 func newEnrollment(t *testing.T, s *store.Store) store.EnrollmentRow {
@@ -24,7 +25,7 @@ func ptr[T any](v T) *T { return &v }
 
 func TestCreateAttempt_RefusesUnlessSeatReserved(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	w, _, _ := newWorkshop(t, s, 1, 6)
 	p := openFunding(t, s, w, baseTime)
 	statuses := []domain.EnrollmentStatus{
@@ -72,7 +73,7 @@ func TestCreateAttempt_RefusesUnlessSeatReserved(t *testing.T) {
 
 func TestAttempts_NumberingAndLookupByResource(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	e := newEnrollment(t, s)
 
 	if a, err := s.LatestAttempt(ctx, e.ID); err != nil || a != nil {
@@ -178,7 +179,7 @@ func TestAttempts_NumberingAndLookupByResource(t *testing.T) {
 
 func TestAttempts_UnknownIDs(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	const missing = "00000000-0000-4000-8000-000000000000"
 
 	if _, err := s.CreateAttempt(ctx, missing, 1000, "USD"); !errors.Is(err, store.ErrNotFound) {
@@ -199,7 +200,7 @@ func TestAttempts_UnknownIDs(t *testing.T) {
 
 func TestAttempts_ConcurrentCreatesNumberWithoutGaps(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	e := newEnrollment(t, s)
 
 	const creators = 8
@@ -233,7 +234,7 @@ var errRollback = errors.New("rollback requested by the callback")
 
 func TestUpdateAttempt_NilIdentityColumnsDoNotClearStoredIDs(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	a, err := s.CreateAttempt(ctx, newEnrollment(t, s).ID, 1000, "USD")
 	if err != nil {
 		t.Fatal(err)
@@ -290,7 +291,7 @@ func TestUpdateAttempt_NilIdentityColumnsDoNotClearStoredIDs(t *testing.T) {
 
 func TestUpdateAttemptFunc_ConcurrentUpdatesBothPersist(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	a, err := s.CreateAttempt(ctx, newEnrollment(t, s).ID, 1000, "USD")
 	if err != nil {
 		t.Fatal(err)
@@ -337,7 +338,7 @@ func TestUpdateAttemptFunc_ConcurrentUpdatesBothPersist(t *testing.T) {
 
 func TestUpdateAttemptFunc_ReadsLockedRowAndWritesAllColumns(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	a, err := s.CreateAttempt(ctx, newEnrollment(t, s).ID, 1000, "USD")
 	if err != nil {
 		t.Fatal(err)
@@ -389,7 +390,7 @@ func TestUpdateAttemptFunc_ReadsLockedRowAndWritesAllColumns(t *testing.T) {
 
 func TestUpdateAttemptFunc_ErrorRollsBack(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	a, err := s.CreateAttempt(ctx, newEnrollment(t, s).ID, 1000, "USD")
 	if err != nil {
 		t.Fatal(err)
@@ -426,7 +427,7 @@ func TestUpdateAttemptFunc_ErrorRollsBack(t *testing.T) {
 
 func TestCreateAttempt_WaitsForAnAuthorizationBeingRecorded(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	e := newEnrollment(t, s)
 	a, err := s.CreateAttempt(ctx, e.ID, 1000, "USD")
 	if err != nil {
@@ -482,7 +483,7 @@ func TestCreateAttempt_WaitsForAnAuthorizationBeingRecorded(t *testing.T) {
 
 func TestCheckoutAttempt_ReusesTheOpenAttemptAndReplacesAnExpiredOrder(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	e := newEnrollment(t, s)
 
 	first, created, err := s.CheckoutAttempt(ctx, e.ID, 1000, "USD")
@@ -530,7 +531,7 @@ func TestCheckoutAttempt_ReusesTheOpenAttemptAndReplacesAnExpiredOrder(t *testin
 
 func TestCheckoutAttempt_ConcurrentCheckoutsShareOneAttempt(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	e := newEnrollment(t, s)
 
 	const tabs = 8
@@ -564,7 +565,7 @@ func TestCheckoutAttempt_ConcurrentCheckoutsShareOneAttempt(t *testing.T) {
 
 func TestCheckoutAttempt_ReplacesAnAttemptWhoseOrderPayPalRefused(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	now := baseTime.Add(time.Hour)
 
 	checkout := func(e store.EnrollmentRow) (store.AttemptRow, bool) {
@@ -634,7 +635,7 @@ func TestCheckoutAttempt_ReplacesAnAttemptWhoseOrderPayPalRefused(t *testing.T) 
 
 func TestMarkOrderExpired_OnlyWithoutAnAuthorization(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	e := newEnrollment(t, s)
 	a, err := s.CreateAttempt(ctx, e.ID, 1000, "USD")
 	if err != nil {
@@ -704,7 +705,7 @@ func newParticipantIn(t *testing.T, s *store.Store, workshopID, name string) sto
 
 func TestSetCaptureMock_OnlyBeforeTheCaptureStarts(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	w, _, _ := newWorkshop(t, s, 1, 6)
 	p := openFunding(t, s, w, baseTime)
 	attempt := func(name string, status domain.EnrollmentStatus) store.AttemptRow {

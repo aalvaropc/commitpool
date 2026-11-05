@@ -79,7 +79,7 @@ func (r *Runner) decideClose(ctx context.Context, workshopID string) (view, doma
 		if err != nil {
 			return view{}, domain.Close{}, err
 		}
-		c := domain.CloseDecision(v.w, v.p, v.es, now)
+		c := domain.CloseDecision(v.w, v.p, v.es)
 		switch v.w.Status {
 		case domain.WorkshopFunding:
 			c.Resolution = fundingResolution(v, c.NewStatus, c.Resolution)
@@ -116,7 +116,7 @@ func cancellationOwed(v view, now time.Time) domain.Close {
 	w, p := v.w, v.p
 	w.Status = domain.WorkshopFunding
 	p.Minimum = math.MaxInt
-	c := domain.CloseDecision(w, p, v.es, now)
+	c := domain.CloseDecision(w, p, v.es)
 	c.NewStatus, c.Resolution = v.w.Status, v.w.Resolution
 	return c
 }

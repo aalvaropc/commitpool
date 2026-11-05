@@ -10,11 +10,12 @@ import (
 
 	"github.com/aalvaropc/commitpool/internal/domain"
 	"github.com/aalvaropc/commitpool/internal/store"
+	"github.com/aalvaropc/commitpool/internal/store/storetest"
 )
 
 func TestWorkshop_CreateAndLookupByTokens(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 
 	w, owner, share := newWorkshop(t, s, 3, 6)
 	if w.ID == "" || owner == "" || share == "" || owner == share {
@@ -75,7 +76,7 @@ func TestWorkshop_CreateAndLookupByTokens(t *testing.T) {
 
 func TestWorkshop_StoresOnlyTokenHashes(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 
 	w, owner, share := newWorkshop(t, s, 1, 2)
 	var ownerHash, shareHash []byte
@@ -93,7 +94,7 @@ func TestWorkshop_StoresOnlyTokenHashes(t *testing.T) {
 
 func TestWorkshop_LookupFailuresAreNotFound(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 
 	for _, id := range []string{"00000000-0000-4000-8000-000000000000", "not-a-uuid", ""} {
 		if _, err := s.WorkshopByID(ctx, id); !errors.Is(err, store.ErrNotFound) {
@@ -107,7 +108,7 @@ func TestWorkshop_LookupFailuresAreNotFound(t *testing.T) {
 
 func TestWorkshop_SetStatus(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	w, _, _ := newWorkshop(t, s, 1, 2)
 
 	if err := s.SetWorkshopStatus(ctx, w.ID, domain.WorkshopCancelled, domain.ResolutionResolving); err != nil {
@@ -128,7 +129,7 @@ func TestWorkshop_SetStatus(t *testing.T) {
 
 func TestWorkshop_CreateAppliesDefaultPaymentWindow(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 
 	w, _, _, err := s.CreateWorkshop(ctx, store.CreateWorkshopParams{
 		Title: "Defaults", DurationMin: 60, Timezone: "UTC", Minimum: 1, Capacity: 1, PriceMinor: 500, Currency: "USD",
@@ -144,7 +145,7 @@ func TestWorkshop_CreateAppliesDefaultPaymentWindow(t *testing.T) {
 
 func TestWorkshop_CreateIsAtomic(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 
 	_, _, _, err := s.CreateWorkshop(ctx, store.CreateWorkshopParams{
 		Title: "Broken", DurationMin: 60, Timezone: "UTC", Minimum: 1, Capacity: 1, PriceMinor: 500, Currency: "USD",
@@ -160,7 +161,7 @@ func TestWorkshop_CreateIsAtomic(t *testing.T) {
 
 func TestOpenProposal_SetsFundingAndRefusesSecond(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	w, _, _ := newWorkshop(t, s, 3, 6)
 
 	if p, err := s.ActiveProposal(ctx, w.ID); err != nil || p != nil {
@@ -212,7 +213,7 @@ func TestOpenProposal_SetsFundingAndRefusesSecond(t *testing.T) {
 }
 
 func TestOpenProposal_UnknownWorkshop(t *testing.T) {
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	_, err := s.OpenProposal(context.Background(), store.ProposalRow{WorkshopID: "00000000-0000-4000-8000-000000000000"})
 	if !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("OpenProposal(unknown workshop) error = %v, want ErrNotFound", err)
@@ -221,7 +222,7 @@ func TestOpenProposal_UnknownWorkshop(t *testing.T) {
 
 func TestProposalByID_ReturnsProposalOrNil(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	w, _, _ := newWorkshop(t, s, 2, 4)
 	opened := openFunding(t, s, w, baseTime)
 
@@ -241,7 +242,7 @@ func TestProposalByID_ReturnsProposalOrNil(t *testing.T) {
 
 func TestParticipants_CreateAndLookup(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	w, _, _ := newWorkshop(t, s, 1, 3)
 	other, _, _ := newWorkshop(t, s, 1, 3)
 
@@ -294,7 +295,7 @@ func TestParticipants_CreateAndLookup(t *testing.T) {
 
 func TestAvailability_SaveCorrectAndLatest(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	w, _, _ := newWorkshop(t, s, 1, 3)
 	ana := newParticipant(t, s, w, "Ana")
 	ben := newParticipant(t, s, w, "Ben")
@@ -366,7 +367,7 @@ func TestAvailability_SaveCorrectAndLatest(t *testing.T) {
 
 func TestTransitionWorkshop_RefusesWhenStateMoved(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	w, _, _ := newWorkshop(t, s, 1, 2)
 	openFunding(t, s, w, baseTime)
 	funding := []domain.WorkshopStatus{domain.WorkshopFunding}
@@ -408,7 +409,7 @@ func TestTransitionWorkshop_RefusesWhenStateMoved(t *testing.T) {
 
 func TestShortenPaymentWindow_OnlyMovesTheCloseEarlier(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	w, _, _ := newWorkshop(t, s, 1, 3)
 	p := openFunding(t, s, w, baseTime)
 
@@ -430,7 +431,7 @@ func TestShortenPaymentWindow_OnlyMovesTheCloseEarlier(t *testing.T) {
 
 func TestWorkshop_KeepsTheShareTokenButOnlyTheOwnerTokenHash(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	w, owner, share := newWorkshop(t, s, 1, 2)
 	if w.ShareToken != share {
 		t.Errorf("created row share token = %q, want the returned share token", w.ShareToken)
@@ -449,7 +450,7 @@ func TestWorkshop_KeepsTheShareTokenButOnlyTheOwnerTokenHash(t *testing.T) {
 
 func TestOpenProposal_SchedulesItsCloseInTheSameTransaction(t *testing.T) {
 	ctx := context.Background()
-	s := store.TestStore(t)
+	s := storetest.New(t)
 	w, _, _ := newWorkshop(t, s, 1, 3)
 	p := openFunding(t, s, w, baseTime)
 

@@ -179,7 +179,9 @@ func enrollmentLabel(en store.EnrollmentRow, ws store.WorkshopRow, p *store.Prop
 		switch en.Status {
 		case domain.EnrollmentReleased:
 			return "Withdrawn"
-		case domain.EnrollmentVoiding, domain.EnrollmentVoided:
+		case domain.EnrollmentVoiding:
+			return "Withdrawn — releasing the hold"
+		case domain.EnrollmentVoided:
 			return "Withdrawn — hold released"
 		}
 	}

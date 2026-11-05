@@ -56,8 +56,27 @@ func TestParticipantWithdraw_AuthorizedHoldReadsWithdrawn(t *testing.T) {
 	}
 	e.call(http.MethodPost, ps[0].path+"/withdraw", map[string]string{}, http.StatusOK, &out)
 
-	if (out.Status != "VOIDED" && out.Status != "VOIDING") || out.StatusLabel != "Withdrawn — hold released" {
-		t.Fatalf("withdraw of an authorized hold = %+v, want VOIDING or VOIDED labelled \"Withdrawn — hold released\"", out)
+	want := map[string]string{"VOIDING": "Withdrawn — releasing the hold", "VOIDED": "Withdrawn — hold released"}
+	if label, ok := want[out.Status]; !ok || out.StatusLabel != label {
+		t.Fatalf("withdraw of an authorized hold = %+v, want VOIDING or VOIDED with the label for that status", out)
+	}
+}
+
+func TestParticipantWithdraw_HoldNotYetReleasedSaysSo(t *testing.T) {
+	e := newEnv(t)
+	h, p, ps := e.fundingWorkshop()
+	en, _ := e.checkout(ps[0], p.ID)
+	e.authorize(h.created.Workshop.ID, en.EnrollmentID)
+	e.fake.FailNext("void", 503, "")
+
+	var out struct {
+		Status      string `json:"status"`
+		StatusLabel string `json:"status_label"`
+	}
+	e.call(http.MethodPost, ps[0].path+"/withdraw", map[string]string{}, http.StatusOK, &out)
+
+	if out.Status != "VOIDING" || out.StatusLabel != "Withdrawn — releasing the hold" {
+		t.Fatalf("withdraw while PayPal does not answer the void = %+v, want VOIDING, \"Withdrawn — releasing the hold\"", out)
 	}
 }
 

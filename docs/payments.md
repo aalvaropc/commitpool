@@ -240,8 +240,9 @@ are charged, under the enrollment's row lock (`store.Withdraw`, keeps
 A withdrawn enrollment never takes a seat again (`ReReserveSeat` refuses
 it, so a later PayPal return or reconcile does not bring it back); the
 person can still commit again with a new enrollment while payments are
-open. Its seat reads **Withdrawn**, or **Withdrawn — hold released** once the
-hold is voided, never "Seat expired". The consent (`consent-v2`) says all
+open. Its seat reads **Withdrawn**, **Withdrawn — releasing the hold** while
+the void is under way, and **Withdrawn — hold released** once it went
+through, never "Seat expired". The consent (`consent-v2`) says all
 this before anyone authorizes.
 
 A participant whose availability in force rules out the proposal's date
@@ -372,7 +373,7 @@ workshop's own enrollments only:
 |---|---|
 | `POST /api/v1/owner/{token}/operator/reconcile` `{enrollment_id}` | Reads the enrollment's latest attempt back from PayPal inline (`reconcile:{attempt}:operator:{minute}`); safe at any time. |
 | `POST /api/v1/owner/{token}/operator/retry-refund` `{enrollment_id}` | For a `REFUND_FAILED` enrollment only: keeps the failed refund's id in `failed_refund_ids`, sends the refund again inline under `refund:{attempt}:retry:{n}`, puts the enrollment back to `PAID` with its flag cleared and reopens the workshop's settlement. A new key is safe: a failed refund returned nothing, and PayPal refuses a refund beyond what was captured. PayPal keeps listing the failed refund on the order, so a reconcile or webhook ignores any refund in `failed_refund_ids`. |
-| `POST /api/v1/owner/{token}/operator/clear-flag` `{enrollment_id?}` | Clears the enrollment's flag once none of its jobs is unknown, running or parked; without an enrollment, clears the workshop's `NEEDS_ATTENTION` once no enrollment needs an operator (`RESOLVING` and settled again when cancelled, `OPEN` otherwise). `still_unresolved` otherwise. |
+| `POST /api/v1/owner/{token}/operator/clear-flag` `{enrollment_id?}` | Clears the enrollment's flag once its money is settled: none of its jobs is unknown, running, parked or still failing after the attempt that flagged it, and PayPal keeps no hold on a seat that should hold none (failed capture, released, withdrawn or voiding); without an enrollment, clears the workshop's `NEEDS_ATTENTION` once no enrollment needs an operator and every enrollment's money is settled in the same sense (`RESOLVING` and settled again when cancelled, `OPEN` otherwise). `still_unresolved` otherwise. |
 
 The organizer page offers them as buttons in a **Needs your check** panel,
 shown only while a seat is flagged or has a refused refund, or the workshop is

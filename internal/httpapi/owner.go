@@ -78,13 +78,13 @@ func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
 		availabilities[i].DisplayName = names[a.ParticipantID]
 	}
 	now := s.Clock.Now()
+	latest, err := s.Store.LatestAttemptsByWorkshop(ctx, ws.ID)
+	if err != nil {
+		return err
+	}
 	enrollments := make([]enrollmentDTO, len(st.enrollments))
 	for i, en := range st.enrollments {
-		latest, err := s.Store.LatestAttempt(ctx, en.ID)
-		if err != nil {
-			return err
-		}
-		enrollments[i] = enrollmentView(en, ws, st.proposal, latest, now)
+		enrollments[i] = enrollmentView(en, ws, st.proposal, latest[en.ID], now)
 		enrollments[i].ParticipantID = en.ParticipantID
 		enrollments[i].DisplayName = names[en.ParticipantID]
 	}

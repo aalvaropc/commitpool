@@ -47,7 +47,7 @@ func (r *Runner) OperatorReconcile(ctx context.Context, enrollmentID string) (st
 		return "", fmt.Errorf("enrollment %s has no payment attempt: %w", enrollmentID, store.ErrNotFound)
 	}
 	now := r.clock.Now()
-	key := reconcilePrefix(a.ID) + "operator:" + now.UTC().Format(minuteLayout)
+	key := reconcilePrefix(a.ID) + "operator:" + store.Minute(now)
 	if err := r.Enqueue(ctx, store.KindReconcile, key, &en.WorkshopID, &a.ID, nil, now); err != nil {
 		return "", err
 	}

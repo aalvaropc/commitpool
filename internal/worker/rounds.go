@@ -43,7 +43,8 @@ func (v view) has(i int, kind string) bool {
 	return ok
 }
 
-// workshopView loads the workshop, its active proposal and its enrollments.
+// workshopView loads the workshop, its active proposal and its enrollments,
+// with a fixed number of queries whatever the number of enrollments.
 // An enrollment's CaptureStartedAt is set, to when the job was due, once a
 // capture:{attempt} job exists for its latest attempt, whatever that job's
 // status; an enrollment without an attempt carries only its status.
@@ -83,19 +84,29 @@ func (r *Runner) workshopView(ctx context.Context, workshopID string) (view, err
 		att:  make([]*store.AttemptRow, len(rows)),
 		jobs: make([]map[string]store.Job, len(rows)),
 	}
+	latest, err := r.st.LatestAttemptsByWorkshop(ctx, workshopID)
+	if err != nil {
+		return view{}, err
+	}
+	ids := make([]string, 0, len(latest))
+	for _, a := range latest {
+		ids = append(ids, a.ID)
+	}
+	jobs, err := r.st.JobsByAttempts(ctx, ids)
+	if err != nil {
+		return view{}, err
+	}
+	byAttempt := make(map[string]map[string]store.Job, len(latest))
+	for _, j := range jobs {
+		if byAttempt[*j.AttemptID] == nil {
+			byAttempt[*j.AttemptID] = map[string]store.Job{}
+		}
+		byAttempt[*j.AttemptID][j.IdempotencyKey] = j
+	}
 	for i, row := range rows {
 		v.jobs[i] = map[string]store.Job{}
-		if v.att[i], err = r.st.LatestAttempt(ctx, row.ID); err != nil {
-			return view{}, err
-		}
-		if v.att[i] != nil {
-			jobs, err := r.st.JobsByAttempt(ctx, v.att[i].ID)
-			if err != nil {
-				return view{}, err
-			}
-			for _, j := range jobs {
-				v.jobs[i][j.IdempotencyKey] = j
-			}
+		if v.att[i] = latest[row.ID]; v.att[i] != nil && byAttempt[v.att[i].ID] != nil {
+			v.jobs[i] = byAttempt[v.att[i].ID]
 		}
 		v.es[i] = row.Domain()
 		if j, ok := v.job(i, store.KindCapture); ok {

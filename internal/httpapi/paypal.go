@@ -41,7 +41,6 @@ const (
 	// returnReconcileDelay is how long a return PayPal did not answer waits
 	// for the reconcile that reads the checkout back.
 	returnReconcileDelay = 30 * time.Second
-	minuteLayout         = "2006-01-02T15:04"
 )
 
 var (
@@ -357,7 +356,7 @@ func (s *server) orderUnreadable(ctx context.Context, c *checkout, err error) st
 	}
 	c.log.Warn("paypal return: PayPal did not show the order; reconciling the checkout shortly", "error", err)
 	now := s.Clock.Now()
-	key := store.JobKey(store.KindReconcile, c.attempt.ID+":return:"+now.UTC().Format(minuteLayout))
+	key := store.JobKey(store.KindReconcile, c.attempt.ID+":return:"+store.Minute(now))
 	if err := s.Worker.Enqueue(ctx, store.KindReconcile, key, &c.enrollment.WorkshopID, &c.attempt.ID, nil, now.Add(returnReconcileDelay)); err != nil {
 		c.log.Error("paypal return: enqueue the reconcile", "error", err)
 		return resultError

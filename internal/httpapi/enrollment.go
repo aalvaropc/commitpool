@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/aalvaropc/commitpool/internal/domain"
 	"github.com/aalvaropc/commitpool/internal/store"
+	"github.com/aalvaropc/commitpool/internal/worker"
 )
 
 var (
@@ -199,7 +199,7 @@ func (s *server) attemptApprovalLink(ctx context.Context, a *store.AttemptRow) (
 	if err != nil || job == nil {
 		return "", err
 	}
-	return approveURL(job.Payload), nil
+	return worker.ApproveURL(*job), nil
 }
 
 // approvalLink returns the attempt's PayPal approval link, creating the
@@ -226,7 +226,7 @@ func (s *server) approvalLink(ctx context.Context, workshopID string, a store.At
 		if job == nil {
 			return "", fmt.Errorf("job %s vanished", key)
 		}
-		if link := approveURL(job.Payload); link != "" {
+		if link := worker.ApproveURL(*job); link != "" {
 			return link, nil
 		}
 		if job.Status != store.JobRunning {
@@ -241,16 +241,6 @@ func (s *server) approvalLink(ctx context.Context, workshopID string, a store.At
 			return "", err
 		}
 	}
-}
-
-func approveURL(payload json.RawMessage) string {
-	var p struct {
-		ApproveURL string `json:"approve_url"`
-	}
-	if err := json.Unmarshal(payload, &p); err != nil {
-		return ""
-	}
-	return p.ApproveURL
 }
 
 // compatibleWithProposal refuses a participant whose availability in force

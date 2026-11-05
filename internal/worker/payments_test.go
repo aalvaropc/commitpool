@@ -9,6 +9,7 @@ import (
 	"github.com/aalvaropc/commitpool/internal/domain"
 	"github.com/aalvaropc/commitpool/internal/paypal"
 	"github.com/aalvaropc/commitpool/internal/store"
+	"github.com/aalvaropc/commitpool/internal/worker"
 )
 
 func TestCreateOrder_PersistsKeyBeforeSendAndStoresApproveURL(t *testing.T) {
@@ -871,4 +872,21 @@ func TestAuthorize_PendingAuthorizationDeniedFreesTheSeat(t *testing.T) {
 	e.clock.Set(e.clock.Now().Truncate(time.Hour).Add(time.Hour))
 	e.runPeriodic()
 	e.wantNoJob(e.pendingKey(a))
+}
+
+func TestApproveURL_ReadsTheCreateOrderPayload(t *testing.T) {
+	cases := []struct {
+		name    string
+		payload string
+		want    string
+	}{
+		{"order created", `{"approve_url":"https://www.sandbox.paypal.com/checkoutnow?token=O1","order_id":"O1"}`, "https://www.sandbox.paypal.com/checkoutnow?token=O1"},
+		{"no payload yet", ``, ""},
+		{"not json", `{`, ""},
+	}
+	for _, c := range cases {
+		if got := worker.ApproveURL(store.Job{Payload: json.RawMessage(c.payload)}); got != c.want {
+			t.Errorf("%s: ApproveURL = %q, want %q", c.name, got, c.want)
+		}
+	}
 }

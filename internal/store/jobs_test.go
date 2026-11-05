@@ -1278,3 +1278,55 @@ func TestRequeueStale_NeverParksKindsThatRetryForever(t *testing.T) {
 		t.Errorf("close job after RequeueStale = %s, want pending: a close never parks", got.Status)
 	}
 }
+
+func TestJobsByAttempts_OnlyTheGivenAttemptsOldestFirst(t *testing.T) {
+	ctx := context.Background()
+	s := storetest.New(t)
+	e := newEnrollment(t, s)
+	a1, err := s.CreateAttempt(ctx, e.ID, 1000, "USD")
+	if err != nil {
+		t.Fatalf("CreateAttempt #1: %v", err)
+	}
+	a2, err := s.CreateAttempt(ctx, e.ID, 1000, "USD")
+	if err != nil {
+		t.Fatalf("CreateAttempt #2: %v", err)
+	}
+	a3, err := s.CreateAttempt(ctx, e.ID, 1000, "USD")
+	if err != nil {
+		t.Fatalf("CreateAttempt #3: %v", err)
+	}
+	for _, j := range []struct{ kind, attempt string }{
+		{"create_order", a1.ID}, {"create_order", a2.ID}, {"authorize", a1.ID}, {"create_order", a3.ID},
+	} {
+		if _, err := s.EnqueueJob(ctx, j.kind, j.kind+":"+j.attempt, nil, &j.attempt, nil, baseTime); err != nil {
+			t.Fatalf("EnqueueJob(%s, %s): %v", j.kind, j.attempt, err)
+		}
+	}
+	enqueue(t, s, "close", "close:p1", baseTime)
+
+	jobs, err := s.JobsByAttempts(ctx, []string{a1.ID, a2.ID})
+	if err != nil {
+		t.Fatalf("JobsByAttempts: %v", err)
+	}
+	var keys []string
+	for _, j := range jobs {
+		keys = append(keys, j.IdempotencyKey)
+	}
+	want := []string{"create_order:" + a1.ID, "create_order:" + a2.ID, "authorize:" + a1.ID}
+	if !slices.Equal(keys, want) {
+		t.Fatalf("keys = %v, want %v", keys, want)
+	}
+
+	none, err := s.JobsByAttempts(ctx, nil)
+	if err != nil || len(none) != 0 {
+		t.Fatalf("JobsByAttempts(nil) = %v, %v; want none", none, err)
+	}
+}
+
+func TestMinute_UTCToTheMinute(t *testing.T) {
+	lima := time.FixedZone("UTC-5", -5*3600)
+	at := time.Date(2026, 11, 9, 20, 7, 59, 999, lima)
+	if got, want := store.Minute(at), "2026-11-10T01:07"; got != want {
+		t.Fatalf("Minute(%s) = %q, want %q", at, got, want)
+	}
+}

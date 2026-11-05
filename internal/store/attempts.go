@@ -9,7 +9,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/aalvaropc/commitpool/internal/domain"
-	"github.com/aalvaropc/commitpool/internal/paypal"
 )
 
 type AttemptRow struct {
@@ -105,13 +104,22 @@ func (s *Store) openAttempt(ctx context.Context, enrollmentID string, amountMino
 	return attempt, created, nil
 }
 
+// Statuses an attempt stores that the store branches on. OrderExpired is
+// recorded by MarkOrderExpired once PayPal no longer knows an order the buyer
+// never approved (PayPal itself uses the word only for authorizations);
+// AuthorizationPending is PayPal's status for a hold under review.
+const (
+	OrderExpired         = "EXPIRED"
+	AuthorizationPending = "PENDING"
+)
+
 // checkoutOpen reports whether the attempt's checkout can still be used: its
 // order has not expired and PayPal has not refused to create it. A
 // create_order job that failed while the attempt has no order is such a
 // refusal; one that is pending, running or unknown may still produce an
 // order, so the attempt is kept.
 func checkoutOpen(ctx context.Context, tx pgx.Tx, a AttemptRow) (bool, error) {
-	if a.OrderStatus != nil && *a.OrderStatus == paypal.StatusExpired {
+	if a.OrderStatus != nil && *a.OrderStatus == OrderExpired {
 		return false, nil
 	}
 	if a.OrderID != nil {
@@ -132,6 +140,24 @@ func checkoutOpen(ctx context.Context, tx pgx.Tx, a AttemptRow) (bool, error) {
 func (s *Store) LatestAttempt(ctx context.Context, enrollmentID string) (*AttemptRow, error) {
 	return oneOrNil[AttemptRow](ctx, s.Pool, "latest attempt",
 		`select `+attemptCols+` from payment_attempts where enrollment_id = $1 order by attempt_no desc limit 1`, enrollmentID)
+}
+
+// LatestAttemptsByWorkshop returns, in one query, the latest payment attempt
+// of every enrollment of the workshop, keyed by enrollment ID. An enrollment
+// without an attempt has no entry.
+func (s *Store) LatestAttemptsByWorkshop(ctx context.Context, workshopID string) (map[string]*AttemptRow, error) {
+	rows, err := many[AttemptRow](ctx, s.Pool, "latest attempts by workshop",
+		`select distinct on (enrollment_id) `+attemptCols+` from payment_attempts
+		 where enrollment_id in (select id from enrollments where workshop_id = $1)
+		 order by enrollment_id, attempt_no desc`, workshopID)
+	if err != nil {
+		return nil, err
+	}
+	latest := make(map[string]*AttemptRow, len(rows))
+	for i := range rows {
+		latest[rows[i].EnrollmentID] = &rows[i]
+	}
+	return latest, nil
 }
 
 // AttemptRef names a payment attempt and the workshop of its enrollment.
@@ -164,7 +190,7 @@ func (s *Store) LatestAttemptsWithPendingAuthorization(ctx context.Context) ([]A
 		     where e.status = $1
 		     order by a.enrollment_id, a.attempt_no desc) latest
 		 where authorization_status = $2
-		 order by id`, string(domain.EnrollmentSeatReserved), paypal.StatusPending)
+		 order by id`, string(domain.EnrollmentSeatReserved), AuthorizationPending)
 }
 
 // AttemptByID returns the attempt, or nil when there is none.
@@ -325,7 +351,7 @@ func (s *Store) MarkOrderExpired(ctx context.Context, attemptID string) (marked 
 	tag, err := s.Pool.Exec(ctx,
 		`update payment_attempts set order_status = $2, updated_at = now()
 		 where id = $1 and authorization_id is null`,
-		attemptID, paypal.StatusExpired)
+		attemptID, OrderExpired)
 	if err != nil {
 		return false, lookupErr("mark order expired", err)
 	}

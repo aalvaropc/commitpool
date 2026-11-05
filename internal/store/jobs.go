@@ -38,6 +38,10 @@ const (
 // JobKey is the idempotency key of the job of this kind for subject.
 func JobKey(kind, subject string) string { return kind + ":" + subject }
 
+// Minute is t to the minute in UTC, for keys of jobs that may run once a
+// minute, such as a reconcile asked for from a return page.
+func Minute(t time.Time) string { return t.UTC().Format("2006-01-02T15:04") }
+
 // Job is one row of the payment-action queue. IdempotencyKey is also the
 // PayPal-Request-Id, so every retry of the same logical action reuses it.
 type Job struct {
@@ -386,6 +390,16 @@ func (s *Store) JobByKey(ctx context.Context, key string) (*Job, error) {
 func (s *Store) JobsByAttempt(ctx context.Context, attemptID string) ([]Job, error) {
 	return many[Job](ctx, s.Pool, "jobs by attempt",
 		`select `+jobCols+` from jobs where attempt_id = $1 order by created_at, id`, attemptID)
+}
+
+// JobsByAttempts returns, in one query, every job of the given payment
+// attempts, oldest first.
+func (s *Store) JobsByAttempts(ctx context.Context, attemptIDs []string) ([]Job, error) {
+	if len(attemptIDs) == 0 {
+		return nil, nil
+	}
+	return many[Job](ctx, s.Pool, "jobs by attempts",
+		`select `+jobCols+` from jobs where attempt_id = any($1::uuid[]) order by created_at, id`, attemptIDs)
 }
 
 // UnknownJobs returns the jobs whose outcome has been unknown for longer

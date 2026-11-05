@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/aalvaropc/commitpool/internal/domain"
+	"github.com/aalvaropc/commitpool/internal/paypal"
 	"github.com/aalvaropc/commitpool/internal/store"
 	"github.com/aalvaropc/commitpool/internal/store/storetest"
 )
@@ -755,5 +756,55 @@ func TestSetCaptureMock_OnlyBeforeTheCaptureStarts(t *testing.T) {
 		if _, err := s.SetCaptureMock(ctx, id, "AUTHORIZATION_EXPIRED"); !errors.Is(err, store.ErrNotFound) {
 			t.Errorf("SetCaptureMock(%s) = %v, want ErrNotFound", id, err)
 		}
+	}
+}
+
+func TestLatestAttemptsByWorkshop_LatestPerEnrollmentOfThatWorkshopOnly(t *testing.T) {
+	ctx := context.Background()
+	s := storetest.New(t)
+	w, _, _ := newWorkshop(t, s, 1, 6)
+	p := openFunding(t, s, w, baseTime)
+	ana := reserve(t, s, w, p, newParticipant(t, s, w, "Ana").ID, baseTime.Add(time.Hour))
+	ben := reserve(t, s, w, p, newParticipant(t, s, w, "Ben").ID, baseTime.Add(time.Hour))
+	cid := reserve(t, s, w, p, newParticipant(t, s, w, "Cid").ID, baseTime.Add(time.Hour))
+	other := newEnrollment(t, s)
+
+	attempt := func(e store.EnrollmentRow) store.AttemptRow {
+		t.Helper()
+		a, err := s.CreateAttempt(ctx, e.ID, 1000, "USD")
+		if err != nil {
+			t.Fatalf("CreateAttempt(%s): %v", e.ID, err)
+		}
+		return a
+	}
+	attempt(ana)
+	anaLatest := attempt(ana)
+	benLatest := attempt(ben)
+	attempt(other)
+
+	got, err := s.LatestAttemptsByWorkshop(ctx, w.ID)
+	if err != nil {
+		t.Fatalf("LatestAttemptsByWorkshop: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d enrollments, want Ana's and Ben's only: %v", len(got), got)
+	}
+	if a := got[ana.ID]; a == nil || a.ID != anaLatest.ID || a.AttemptNo != 2 {
+		t.Errorf("Ana's latest = %+v, want attempt #2 %s", a, anaLatest.ID)
+	}
+	if a := got[ben.ID]; a == nil || a.ID != benLatest.ID {
+		t.Errorf("Ben's latest = %+v, want %s", a, benLatest.ID)
+	}
+	if a, ok := got[cid.ID]; ok {
+		t.Errorf("Cid has no attempt but got %+v", a)
+	}
+}
+
+func TestAttemptStatuses_SpelledAsPayPalSpellsThem(t *testing.T) {
+	if store.AuthorizationPending != paypal.StatusPending {
+		t.Errorf("AuthorizationPending = %q, PayPal says %q", store.AuthorizationPending, paypal.StatusPending)
+	}
+	if store.OrderExpired != paypal.StatusExpired {
+		t.Errorf("OrderExpired = %q, want the word PayPal uses for a lapsed authorization, %q", store.OrderExpired, paypal.StatusExpired)
 	}
 }

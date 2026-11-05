@@ -13,9 +13,6 @@ import (
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
-// minuteLayout is the minute a release_seats key names, in UTC.
-const minuteLayout = "2006-01-02T15:04"
-
 // closePayments runs close:{proposal_id} when the payment window closes. It
 // first heals what missed hooks left undone, then records the outcome of
 // domain.CloseDecision on the workshop (decideClose) and only after that
@@ -350,7 +347,7 @@ func (r *Runner) EnqueueSeatReleases(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	minute := now.UTC().Format(minuteLayout)
+	minute := store.Minute(now)
 	for _, id := range ids {
 		if err := r.Enqueue(ctx, store.KindReleaseSeats, store.JobKey(store.KindReleaseSeats, id+":"+minute), &id, nil, nil, now); err != nil {
 			return err

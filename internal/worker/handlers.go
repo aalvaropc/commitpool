@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -80,6 +81,16 @@ func (r *Runner) mockCode(a store.AttemptRow) string {
 type orderPayload struct {
 	ApproveURL string `json:"approve_url"`
 	OrderID    string `json:"order_id"`
+}
+
+// ApproveURL is the PayPal approval link a create_order job stored in its
+// payload once PayPal created the order; empty before that.
+func ApproveURL(j store.Job) string {
+	var p orderPayload
+	if len(j.Payload) == 0 || json.Unmarshal(j.Payload, &p) != nil {
+		return ""
+	}
+	return p.ApproveURL
 }
 
 // createOrder creates the attempt's PayPal order for the attempt's amount,

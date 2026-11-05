@@ -72,7 +72,7 @@ func (r *Runner) RunPeriodic(ctx context.Context) error {
 			continue
 		}
 		if !left {
-			enqueue(*j.AttemptID, j.WorkshopID, now.UTC().Format(minuteLayout))
+			enqueue(*j.AttemptID, j.WorkshopID, store.Minute(now))
 		}
 	}
 

@@ -8,7 +8,6 @@ import (
 
 	"github.com/aalvaropc/commitpool/internal/ai"
 	"github.com/aalvaropc/commitpool/internal/domain"
-	"github.com/aalvaropc/commitpool/internal/paypal"
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
@@ -187,7 +186,7 @@ func enrollmentLabel(en store.EnrollmentRow, ws store.WorkshopRow, p *store.Prop
 // authorizationPending reports whether PayPal holds the attempt's
 // authorization PENDING (under review).
 func authorizationPending(a *store.AttemptRow) bool {
-	return a != nil && a.AuthorizationStatus != nil && *a.AuthorizationStatus == paypal.StatusPending
+	return a != nil && a.AuthorizationStatus != nil && *a.AuthorizationStatus == store.AuthorizationPending
 }
 
 // proposalView is nil while payments have not been opened.

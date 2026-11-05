@@ -1,8 +1,7 @@
 package paypal
 
 // Statuses PayPal reports on orders, authorizations, captures and refunds.
-// PayPal never reports StatusExpired for an order: it is what the worker
-// records once PayPal no longer knows an order the buyer never approved.
+// PayPal reports StatusExpired for an authorization, never for an order.
 const (
 	StatusCreated             = "CREATED"
 	StatusPayerActionRequired = "PAYER_ACTION_REQUIRED"

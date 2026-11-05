@@ -17,6 +17,11 @@ var (
 	ErrNotEnoughCompatible   = errors.New("not enough compatible participants")
 	ErrAlreadyCancelled      = errors.New("workshop is already cancelled")
 	ErrWorkshopStarted       = errors.New("workshop has already started")
+	ErrNothingToWithdraw     = errors.New("no seat to withdraw")
+	ErrCaptureInProgress     = errors.New("the payment is being charged")
+	ErrPaidNoSelfRefund      = errors.New("a paid seat is refunded only if the workshop is cancelled")
+	ErrHoldUnderReview       = errors.New("PayPal is reviewing the hold")
+	ErrNeedsOperator         = errors.New("the enrollment needs an operator")
 )
 
 const minLeadAfterClose = 24 * time.Hour

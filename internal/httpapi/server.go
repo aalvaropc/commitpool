@@ -98,6 +98,7 @@ func (s *server) routes(mux *http.ServeMux) {
 	api("POST /api/v1/p/{token}/availability", s.submitAvailability)
 	api("PUT /api/v1/p/{token}/availability/{id}", s.correctAvailability)
 	api("POST /api/v1/p/{token}/enrollment", s.enroll)
+	api("POST /api/v1/p/{token}/withdraw", s.withdraw)
 
 	mux.HandleFunc("GET /paypal/return", s.paypalReturn)
 	mux.HandleFunc("GET /paypal/cancel", s.paypalCancel)

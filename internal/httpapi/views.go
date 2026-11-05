@@ -14,13 +14,14 @@ import (
 
 // ConsentVersion names the consent text a participant accepts before paying;
 // an enrollment must quote it.
-const ConsentVersion = "consent-v1"
+const ConsentVersion = "consent-v2"
 
 // ConsentText is the fixed meaning of ConsentVersion. Changing a word of it
 // needs a new version.
 const ConsentText = "You authorize a temporary hold. We will attempt to charge it once enough people have authorized. " +
 	"The workshop is confirmed when the minimum number of completed payments is reached. " +
 	"If the minimum is not reached by the deadline, the workshop is cancelled and we request a refund of any charge already made. " +
+	"You can withdraw and have your hold released until you are charged; after that, payments are refunded only if the workshop is cancelled, also when the organizer cancels it. " +
 	"Refunds can take time and you will be able to follow their status."
 
 // labelState is what an enrollment's label depends on besides its status.

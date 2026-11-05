@@ -216,6 +216,31 @@ A payment that completes after a cancellation is refunded. One that
 completes after a confirmation keeps its seat until the workshop starts and
 is refunded after that.
 
+## Participant withdrawal
+
+`POST /api/v1/p/{token}/withdraw` gives the participant's seat up before they
+are charged, under the enrollment's row lock (`store.Withdraw`, keeps
+`withdrawn_at`):
+
+| Status | Withdrawal |
+|---|---|
+| `SEAT_RESERVED` | `RELEASED` at once; refused (`hold_under_review`) while PayPal reviews the hold (`PENDING`). |
+| `AUTHORIZED` | `VOIDING`, then `void:{attempt}` runs inline; a capture still queued finds the hold gone and is skipped. |
+| `CAPTURING`, `CAPTURE_PENDING` | Refused, `capture_in_progress`. |
+| `PAID` | Refused, `paid_no_self_refund`: the minimum counts completed payments, so a paid seat is refunded only if the workshop is cancelled, also by the organizer. |
+| Flagged | Refused, `needs_attention`. |
+| Anything else | `nothing_to_withdraw`. |
+
+A withdrawn enrollment never takes a seat again (`ReReserveSeat` refuses
+it, so a later PayPal return or reconcile does not bring it back); the
+person can still commit again with a new enrollment while payments are
+open. The consent (`consent-v2`) says all this before anyone authorizes.
+
+A participant whose availability in force rules out the proposal's date
+(`domain.Compatible`) is refused a checkout with `date_incompatible`; one who
+never said when they can come is let through, since the consent names the
+date.
+
 ## Organizer cancel
 
 `POST /api/v1/owner/{token}/cancel` (optional `reason`, at most 280

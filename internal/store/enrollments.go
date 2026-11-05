@@ -22,6 +22,9 @@ type EnrollmentRow struct {
 	// and AttentionReason why; both nil when it is not flagged.
 	NeedsAttentionAt *time.Time
 	AttentionReason  *string
+	// WithdrawnAt is when the participant gave the seat up; such an
+	// enrollment never takes a seat again.
+	WithdrawnAt *time.Time
 }
 
 // Domain is the enrollment as the domain rules see it.
@@ -35,7 +38,7 @@ type ReserveParams struct {
 	SeatTTL                                               time.Duration
 }
 
-const enrollmentCols = `id, workshop_id, participant_id, proposal_id, status, consent_at, consent_version, seat_reserved_at, seat_expires_at, approval_cancelled_at, released_at, needs_attention_at, attention_reason`
+const enrollmentCols = `id, workshop_id, participant_id, proposal_id, status, consent_at, consent_version, seat_reserved_at, seat_expires_at, approval_cancelled_at, released_at, needs_attention_at, attention_reason, withdrawn_at`
 
 // ReserveSeatAndCreateEnrollment reserves a seat for the participant under the
 // workshop's row lock, so concurrent requests can never exceed the capacity of
@@ -124,7 +127,7 @@ func (s *Store) ReReserveSeat(ctx context.Context, enrollmentID string, now time
 		if err != nil {
 			return lookupErr("lock enrollment", err)
 		}
-		if current.Status != domain.EnrollmentReleased {
+		if current.Status != domain.EnrollmentReleased || current.WithdrawnAt != nil {
 			return nil
 		}
 
@@ -248,6 +251,59 @@ func (s *Store) TransitionEnrollment(ctx context.Context, id string, from []doma
 		return false, wrap("transition enrollment", err)
 	}
 	return tag.RowsAffected() == 1, nil
+}
+
+// Withdraw gives the participant's seat up under the enrollment's row lock:
+// a reserved seat is RELEASED and a hold not yet charged goes to VOIDING, so
+// a queued capture finds it gone and the caller enqueues its void. It refuses
+// a seat kept while PayPal reviews the hold (domain.ErrHoldUnderReview), a
+// charge in flight (ErrCaptureInProgress), a paid seat, refunded only if the
+// workshop is cancelled (ErrPaidNoSelfRefund), a flagged enrollment
+// (ErrNeedsOperator) and anything finished (ErrNothingToWithdraw). It
+// returns the new status.
+func (s *Store) Withdraw(ctx context.Context, enrollmentID string, now time.Time) (domain.EnrollmentStatus, error) {
+	var to domain.EnrollmentStatus
+	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+		en, err := one[EnrollmentRow](ctx, tx, `select `+enrollmentCols+` from enrollments where id = $1 for update`, enrollmentID)
+		if err != nil {
+			return lookupErr("lock enrollment", err)
+		}
+		if en.NeedsAttentionAt != nil {
+			return domain.ErrNeedsOperator
+		}
+		switch en.Status {
+		case domain.EnrollmentSeatReserved:
+			var auth *string
+			if err := tx.QueryRow(ctx, `select authorization_status from payment_attempts where enrollment_id = $1 order by attempt_no desc limit 1`,
+				enrollmentID).Scan(&auth); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return wrap("latest attempt", err)
+			}
+			if auth != nil && *auth == "PENDING" {
+				return domain.ErrHoldUnderReview
+			}
+			to = domain.EnrollmentReleased
+		case domain.EnrollmentAuthorized:
+			to = domain.EnrollmentVoiding
+		case domain.EnrollmentCapturing, domain.EnrollmentCapturePending:
+			return domain.ErrCaptureInProgress
+		case domain.EnrollmentPaid:
+			return domain.ErrPaidNoSelfRefund
+		default:
+			return domain.ErrNothingToWithdraw
+		}
+		_, err = tx.Exec(ctx,
+			`update enrollments set status = $2, withdrawn_at = $3,
+				released_at = case when $2 = 'RELEASED' then $3 else released_at end, updated_at = now()
+			 where id = $1`, enrollmentID, string(to), now)
+		if err != nil {
+			return wrap("withdraw", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return to, nil
 }
 
 // FlagEnrollment marks the enrollment for an operator without moving it, so

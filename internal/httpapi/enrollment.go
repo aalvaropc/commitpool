@@ -87,6 +87,9 @@ func (s *server) enroll(w http.ResponseWriter, r *http.Request) error {
 	if !paymentsOpen(ws, proposal, now) || !strings.EqualFold(req.ProposalID, proposal.ID) {
 		return errProposalNotOpen
 	}
+	if err := s.compatibleWithProposal(ctx, p.ID, ws, *proposal); err != nil {
+		return err
+	}
 
 	en, created, err := s.Store.ReserveSeatAndCreateEnrollment(ctx, store.ReserveParams{
 		WorkshopID:     p.WorkshopID,
@@ -248,4 +251,88 @@ func approveURL(payload json.RawMessage) string {
 		return ""
 	}
 	return p.ApproveURL
+}
+
+// compatibleWithProposal refuses a participant whose availability in force
+// rules out the proposal's date (domain.Compatible), such as one who joined
+// late saying they cannot come then; a participant who never said is let
+// through, since the consent names the date.
+func (s *server) compatibleWithProposal(ctx context.Context, participantID string, ws store.WorkshopRow, proposal store.ProposalRow) error {
+	a, err := s.Store.LatestAvailabilityByParticipant(ctx, participantID)
+	if err != nil || a == nil {
+		return err
+	}
+	in, err := inForce(*a)
+	if err != nil {
+		return err
+	}
+	dates, err := s.Store.CandidateDates(ctx, ws.ID)
+	if err != nil {
+		return err
+	}
+	loc, err := time.LoadLocation(ws.Timezone)
+	if err != nil {
+		return err
+	}
+	for _, d := range dates {
+		if d.ID != proposal.ChosenDateID {
+			continue
+		}
+		if ok, blocker := domain.Compatible(in, domain.CandidateDate{ID: d.ID, StartsAt: d.StartsAt, EndsAt: d.EndsAt}, loc); !ok {
+			return conflict("date_incompatible", fmt.Sprintf("Your availability says you cannot come on %s (%s). Update it first if that changed.", dateLabel(d, loc), blocker))
+		}
+	}
+	return nil
+}
+
+// withdraw gives the participant's seat up before they are charged
+// (worker.Withdraw): a reserved seat is released at once and a hold is
+// voided inline. The answer is the enrollment's new status.
+func (s *server) withdraw(w http.ResponseWriter, r *http.Request) error {
+	p, ws, err := s.participant(r)
+	if err != nil {
+		return err
+	}
+	ctx := r.Context()
+	en, err := s.Store.ActiveEnrollmentByParticipant(ctx, p.ID)
+	if err != nil {
+		return err
+	}
+	if en == nil {
+		return conflict("nothing_to_withdraw", "You have no seat to give up.")
+	}
+	_, voidKey, err := s.Worker.Withdraw(ctx, en.ID)
+	switch {
+	case errors.Is(err, domain.ErrNothingToWithdraw):
+		return conflict("nothing_to_withdraw", "You have no seat to give up.")
+	case errors.Is(err, domain.ErrCaptureInProgress):
+		return conflict("capture_in_progress", "Your payment is being charged right now; check again in a minute.")
+	case errors.Is(err, domain.ErrPaidNoSelfRefund):
+		return conflict("paid_no_self_refund", "Your seat is paid. Payments are refunded only if the workshop is cancelled; ask the organizer.")
+	case errors.Is(err, domain.ErrHoldUnderReview):
+		return conflict("hold_under_review", "PayPal is still reviewing your hold; you can withdraw once it decides.")
+	case errors.Is(err, domain.ErrNeedsOperator):
+		return conflict("needs_attention", "Your payment needs a check by the organizer before anything else can change.")
+	case err != nil:
+		return err
+	}
+	if voidKey != "" {
+		if err := s.Worker.RunKey(ctx, voidKey); err != nil {
+			s.Log.Warn("withdraw: the void will run on the worker", "enrollment_id", en.ID, "error", err)
+		}
+	}
+	after, err := s.Store.EnrollmentByID(ctx, en.ID)
+	if err != nil {
+		return err
+	}
+	p2, err := s.Store.ActiveProposal(ctx, ws.ID)
+	if err != nil {
+		return err
+	}
+	latest, err := s.Store.LatestAttempt(ctx, en.ID)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, enrollmentView(after, ws, p2, latest, s.Clock.Now()))
+	return nil
 }

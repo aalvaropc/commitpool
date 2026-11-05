@@ -27,6 +27,7 @@ import (
 const consentText = "You authorize a temporary hold. We will attempt to charge it once enough people have authorized. " +
 	"The workshop is confirmed when the minimum number of completed payments is reached. " +
 	"If the minimum is not reached by the deadline, the workshop is cancelled and we request a refund of any charge already made. " +
+	"You can withdraw and have your hold released until you are charged; after that, payments are refunded only if the workshop is cancelled, also when the organizer cancels it. " +
 	"Refunds can take time and you will be able to follow their status."
 
 var tokenShape = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
@@ -256,7 +257,7 @@ func TestEnrollment_ReturnsApproveURLAndIsIdempotentPerParticipant(t *testing.T)
 	}
 	en, err := e.st.EnrollmentByID(e.ctx, first.EnrollmentID)
 	if err != nil || en.ConsentVersion != httpapi.ConsentVersion || !en.ConsentAt.Equal(t0) || !en.SeatExpiresAt.Equal(t0.Add(30*time.Minute)) {
-		t.Errorf("enrollment = %+v, %v; want consent-v1 at t0 and a 30-minute seat", en, err)
+		t.Errorf("enrollment = %+v, %v; want consent-v2 at t0 and a 30-minute seat", en, err)
 	}
 }
 

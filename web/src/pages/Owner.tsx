@@ -2,10 +2,12 @@ import { useEffect, useRef } from 'react'
 import { useParams } from 'react-router'
 import { api, type OwnerView } from '../api'
 import AvailabilityList from '../components/AvailabilityList'
+import CancelWorkshop from '../components/CancelWorkshop'
 import CopyField from '../components/CopyField'
 import Deadline from '../components/Deadline'
 import DemoControls from '../components/DemoControls'
 import EnrollmentList from '../components/EnrollmentList'
+import OperatorPanel from '../components/OperatorPanel'
 import { Loading, LoadError, RefreshError } from '../components/PageState'
 import RecommendationPanel from '../components/RecommendationPanel'
 import SeatMeter from '../components/SeatMeter'
@@ -20,13 +22,12 @@ import { windowLabel } from '../lib/time'
 
 const EXPLANATION_TRIES = 6
 
-
 function cancellationDetail(v: OwnerView): string {
   const howMany = (pred: (s: string) => boolean) => v.enrollments.filter((e) => pred(e.status)).length
   const released = howMany((s) => s === 'VOIDED' || s === 'VOIDING' || s === 'CAPTURE_FAILED')
   const refunded = howMany((s) => s === 'REFUNDED')
   const refunding = howMany((s) => s === 'PAID' || s === 'REFUNDING' || s === 'REFUND_PENDING')
-  const failed = howMany((s) => s === 'REFUND_FAILED' || s === 'NEEDS_ATTENTION')
+  const failed = v.enrollments.filter((e) => e.status === 'REFUND_FAILED' || e.status === 'NEEDS_ATTENTION' || e.needs_attention).length
   const parts = [count(released, 'hold') + ' released', count(refunded, 'refund') + ' completed', `${refunding} in progress`]
   if (failed) parts.push(`${failed} ${failed === 1 ? 'needs' : 'need'} attention`)
   return parts.join(', ') + '.'
@@ -138,10 +139,14 @@ export default function Owner() {
             )}
           </section>
 
+          <CancelWorkshop token={token} view={d} onChange={view.reload} />
+
           <DemoControls token={token} view={d} onChange={view.reload} />
         </aside>
 
         <div className="flex flex-col gap-12 lg:order-1">
+          <OperatorPanel token={token} view={d} onChange={view.reload} />
+
           <section aria-labelledby="terms-title" className="flex flex-col gap-4">
             <h2 id="terms-title" className="sr-only">
               Terms

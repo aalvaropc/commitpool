@@ -99,6 +99,8 @@ export interface Enrollment {
   status_label: string
   seat_expires_at: string
   approval_cancelled_at: string | null
+  /** The seat waits on the organizer's check (operator actions); it keeps its status meanwhile. */
+  needs_attention?: boolean
   payment: Payment | null
 }
 
@@ -264,12 +266,23 @@ export const api = {
   createWorkshop: (req: CreateWorkshopRequest) => request<CreateWorkshopResponse>('POST', '/api/v1/workshops', req),
 
   shared: (share: string) => request<PublicView>('GET', `/api/v1/w/${seg(share)}`),
-  join: (share: string, displayName: string) =>
-    request<{ participant_url: string }>('POST', `/api/v1/w/${seg(share)}/participants`, { display_name: displayName }),
+  join: (share: string, displayName: string, email?: string) =>
+    request<{ participant_url: string }>('POST', `/api/v1/w/${seg(share)}/participants`, {
+      display_name: displayName,
+      ...(email ? { email } : {}),
+    }),
 
   owner: (token: string) => request<OwnerView>('GET', `/api/v1/owner/${seg(token)}`),
   openProposal: (token: string, dateId: string) =>
     request<{ proposal: Proposal }>('POST', `/api/v1/owner/${seg(token)}/proposal`, { date_id: dateId }),
+  cancelWorkshop: (token: string, reason: string) =>
+    request<{ workshop: Workshop }>('POST', `/api/v1/owner/${seg(token)}/cancel`, reason ? { reason } : {}),
+  operatorReconcile: (token: string, enrollmentId: string) =>
+    request<{ enrollment: Enrollment }>('POST', `/api/v1/owner/${seg(token)}/operator/reconcile`, { enrollment_id: enrollmentId }),
+  operatorRetryRefund: (token: string, enrollmentId: string) =>
+    request<{ enrollment: Enrollment }>('POST', `/api/v1/owner/${seg(token)}/operator/retry-refund`, { enrollment_id: enrollmentId }),
+  operatorClearFlag: (token: string, enrollmentId?: string) =>
+    request<{ workshop: Workshop }>('POST', `/api/v1/owner/${seg(token)}/operator/clear-flag`, enrollmentId ? { enrollment_id: enrollmentId } : {}),
   demoCloseNow: (token: string) => request<{ proposal: Proposal }>('POST', `/api/v1/owner/${seg(token)}/demo/close-now`),
   demoFailNextCapture: (token: string, enrollmentId: string) =>
     request<{ enrollment_id: string }>('POST', `/api/v1/owner/${seg(token)}/demo/fail-next-capture`, {
@@ -287,4 +300,5 @@ export const api = {
       consent_version: consentVersion,
       proposal_id: proposalId,
     }),
+  withdraw: (token: string) => request<Enrollment>('POST', `/api/v1/p/${seg(token)}/withdraw`, {}),
 }

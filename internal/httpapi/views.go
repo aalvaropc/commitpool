@@ -175,6 +175,14 @@ func enrollmentLabel(en store.EnrollmentRow, ws store.WorkshopRow, p *store.Prop
 	if en.NeedsAttentionAt != nil {
 		return statusLabel(domain.EnrollmentNeedsAttention, labelState{})
 	}
+	if en.WithdrawnAt != nil {
+		switch en.Status {
+		case domain.EnrollmentReleased:
+			return "Withdrawn"
+		case domain.EnrollmentVoiding, domain.EnrollmentVoided:
+			return "Withdrawn — hold released"
+		}
+	}
 	return statusLabel(en.Status, labelState{
 		workshop:     ws.Status,
 		paymentsOpen: paymentsOpen(ws, p, now),

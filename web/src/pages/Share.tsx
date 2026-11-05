@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router'
-import { api } from '../api'
+import { api, ApiError } from '../api'
 import Deadline from '../components/Deadline'
 import { Loading, LoadError } from '../components/PageState'
 import SeatMeter from '../components/SeatMeter'
@@ -17,6 +17,8 @@ export default function Share() {
   const navigate = useNavigate()
   const view = useResource(() => api.shared(share), share)
   const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [emailError, setEmailError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -28,14 +30,16 @@ export default function Share() {
     }
     setBusy(true)
     setError(null)
+    setEmailError(null)
     try {
-      const res = await api.join(share, name.trim())
+      const res = await api.join(share, name.trim(), email.trim())
       const token = tokenFromParticipantURL(res.participant_url)
       if (!token) throw new Error('The server answered with an address this page cannot open.')
       rememberJoin(share, token, name.trim())
       navigate(`/p/${token}`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'You could not join right now.')
+      if (err instanceof ApiError && err.code === 'invalid_email') setEmailError(err.message)
+      else setError(err instanceof Error ? err.message : 'You could not join right now.')
       setBusy(false)
     }
   }
@@ -118,6 +122,24 @@ export default function Share() {
                   onChange={(e) => setName(e.target.value)}
                   aria-invalid={error ? true : undefined}
                   aria-describedby={describedBy('display-name', true, error ?? undefined)}
+                  className={`${inputClass} sm:max-w-sm`}
+                />
+              </Field>
+              <Field
+                id="email"
+                label="Email (optional)"
+                error={emailError ?? undefined}
+                hint="Only to send you your personal link and news about your seat: confirmed, cancelled, a failed charge or a refund."
+              >
+                <input
+                  id="email"
+                  type="email"
+                  autoComplete="email"
+                  maxLength={254}
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  aria-invalid={emailError ? true : undefined}
+                  aria-describedby={describedBy('email', true, emailError ?? undefined)}
                   className={`${inputClass} sm:max-w-sm`}
                 />
               </Field>

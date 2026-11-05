@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { api, ApiError, type ParticipantView } from '../api'
+import { withdrawKind } from '../lib/actions'
 import { enrollErrorMessage, isSafeRedirect, REFRESH_AFTER } from '../lib/enroll'
 import { formatMoney } from '../lib/money'
 import { count } from '../lib/plural'
@@ -28,12 +29,16 @@ export default function CommitmentCard({ token, view, onChange }: Props) {
   const { proposal, workshop, enrollment, consent, tally } = view
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [confirming, setConfirming] = useState(false)
+  const [withdrawn, setWithdrawn] = useState<string | null>(null)
   if (!proposal) return null
   const tz = workshop.timezone
   const pending = authorizationPending(enrollment)
   const canAuthorize = canStartCheckout(proposal.payments_open, enrollment?.status, pending)
   const held = seatHeld(enrollment, proposal.payments_open, Date.now())
   const date = view.dates.find((d) => d.id === proposal.date_id)
+  const kind = withdrawKind(enrollment, workshop.status)
+  const canWithdraw = kind === 'void' || (kind === 'release' && held)
 
   async function authorize() {
     if (!proposal) return
@@ -60,6 +65,22 @@ export default function CommitmentCard({ token, view, onChange }: Props) {
       if (e instanceof ApiError && REFRESH_AFTER.has(e.code)) await onChange()
     } finally {
       if (!leaving) setBusy(false)
+    }
+  }
+
+  async function withdraw() {
+    setBusy(true)
+    setError(null)
+    try {
+      await api.withdraw(token)
+      setConfirming(false)
+      setWithdrawn(kind === 'void' ? 'You withdrew. PayPal releases your hold; you are not charged.' : 'You gave up your seat. Nothing was held at PayPal.')
+      await onChange()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'You could not withdraw right now.')
+      if (e instanceof ApiError) await onChange()
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -136,6 +157,34 @@ export default function CommitmentCard({ token, view, onChange }: Props) {
           ) : (
             <p className="text-ink-soft">You have not authorized a hold yet.</p>
           )}
+          {enrollment?.status === 'PAID' && (
+            <p className="text-sm text-ink-soft">Your seat is paid. Payments are refunded only if the workshop is cancelled.</p>
+          )}
+          {canWithdraw &&
+            (confirming ? (
+              <div className="mt-3 flex flex-col gap-3 rounded-sm border border-rule p-4">
+                <p id="withdraw-effect" className="font-semibold">
+                  {kind === 'void'
+                    ? `PayPal releases your hold of ${formatMoney(proposal.price)} and you are not charged. Your seat goes back to the group.`
+                    : 'Your reserved seat goes back to the group. Nothing was held at PayPal.'}
+                </p>
+                <div className="flex flex-wrap gap-3">
+                  <Button variant="danger" onClick={withdraw} busy={busy} busyLabel="Withdrawing…" aria-describedby="withdraw-effect">
+                    Yes, withdraw
+                  </Button>
+                  <Button variant="secondary" onClick={() => setConfirming(false)} disabled={busy}>
+                    Keep my seat
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-3">
+                <Button variant="secondary" onClick={() => setConfirming(true)} className="px-3 py-1.5 text-sm">
+                  {kind === 'void' ? 'Withdraw and release my hold…' : 'Give up my seat…'}
+                </Button>
+              </div>
+            ))}
+          {withdrawn && <Notice className="mt-3">{withdrawn}</Notice>}
         </div>
 
         <div className="flex flex-col gap-4 border-t border-rule pt-5">

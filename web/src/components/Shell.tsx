@@ -14,6 +14,9 @@ export default function Shell() {
           <Link to="/" className="wide text-lg font-bold tracking-tight text-ink no-underline">
             CommitPool
           </Link>
+          <span className="ml-3 rounded-sm border border-dashed border-edge px-2 py-0.5 text-xs font-semibold text-ink-soft" title="Payments use PayPal's test environment: no real money moves.">
+            PayPal Sandbox
+          </span>
         </div>
       </header>
       <main id="main" className="flex-1">

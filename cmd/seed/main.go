@@ -39,7 +39,7 @@ var cast = []struct{ Name, Message string }{
 
 const (
 	workshopTitle       = "Street photography walk"
-	workshopDescription = "A three-hour guided walk on composition and light, in a small group. Bring any camera."
+	workshopDescription = "A three-hour guided walk on composition and light, in a small group. Bring any camera.\n\nPrepared demo data: the participants and their answers were written for this demo."
 	durationMin         = 180
 	minimum             = 3
 	capacity            = 6

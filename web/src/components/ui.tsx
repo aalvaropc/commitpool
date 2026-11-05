@@ -26,11 +26,12 @@ export const toneFill: Record<Tone, string> = {
   attention: 'bg-attention',
 }
 
-type Variant = 'primary' | 'secondary' | 'demo'
+type Variant = 'primary' | 'secondary' | 'danger' | 'demo'
 
 const variants: Record<Variant, string> = {
   primary: 'bg-signal text-white hover:bg-signal-deep',
   secondary: 'border border-edge bg-sheet text-ink hover:bg-paper',
+  danger: 'bg-cancel text-white hover:opacity-90',
   demo: 'border border-dashed border-edge bg-transparent text-ink hover:bg-sheet',
 }
 

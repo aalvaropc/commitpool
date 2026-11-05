@@ -158,7 +158,7 @@ export default function NewWorkshop() {
               <input {...input('capacity')} type="number" inputMode="numeric" min={1} max={500} step={1} />
             </Field>
           </div>
-          <Field id="f-window" label="Payment window" hint="How long participants have to authorize once you open payments." error={errors.window}>
+          <Field id="f-window" label="Payment window" hint="How long participants have to authorize once you open payments. At most 3 days, the time PayPal guarantees a hold." error={errors.window}>
             <select {...input('window', true)} className={`${inputClass} sm:max-w-xs`}>
               {WINDOWS.map((m) => (
                 <option key={m} value={m}>

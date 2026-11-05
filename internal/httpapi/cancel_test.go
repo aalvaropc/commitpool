@@ -38,10 +38,27 @@ func TestParticipantWithdraw_ReleasesTheSeatOnce(t *testing.T) {
 	}
 	e.call(http.MethodPost, ps[0].path+"/withdraw", map[string]string{}, http.StatusOK, &out)
 
-	if out.Status != "RELEASED" {
-		t.Fatalf("withdraw = %+v, want RELEASED", out)
+	if out.Status != "RELEASED" || out.StatusLabel != "Withdrawn" {
+		t.Fatalf("withdraw = %+v, want RELEASED labelled Withdrawn, not an expired seat", out)
 	}
 	e.wantError(http.MethodPost, ps[0].path+"/withdraw", map[string]string{}, http.StatusConflict, "nothing_to_withdraw")
+}
+
+func TestParticipantWithdraw_AuthorizedHoldReadsWithdrawn(t *testing.T) {
+	e := newEnv(t)
+	h, p, ps := e.fundingWorkshop()
+	en, _ := e.checkout(ps[0], p.ID)
+	e.authorize(h.created.Workshop.ID, en.EnrollmentID)
+
+	var out struct {
+		Status      string `json:"status"`
+		StatusLabel string `json:"status_label"`
+	}
+	e.call(http.MethodPost, ps[0].path+"/withdraw", map[string]string{}, http.StatusOK, &out)
+
+	if (out.Status != "VOIDED" && out.Status != "VOIDING") || out.StatusLabel != "Withdrawn — hold released" {
+		t.Fatalf("withdraw of an authorized hold = %+v, want VOIDING or VOIDED labelled \"Withdrawn — hold released\"", out)
+	}
 }
 
 func TestCheckout_RefusesADateTheReadingRulesOut(t *testing.T) {

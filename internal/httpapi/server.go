@@ -46,6 +46,14 @@ type Deps struct {
 	Log    *slog.Logger
 	// Dist is the built web app, with index.html at its root.
 	Dist fs.FS
+	// MCP, when set, is served at /mcp and calls this API in process.
+	MCP MCPServer
+}
+
+// MCPServer is an MCP server that calls the JSON API it is attached to.
+type MCPServer interface {
+	Attach(api http.Handler)
+	HTTPHandler() http.Handler
 }
 
 type server struct {
@@ -65,7 +73,12 @@ func New(d Deps) http.Handler {
 	s := &server{Deps: d, explanations: newExplanationCache()}
 	mux := http.NewServeMux()
 	s.routes(mux)
-	return s.observe(mux)
+	h := s.observe(mux)
+	if d.MCP != nil {
+		d.MCP.Attach(h)
+		mux.Handle("/mcp", d.MCP.HTTPHandler())
+	}
+	return h
 }
 
 func (s *server) routes(mux *http.ServeMux) {

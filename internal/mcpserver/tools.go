@@ -1,0 +1,682 @@
+package mcpserver
+
+import (
+	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+)
+
+// confirmationTTL is how long a preview's confirmation token stays valid.
+const confirmationTTL = 10 * time.Minute
+
+func (s *Server) addTools() {
+	readOnly := &mcp.ToolAnnotations{ReadOnlyHint: true}
+	mcp.AddTool(s.srv, &mcp.Tool{Name: "create_workshop", Annotations: &mcp.ToolAnnotations{},
+		Description: "Create a paid workshop with two or more candidate dates. Returns the private owner link (keep it secret: it controls the workshop) and the share link to send to participants."},
+		logged(s, "create_workshop", s.createWorkshop))
+	mcp.AddTool(s.srv, &mcp.Tool{Name: "get_workshop", Annotations: readOnly,
+		Description: "Read a workshop from its share link: terms, candidate dates, whether payments are open and how many committed."},
+		logged(s, "get_workshop", s.getWorkshop))
+	mcp.AddTool(s.srv, &mcp.Tool{Name: "join_workshop", Annotations: &mcp.ToolAnnotations{},
+		Description: "Join a workshop for a person, from its share link. Returns that person's private participant link."},
+		logged(s, "join_workshop", s.joinWorkshop))
+	mcp.AddTool(s.srv, &mcp.Tool{Name: "submit_availability", Annotations: &mcp.ToolAnnotations{},
+		Description: "Send what the person says about when they can come, in their own words. Returns how CommitPool read it per candidate date; show that reading to the person and have them confirm it."},
+		logged(s, "submit_availability", s.submitAvailability))
+	mcp.AddTool(s.srv, &mcp.Tool{Name: "get_my_status", Annotations: readOnly,
+		Description: "Read a participant's seat: its status, the payment terms once payments are open, and the consent text the person must read before committing."},
+		logged(s, "get_my_status", s.getMyStatus))
+	mcp.AddTool(s.srv, &mcp.Tool{Name: "get_checkout_link", Annotations: &mcp.ToolAnnotations{},
+		Description: "After the person has read and accepted the consent text, get their PayPal approval link. Only the person's approval at PayPal places a hold; nothing is charged unless the group reaches its minimum."},
+		logged(s, "get_checkout_link", s.getCheckoutLink))
+	mcp.AddTool(s.srv, &mcp.Tool{Name: "get_status", Annotations: readOnly,
+		Description: "Read a workshop from its owner link: the recommended date and why, who can come, who has committed or paid, and what would happen if payments closed now."},
+		logged(s, "get_status", s.getStatus))
+	mcp.AddTool(s.srv, &mcp.Tool{Name: "preview_open_payments", Annotations: readOnly,
+		Description: "Preview opening payments on a candidate date: the exact terms that will be locked (date, price, minimum, capacity, payment window). Nothing changes. Returns a confirmation token valid for ten minutes."},
+		logged(s, "preview_open_payments", s.previewOpenPayments))
+	mcp.AddTool(s.srv, &mcp.Tool{Name: "confirm_open_payments", Annotations: &mcp.ToolAnnotations{},
+		Description: "Open payments with the confirmation token from preview_open_payments, only after the organizer has seen those terms and said yes. Refused when the token expired or the terms changed."},
+		logged(s, "confirm_open_payments", s.confirmOpenPayments))
+}
+
+// --- API shapes, as the tools read them ---
+
+type money struct {
+	Minor    int64  `json:"minor"`
+	Currency string `json:"currency"`
+	Value    string `json:"value"`
+}
+
+func (m money) String() string { return m.Value + " " + m.Currency }
+
+type workshopJSON struct {
+	Title            string `json:"title"`
+	Description      string `json:"description"`
+	DurationMin      int    `json:"duration_min"`
+	Timezone         string `json:"timezone"`
+	Minimum          int    `json:"minimum"`
+	Capacity         int    `json:"capacity"`
+	Price            money  `json:"price"`
+	PaymentWindowMin int    `json:"payment_window_min"`
+	Status           string `json:"status"`
+	Resolution       string `json:"resolution"`
+}
+
+type dateJSON struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+
+type proposalJSON struct {
+	ID           string    `json:"id"`
+	DateID       string    `json:"date_id"`
+	Price        money     `json:"price"`
+	Minimum      int       `json:"minimum"`
+	Capacity     int       `json:"capacity"`
+	ClosesAt     time.Time `json:"closes_at"`
+	PaymentsOpen bool      `json:"payments_open"`
+}
+
+type tallyJSON struct {
+	Interested int `json:"interested"`
+	Authorized int `json:"authorized"`
+	Paid       int `json:"paid"`
+	Minimum    int `json:"minimum"`
+	Capacity   int `json:"capacity"`
+}
+
+type enrollmentJSON struct {
+	DisplayName string `json:"display_name"`
+	Status      string `json:"status"`
+	StatusLabel string `json:"status_label"`
+}
+
+type availabilityJSON struct {
+	DisplayName        string          `json:"display_name"`
+	Interpretation     json.RawMessage `json:"interpretation"`
+	Corrected          json.RawMessage `json:"corrected"`
+	NeedsClarification bool            `json:"needs_clarification"`
+}
+
+type ownerView struct {
+	ShareURL       string             `json:"share_url"`
+	Workshop       workshopJSON       `json:"workshop"`
+	Dates          []dateJSON         `json:"dates"`
+	Proposal       *proposalJSON      `json:"proposal"`
+	Tally          tallyJSON          `json:"tally"`
+	Availabilities []availabilityJSON `json:"availabilities"`
+	Enrollments    []enrollmentJSON   `json:"enrollments"`
+	Recommendation struct {
+		DateID       string `json:"date_id"`
+		MeetsMinimum bool   `json:"meets_minimum"`
+		PerDate      []struct {
+			DateID     string            `json:"date_id"`
+			Compatible []string          `json:"compatible"`
+			Blockers   map[string]string `json:"blockers"`
+		} `json:"per_date"`
+		Explanation string `json:"explanation"`
+	} `json:"recommendation"`
+}
+
+type participantView struct {
+	Participant struct {
+		DisplayName string `json:"display_name"`
+	} `json:"participant"`
+	Workshop   workshopJSON    `json:"workshop"`
+	Dates      []dateJSON      `json:"dates"`
+	Proposal   *proposalJSON   `json:"proposal"`
+	Enrollment *enrollmentJSON `json:"enrollment"`
+	Consent    struct {
+		Version string `json:"version"`
+		Text    string `json:"text"`
+	} `json:"consent"`
+}
+
+type interpretation struct {
+	PerDate []struct {
+		CandidateDateID string `json:"candidate_date_id"`
+		Verdict         string `json:"verdict"`
+		Condition       struct {
+			Type string `json:"type"`
+			Time string `json:"time"`
+		} `json:"condition"`
+		Evidence string `json:"evidence"`
+	} `json:"per_date"`
+	Ambiguities []struct {
+		Question string `json:"question"`
+	} `json:"ambiguities"`
+	NeedsClarification bool `json:"needs_clarification"`
+}
+
+func labelOf(dates []dateJSON, id string) string {
+	for _, d := range dates {
+		if d.ID == id {
+			return d.Label
+		}
+	}
+	return id
+}
+
+// --- organizer tools ---
+
+type CreateWorkshopIn struct {
+	Title            string   `json:"title" jsonschema:"workshop title, at most 120 characters"`
+	Description      string   `json:"description,omitempty" jsonschema:"what participants will do and bring"`
+	DurationMin      int      `json:"duration_min" jsonschema:"length of the workshop in minutes"`
+	Timezone         string   `json:"timezone" jsonschema:"IANA time zone of the venue, such as America/New_York"`
+	Minimum          int      `json:"minimum" jsonschema:"completed payments needed for the workshop to happen"`
+	Capacity         int      `json:"capacity" jsonschema:"most seats"`
+	Price            string   `json:"price" jsonschema:"price per seat with two decimals, such as 10.00"`
+	Currency         string   `json:"currency" jsonschema:"currency code; only USD is supported"`
+	PaymentWindowMin int      `json:"payment_window_min,omitempty" jsonschema:"minutes payments stay open once opened, at most 4320 (72 hours); default 1440"`
+	DateStarts       []string `json:"date_starts" jsonschema:"start of each candidate date in RFC 3339 with an offset, such as 2026-11-14T10:00:00-05:00"`
+}
+
+type CreateWorkshopOut struct {
+	OwnerLink string     `json:"owner_link"`
+	ShareLink string     `json:"share_link"`
+	Dates     []dateJSON `json:"dates"`
+	Next      string     `json:"next"`
+}
+
+func (s *Server) createWorkshop(ctx context.Context, _ *mcp.CallToolRequest, in CreateWorkshopIn) (*mcp.CallToolResult, CreateWorkshopOut, error) {
+	type date struct {
+		StartsAt time.Time `json:"starts_at"`
+		EndsAt   time.Time `json:"ends_at"`
+	}
+	dates := make([]date, 0, len(in.DateStarts))
+	for _, raw := range in.DateStarts {
+		start, err := time.Parse(time.RFC3339, strings.TrimSpace(raw))
+		if err != nil {
+			return nil, CreateWorkshopOut{}, fmt.Errorf("date %q is not RFC 3339 with an offset, such as 2026-11-14T10:00:00-05:00", raw)
+		}
+		dates = append(dates, date{StartsAt: start, EndsAt: start.Add(time.Duration(in.DurationMin) * time.Minute)})
+	}
+	body := map[string]any{
+		"title": in.Title, "description": in.Description, "duration_min": in.DurationMin, "timezone": in.Timezone,
+		"minimum": in.Minimum, "capacity": in.Capacity, "price": in.Price, "currency": in.Currency, "dates": dates,
+	}
+	if in.PaymentWindowMin > 0 {
+		body["payment_window_min"] = in.PaymentWindowMin
+	}
+	var created struct {
+		OwnerURL string     `json:"owner_url"`
+		ShareURL string     `json:"share_url"`
+		Dates    []dateJSON `json:"dates"`
+	}
+	if err := s.call(ctx, "POST", "/api/v1/workshops", body, &created); err != nil {
+		return nil, CreateWorkshopOut{}, err
+	}
+	return nil, CreateWorkshopOut{
+		OwnerLink: created.OwnerURL, ShareLink: created.ShareURL, Dates: created.Dates,
+		Next: "Give the owner link only to the organizer: it controls the workshop. Send the share link to participants; each joins and says when they can come.",
+	}, nil
+}
+
+type OwnerIn struct {
+	OwnerLink string `json:"owner_link" jsonschema:"the organizer's private owner link"`
+}
+
+type DateStatus struct {
+	ID         string   `json:"id"`
+	Label      string   `json:"label"`
+	Compatible int      `json:"compatible"`
+	Blockers   []string `json:"blockers,omitempty"`
+}
+
+type SeatStatus struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+}
+
+type StatusOut struct {
+	Title              string       `json:"title"`
+	Status             string       `json:"status"`
+	Resolution         string       `json:"resolution"`
+	PaymentsOpen       bool         `json:"payments_open"`
+	RecommendedDateID  string       `json:"recommended_date_id,omitempty"`
+	RecommendedDate    string       `json:"recommended_date,omitempty"`
+	MeetsMinimum       bool         `json:"meets_minimum"`
+	Explanation        string       `json:"explanation,omitempty"`
+	Dates              []DateStatus `json:"dates"`
+	NeedsClarification []string     `json:"needs_clarification,omitempty"`
+	Seats              []SeatStatus `json:"seats"`
+	Interested         int          `json:"interested"`
+	Authorized         int          `json:"authorized"`
+	Paid               int          `json:"paid"`
+	Minimum            int          `json:"minimum"`
+	Capacity           int          `json:"capacity"`
+	PaymentsCloseAt    *time.Time   `json:"payments_close_at,omitempty"`
+	IfClosedNow        string       `json:"if_closed_now"`
+}
+
+func (s *Server) getStatus(ctx context.Context, _ *mcp.CallToolRequest, in OwnerIn) (*mcp.CallToolResult, StatusOut, error) {
+	tok, err := token(in.OwnerLink, "owner")
+	if err != nil {
+		return nil, StatusOut{}, err
+	}
+	v, err := s.owner(ctx, tok)
+	if err != nil {
+		return nil, StatusOut{}, err
+	}
+	return nil, statusOf(v), nil
+}
+
+func (s *Server) owner(ctx context.Context, tok string) (ownerView, error) {
+	var v ownerView
+	return v, s.call(ctx, "GET", "/api/v1/owner/"+tok, nil, &v)
+}
+
+func statusOf(v ownerView) StatusOut {
+	out := StatusOut{
+		Title: v.Workshop.Title, Status: v.Workshop.Status, Resolution: v.Workshop.Resolution,
+		RecommendedDateID: v.Recommendation.DateID, MeetsMinimum: v.Recommendation.MeetsMinimum,
+		Explanation: v.Recommendation.Explanation,
+		Interested:  v.Tally.Interested, Authorized: v.Tally.Authorized, Paid: v.Tally.Paid,
+		Minimum: v.Workshop.Minimum, Capacity: v.Workshop.Capacity, Seats: []SeatStatus{},
+	}
+	if v.Recommendation.DateID != "" {
+		out.RecommendedDate = labelOf(v.Dates, v.Recommendation.DateID)
+	}
+	for _, d := range v.Dates {
+		ds := DateStatus{ID: d.ID, Label: d.Label}
+		for _, p := range v.Recommendation.PerDate {
+			if p.DateID == d.ID {
+				ds.Compatible = len(p.Compatible)
+				for _, why := range p.Blockers {
+					ds.Blockers = append(ds.Blockers, why)
+				}
+			}
+		}
+		out.Dates = append(out.Dates, ds)
+	}
+	for _, a := range v.Availabilities {
+		if a.NeedsClarification {
+			out.NeedsClarification = append(out.NeedsClarification, a.DisplayName)
+		}
+	}
+	for _, e := range v.Enrollments {
+		out.Seats = append(out.Seats, SeatStatus{Name: e.DisplayName, Status: e.StatusLabel})
+	}
+	if p := v.Proposal; p != nil {
+		out.PaymentsOpen = p.PaymentsOpen
+		closes := p.ClosesAt
+		out.PaymentsCloseAt = &closes
+		out.Minimum, out.Capacity = p.Minimum, p.Capacity
+	}
+	out.IfClosedNow = ifClosedNow(v)
+	return out
+}
+
+// ifClosedNow says, in words, what closing payments now would do.
+func ifClosedNow(v ownerView) string {
+	switch {
+	case v.Proposal == nil:
+		return "Payments are not open yet: nothing is held or charged."
+	case v.Workshop.Status == "CANCELLED":
+		return "The workshop is cancelled: holds are released and payments refunded."
+	case v.Tally.Paid >= v.Proposal.Minimum:
+		return fmt.Sprintf("The workshop happens: %d completed payments reach the minimum of %d. Holds not charged by then are released.", v.Tally.Paid, v.Proposal.Minimum)
+	default:
+		return fmt.Sprintf("The workshop would be cancelled: %d completed payments are short of the minimum of %d, so %d holds would be released and %d payments refunded.",
+			v.Tally.Paid, v.Proposal.Minimum, v.Tally.Authorized, v.Tally.Paid)
+	}
+}
+
+type PreviewIn struct {
+	OwnerLink string `json:"owner_link" jsonschema:"the organizer's private owner link"`
+	DateID    string `json:"date_id" jsonschema:"id of the candidate date to open payments on (get_status lists them)"`
+}
+
+type PreviewOut struct {
+	DateID            string    `json:"date_id"`
+	Date              string    `json:"date"`
+	Price             string    `json:"price"`
+	Minimum           int       `json:"minimum"`
+	Capacity          int       `json:"capacity"`
+	PaymentWindowMin  int       `json:"payment_window_min"`
+	Compatible        int       `json:"compatible"`
+	ConfirmationToken string    `json:"confirmation_token"`
+	ExpiresAt         time.Time `json:"expires_at"`
+	Next              string    `json:"next"`
+}
+
+func (s *Server) previewOpenPayments(ctx context.Context, _ *mcp.CallToolRequest, in PreviewIn) (*mcp.CallToolResult, PreviewOut, error) {
+	tok, err := token(in.OwnerLink, "owner")
+	if err != nil {
+		return nil, PreviewOut{}, err
+	}
+	v, err := s.owner(ctx, tok)
+	if err != nil {
+		return nil, PreviewOut{}, err
+	}
+	if v.Proposal != nil {
+		return nil, PreviewOut{}, errors.New("payments are already open for this workshop; get_status shows how they are going")
+	}
+	label := ""
+	for _, d := range v.Dates {
+		if d.ID == in.DateID {
+			label = d.Label
+		}
+	}
+	if label == "" {
+		return nil, PreviewOut{}, fmt.Errorf("date %q is not one of this workshop's candidate dates; get_status lists them", in.DateID)
+	}
+	out := PreviewOut{
+		DateID: in.DateID, Date: label, Price: v.Workshop.Price.String(), Minimum: v.Workshop.Minimum,
+		Capacity: v.Workshop.Capacity, PaymentWindowMin: v.Workshop.PaymentWindowMin,
+	}
+	for _, p := range v.Recommendation.PerDate {
+		if p.DateID == in.DateID {
+			out.Compatible = len(p.Compatible)
+		}
+	}
+	out.ExpiresAt = s.cfg.Clock.Now().Add(confirmationTTL).UTC().Truncate(time.Second)
+	out.ConfirmationToken = s.sign(tok, terms(v, in.DateID), out.ExpiresAt)
+	out.Next = fmt.Sprintf("Read these terms to the organizer: once payments open, the date, the price of %s, the minimum of %d and the capacity of %d are locked and every participant who commits authorizes a PayPal hold. Call confirm_open_payments with the token only after they say yes.",
+		out.Price, out.Minimum, out.Capacity)
+	return nil, out, nil
+}
+
+type ConfirmIn struct {
+	OwnerLink         string `json:"owner_link" jsonschema:"the organizer's private owner link"`
+	ConfirmationToken string `json:"confirmation_token" jsonschema:"the token preview_open_payments returned"`
+}
+
+func (s *Server) confirmOpenPayments(ctx context.Context, _ *mcp.CallToolRequest, in ConfirmIn) (*mcp.CallToolResult, StatusOut, error) {
+	tok, err := token(in.OwnerLink, "owner")
+	if err != nil {
+		return nil, StatusOut{}, err
+	}
+	v, err := s.owner(ctx, tok)
+	if err != nil {
+		return nil, StatusOut{}, err
+	}
+	dateID, err := s.verify(tok, in.ConfirmationToken, v)
+	if err != nil {
+		return nil, StatusOut{}, err
+	}
+	if err := s.call(ctx, "POST", "/api/v1/owner/"+tok+"/proposal", map[string]string{"date_id": dateID}, nil); err != nil {
+		return nil, StatusOut{}, err
+	}
+	if v, err = s.owner(ctx, tok); err != nil {
+		return nil, StatusOut{}, err
+	}
+	return nil, statusOf(v), nil
+}
+
+// terms are what opening payments on dateID locks, as the owner view shows
+// them now; a confirmation token signs them.
+func terms(v ownerView, dateID string) string {
+	w := v.Workshop
+	return strings.Join([]string{dateID, strconv.FormatInt(w.Price.Minor, 10), w.Price.Currency,
+		strconv.Itoa(w.Minimum), strconv.Itoa(w.Capacity), strconv.Itoa(w.PaymentWindowMin)}, "|")
+}
+
+// sign returns dateID.expiry.mac, the mac binding the owner token, the terms
+// and the expiry.
+func (s *Server) sign(ownerToken, terms string, expires time.Time) string {
+	exp := strconv.FormatInt(expires.Unix(), 10)
+	dateID := strings.SplitN(terms, "|", 2)[0]
+	return dateID + "." + exp + "." + s.mac(ownerToken, terms, exp)
+}
+
+func (s *Server) mac(ownerToken, terms, exp string) string {
+	m := hmac.New(sha256.New, s.cfg.Secret)
+	m.Write([]byte(ownerToken + "\n" + terms + "\n" + exp))
+	return base64.RawURLEncoding.EncodeToString(m.Sum(nil))
+}
+
+// verify checks a confirmation token against the workshop as it is now and
+// returns the date it confirms.
+func (s *Server) verify(ownerToken, confirmation string, v ownerView) (string, error) {
+	mismatch := errors.New("the confirmation token does not match this workshop's current terms; call preview_open_payments again and show the organizer the terms")
+	parts := strings.Split(strings.TrimSpace(confirmation), ".")
+	if len(parts) != 3 {
+		return "", mismatch
+	}
+	dateID, exp, sum := parts[0], parts[1], parts[2]
+	if !hmac.Equal([]byte(sum), []byte(s.mac(ownerToken, terms(v, dateID), exp))) {
+		return "", mismatch
+	}
+	unix, err := strconv.ParseInt(exp, 10, 64)
+	if err != nil {
+		return "", mismatch
+	}
+	if !s.cfg.Clock.Now().Before(time.Unix(unix, 0)) {
+		return "", errors.New("this confirmation token expired; call preview_open_payments again and show the organizer the terms")
+	}
+	return dateID, nil
+}
+
+// --- participant tools ---
+
+type ShareIn struct {
+	ShareLink string `json:"share_link" jsonschema:"the workshop's share link"`
+}
+
+type WorkshopOut struct {
+	Title        string     `json:"title"`
+	Description  string     `json:"description"`
+	Price        string     `json:"price"`
+	Minimum      int        `json:"minimum"`
+	Capacity     int        `json:"capacity"`
+	Dates        []dateJSON `json:"dates"`
+	PaymentsOpen bool       `json:"payments_open"`
+	ProposedDate string     `json:"proposed_date,omitempty"`
+	Committed    int        `json:"committed"`
+	Paid         int        `json:"paid"`
+}
+
+func (s *Server) getWorkshop(ctx context.Context, _ *mcp.CallToolRequest, in ShareIn) (*mcp.CallToolResult, WorkshopOut, error) {
+	tok, err := token(in.ShareLink, "share")
+	if err != nil {
+		return nil, WorkshopOut{}, err
+	}
+	var v struct {
+		Workshop workshopJSON  `json:"workshop"`
+		Dates    []dateJSON    `json:"dates"`
+		Proposal *proposalJSON `json:"proposal"`
+		Tally    tallyJSON     `json:"tally"`
+	}
+	if err := s.call(ctx, "GET", "/api/v1/w/"+tok, nil, &v); err != nil {
+		return nil, WorkshopOut{}, err
+	}
+	out := WorkshopOut{
+		Title: v.Workshop.Title, Description: v.Workshop.Description, Price: v.Workshop.Price.String(),
+		Minimum: v.Workshop.Minimum, Capacity: v.Workshop.Capacity, Dates: v.Dates,
+		Committed: v.Tally.Authorized + v.Tally.Paid, Paid: v.Tally.Paid,
+	}
+	if v.Proposal != nil {
+		out.PaymentsOpen, out.ProposedDate = v.Proposal.PaymentsOpen, labelOf(v.Dates, v.Proposal.DateID)
+	}
+	return nil, out, nil
+}
+
+type JoinIn struct {
+	ShareLink   string `json:"share_link" jsonschema:"the workshop's share link"`
+	DisplayName string `json:"display_name" jsonschema:"the name the person wants the organizer to see"`
+}
+
+type JoinOut struct {
+	ParticipantLink string `json:"participant_link"`
+	Next            string `json:"next"`
+}
+
+func (s *Server) joinWorkshop(ctx context.Context, _ *mcp.CallToolRequest, in JoinIn) (*mcp.CallToolResult, JoinOut, error) {
+	tok, err := token(in.ShareLink, "share")
+	if err != nil {
+		return nil, JoinOut{}, err
+	}
+	var joined struct {
+		ParticipantURL string `json:"participant_url"`
+	}
+	if err := s.call(ctx, "POST", "/api/v1/w/"+tok+"/participants", map[string]string{"display_name": in.DisplayName}, &joined); err != nil {
+		return nil, JoinOut{}, err
+	}
+	return nil, JoinOut{
+		ParticipantLink: joined.ParticipantURL,
+		Next:            "This link is the person's private seat: give it to them and keep it out of shared chats. Next, ask them when they can come and call submit_availability with their words.",
+	}, nil
+}
+
+type AvailabilityIn struct {
+	ParticipantLink string `json:"participant_link" jsonschema:"the person's private participant link"`
+	Message         string `json:"message" jsonschema:"what the person said about when they can come, in their own words"`
+}
+
+type DateReading struct {
+	DateID    string `json:"date_id"`
+	Date      string `json:"date"`
+	Verdict   string `json:"verdict"`
+	Condition string `json:"condition,omitempty"`
+	Evidence  string `json:"evidence,omitempty"`
+}
+
+type ReadingOut struct {
+	Reading            []DateReading `json:"reading"`
+	NeedsClarification bool          `json:"needs_clarification"`
+	Questions          []string      `json:"questions,omitempty"`
+	Next               string        `json:"next"`
+}
+
+func (s *Server) submitAvailability(ctx context.Context, _ *mcp.CallToolRequest, in AvailabilityIn) (*mcp.CallToolResult, ReadingOut, error) {
+	tok, err := token(in.ParticipantLink, "participant")
+	if err != nil {
+		return nil, ReadingOut{}, err
+	}
+	var saved struct {
+		Availability availabilityJSON `json:"availability"`
+	}
+	if err := s.call(ctx, "POST", "/api/v1/p/"+tok+"/availability", map[string]string{"message": in.Message}, &saved); err != nil {
+		return nil, ReadingOut{}, err
+	}
+	var v participantView
+	if err := s.call(ctx, "GET", "/api/v1/p/"+tok, nil, &v); err != nil {
+		return nil, ReadingOut{}, err
+	}
+	var read interpretation
+	if err := json.Unmarshal(saved.Availability.Interpretation, &read); err != nil {
+		return nil, ReadingOut{}, fmt.Errorf("read the interpretation: %w", err)
+	}
+	out := ReadingOut{NeedsClarification: saved.Availability.NeedsClarification, Reading: []DateReading{}}
+	for _, d := range read.PerDate {
+		r := DateReading{DateID: d.CandidateDateID, Date: labelOf(v.Dates, d.CandidateDateID), Verdict: d.Verdict, Evidence: d.Evidence}
+		if d.Condition.Type != "" && d.Condition.Type != "none" {
+			r.Condition = strings.TrimSpace(strings.ReplaceAll(d.Condition.Type, "_", " ") + " " + d.Condition.Time)
+		}
+		out.Reading = append(out.Reading, r)
+	}
+	for _, a := range read.Ambiguities {
+		out.Questions = append(out.Questions, a.Question)
+	}
+	out.Next = "Show this reading to the person and ask them to confirm it. If it is wrong, ask them to say it differently and call submit_availability again."
+	if out.NeedsClarification {
+		out.Next = "CommitPool could not read this for certain and counts the person as not available until it can: ask them the questions and call submit_availability again with their answer, then have them confirm the reading."
+	}
+	return nil, out, nil
+}
+
+type ParticipantIn struct {
+	ParticipantLink string `json:"participant_link" jsonschema:"the person's private participant link"`
+}
+
+type MyStatusOut struct {
+	Name           string `json:"name"`
+	Workshop       string `json:"workshop"`
+	Seat           string `json:"seat"`
+	PaymentsOpen   bool   `json:"payments_open"`
+	Date           string `json:"date,omitempty"`
+	Price          string `json:"price,omitempty"`
+	ConsentVersion string `json:"consent_version"`
+	ConsentText    string `json:"consent_text"`
+	Next           string `json:"next"`
+}
+
+func (s *Server) getMyStatus(ctx context.Context, _ *mcp.CallToolRequest, in ParticipantIn) (*mcp.CallToolResult, MyStatusOut, error) {
+	tok, err := token(in.ParticipantLink, "participant")
+	if err != nil {
+		return nil, MyStatusOut{}, err
+	}
+	var v participantView
+	if err := s.call(ctx, "GET", "/api/v1/p/"+tok, nil, &v); err != nil {
+		return nil, MyStatusOut{}, err
+	}
+	out := MyStatusOut{
+		Name: v.Participant.DisplayName, Workshop: v.Workshop.Title, Seat: "Not committed",
+		ConsentVersion: v.Consent.Version, ConsentText: v.Consent.Text,
+	}
+	if v.Enrollment != nil {
+		out.Seat = v.Enrollment.StatusLabel
+	}
+	if p := v.Proposal; p != nil {
+		out.PaymentsOpen, out.Date, out.Price = p.PaymentsOpen, labelOf(v.Dates, p.DateID), p.Price.String()
+	}
+	switch {
+	case out.PaymentsOpen && v.Enrollment == nil:
+		out.Next = "Payments are open. Show the person the consent text; if they accept it, call get_checkout_link with consent_version and human_accepted_terms true."
+	case out.PaymentsOpen:
+		out.Next = "The person's seat status is above; nothing to do unless it says the payment failed and they want to try again."
+	default:
+		out.Next = "Payments are not open yet. The organizer opens them once a date works for enough people."
+	}
+	return nil, out, nil
+}
+
+type CheckoutIn struct {
+	ParticipantLink    string `json:"participant_link" jsonschema:"the person's private participant link"`
+	ConsentVersion     string `json:"consent_version" jsonschema:"the consent version the person read (get_my_status gives it)"`
+	HumanAcceptedTerms bool   `json:"human_accepted_terms" jsonschema:"true only when the person read the consent text and said yes"`
+}
+
+type CheckoutOut struct {
+	ApproveURL string `json:"approve_url,omitempty"`
+	Seat       string `json:"seat"`
+	Next       string `json:"next"`
+}
+
+func (s *Server) getCheckoutLink(ctx context.Context, _ *mcp.CallToolRequest, in CheckoutIn) (*mcp.CallToolResult, CheckoutOut, error) {
+	tok, err := token(in.ParticipantLink, "participant")
+	if err != nil {
+		return nil, CheckoutOut{}, err
+	}
+	if !in.HumanAcceptedTerms {
+		return nil, CheckoutOut{}, errors.New("the person must read the consent text (get_my_status) and accept it before a checkout link is created; call again with human_accepted_terms true only after they say yes")
+	}
+	var v participantView
+	if err := s.call(ctx, "GET", "/api/v1/p/"+tok, nil, &v); err != nil {
+		return nil, CheckoutOut{}, err
+	}
+	if v.Proposal == nil || !v.Proposal.PaymentsOpen {
+		return nil, CheckoutOut{}, errors.New("payments are not open for this workshop")
+	}
+	if in.ConsentVersion != v.Consent.Version {
+		return nil, CheckoutOut{}, fmt.Errorf("the consent the person accepted is not the current one (%s); show them the current consent text from get_my_status and ask again", v.Consent.Version)
+	}
+	var enrolled struct {
+		ApproveURL  string `json:"approve_url"`
+		StatusLabel string `json:"status_label"`
+	}
+	body := map[string]string{"consent_version": in.ConsentVersion, "proposal_id": v.Proposal.ID}
+	if err := s.call(ctx, "POST", "/api/v1/p/"+tok+"/enrollment", body, &enrolled); err != nil {
+		return nil, CheckoutOut{}, err
+	}
+	out := CheckoutOut{ApproveURL: enrolled.ApproveURL, Seat: enrolled.StatusLabel}
+	if out.ApproveURL == "" {
+		out.Next = "There is no checkout to open: the seat status above says where the person stands."
+		return nil, out, nil
+	}
+	out.Next = fmt.Sprintf("Give this PayPal link to the person. Only their approval at PayPal places a hold of %s; nothing is charged unless the group reaches its minimum of %d completed payments, and every hold is released otherwise.",
+		v.Proposal.Price.String(), v.Proposal.Minimum)
+	return nil, out, nil
+}

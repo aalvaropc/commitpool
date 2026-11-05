@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"io"
 	"log/slog"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	"github.com/aalvaropc/commitpool/internal/config"
 	"github.com/aalvaropc/commitpool/internal/domain"
 	"github.com/aalvaropc/commitpool/internal/httpapi"
+	"github.com/aalvaropc/commitpool/internal/mcpserver"
 	"github.com/aalvaropc/commitpool/internal/paypal"
 	"github.com/aalvaropc/commitpool/internal/store"
 	"github.com/aalvaropc/commitpool/internal/worker"
@@ -49,6 +51,7 @@ type env struct {
 	runner *worker.Runner
 	cfg    config.Config
 	h      http.Handler
+	mcp    *mcp.Server
 	logs   *logBuffer
 	// explained receives a value each time a background explanation is
 	// stored.
@@ -187,7 +190,9 @@ func newEnv(t *testing.T, opts ...option) *env {
 	})
 	log := slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	runner := worker.New(worker.Deps{Store: st, PayPal: api, Clock: clk, Cfg: s.cfg, Log: log})
+	assistant := mcpserver.New(mcpserver.Config{Secret: []byte("test-confirmation-secret"), Clock: clk, Log: log})
 	h := httpapi.New(httpapi.Deps{
+		MCP:    assistant,
 		Store:  st,
 		Worker: runner,
 		PayPal: api,
@@ -200,7 +205,7 @@ func newEnv(t *testing.T, opts ...option) *env {
 			"assets/app.js": {Data: []byte("console.log('commitpool')")},
 		},
 	})
-	return &env{t: t, ctx: ctx, st: st, fake: fake, clock: clk, runner: runner, cfg: s.cfg, h: h, logs: logs, explained: explained}
+	return &env{t: t, ctx: ctx, st: st, fake: fake, clock: clk, runner: runner, cfg: s.cfg, h: h, mcp: assistant.MCP(), logs: logs, explained: explained}
 }
 
 // request sends body as JSON (a string or []byte is sent as is) and returns

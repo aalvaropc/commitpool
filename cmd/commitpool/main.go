@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"syscall"
 	"time"
 	// The workshop time zone must load in a minimal container image too.
@@ -18,6 +19,7 @@ import (
 	"github.com/aalvaropc/commitpool/internal/clock"
 	"github.com/aalvaropc/commitpool/internal/config"
 	"github.com/aalvaropc/commitpool/internal/httpapi"
+	"github.com/aalvaropc/commitpool/internal/mcpserver"
 	"github.com/aalvaropc/commitpool/internal/paypal"
 	"github.com/aalvaropc/commitpool/internal/store"
 	"github.com/aalvaropc/commitpool/internal/worker"
@@ -74,6 +76,7 @@ func run(log *slog.Logger) error {
 		Addr: ":" + cfg.Port,
 		Handler: httpapi.New(httpapi.Deps{
 			Store: st, Worker: runner, PayPal: pp, AI: interpreter, Clock: clk, Cfg: cfg, Log: log, Dist: dist,
+			MCP: mcpserver.New(mcpserver.Config{Secret: cfg.MCPSecret, Clock: clk, Log: log, Version: version()}),
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
@@ -177,4 +180,16 @@ func newInterpreter(ctx context.Context, cfg config.Config, log *slog.Logger) (a
 	default:
 		return nil, fmt.Errorf("ai: unknown provider %q; set COMMITPOOL_AI_PROVIDER to bedrock or fake", cfg.AIProvider)
 	}
+}
+
+// version is the build's VCS revision, or "dev".
+func version() string {
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, setting := range info.Settings {
+			if setting.Key == "vcs.revision" && len(setting.Value) >= 7 {
+				return setting.Value[:7]
+			}
+		}
+	}
+	return "dev"
 }

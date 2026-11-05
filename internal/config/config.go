@@ -40,10 +40,13 @@ type Config struct {
 	// BedrockEffort is the output_config.effort sent to Bedrock; "" sends
 	// none and leaves the model's default.
 	BedrockEffort string
-	DemoMode      bool
-	SandboxMocks  bool
-	SeatTTL       time.Duration
-	FakePayPal    bool
+	// MCPSecret signs the MCP server's confirmation tokens; nil uses a random
+	// key per process.
+	MCPSecret    []byte
+	DemoMode     bool
+	SandboxMocks bool
+	SeatTTL      time.Duration
+	FakePayPal   bool
 }
 
 func Load(getenv func(string) string) (Config, error) {
@@ -80,6 +83,9 @@ func Load(getenv func(string) string) (Config, error) {
 		DemoMode:             flag("COMMITPOOL_DEMO_MODE"),
 		SandboxMocks:         flag("COMMITPOOL_SANDBOX_MOCKS"),
 		FakePayPal:           flag("E2E_FAKE_PAYPAL"),
+	}
+	if secret := str("COMMITPOOL_MCP_SECRET", ""); secret != "" {
+		cfg.MCPSecret = []byte(secret)
 	}
 
 	ttl := defaultSeatTTLMin

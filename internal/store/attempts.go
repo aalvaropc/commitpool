@@ -21,11 +21,14 @@ type AttemptRow struct {
 	AuthExpiresAt                                              *time.Time
 	CaptureStatus, CaptureReason, CaptureIssue, CaptureDebugID *string
 	RefundStatus, RefundReason, MockCode                       *string
+	// FailedRefundIDs are refunds PayPal refused that an operator retry
+	// set aside (RetryRefund); PayPal keeps listing them on the order.
+	FailedRefundIDs []string
 }
 
 const attemptCols = `id, enrollment_id, attempt_no, order_id, authorization_id, capture_id, refund_id, amount_minor, currency,
 	order_status, authorization_status, auth_expires_at, capture_status, capture_reason, capture_issue, capture_debug_id,
-	refund_status, refund_reason, mock_code`
+	refund_status, refund_reason, mock_code, failed_refund_ids`
 
 // CreateAttempt adds the enrollment's next payment attempt, numbered from 1.
 // The enrollment row is locked while numbering, so concurrent callers get

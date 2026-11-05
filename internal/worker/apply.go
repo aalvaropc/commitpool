@@ -183,9 +183,13 @@ func (r *Runner) ApplyCapture(ctx context.Context, attemptID string, c paypal.Ca
 
 // ApplyRefund records the refund's id, status and reason and moves the
 // enrollment: COMPLETED → REFUNDED, PENDING → REFUND_PENDING, FAILED or
-// CANCELLED → REFUND_FAILED.
+// CANCELLED → REFUND_FAILED. A refund an operator retry set aside
+// (failed_refund_ids), which PayPal keeps listing on the order, is ignored.
 func (r *Runner) ApplyRefund(ctx context.Context, attemptID string, rf paypal.Refund) error {
 	_, err := r.record(ctx, attemptID, func(a *store.AttemptRow) error {
+		if slices.Contains(a.FailedRefundIDs, rf.ID) {
+			return errSetAside
+		}
 		if err := setID(&a.RefundID, rf.ID); err != nil {
 			return err
 		}
@@ -193,8 +197,16 @@ func (r *Runner) ApplyRefund(ctx context.Context, attemptID string, rf paypal.Re
 		a.RefundReason = reason(rf.StatusDetails)
 		return nil
 	}, lookup(refundMoves, rf.Status), true)
+	if errors.Is(err, errSetAside) {
+		r.log.Info("ignoring a refund an operator retry set aside", "attempt_id", attemptID, "refund_id", rf.ID, "refund_status", rf.Status)
+		return nil
+	}
 	return err
 }
+
+// errSetAside stops ApplyRefund from recording a refund PayPal refused that
+// an operator retry has already replaced.
+var errSetAside = errors.New("refund set aside by an operator retry")
 
 // ApplyCaptureFailure records a capture PayPal refused for good: its issue and
 // debug id, capture status FAILED and the enrollment CAPTURING →

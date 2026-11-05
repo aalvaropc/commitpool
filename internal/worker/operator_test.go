@@ -3,6 +3,7 @@ package worker_test
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/aalvaropc/commitpool/internal/domain"
 )
@@ -84,4 +85,67 @@ func TestOperator_ReconcileEnqueuesAReadOnlyReconcile(t *testing.T) {
 	e.runKey(key)
 	e.wantJob(key, "succeeded")
 	e.wantStatus(en.ID, domain.EnrollmentAuthorized)
+}
+
+func TestRetryRefund_ReconcileAfterAnAmbiguousRetryRecordsTheNewRefund(t *testing.T) {
+	e := newEnv(t, withClientTimeout(time.Second))
+	ana, a := e.paid("Ana")
+	e.clock.Set(e.proposal.ClosesAt)
+	e.runKey(e.closeKey())
+	oldRefund := e.refundPending(ana, a)
+	e.fake.SetRefundStatus(oldRefund, "FAILED")
+	e.runKey(e.reconcileNow(a))
+	e.wantStatus(ana.ID, domain.EnrollmentRefundFailed)
+	e.fake.SetCaptureStatus(*e.attempt(a.ID).CaptureID, "COMPLETED", "")
+
+	// PayPal refunds, but the answer never comes back.
+	e.fake.FailNext("refund", 0, "")
+	key, err := e.runner.RetryRefund(e.ctx, ana.ID)
+	if err != nil {
+		t.Fatalf("RetryRefund: %v", err)
+	}
+	e.runKey(key)
+	e.fake.WaitHung()
+	e.advance(3 * time.Minute)
+	e.runUntilIdle()
+
+	at := e.attempt(a.ID)
+	if at.RefundID == nil || *at.RefundID == oldRefund {
+		t.Fatalf("refund_id = %v, want the new refund, not the failed %s", deref(at.RefundID), oldRefund)
+	}
+	wantString(t, "refund_status", at.RefundStatus, "COMPLETED")
+	e.wantStatus(ana.ID, domain.EnrollmentRefunded)
+	if got, _ := e.st.EnrollmentByID(e.ctx, ana.ID); got.NeedsAttentionAt != nil {
+		t.Fatalf("enrollment still flagged: %v", deref(got.AttentionReason))
+	}
+}
+
+func TestRetryRefund_OperatorReconcileBeforeTheRetryRunsIgnoresTheFailedRefund(t *testing.T) {
+	e := newEnv(t, withClientTimeout(time.Second))
+	ana, a := e.paid("Ana")
+	e.clock.Set(e.proposal.ClosesAt)
+	e.runKey(e.closeKey())
+	oldRefund := e.refundPending(ana, a)
+	e.fake.SetRefundStatus(oldRefund, "FAILED")
+	e.runKey(e.reconcileNow(a))
+	e.wantStatus(ana.ID, domain.EnrollmentRefundFailed)
+	e.fake.SetCaptureStatus(*e.attempt(a.ID).CaptureID, "COMPLETED", "")
+
+	key, err := e.runner.RetryRefund(e.ctx, ana.ID)
+	if err != nil {
+		t.Fatalf("RetryRefund: %v", err)
+	}
+	reconcile, err := e.runner.OperatorReconcile(e.ctx, ana.ID)
+	if err != nil {
+		t.Fatalf("OperatorReconcile: %v", err)
+	}
+	e.runKey(reconcile)
+	if at := e.attempt(a.ID); at.RefundID != nil {
+		t.Fatalf("operator reconcile recorded refund %s, want the failed one ignored", *at.RefundID)
+	}
+	e.wantStatus(ana.ID, domain.EnrollmentPaid)
+
+	e.runKey(key)
+	e.runUntilIdle()
+	e.wantStatus(ana.ID, domain.EnrollmentRefunded)
 }

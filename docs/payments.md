@@ -371,7 +371,7 @@ workshop's own enrollments only:
 | Route | What it does |
 |---|---|
 | `POST /api/v1/owner/{token}/operator/reconcile` `{enrollment_id}` | Reads the enrollment's latest attempt back from PayPal inline (`reconcile:{attempt}:operator:{minute}`); safe at any time. |
-| `POST /api/v1/owner/{token}/operator/retry-refund` `{enrollment_id}` | For a `REFUND_FAILED` enrollment only: keeps the failed refund's id in `failed_refund_ids`, sends the refund again inline under `refund:{attempt}:retry:{n}`, puts the enrollment back to `PAID` with its flag cleared and reopens the workshop's settlement. A new key is safe: a failed refund returned nothing, and PayPal refuses a refund beyond what was captured. |
+| `POST /api/v1/owner/{token}/operator/retry-refund` `{enrollment_id}` | For a `REFUND_FAILED` enrollment only: keeps the failed refund's id in `failed_refund_ids`, sends the refund again inline under `refund:{attempt}:retry:{n}`, puts the enrollment back to `PAID` with its flag cleared and reopens the workshop's settlement. A new key is safe: a failed refund returned nothing, and PayPal refuses a refund beyond what was captured. PayPal keeps listing the failed refund on the order, so a reconcile or webhook ignores any refund in `failed_refund_ids`. |
 | `POST /api/v1/owner/{token}/operator/clear-flag` `{enrollment_id?}` | Clears the enrollment's flag once none of its jobs is unknown, running or parked; without an enrollment, clears the workshop's `NEEDS_ATTENTION` once no enrollment needs an operator (`RESOLVING` and settled again when cancelled, `OPEN` otherwise). `still_unresolved` otherwise. |
 
 The organizer page offers them as buttons in a **Needs your check** panel,

@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 
 	"github.com/aalvaropc/commitpool/internal/domain"
+	"github.com/aalvaropc/commitpool/internal/paypal"
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
@@ -54,9 +56,9 @@ func (r *Runner) OperatorReconcile(ctx context.Context, enrollmentID string) (st
 	return key, nil
 }
 
-// ClearEnrollmentFlag removes an enrollment's operator flag once nothing of
-// its latest attempt is still unknown, running or parked
-// (domain.ErrStillUnresolved otherwise), and settles its workshop again.
+// ClearEnrollmentFlag removes an enrollment's operator flag once its money
+// is settled (domain.ErrStillUnresolved otherwise, see unresolved), and
+// settles its workshop again.
 func (r *Runner) ClearEnrollmentFlag(ctx context.Context, enrollmentID string) error {
 	en, err := r.st.EnrollmentByID(ctx, enrollmentID)
 	if err != nil {
@@ -66,16 +68,14 @@ func (r *Runner) ClearEnrollmentFlag(ctx context.Context, enrollmentID string) e
 	if err != nil {
 		return err
 	}
+	var jobs []store.Job
 	if a != nil {
-		jobs, err := r.st.JobsByAttempt(ctx, a.ID)
-		if err != nil {
+		if jobs, err = r.st.JobsByAttempt(ctx, a.ID); err != nil {
 			return err
 		}
-		if slices.ContainsFunc(jobs, func(j store.Job) bool {
-			return j.Status == store.JobUnknown || j.Status == store.JobRunning || j.Status == store.JobNeedsAttention
-		}) {
-			return domain.ErrStillUnresolved
-		}
+	}
+	if unresolved(en.Status, a, jobs) {
+		return domain.ErrStillUnresolved
 	}
 	if _, err := r.st.ClearEnrollmentFlag(ctx, enrollmentID); err != nil {
 		return err
@@ -85,9 +85,10 @@ func (r *Runner) ClearEnrollmentFlag(ctx context.Context, enrollmentID string) e
 }
 
 // ClearWorkshopFlag takes a workshop out of NEEDS_ATTENTION once no
-// enrollment needs an operator (domain.ErrStillUnresolved otherwise): a
-// cancelled workshop goes back to RESOLVING and is settled again, any other
-// to OPEN. A workshop not flagged is left alone.
+// enrollment needs an operator and every enrollment's money is settled
+// (domain.ErrStillUnresolved otherwise): a cancelled workshop goes back to
+// RESOLVING and is settled again, any other to OPEN. A workshop not flagged
+// is left alone.
 func (r *Runner) ClearWorkshopFlag(ctx context.Context, workshopID string) error {
 	for range casRetries {
 		w, err := r.st.WorkshopByID(ctx, workshopID)
@@ -100,6 +101,11 @@ func (r *Runner) ClearWorkshopFlag(ctx context.Context, workshopID string) error
 		}
 		if slices.ContainsFunc(v.es, domain.Enrollment.NeedsOperator) {
 			return domain.ErrStillUnresolved
+		}
+		for i, en := range v.rows {
+			if unresolved(en.Status, v.att[i], slices.Collect(maps.Values(v.jobs[i]))) {
+				return domain.ErrStillUnresolved
+			}
 		}
 		to := domain.ResolutionOpen
 		if v.w.Status == domain.WorkshopCancelled {
@@ -116,4 +122,22 @@ func (r *Runner) ClearWorkshopFlag(ctx context.Context, workshopID string) error
 		}
 	}
 	return errWorkshopMoving
+}
+
+// unresolved reports an enrollment whose money an operator must not stop
+// watching: a job of its latest attempt whose outcome is unknown, that is
+// running or parked, or that keeps failing after it flagged the enrollment;
+// or a hold PayPal still keeps on a seat that should hold none (a failed
+// capture, a released or withdrawn seat, a void that has not gone through).
+func unresolved(status domain.EnrollmentStatus, a *store.AttemptRow, jobs []store.Job) bool {
+	if slices.ContainsFunc(jobs, func(j store.Job) bool {
+		return j.Status == store.JobUnknown || j.Status == store.JobRunning || j.Status == store.JobNeedsAttention || j.StillFailing()
+	}) {
+		return true
+	}
+	switch status {
+	case domain.EnrollmentCaptureFailed, domain.EnrollmentReleased, domain.EnrollmentVoiding, domain.EnrollmentVoided:
+		return holdsAuthorization(a) && !is(a.AuthorizationStatus, paypal.StatusCaptured)
+	}
+	return false
 }

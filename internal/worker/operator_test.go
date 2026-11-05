@@ -149,3 +149,74 @@ func TestRetryRefund_OperatorReconcileBeforeTheRetryRunsIgnoresTheFailedRefund(t
 	e.runUntilIdle()
 	e.wantStatus(ana.ID, domain.EnrollmentRefunded)
 }
+
+func TestOperator_ClearEnrollmentFlagRefusedWhileItsHoldIsStillOpen(t *testing.T) {
+	e := newEnv(t)
+	en, a := e.authorized("Ana")
+	e.fake.FailNext("capture", 422, "INSTRUMENT_DECLINED")
+	e.runKey(e.enqueue("capture", a))
+	e.refuseVoid(a)
+	e.wantFlagged(en.ID, domain.EnrollmentCaptureFailed)
+
+	if err := e.runner.ClearEnrollmentFlag(e.ctx, en.ID); !errors.Is(err, domain.ErrStillUnresolved) {
+		t.Fatalf("ClearEnrollmentFlag while PayPal still holds the money = %v, want ErrStillUnresolved", err)
+	}
+	e.wantFlagged(en.ID, domain.EnrollmentCaptureFailed)
+
+	// The operator voids the hold at PayPal by hand and reads it back.
+	e.fake.SetAuthorizationStatus(*e.attempt(a.ID).AuthorizationID, "VOIDED")
+	key, err := e.runner.OperatorReconcile(e.ctx, en.ID)
+	if err != nil {
+		t.Fatalf("OperatorReconcile: %v", err)
+	}
+	e.runKey(key)
+	if err := e.runner.ClearEnrollmentFlag(e.ctx, en.ID); err != nil {
+		t.Fatalf("ClearEnrollmentFlag once the hold is gone: %v", err)
+	}
+}
+
+func TestOperator_ClearWorkshopFlagRefusedWhileAReleasedSeatStillHoldsMoney(t *testing.T) {
+	e := newEnv(t)
+	en, a := e.holdOnReleasedSeat("Ana")
+	e.moveWorkshop(domain.WorkshopFunding, domain.WorkshopCancelled, domain.ResolutionResolving)
+	e.refuseVoid(a)
+	e.wantWorkshop(domain.WorkshopCancelled, domain.ResolutionNeedsAttention)
+
+	if err := e.runner.ClearWorkshopFlag(e.ctx, e.workshop.ID); !errors.Is(err, domain.ErrStillUnresolved) {
+		t.Fatalf("ClearWorkshopFlag while a released seat's hold is open = %v, want ErrStillUnresolved", err)
+	}
+
+	e.fake.SetAuthorizationStatus(*e.attempt(a.ID).AuthorizationID, "VOIDED")
+	key, err := e.runner.OperatorReconcile(e.ctx, en.ID)
+	if err != nil {
+		t.Fatalf("OperatorReconcile: %v", err)
+	}
+	e.runKey(key)
+	if err := e.runner.ClearWorkshopFlag(e.ctx, e.workshop.ID); err != nil {
+		t.Fatalf("ClearWorkshopFlag once the hold is gone: %v", err)
+	}
+	e.wantWorkshop(domain.WorkshopCancelled, domain.ResolutionSettled)
+}
+
+func TestOperator_ClearEnrollmentFlagRefusedWhileItsVoidKeepsFailing(t *testing.T) {
+	e := newEnv(t)
+	en, _ := e.authorized("Ana")
+	_, key, err := e.runner.Withdraw(e.ctx, en.ID)
+	if err != nil {
+		t.Fatalf("Withdraw: %v", err)
+	}
+	backoff := []time.Duration{5 * time.Second, 30 * time.Second, 2 * time.Minute, 10 * time.Minute}
+	for i := range 5 {
+		e.fake.FailNext("void", 429, "RATE_LIMIT_REACHED")
+		e.runKey(key)
+		if i < 4 {
+			e.advance(backoff[i])
+		}
+	}
+	e.wantJob(key, "pending")
+	e.wantFlagged(en.ID, domain.EnrollmentVoiding)
+
+	if err := e.runner.ClearEnrollmentFlag(e.ctx, en.ID); !errors.Is(err, domain.ErrStillUnresolved) {
+		t.Fatalf("ClearEnrollmentFlag while its void keeps failing = %v, want ErrStillUnresolved", err)
+	}
+}

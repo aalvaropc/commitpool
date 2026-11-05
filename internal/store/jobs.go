@@ -35,6 +35,10 @@ const (
 	JobNeedsAttention = "needs_attention"
 )
 
+// StillFailing reports a job that keeps retrying past the attempt that
+// flagged it for an operator (kinds that never park): pending, not resolved.
+func (j Job) StillFailing() bool { return j.Status == JobPending && j.Attempts >= maxJobAttempts }
+
 // JobKey is the idempotency key of the job of this kind for subject.
 func JobKey(kind, subject string) string { return kind + ":" + subject }
 

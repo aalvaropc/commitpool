@@ -116,6 +116,18 @@ func (s *server) submitAvailability(w http.ResponseWriter, r *http.Request) erro
 	if err != nil {
 		return err
 	}
+	sent, err := s.Store.CountAvailabilities(ctx, p.ID)
+	if err != nil {
+		return err
+	}
+	if sent >= maxSubmissionsPerParticipant {
+		return conflict("too_many_submissions", "You have sent your availability many times already; correct the reading instead.")
+	}
+	release, err := s.acquireAI(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
 	actx, cancel := context.WithTimeout(ctx, interpretTimeout)
 	defer cancel()
 	in, meta, err := s.AI.Interpret(actx, ai.InterpretInput{

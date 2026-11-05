@@ -46,6 +46,7 @@ PORT="$port" \
   COMMITPOOL_AI_PROVIDER=fake \
   COMMITPOOL_DEMO_MODE=1 \
   COMMITPOOL_SANDBOX_MOCKS=1 \
+  COMMITPOOL_RATE_LIMIT=off \
   COMMITPOOL_SEAT_TTL_MIN=30 \
   "$work/commitpool" >"$work/server.log" 2>&1 &
 server_pid=$!

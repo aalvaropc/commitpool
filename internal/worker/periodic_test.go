@@ -281,3 +281,32 @@ func TestPeriodic_PurgesSucceededJobsOlderThan30Days(t *testing.T) {
 		t.Errorf("purge log lines after a purge of nothing = %d, want still 1", n)
 	}
 }
+
+func TestPeriodic_PurgesOldProviderEvents(t *testing.T) {
+	e := newEnv(t)
+	for id, age := range map[string]time.Duration{"WH-old": 31 * 24 * time.Hour, "WH-recent": 24 * time.Hour} {
+		if _, err := e.st.Pool.Exec(e.ctx,
+			`insert into provider_events (id, event_type, verified, received_at, payload) values ($1, 'PAYMENT.CAPTURE.COMPLETED', true, now() - make_interval(secs => $2), '{}')`,
+			id, age.Seconds()); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	e.runPeriodic()
+
+	var ids []string
+	rows, err := e.st.Pool.Query(e.ctx, `select id from provider_events order by id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, id)
+	}
+	if len(ids) != 1 || ids[0] != "WH-recent" {
+		t.Errorf("provider events after RunPeriodic = %v, want only WH-recent: payloads are kept 30 days", ids)
+	}
+}

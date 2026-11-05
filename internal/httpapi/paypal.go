@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/aalvaropc/commitpool/internal/domain"
@@ -534,6 +535,10 @@ func (s *server) paypalWebhook(w http.ResponseWriter, r *http.Request) error {
 			return errInvalidSignature
 		}
 	}
+	if why := implausibleDelivery(r.Header, s.Clock.Now()); why != "" {
+		s.Log.Warn("webhook: delivery refused before asking PayPal", "why", why)
+		return errInvalidSignature
+	}
 	ctx := r.Context()
 	verified, err := s.PayPal.VerifyWebhookSignature(ctx, r.Header, body)
 	if err != nil {
@@ -591,4 +596,20 @@ func (s *server) eventAttempt(ctx context.Context, ev webhookEvent) (*store.Atte
 		}
 	}
 	return nil, nil
+}
+
+// implausibleDelivery is why a webhook delivery cannot be PayPal's, checked
+// before PayPal is asked to verify it (which costs a call against the same
+// rate limit as the money calls): a certificate outside https PayPal, or a
+// transmission time more than five minutes ahead. It is "" for a plausible one.
+func implausibleDelivery(h http.Header, now time.Time) string {
+	cert, err := url.Parse(h.Get("PAYPAL-CERT-URL"))
+	if err != nil || cert.Scheme != "https" || (cert.Hostname() != "paypal.com" && !strings.HasSuffix(cert.Hostname(), ".paypal.com")) {
+		return "certificate URL is not https on paypal.com"
+	}
+	sent, err := time.Parse(time.RFC3339, h.Get("PAYPAL-TRANSMISSION-TIME"))
+	if err != nil || sent.After(now.Add(5*time.Minute)) {
+		return "transmission time is not a time in the past"
+	}
+	return ""
 }

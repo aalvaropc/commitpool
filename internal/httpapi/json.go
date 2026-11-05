@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 )
 
@@ -33,11 +34,16 @@ func conflict(code, message string) *apiError {
 }
 
 var (
-	errNotFound      = newError(http.StatusNotFound, "not_found", "Nothing was found at this address.")
-	errInternal      = newError(http.StatusInternalServerError, "internal_error", "Something went wrong on our side. Please try again.")
-	errBodyTooLarge  = newError(http.StatusRequestEntityTooLarge, "body_too_large", "The request body is larger than 64 KiB.")
-	errInvalidJSON   = badRequest("invalid_json", "The request body is not a valid JSON object for this endpoint.")
-	errMethodRefused = newError(http.StatusMethodNotAllowed, "method_not_allowed", "This address only answers GET requests.")
+	errNotFound     = newError(http.StatusNotFound, "not_found", "Nothing was found at this address.")
+	errInternal     = newError(http.StatusInternalServerError, "internal_error", "Something went wrong on our side. Please try again.")
+	errBodyTooLarge = newError(http.StatusRequestEntityTooLarge, "body_too_large", "The request body is larger than 64 KiB.")
+	errInvalidJSON  = badRequest("invalid_json", "The request body is not a valid JSON object for this endpoint.")
+	// errUnsupportedMediaType refuses a body that is not declared JSON, such
+	// as a cross-site form post.
+	errUnsupportedMediaType = newError(http.StatusUnsupportedMediaType, "unsupported_media_type", "Send the request body as application/json.")
+	errRateLimited          = newError(http.StatusTooManyRequests, "rate_limited", "Too many requests from this address; try again in a minute.")
+	errAIBusy               = newError(http.StatusServiceUnavailable, "ai_busy", "Many messages are being read right now; please try again in a moment.")
+	errMethodRefused        = newError(http.StatusMethodNotAllowed, "method_not_allowed", "This address only answers GET requests.")
 )
 
 type errorBody struct {
@@ -60,6 +66,9 @@ func writeError(w http.ResponseWriter, e *apiError) {
 // decode reads exactly one JSON value from the request body into dst. The
 // body is capped by the server's limit, so a larger one is body_too_large.
 func decode(r *http.Request, dst any) error {
+	if mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mt != "application/json" {
+		return errUnsupportedMediaType
+	}
 	dec := json.NewDecoder(r.Body)
 	err := dec.Decode(dst)
 	if err == nil {

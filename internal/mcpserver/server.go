@@ -26,6 +26,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/aalvaropc/commitpool/internal/clock"
+	"github.com/aalvaropc/commitpool/internal/inproc"
 )
 
 // Config sets the server up. A nil Secret uses a random key per process (a
@@ -123,7 +124,7 @@ func (s *Server) call(ctx context.Context, method, path string, body, out any) e
 		}
 		reader = bytes.NewReader(raw)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, path, reader)
+	req, err := http.NewRequestWithContext(inproc.With(ctx), method, path, reader)
 	if err != nil {
 		return err
 	}

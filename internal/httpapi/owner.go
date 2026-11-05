@@ -359,8 +359,10 @@ func (s *server) cancelWorkshop(w http.ResponseWriter, r *http.Request) error {
 	var req struct {
 		Reason string `json:"reason"`
 	}
-	if err := decode(r, &req); err != nil {
-		return err
+	if r.ContentLength != 0 {
+		if err := decode(r, &req); err != nil {
+			return err
+		}
 	}
 	reason := strings.TrimSpace(req.Reason)
 	if len([]rune(reason)) > maxCancelReason {

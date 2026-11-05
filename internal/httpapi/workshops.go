@@ -237,6 +237,13 @@ func (s *server) joinWorkshop(w http.ResponseWriter, r *http.Request) error {
 	if err := s.open(r.Context(), ws); err != nil {
 		return err
 	}
+	joined, err := s.Store.CountParticipants(r.Context(), ws.ID)
+	if err != nil {
+		return err
+	}
+	if joined >= maxParticipantsPerWorkshop {
+		return conflict("too_many_participants", "This workshop already has as many participants as it can take.")
+	}
 	_, token, err := s.Store.CreateParticipant(r.Context(), ws.ID, name)
 	if err != nil {
 		return err

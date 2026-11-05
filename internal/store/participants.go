@@ -101,3 +101,22 @@ func (s *Store) AvailabilitiesByWorkshop(ctx context.Context, workshopID string)
 			order by a.participant_id, a.created_at desc, a.id desc
 		) latest order by created_at, id`, workshopID)
 }
+
+// CountParticipants returns how many participants joined the workshop.
+func (s *Store) CountParticipants(ctx context.Context, workshopID string) (int, error) {
+	var n int
+	if err := s.Pool.QueryRow(ctx, `select count(*) from participants where workshop_id = $1`, workshopID).Scan(&n); err != nil {
+		return 0, wrap("count participants", err)
+	}
+	return n, nil
+}
+
+// CountAvailabilities returns how many availability messages the
+// participant sent.
+func (s *Store) CountAvailabilities(ctx context.Context, participantID string) (int, error) {
+	var n int
+	if err := s.Pool.QueryRow(ctx, `select count(*) from availabilities where participant_id = $1`, participantID).Scan(&n); err != nil {
+		return 0, wrap("count availabilities", err)
+	}
+	return n, nil
+}

@@ -86,6 +86,12 @@ func (s *server) writeExplanation(ctx context.Context, st workshopState, in ai.E
 			text, retryAt = ai.PlainExplanation(in), s.Clock.Now().Add(explanationRetryAfter)
 		}
 	}()
+	release, err := s.acquireAI(ctx)
+	if err != nil {
+		s.Log.Warn("explain recommendation: no interpreter slot; using the plain explanation for now", "workshop_id", st.w.ID)
+		return ai.PlainExplanation(in), s.Clock.Now().Add(explanationRetryAfter)
+	}
+	defer release()
 	text, meta, err := s.AI.Explain(ctx, in)
 	switch {
 	case err != nil:

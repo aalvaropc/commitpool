@@ -42,11 +42,14 @@ type Config struct {
 	BedrockEffort string
 	// MCPSecret signs the MCP server's confirmation tokens; nil uses a random
 	// key per process.
-	MCPSecret    []byte
-	DemoMode     bool
-	SandboxMocks bool
-	SeatTTL      time.Duration
-	FakePayPal   bool
+	MCPSecret []byte
+	// RateLimitPerMin is how many writes a minute one client address may
+	// send; 0 turns the limit off.
+	RateLimitPerMin int
+	DemoMode        bool
+	SandboxMocks    bool
+	SeatTTL         time.Duration
+	FakePayPal      bool
 }
 
 func Load(getenv func(string) string) (Config, error) {
@@ -83,6 +86,15 @@ func Load(getenv func(string) string) (Config, error) {
 		DemoMode:             flag("COMMITPOOL_DEMO_MODE"),
 		SandboxMocks:         flag("COMMITPOOL_SANDBOX_MOCKS"),
 		FakePayPal:           flag("E2E_FAKE_PAYPAL"),
+	}
+	switch raw := strings.ToLower(strings.TrimSpace(str("COMMITPOOL_RATE_LIMIT", "120"))); raw {
+	case "off", "0":
+	default:
+		if n, err := strconv.Atoi(raw); err != nil || n < 1 {
+			problems = append(problems, "COMMITPOOL_RATE_LIMIT must be a number of writes a minute, or off")
+		} else {
+			cfg.RateLimitPerMin = n
+		}
 	}
 	if secret := str("COMMITPOOL_MCP_SECRET", ""); secret != "" {
 		cfg.MCPSecret = []byte(secret)

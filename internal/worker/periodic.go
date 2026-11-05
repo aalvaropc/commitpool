@@ -78,6 +78,12 @@ func (r *Runner) RunPeriodic(ctx context.Context) error {
 
 	errs = append(errs, r.reviveOverdueCloses(ctx, now))
 
+	events, err := r.st.PurgeProviderEvents(ctx, succeededRetention)
+	errs = append(errs, err)
+	if events > 0 {
+		r.log.Info("purged old webhook deliveries", "count", events)
+	}
+
 	purged, err := r.st.PurgeSucceededJobs(ctx, now.Add(-succeededRetention))
 	errs = append(errs, err)
 	if purged > 0 {

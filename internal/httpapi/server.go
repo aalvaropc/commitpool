@@ -15,11 +15,13 @@ import (
 	"log/slog"
 	"net/http"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/aalvaropc/commitpool/internal/ai"
 	"github.com/aalvaropc/commitpool/internal/clock"
 	"github.com/aalvaropc/commitpool/internal/config"
+	"github.com/aalvaropc/commitpool/internal/inproc"
 	"github.com/aalvaropc/commitpool/internal/paypal"
 	"github.com/aalvaropc/commitpool/internal/store"
 	"github.com/aalvaropc/commitpool/internal/worker"
@@ -59,6 +61,8 @@ type MCPServer interface {
 type server struct {
 	Deps
 	explanations *explanationCache
+	limiter      *rateLimiter
+	aiSem        chan struct{}
 }
 
 // New returns the service's handler. A nil Log uses slog.Default and a nil
@@ -70,7 +74,10 @@ func New(d Deps) http.Handler {
 	if d.Clock == nil {
 		d.Clock = clock.Real{}
 	}
-	s := &server{Deps: d, explanations: newExplanationCache()}
+	s := &server{Deps: d, explanations: newExplanationCache(), aiSem: make(chan struct{}, aiSlots)}
+	if d.Cfg.RateLimitPerMin > 0 {
+		s.limiter = newRateLimiter(d.Cfg.RateLimitPerMin)
+	}
 	mux := http.NewServeMux()
 	s.routes(mux)
 	h := s.observe(mux)
@@ -151,6 +158,13 @@ func (s *server) observe(next http.Handler) http.Handler {
 		id := newRequestID()
 		w.Header().Set(requestIDHeader, id)
 		r = r.WithContext(context.WithValue(r.Context(), requestIDKey{}, id))
+		h := w.Header()
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Content-Security-Policy", "frame-ancestors 'none'")
+		h.Set("Referrer-Policy", "no-referrer")
+		if strings.HasPrefix(s.Cfg.BaseURL, "https://") {
+			h.Set("Strict-Transport-Security", "max-age=31536000")
+		}
 		sw := &statusWriter{ResponseWriter: w}
 		limit := int64(maxBodyBytes)
 		if r.URL.Path == webhookPath {
@@ -174,6 +188,11 @@ func (s *server) observe(next http.Handler) http.Handler {
 			s.Log.Info("request", "request_id", id, "method", r.Method, "route", route(r), "status", sw.code(),
 				"duration_ms", time.Since(start).Milliseconds())
 		}()
+		if s.limiter != nil && limited(r) && !inproc.Is(r.Context()) && !s.limiter.allow(clientAddr(r), time.Now()) {
+			sw.Header().Set("Retry-After", "60")
+			writeError(sw, errRateLimited)
+			return
+		}
 		next.ServeHTTP(sw, r)
 	})
 }

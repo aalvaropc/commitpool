@@ -35,3 +35,15 @@ func SetBeforeSeatRenewal(t testing.TB, f func(ctx context.Context, enrollmentID
 	beforeSeatRenewal = f
 	t.Cleanup(func() { beforeSeatRenewal = old })
 }
+
+// SetLimits replaces, for the rest of the test, the caps on participants per
+// workshop and availability messages per participant, the number of
+// interpreter calls at once and how long a request waits for one. Call it
+// before newEnv: the interpreter slots are made with the server.
+func SetLimits(t testing.TB, participants, submissions, slots int, wait time.Duration) {
+	oldP, oldS, oldSlots, oldWait := maxParticipantsPerWorkshop, maxSubmissionsPerParticipant, aiSlots, aiWait
+	maxParticipantsPerWorkshop, maxSubmissionsPerParticipant, aiSlots, aiWait = participants, submissions, slots, wait
+	t.Cleanup(func() {
+		maxParticipantsPerWorkshop, maxSubmissionsPerParticipant, aiSlots, aiWait = oldP, oldS, oldSlots, oldWait
+	})
+}

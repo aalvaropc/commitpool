@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"time"
 )
 
 // InsertProviderEvent records a webhook event once. It reports whether the
@@ -32,4 +33,16 @@ func (s *Store) MarkEventProcessed(ctx context.Context, id string) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// PurgeProviderEvents deletes the webhook deliveries received more than
+// olderThan ago, by the database clock that stamped them, and returns how
+// many it deleted: their payloads may carry payer details and are only
+// needed while a delivery can still be repeated.
+func (s *Store) PurgeProviderEvents(ctx context.Context, olderThan time.Duration) (int, error) {
+	tag, err := s.Pool.Exec(ctx, `delete from provider_events where received_at < now() - make_interval(secs => $1)`, olderThan.Seconds())
+	if err != nil {
+		return 0, wrap("purge provider events", err)
+	}
+	return int(tag.RowsAffected()), nil
 }

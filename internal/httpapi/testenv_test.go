@@ -73,6 +73,9 @@ func withSandboxMocks() option { return func(s *setup) { s.cfg.SandboxMocks = tr
 const testWebhookID = "WH-ID-COMMITPOOL-TEST"
 
 func withWebhookID() option { return func(s *setup) { s.cfg.PayPalWebhookID = testWebhookID } }
+func withRateLimit(perMinute int) option {
+	return func(s *setup) { s.cfg.RateLimitPerMin = perMinute }
+}
 func withAI(i ai.Interpreter) option {
 	return func(s *setup) { s.ai = i }
 }

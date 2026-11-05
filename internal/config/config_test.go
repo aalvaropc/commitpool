@@ -270,3 +270,21 @@ func TestLoad_RequiresAnAbsoluteHTTPBaseURL(t *testing.T) {
 		}
 	}
 }
+
+func TestLoad_RateLimit(t *testing.T) {
+	for value, want := range map[string]int{"": 120, "60": 60, "off": 0, "0": 0} {
+		env := baseEnv()
+		if value != "" {
+			env["COMMITPOOL_RATE_LIMIT"] = value
+		}
+		cfg, err := load(env)
+		if err != nil || cfg.RateLimitPerMin != want {
+			t.Errorf("COMMITPOOL_RATE_LIMIT=%q: %d, %v; want %d", value, cfg.RateLimitPerMin, err, want)
+		}
+	}
+	env := baseEnv()
+	env["COMMITPOOL_RATE_LIMIT"] = "lots"
+	if _, err := load(env); err == nil || !strings.Contains(err.Error(), "COMMITPOOL_RATE_LIMIT") {
+		t.Errorf("COMMITPOOL_RATE_LIMIT=lots: err = %v, want a refusal", err)
+	}
+}

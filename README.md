@@ -37,6 +37,22 @@ The app talks to the **PayPal Sandbox** only. No real money moves.
    minimum, the workshop is cancelled: open holds are voided and every
    capture is refunded, and everyone can watch each refund land.
 
+Plans can change on both sides:
+
+- **The organizer can cancel** until the workshop starts. The page first says
+  what happens to the money; then every hold is released and every payment
+  refunded, with the same tracking as a cancellation at the deadline.
+- **A participant can withdraw** until they are charged: a reserved seat goes
+  back to the group, an authorized hold is released. Once a seat is paid it is
+  refunded only if the workshop is cancelled; the consent text says so.
+- **Email is optional.** A participant who leaves an address gets their
+  private link and news about their seat: confirmed, cancelled, a failed
+  charge, a refund completed.
+- **When PayPal does not settle something on its own,** the seat is flagged
+  for the organizer instead of being dropped, and the organizer page offers
+  the runbook's actions: read the payment back from PayPal, retry a refused
+  refund with a new request, mark it resolved.
+
 Three rules hold the whole thing together:
 
 - **Confirmation counts completed payments only.** An authorized hold is a
@@ -49,17 +65,37 @@ Three rules hold the whole thing together:
   paid, refund in progress, refund completed, needs attention: participants
   see their own seat, the organizer sees everyone's.
 
+## Use it from an AI assistant (MCP)
+
+CommitPool is also a [Model Context Protocol](https://modelcontextprotocol.io)
+server at `/mcp`. From Claude Code:
+
+```sh
+claude mcp add --transport http commitpool https://3-209-60-155.sslip.io/mcp
+```
+
+An organizer's assistant can create the workshop, read who can come and why
+a date is recommended, and open payments after a preview whose terms the
+organizer approves (a token bound to those exact terms). A participant's
+assistant can join, pass on their availability in their own words and hand
+them the PayPal link once they accept the consent text. No tool moves money:
+only the person's approval at PayPal places a hold, and the payment worker
+does the rest. Tools, safeguards and a real session are in
+[docs/mcp.md](docs/mcp.md).
+
 ## Architecture
 
 ```
+AI assistant ── MCP (/mcp) ──┐
 browser ── React SPA (embedded) ──► Go HTTP API ──► PostgreSQL
                                         │  ▲
                  jobs: create_order,    ▼  │ webhooks (signature verified)
                  authorize, capture,  worker ◄──── PayPal Sandbox
                  void, refund, close,   │          Orders v2 · Payments v2
-                 reconcile, heal        ▼
-                                   Claude on Amazon Bedrock
+                 reconcile, heal,       ▼
+                 notify            Claude on Amazon Bedrock
                                    (availability → verdicts, explanation)
+                                   Amazon SES (optional notifications)
 ```
 
 - **One binary.** `cmd/commitpool` serves the JSON API and the SPA
@@ -75,6 +111,11 @@ browser ── React SPA (embedded) ──► Go HTTP API ──► PostgreSQL
   [docs/payments.md](docs/payments.md).
 - **Claude on Amazon Bedrock** reads availability messages with strict
   structured output (see [below](#availability-with-claude-on-amazon-bedrock)).
+- **MCP server** (`internal/mcpserver`) at `/mcp`, in the same binary; each
+  tool calls the JSON API in process ([docs/mcp.md](docs/mcp.md)).
+- **Notifications** go through an outbox table and a `notify` job, so an
+  email never blocks or undoes a money movement; Amazon SES sends them, or
+  the log stands in.
 - **Deployment** on AWS with Terraform: the demo on one EC2 VM with Caddy
   ([deploy/ec2/README.md](deploy/ec2/README.md)); a Fargate, RDS and
   CloudFront configuration for production in
@@ -82,7 +123,8 @@ browser ── React SPA (embedded) ──► Go HTTP API ──► PostgreSQL
 
 ## Demo walkthrough
 
-Hosted demo: _to be published with the submission_.
+Hosted demo: <https://3-209-60-155.sslip.io> (PayPal Sandbox; MCP at
+`/mcp`).
 
 The video follows this script against a local or hosted instance:
 
@@ -291,8 +333,14 @@ go vet ./...
 pnpm -C web typecheck      # the SPA, the Playwright config and the e2e specs
 pnpm -C web test           # vitest
 pnpm -C web build
-bash scripts/e2e.sh        # three Playwright journeys against a fresh server with the fake PayPal
+make check                 # gofmt, go vet, staticcheck, govulncheck, no test code in the binaries
+bash scripts/e2e.sh        # four Playwright journeys against a fresh server with the fake PayPal
 ```
+
+`make test` and CI run the Go tests with the race detector. Two fuzz targets
+cover money parsing and the cleaning of the model's reading
+(`go test ./internal/domain -fuzz FuzzParseMoney`,
+`go test ./internal/httpapi -fuzz FuzzCleanInterpretation`).
 
 The Go suites cover the pure rules, the store against a real PostgreSQL, the
 worker and the HTTP API against an in-process fake PayPal server (timeouts,
@@ -315,6 +363,14 @@ fake interpreter or a local stand-in for the Bedrock endpoint.
 - Sandbox only. Writes are rate-limited per client address, a workshop takes
   at most 200 participants, a participant at most 20 availability messages,
   and at most 4 model calls run at once; there is no WAF or autoscaling.
+- A paid seat cannot refund itself: only a cancellation refunds it, so the
+  minimum the organizer relies on cannot drop after the fact.
+- Emails are delivered at least once: after a crash between sending and
+  recording, one may arrive twice. While the SES account is in its sandbox,
+  only verified addresses receive mail; the hosted demo logs notifications
+  instead of sending them.
+- Without `COMMITPOOL_MCP_SECRET`, an MCP preview token dies with a restart
+  and has to be made again.
 
 ## License
 

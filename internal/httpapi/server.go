@@ -90,6 +90,7 @@ func (s *server) routes(mux *http.ServeMux) {
 
 	api("GET /api/v1/owner/{token}", s.ownerView)
 	api("POST /api/v1/owner/{token}/proposal", s.openProposal)
+	api("POST /api/v1/owner/{token}/cancel", s.cancelWorkshop)
 	api("POST /api/v1/owner/{token}/demo/close-now", s.demoCloseNow)
 	api("POST /api/v1/owner/{token}/demo/fail-next-capture", s.demoFailNextCapture)
 

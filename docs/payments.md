@@ -205,6 +205,22 @@ A payment that completes after a cancellation is refunded. One that
 completes after a confirmation keeps its seat until the workshop starts and
 is refunded after that.
 
+## Organizer cancel
+
+`POST /api/v1/owner/{token}/cancel` (optional `reason`, at most 280
+characters) cancels the workshop any time before it starts, once
+(`domain.CanCancel`; `already_cancelled` and `workshop_started` otherwise).
+It is one compare-and-set on status and resolution (`CANCELLED`, with
+`cancelled_at` and `cancel_reason`): `SETTLED` at once when payments never
+opened, `RESOLVING` otherwise, and still `NEEDS_ATTENTION` when the workshop
+was flagged. A workshop with payments then releases its reserved seats (a
+seat kept for a `PENDING` authorization stays until PayPal decides) and is
+healed, which enqueues `void:{attempt}` for every hold and `refund:{attempt}`
+for every payment: the keys a later `close:{proposal}` derives too, so the
+close adds nothing. A capture still in flight is refunded when it lands
+(`domain.LateCaptureAfterCancel`). In a confirmed workshop this refunds every
+participant; nothing else gives money back once a seat is paid.
+
 ## Settlement
 
 A `RESOLVING` workshop becomes `SETTLED` once every enrollment is finished

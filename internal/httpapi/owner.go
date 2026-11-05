@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/aalvaropc/commitpool/internal/domain"
 	"github.com/aalvaropc/commitpool/internal/store"
@@ -341,5 +342,43 @@ func (s *server) demoFailNextCapture(w http.ResponseWriter, r *http.Request) err
 	}
 	s.Log.Info("demo: next capture will fail", "workshop_id", ws.ID, "enrollment_id", en.ID, "attempt_id", a.ID)
 	writeJSON(w, http.StatusAccepted, map[string]string{"enrollment_id": en.ID, "attempt_id": a.ID, "mock_code": code})
+	return nil
+}
+
+// maxCancelReason caps the reason an organizer gives for cancelling.
+const maxCancelReason = 280
+
+// cancelWorkshop is the organizer's cancel: any time before the workshop
+// starts (worker.CancelWorkshop). Holds are released and payments refunded
+// by the worker right after; the answer is the cancelled workshop.
+func (s *server) cancelWorkshop(w http.ResponseWriter, r *http.Request) error {
+	ws, err := s.ownerWorkshop(r)
+	if err != nil {
+		return err
+	}
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	if err := decode(r, &req); err != nil {
+		return err
+	}
+	reason := strings.TrimSpace(req.Reason)
+	if len([]rune(reason)) > maxCancelReason {
+		return badRequest("invalid_reason", "The reason can be at most %d characters.", maxCancelReason)
+	}
+	ctx := r.Context()
+	switch err := s.Worker.CancelWorkshop(ctx, ws.ID, reason); {
+	case errors.Is(err, domain.ErrAlreadyCancelled):
+		return conflict("already_cancelled", "This workshop is already cancelled.")
+	case errors.Is(err, domain.ErrWorkshopStarted):
+		return conflict("workshop_started", "The workshop has already started and can no longer be cancelled.")
+	case err != nil:
+		return err
+	}
+	cancelled, err := s.Store.WorkshopByID(ctx, ws.ID)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, map[string]workshopDTO{"workshop": ownerWorkshopView(cancelled)})
 	return nil
 }

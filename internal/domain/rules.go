@@ -15,6 +15,8 @@ var (
 	ErrStartsTooSoon         = errors.New("workshop must start at least 24h after payments close")
 	ErrMinimumAboveCapacity  = errors.New("minimum exceeds capacity")
 	ErrNotEnoughCompatible   = errors.New("not enough compatible participants")
+	ErrAlreadyCancelled      = errors.New("workshop is already cancelled")
+	ErrWorkshopStarted       = errors.New("workshop has already started")
 )
 
 const minLeadAfterClose = 24 * time.Hour
@@ -80,6 +82,19 @@ func ValidateProposal(w Workshop, p Proposal, date CandidateDate, compatible int
 	}
 	if compatible < p.Minimum {
 		return fmt.Errorf("%w: %d compatible, minimum %d", ErrNotEnoughCompatible, compatible, p.Minimum)
+	}
+	return nil
+}
+
+// CanCancel reports whether the organizer may cancel a workshop in status
+// that starts at startsAt (nil before payments open): any time before it
+// starts, once.
+func CanCancel(status WorkshopStatus, startsAt *time.Time, now time.Time) error {
+	if status == WorkshopCancelled {
+		return ErrAlreadyCancelled
+	}
+	if startsAt != nil && !now.Before(*startsAt) {
+		return fmt.Errorf("%w: it started at %s", ErrWorkshopStarted, startsAt.Format(time.RFC3339))
 	}
 	return nil
 }

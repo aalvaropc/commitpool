@@ -478,3 +478,25 @@ func TestPaymentsOpen_FundingOrConfirmedBeforeClose(t *testing.T) {
 		}
 	}
 }
+
+func TestCanCancel(t *testing.T) {
+	starts := time.Date(2026, 11, 14, 15, 0, 0, 0, time.UTC)
+	before := starts.Add(-time.Hour)
+	cases := []struct {
+		status   domain.WorkshopStatus
+		startsAt *time.Time
+		now      time.Time
+		want     error
+	}{
+		{domain.WorkshopCollecting, nil, before, nil},
+		{domain.WorkshopFunding, &starts, before, nil},
+		{domain.WorkshopConfirmed, &starts, before, nil},
+		{domain.WorkshopConfirmed, &starts, starts, domain.ErrWorkshopStarted},
+		{domain.WorkshopCancelled, &starts, before, domain.ErrAlreadyCancelled},
+	}
+	for _, c := range cases {
+		if err := domain.CanCancel(c.status, c.startsAt, c.now); !errors.Is(err, c.want) {
+			t.Errorf("CanCancel(%s, now %s) = %v, want %v", c.status, c.now, err, c.want)
+		}
+	}
+}

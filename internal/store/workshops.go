@@ -28,6 +28,10 @@ type WorkshopRow struct {
 	// ShareToken is the plaintext share token, kept so the owner can show
 	// the share link again; empty for workshops created before it was kept.
 	ShareToken string
+	// CancelledAt and CancelReason say when and why the organizer cancelled
+	// the workshop; nil otherwise, also for one cancelled by its close.
+	CancelledAt  *time.Time
+	CancelReason *string
 }
 
 type CandidateDateRow struct {
@@ -57,7 +61,7 @@ type CreateWorkshopParams struct {
 }
 
 const (
-	workshopCols      = `id, title, description, duration_min, timezone, minimum, capacity, price_minor, currency, payment_window_min, status, resolution, created_at, coalesce(share_token, '')`
+	workshopCols      = `id, title, description, duration_min, timezone, minimum, capacity, price_minor, currency, payment_window_min, status, resolution, created_at, coalesce(share_token, ''), cancelled_at, cancel_reason`
 	candidateDateCols = `id, workshop_id, starts_at, ends_at`
 	proposalCols      = `id, workshop_id, version, chosen_date_id, price_minor, currency, minimum, capacity, opens_at, closes_at, starts_at`
 )
@@ -258,6 +262,24 @@ func transitionWorkshop(ctx context.Context, q execer, id string, fromStatus []d
 			return false, nil
 		}
 		return false, wrap("transition workshop", err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+// CancelWorkshop is the organizer's cancel, a compare-and-set: the workshop
+// becomes CANCELLED with resolution, and records now and reason (empty is no
+// reason), only while it is still in from and fromResolution. It reports
+// whether the row changed.
+func (s *Store) CancelWorkshop(ctx context.Context, id string, from domain.WorkshopStatus, fromResolution, resolution domain.Resolution, reason string, now time.Time) (bool, error) {
+	tag, err := s.Pool.Exec(ctx,
+		`update workshops set status = $5, resolution = $4, cancelled_at = $6, cancel_reason = nullif($7, ''), updated_at = now()
+		 where id = $1 and status = $2 and resolution = $3`,
+		id, string(from), string(fromResolution), string(resolution), string(domain.WorkshopCancelled), now, reason)
+	if err != nil {
+		if isMissing(err) {
+			return false, nil
+		}
+		return false, wrap("cancel workshop", err)
 	}
 	return tag.RowsAffected() == 1, nil
 }

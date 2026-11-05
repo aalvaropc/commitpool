@@ -307,6 +307,20 @@ func (s *Store) WorkshopIDsWithExpiredSeats(ctx context.Context, now time.Time) 
 	return ids, nil
 }
 
+// ReleaseReservedSeats moves every SEAT_RESERVED enrollment of the workshop
+// to RELEASED, expired or not, except a seat kept for an authorization
+// PayPal holds PENDING, and returns how many it released: for a workshop
+// that will take no payment any more.
+func (s *Store) ReleaseReservedSeats(ctx context.Context, workshopID string, now time.Time) (int, error) {
+	tag, err := s.Pool.Exec(ctx,
+		`update enrollments e set status = 'RELEASED', released_at = $2, updated_at = now()
+		 where e.workshop_id = $1 and `+releasable("'infinity'::timestamptz"), workshopID, now)
+	if err != nil {
+		return 0, wrap("release reserved seats", err)
+	}
+	return int(tag.RowsAffected()), nil
+}
+
 // ReleaseExpiredSeats moves the workshop's SEAT_RESERVED enrollments whose seat
 // expired before now to RELEASED and returns how many it released. A seat
 // whose latest attempt holds an authorization PayPal reports PENDING (held

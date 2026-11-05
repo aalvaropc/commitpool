@@ -130,7 +130,7 @@ make run                 # loads .env and starts the service on :8080
 Check that it is up:
 
 ```sh
-curl -s localhost:8080/healthz   # {"ok":true}
+curl -s localhost:8080/healthz   # {"ok":true,...} with queue counts and worker heartbeats
 ```
 
 For frontend work, run `pnpm -C web dev`; Vite proxies `/api`, `/paypal` and
@@ -246,7 +246,7 @@ variables are read: there is no `~/.aws`, so Bedrock credentials must be in
 
 ```sh
 docker compose -f deploy/compose.yaml --profile app up -d --build --wait
-curl -s localhost:8080/healthz   # {"ok":true}
+curl -s localhost:8080/healthz   # {"ok":true,...} with queue counts and worker heartbeats
 ```
 
 Migrations run at startup, as with `make run`. Stop everything with:

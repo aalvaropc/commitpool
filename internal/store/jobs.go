@@ -443,3 +443,29 @@ func (s *Store) PurgeSucceededJobs(ctx context.Context, before time.Time) (int, 
 	}
 	return int(tag.RowsAffected()), nil
 }
+
+// QueueHealth counts what an operator should look at: jobs whose outcome is
+// unknown, jobs parked as needs_attention, pending jobs that already failed
+// five times or more, and workshops flagged NEEDS_ATTENTION.
+type QueueHealth struct {
+	Unknown, Parked, StuckPending, WorkshopsFlagged int
+}
+
+// Health returns the queue counts.
+func (s *Store) Health(ctx context.Context) (QueueHealth, error) {
+	var h QueueHealth
+	err := s.Pool.QueryRow(ctx,
+		`select
+		   (select count(*) from jobs where status = 'unknown'),
+		   (select count(*) from jobs where status = 'needs_attention'),
+		   (select count(*) from jobs where status = 'pending' and attempts >= $1),
+		   (select count(*) from workshops where resolution = 'NEEDS_ATTENTION')`, maxJobAttempts).
+		Scan(&h.Unknown, &h.Parked, &h.StuckPending, &h.WorkshopsFlagged)
+	if err != nil {
+		return QueueHealth{}, wrap("queue health", err)
+	}
+	return h, nil
+}
+
+// Ping checks the database answers.
+func (s *Store) Ping(ctx context.Context) error { return s.Pool.Ping(ctx) }

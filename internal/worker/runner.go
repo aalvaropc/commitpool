@@ -16,6 +16,8 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/aalvaropc/commitpool/internal/clock"
@@ -79,6 +81,8 @@ type Runner struct {
 	workerID string
 	handlers map[string]Handler
 	mailer   mail.Mailer
+	beats    struct{ drain, tick, periodic atomic.Int64 }
+	inline   sync.WaitGroup
 }
 
 // New returns a runner with the payment handlers, close and release_seats
@@ -116,36 +120,97 @@ func (r *Runner) Register(kind string, h Handler) {
 	r.handlers[kind] = h
 }
 
-// Run claims and runs due jobs until ctx is done, then returns ctx.Err(). When
-// nothing is due it waits two seconds before looking again. Once a minute it
-// takes back jobs claimed more than five minutes ago and never finished, and
-// enqueues the minute's seat release for every workshop with an expired seat;
-// every two minutes it reconciles what PayPal may still change and heals the
-// workshops still funding or resolving (RunPeriodic). Once ctx is done it
-// claims nothing new and returns when the job in flight has finished, which
-// RunOnce lets go on for up to shutdownGrace.
+// Run works until ctx is done, then returns ctx.Err(). Three loops run side
+// by side, each recovering from a panic and recording a heartbeat (Health):
+// one claims and runs due jobs (looking again every two seconds when none
+// is due), one every minute takes back jobs claimed more than five minutes
+// ago and never finished and enqueues the seat releases, and one every two
+// minutes reconciles what PayPal may still change and heals the workshops
+// still funding or resolving (RunPeriodic). Once ctx is done no new job is
+// claimed and Run returns when the job in flight has finished, which RunOnce
+// lets go on for up to shutdownGrace.
 func (r *Runner) Run(ctx context.Context) error {
-	var lastTick, lastPeriodic time.Time
-	for {
-		if lastTick.IsZero() || time.Since(lastTick) >= tickInterval {
+	var wg sync.WaitGroup
+	for _, l := range []struct {
+		name     string
+		interval time.Duration
+		beat     *atomic.Int64
+		fn       func(context.Context)
+	}{
+		{"drain", pollInterval, &r.beats.drain, r.drain},
+		{"tick", tickInterval, &r.beats.tick, func(ctx context.Context) {
 			r.requeueStale(ctx)
 			if err := r.EnqueueSeatReleases(ctx); err != nil && ctx.Err() == nil {
 				r.log.Error("worker: enqueue seat releases", "error", err)
 			}
-			lastTick = time.Now()
-		}
-		if lastPeriodic.IsZero() || time.Since(lastPeriodic) >= periodicInterval {
+		}},
+		{"periodic", periodicInterval, &r.beats.periodic, func(ctx context.Context) {
 			if err := r.RunPeriodic(ctx); err != nil && ctx.Err() == nil {
 				r.log.Error("worker: periodic reconcile and heal", "error", err)
 			}
-			lastPeriodic = time.Now()
-		}
-		r.drain(ctx)
+		}},
+	} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			r.loop(ctx, l.name, l.interval, l.beat, l.fn)
+		}()
+	}
+	wg.Wait()
+	return ctx.Err()
+}
+
+// loop calls fn now and then every interval until ctx is done. A panic in
+// fn is logged and the loop goes on; each completed call records beat.
+func (r *Runner) loop(ctx context.Context, name string, interval time.Duration, beat *atomic.Int64, fn func(context.Context)) {
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		func() {
+			defer func() {
+				if p := recover(); p != nil {
+					r.log.Error("worker: loop panicked; it goes on", "loop", name, "panic", fmt.Sprint(p), "stack", string(debug.Stack()))
+				}
+			}()
+			fn(ctx)
+			beat.Store(time.Now().UnixNano())
+		}()
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(pollInterval):
+			return
+		case <-t.C:
 		}
+	}
+}
+
+// Health is when each loop of Run last completed; zero before its first.
+type Health struct {
+	Drain, Tick, Periodic time.Time
+}
+
+func (r *Runner) Health() Health {
+	at := func(v *atomic.Int64) time.Time {
+		if n := v.Load(); n != 0 {
+			return time.Unix(0, n)
+		}
+		return time.Time{}
+	}
+	return Health{Drain: at(&r.beats.drain), Tick: at(&r.beats.tick), Periodic: at(&r.beats.periodic)}
+}
+
+// WaitInline waits for the jobs RunKey is running for callers, or for ctx;
+// a shutdown calls it before closing the database.
+func (r *Runner) WaitInline(ctx context.Context) error {
+	done := make(chan struct{})
+	go func() {
+		r.inline.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -219,6 +284,8 @@ func withShutdownGrace(ctx context.Context) (context.Context, context.CancelFunc
 func (r *Runner) RunKey(ctx context.Context, key string) error {
 	// The caller's request may end (a buyer closing the tab) while PayPal is
 	// answering: the job runs on, so its answer is recorded, not lost.
+	r.inline.Add(1)
+	defer r.inline.Done()
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), inlineJobTimeout)
 	defer cancel()
 	job, err := r.st.ClaimJobByKey(ctx, key, r.workerID, r.clock.Now())

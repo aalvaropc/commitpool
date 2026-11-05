@@ -639,8 +639,8 @@ func TestDemoEndpoints_DisabledWithoutFlags(t *testing.T) {
 
 func TestHealthz_FailsWithinItsTimeoutWhenTheDatabaseHangs(t *testing.T) {
 	e := newEnv(t)
-	if rec := e.request(http.MethodGet, "/healthz", nil); rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != `{"ok":true}` {
-		t.Fatalf("GET /healthz = %d %s, want 200 {\"ok\":true}", rec.Code, rec.Body.String())
+	if rec := e.request(http.MethodGet, "/healthz", nil); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"ok":true`) {
+		t.Fatalf("GET /healthz = %d %s, want 200 with ok true", rec.Code, rec.Body.String())
 	}
 
 	// A database that accepts connections and never answers.

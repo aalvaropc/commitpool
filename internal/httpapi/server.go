@@ -141,12 +141,27 @@ func (s *server) handle(h handlerFunc) http.Handler {
 func (s *server) healthz(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), healthTimeout)
 	defer cancel()
-	if err := s.Store.Pool.Ping(ctx); err != nil {
+	if err := s.Store.Ping(ctx); err != nil {
 		s.Log.Error("health check: database unreachable", "error", err)
 		writeJSON(w, http.StatusServiceUnavailable, map[string]bool{"ok": false})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	body := map[string]any{"ok": true}
+	if q, err := s.Store.Health(ctx); err == nil {
+		body["jobs"] = map[string]int{"unknown": q.Unknown, "parked": q.Parked, "stuck_pending": q.StuckPending}
+		body["workshops_flagged"] = q.WorkshopsFlagged
+	}
+	if s.Worker != nil {
+		h := s.Worker.Health()
+		age := func(t time.Time) any {
+			if t.IsZero() {
+				return nil
+			}
+			return time.Since(t).Round(time.Second).Seconds()
+		}
+		body["worker"] = map[string]any{"drain_age_s": age(h.Drain), "tick_age_s": age(h.Tick), "periodic_age_s": age(h.Periodic)}
+	}
+	writeJSON(w, http.StatusOK, body)
 }
 
 // observe gives the request an id, caps its body, turns a panic into a

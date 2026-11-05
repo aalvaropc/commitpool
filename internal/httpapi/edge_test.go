@@ -121,3 +121,23 @@ func TestSecurityHeaders(t *testing.T) {
 		}
 	}
 }
+
+func TestHealthz_ReportsTheWorkerAndTheQueues(t *testing.T) {
+	e := newEnv(t)
+	var got struct {
+		OK     bool `json:"ok"`
+		Worker struct {
+			DrainAgeS *float64 `json:"drain_age_s"`
+		} `json:"worker"`
+		Jobs struct {
+			Unknown      int `json:"unknown"`
+			Parked       int `json:"parked"`
+			StuckPending int `json:"stuck_pending"`
+		} `json:"jobs"`
+		WorkshopsFlagged *int `json:"workshops_flagged"`
+	}
+	e.call(http.MethodGet, "/healthz", nil, http.StatusOK, &got)
+	if !got.OK || got.WorkshopsFlagged == nil {
+		t.Errorf("healthz = %+v, want ok with the queue and flag counts", got)
+	}
+}

@@ -27,7 +27,7 @@ import (
 	"github.com/aalvaropc/commitpool/web"
 )
 
-const shutdownTimeout = 10 * time.Second
+const shutdownTimeout = 30 * time.Second
 
 func main() {
 	log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
@@ -128,8 +128,13 @@ func run(log *slog.Logger) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		return err
+		log.Warn("shutdown: requests still running at the deadline were cut", "error", err)
 	}
+	// Jobs requests ran inline finish before the database closes.
+	if err := runner.WaitInline(shutdownCtx); err != nil {
+		log.Warn("shutdown: inline jobs still running at the deadline; their results reconcile at the next start", "error", err)
+	}
+	log.Info("stopped")
 	return nil
 }
 

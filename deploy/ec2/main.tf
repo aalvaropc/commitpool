@@ -107,6 +107,12 @@ data "aws_iam_policy_document" "app" {
   }
 
   statement {
+    sid       = "SendEmail"
+    actions   = ["ses:SendEmail"]
+    resources = ["arn:${data.aws_partition.current.partition}:ses:${var.region}:${data.aws_caller_identity.current.account_id}:identity/*"]
+  }
+
+  statement {
     sid       = "ReadSecrets"
     actions   = ["ssm:GetParameter"]
     resources = ["arn:${data.aws_partition.current.partition}:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter${var.parameter_prefix}/*"]
@@ -164,8 +170,11 @@ resource "aws_instance" "app" {
 
   tags = { Name = "${var.project}-vm" }
 
+  # The boot template only matters at first boot; scripts/deploy-ec2.sh ships
+  # deploy.sh on every deploy, so a change to it must not replace the VM and
+  # lose the database.
   lifecycle {
-    ignore_changes = [ami]
+    ignore_changes = [ami, user_data]
   }
 }
 

@@ -3,7 +3,9 @@
 # and Caddy (HTTPS through Let's Encrypt) on one Docker network. Usage:
 # deploy.sh <image-tag>. Settings come from /opt/commitpool/config, written at
 # boot; secrets come from SSM Parameter Store on every run and are written
-# only to root-only env files.
+# only to root-only env files. Optional parameters: mcp_secret signs the MCP
+# confirmation tokens across restarts; mail_from (a verified SES sender) turns
+# on email through Amazon SES, otherwise notifications are only logged.
 set -euo pipefail
 
 dir=/opt/commitpool
@@ -30,6 +32,15 @@ umask 077
   echo "COMMITPOOL_AI_PROVIDER=bedrock"
   echo "COMMITPOOL_DEMO_MODE=1"
   echo "COMMITPOOL_SANDBOX_MOCKS=1"
+  mcp_secret="$(optional_param mcp_secret)"
+  if [[ -n "$mcp_secret" ]]; then
+    echo "COMMITPOOL_MCP_SECRET=$mcp_secret"
+  fi
+  mail_from="$(optional_param mail_from)"
+  if [[ -n "$mail_from" ]]; then
+    echo "COMMITPOOL_MAILER=ses"
+    echo "COMMITPOOL_MAIL_FROM=$mail_from"
+  fi
 } >"$dir/app.env"
 printf 'POSTGRES_USER=commitpool\nPOSTGRES_DB=commitpool\nPOSTGRES_PASSWORD=%s\n' "$pg_password" >"$dir/postgres.env"
 
@@ -47,7 +58,8 @@ for _ in $(seq 1 60); do
 done
 
 docker pull --quiet "$REPOSITORY:$tag" >/dev/null
-docker stop -t 15 app >/dev/null 2>&1 || true
+# The app waits up to 30 s for in-flight payment calls before it exits.
+docker stop -t 35 app >/dev/null 2>&1 || true
 docker rm app >/dev/null 2>&1 || true
 docker run -d --name app --network commitpool --restart unless-stopped \
   --env-file "$dir/app.env" "$REPOSITORY:$tag" >/dev/null

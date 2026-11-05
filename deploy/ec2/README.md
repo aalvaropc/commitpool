@@ -92,8 +92,15 @@ export AWS_REGION=us-east-1
   commit id). The app restarts in a few seconds; data stays.
 - Logs and a shell: `aws ssm start-session --target "$(terraform -chdir=deploy/ec2 output -raw instance_id)"`,
   then `sudo docker logs --tail 100 app`.
-- Changing `deploy/ec2/deploy.sh` or the boot template replaces the VM on the
-  next `apply` (the database is lost, the Elastic IP and URL stay); run
-  `scripts/deploy-ec2.sh` afterwards.
+- `scripts/deploy-ec2.sh` installs the checkout's `deploy/ec2/deploy.sh` on
+  the VM before running it, so a change to it ships with the next deploy.
+  Terraform ignores the boot template after the first boot, so an `apply`
+  never replaces the VM (and its database) for it.
+- Optional parameters, read on every deploy: `/commitpool/mcp_secret` (a
+  long random string) keeps MCP confirmation tokens valid across restarts;
+  `/commitpool/mail_from`, a sender verified in Amazon SES, turns email on
+  (the instance role may send with `ses:SendEmail`). While the SES account is
+  in its sandbox, only verified recipients get mail. Without it,
+  notifications are only logged.
 - Tear down: `terraform -chdir=deploy/ec2 destroy`, then delete the three
   PayPal parameters with `aws ssm delete-parameter`.

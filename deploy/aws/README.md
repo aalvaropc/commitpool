@@ -23,6 +23,11 @@ buyer ──HTTPS──▶ CloudFront ──HTTP:80──▶ ALB ──:8080─�
 - Docker with Buildx, to build a `linux/amd64` image.
 - Bedrock model access for Claude enabled in the chosen region, for the main
   model and the fallback model (`bedrock_model`, `bedrock_fallback_model`).
+  Anthropic models need, once per account, the use-case form and the model
+  agreement accepted in the Bedrock console. Until then every call answers
+  403 and
+  `aws bedrock get-foundation-model-availability --model-id anthropic.claude-opus-5-5`
+  shows `"agreementAvailability": {"status": "NOT_AVAILABLE"}`.
 - A PayPal Sandbox REST app: its client id and secret.
 - `curl` and `jq`, for `scripts/register-webhook.sh`.
 
@@ -88,7 +93,7 @@ and `COMMITPOOL_SEAT_TTL_MIN` as plain environment variables, and `DATABASE_URL`
 
 ## Estimated cost while it is on
 
-Approximate on-demand prices in `us-east-2`, per month (730 hours), before
+Approximate on-demand prices in `us-east-1`, per month (730 hours), before
 free tier and without Bedrock tokens, which are billed per use:
 
 | Item | US$/month |
@@ -112,7 +117,7 @@ All commands run from the repository root, in one shell. Set the region and
 the `project` value (the secret name prefix) once:
 
 ```sh
-export AWS_REGION=us-east-2
+export AWS_REGION=us-east-1
 project=commitpool
 ```
 
@@ -210,7 +215,7 @@ These commands work in a new shell (the ECR login expires after 12 hours, so
 it is repeated every time):
 
 ```sh
-export AWS_REGION=us-east-2
+export AWS_REGION=us-east-1
 repo="$(terraform -chdir=deploy/aws output -raw ecr_repository_url)"
 tag="$(git rev-parse --short HEAD)"
 aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "${repo%%/*}"

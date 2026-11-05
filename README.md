@@ -197,9 +197,13 @@ model catalog for your region. To use Bedrock:
    `AWS_SECRET_ACCESS_KEY`) and pick a region where the model is offered, then
    set `AWS_REGION` to it. A Bedrock API key in `AWS_BEARER_TOKEN_BEDROCK`
    works too. Credentials are checked at startup, so a missing one stops the
-   service right away.
+   service right away. A session from `aws login` is not read by the Go SDK
+   the service uses; export it for the shell first with
+   `eval "$(aws configure export-credentials --format env)"`.
 2. In the Amazon Bedrock console, enable access to the model (and to the
-   fallback model) in that region.
+   fallback model) in that region. For Anthropic models this means
+   submitting the use-case form and accepting the model agreement once per
+   account; until then Bedrock answers 403.
 3. Check it end to end with the live smoke test, which calls Bedrock for real:
 
    ```sh

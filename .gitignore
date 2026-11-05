@@ -9,3 +9,8 @@ deploy/aws/*.tfstate*
 deploy/aws/*.tfvars
 deploy/aws/*.tfplan
 deploy/aws/crash.log
+deploy/ec2/.terraform/
+deploy/ec2/*.tfstate*
+deploy/ec2/*.tfvars
+deploy/ec2/*.tfplan
+deploy/ec2/crash.log

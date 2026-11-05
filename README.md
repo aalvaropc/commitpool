@@ -75,8 +75,9 @@ browser ── React SPA (embedded) ──► Go HTTP API ──► PostgreSQL
   [docs/payments.md](docs/payments.md).
 - **Claude on Amazon Bedrock** reads availability messages with strict
   structured output (see [below](#availability-with-claude-on-amazon-bedrock)).
-- **Deployment** on AWS with Terraform: Fargate, RDS PostgreSQL, an ALB
-  behind CloudFront, Secrets Manager. See
+- **Deployment** on AWS with Terraform: the demo on one EC2 VM with Caddy
+  ([deploy/ec2/README.md](deploy/ec2/README.md)); a Fargate, RDS and
+  CloudFront configuration for production in
   [deploy/aws/README.md](deploy/aws/README.md).
 
 ## Demo walkthrough
@@ -256,14 +257,18 @@ Without `--profile app`, compose starts only PostgreSQL, which is what
 
 ## Deploy to AWS
 
-`deploy/aws/` holds a Terraform configuration for one environment: a VPC
-with two public subnets, the service on ECS Fargate, PostgreSQL on RDS in
-private subnets, an Application Load Balancer that only CloudFront can reach,
-CloudFront for HTTPS on its default certificate, Secrets Manager for the
-database URL and the PayPal credentials, ECR for the image, and a task role
-limited to Bedrock. The runbook in [deploy/aws/README.md](deploy/aws/README.md)
-goes from an empty account to a registered Sandbox webhook, with the
-approximate monthly cost.
+The hosted demo runs on one EC2 VM: Docker runs PostgreSQL, the app and
+Caddy for HTTPS, the VM's role reaches Bedrock, and the secrets live in SSM
+Parameter Store; it costs about US$17 a month while it is on. The runbook in
+[deploy/ec2/README.md](deploy/ec2/README.md) goes from an empty account to a
+registered Sandbox webhook, and `scripts/deploy-ec2.sh` ships each new
+commit.
+
+`deploy/aws/` holds a production-shaped alternative, not used for the demo:
+ECS Fargate, RDS PostgreSQL in private subnets, an Application Load Balancer
+that only CloudFront can reach, Secrets Manager and a task role limited to
+Bedrock, at about US$63 a month
+([deploy/aws/README.md](deploy/aws/README.md)).
 
 ## Sandbox test accounts
 

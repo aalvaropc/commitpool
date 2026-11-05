@@ -1,5 +1,9 @@
 # Deploying CommitPool on AWS
 
+> The hosted demo does not use this configuration: it runs on one EC2 VM
+> ([../ec2/README.md](../ec2/README.md)) for about a quarter of the cost. This
+> one is the production-shaped alternative.
+
 This Terraform runs CommitPool as one container on ECS Fargate behind an
 Application Load Balancer and CloudFront, with PostgreSQL 16 on RDS, the
 PayPal credentials and the database URL in Secrets Manager, and Claude on

@@ -238,8 +238,14 @@ func (r *Runner) HealWorkshop(ctx context.Context, workshopID string) error {
 		errs = append(errs, err)
 	}
 	if v.w.Status == domain.WorkshopFunding && domain.Counts(v.es).Paid >= v.p.Minimum {
-		_, err := r.confirmIfFunded(ctx, workshopID)
+		confirmed, err := r.confirmIfFunded(ctx, workshopID)
 		errs = append(errs, err)
+		if confirmed {
+			// The rest of the healing decides from the confirmed workshop.
+			if v, err = r.workshopView(ctx, workshopID); err != nil {
+				return errors.Join(append(errs, err)...)
+			}
+		}
 	}
 	now := r.clock.Now()
 	open := now.Before(v.p.ClosesAt)
@@ -327,11 +333,11 @@ func (r *Runner) releaseSeats(ctx context.Context, job *store.Job) (*int, error)
 // a second call within the same minute adds nothing. Run calls it once a
 // minute.
 func (r *Runner) EnqueueSeatReleases(ctx context.Context) error {
-	ids, err := r.st.WorkshopIDsWithReservedSeats(ctx)
+	now := r.clock.Now()
+	ids, err := r.st.WorkshopIDsWithExpiredSeats(ctx, now)
 	if err != nil {
 		return err
 	}
-	now := r.clock.Now()
 	minute := now.UTC().Format(minuteLayout)
 	for _, id := range ids {
 		if err := r.Enqueue(ctx, store.KindReleaseSeats, store.JobKey(store.KindReleaseSeats, id+":"+minute), &id, nil, nil, now); err != nil {

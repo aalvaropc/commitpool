@@ -25,15 +25,20 @@ import (
 )
 
 const (
-	pollInterval   = 2 * time.Second
-	tickInterval   = time.Minute
-	staleAfter     = 5 * time.Minute
-	reconcileDelay = 30 * time.Second
-	settleTimeout  = 10 * time.Second
+	pollInterval = 2 * time.Second
+	tickInterval = time.Minute
+	staleAfter   = 5 * time.Minute
+
+	settleTimeout = 10 * time.Second
 	// shutdownGrace is how long a job Run is running may go on once Run's
 	// context is done.
 	shutdownGrace = 10 * time.Second
 )
+
+// reconcileGaps is how long after an ambiguous result each reconcile
+// generation runs, by generation: they spread over seven hours, so a PayPal
+// outage of a few minutes never uses them up.
+var reconcileGaps = [...]time.Duration{30 * time.Second, 2 * time.Minute, 10 * time.Minute, time.Hour, 6 * time.Hour}
 
 // maxReconcileGenerations is how many reconciles an ambiguous action gets: the
 // one with this generation no longer sends the action again when PayPal still
@@ -323,7 +328,11 @@ func (r *Runner) settle(ctx context.Context, job *store.Job, status *int, err er
 			log.Warn("job failed; it will run again under the same key", "error", err)
 			return nil
 		}
-		log.Error("job failed too many times and needs attention", "error", err)
+		if store.RetriesForever(job.Kind) {
+			log.Error("job keeps failing; flagged for an operator and still retrying under the same key", "error", err)
+		} else {
+			log.Error("job failed too many times and needs attention", "error", err)
+		}
 		return r.escalate(ctx, log, job)
 	}
 }
@@ -340,7 +349,7 @@ func (r *Runner) tolerate(log *slog.Logger, err error) error {
 
 // scheduleReconcile enqueues the attempt's next reconcile generation,
 // reconcile:{attempt}:{n} with n one above the highest generation the attempt
-// has, thirty seconds from now. A reconcile of the attempt that is pending and
+// has, reconcileGaps after now. A reconcile of the attempt that is pending and
 // not due yet is enough instead: it has not started, so it will resolve this
 // job together with every other unknown job of the attempt.
 func (r *Runner) scheduleReconcile(ctx context.Context, job *store.Job) error {
@@ -362,7 +371,8 @@ func (r *Runner) scheduleReconcile(ctx context.Context, job *store.Job) error {
 		}
 	}
 	key := reconcilePrefix(*job.AttemptID) + strconv.Itoa(next)
-	_, err = r.st.EnqueueJob(ctx, store.KindReconcile, key, job.WorkshopID, job.AttemptID, nil, now.Add(reconcileDelay))
+	gap := reconcileGaps[min(next, len(reconcileGaps))-1]
+	_, err = r.st.EnqueueJob(ctx, store.KindReconcile, key, job.WorkshopID, job.AttemptID, nil, now.Add(gap))
 	return err
 }
 

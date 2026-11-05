@@ -321,7 +321,7 @@ func (s *server) holdSeat(ctx context.Context, en store.EnrollmentRow, now time.
 // and not expired, or past checkout with its hold placed or charged.
 func seatLive(en store.EnrollmentRow, now time.Time) bool {
 	if en.Status == domain.EnrollmentSeatReserved {
-		return !en.SeatExpiresAt.Before(now)
+		return !domain.SeatExpired(en.SeatExpiresAt, now)
 	}
 	return en.Status.Occupies()
 }

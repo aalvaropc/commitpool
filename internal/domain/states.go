@@ -54,6 +54,10 @@ func (s EnrollmentStatus) Terminal() bool {
 	return false
 }
 
+// SeatExpired reports whether a reserved seat that expires at expiresAt no
+// longer holds at now: it holds through the expiry instant itself.
+func SeatExpired(expiresAt, now time.Time) bool { return now.After(expiresAt) }
+
 // Occupies reports whether the enrollment holds one of the workshop's seats.
 func (s EnrollmentStatus) Occupies() bool {
 	switch s {

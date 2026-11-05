@@ -178,7 +178,7 @@ func enrollmentLabel(en store.EnrollmentRow, ws store.WorkshopRow, p *store.Prop
 	return statusLabel(en.Status, labelState{
 		workshop:     ws.Status,
 		paymentsOpen: paymentsOpen(ws, p, now),
-		seatLive:     now.Before(en.SeatExpiresAt),
+		seatLive:     !domain.SeatExpired(en.SeatExpiresAt, now),
 		authPending:  authorizationPending(latest),
 	})
 }

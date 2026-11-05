@@ -23,6 +23,9 @@ const (
 	// succeededRetention is how long RunPeriodic keeps a succeeded seat
 	// release or read-only reconcile (store.PurgeSucceededJobs).
 	succeededRetention = 30 * 24 * time.Hour
+	// closeOverdueAfter is how long past its proposal's close a funding
+	// workshop may wait before RunPeriodic runs its close again.
+	closeOverdueAfter = 5 * time.Minute
 )
 
 // RunPeriodic reconciles, with a reconcile job due now, every attempt whose
@@ -73,6 +76,8 @@ func (r *Runner) RunPeriodic(ctx context.Context) error {
 		}
 	}
 
+	errs = append(errs, r.reviveOverdueCloses(ctx, now))
+
 	purged, err := r.st.PurgeSucceededJobs(ctx, now.Add(-succeededRetention))
 	errs = append(errs, err)
 	if purged > 0 {
@@ -85,6 +90,30 @@ func (r *Runner) RunPeriodic(ctx context.Context) error {
 		if err := r.HealWorkshop(ctx, id); err != nil {
 			errs = append(errs, fmt.Errorf("heal workshop %s: %w", id, err))
 		}
+	}
+	return errors.Join(errs...)
+}
+
+// reviveOverdueCloses enqueues close:{proposal} due now for every workshop
+// still FUNDING more than closeOverdueAfter past its close, or revives the
+// job when it failed or was parked: a close only reads and decides, so it is
+// safe to run again, and nothing else would ever close that workshop.
+func (r *Runner) reviveOverdueCloses(ctx context.Context, now time.Time) error {
+	overdue, err := r.st.OverdueCloses(ctx, now.Add(-closeOverdueAfter))
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, o := range overdue {
+		key := store.JobKey(store.KindClose, o.ProposalID)
+		created, err := r.st.EnqueueJob(ctx, store.KindClose, key, &o.WorkshopID, nil, nil, now)
+		if err == nil && !created {
+			created, err = r.st.ReviveJob(ctx, key, now, true)
+		}
+		if created {
+			r.log.Warn("workshop still funding after its close; running its close again", "workshop_id", o.WorkshopID, "key", key)
+		}
+		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
 }

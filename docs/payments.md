@@ -87,10 +87,10 @@ Every PayPal action is a row in `jobs`, written before the request leaves.
 | Status | Meaning | Next |
 |---|---|---|
 | `pending` | Due at `run_at`. | `running` when claimed. |
-| `running` | Claimed by a worker. | `succeeded`; `failed` on a refusal; `unknown` on an ambiguous result; `pending` for a retry (5 s, 30 s, 2 min, 10 min); `needs_attention` after the fifth attempt; `pending` again when its worker has not finished it after 5 minutes. |
+| `running` | Claimed by a worker. | `succeeded`; `failed` on a refusal; `unknown` on an ambiguous result; `pending` for a retry (5 s, 30 s, 2 min, 10 min); `needs_attention` after the fifth attempt, except the kinds that retry forever (`void`, `refund`, `reconcile`, `close`, `release_seats`: then 30 min and every hour after, flagged once at the fifth); `pending` again when its worker has not finished it after 5 minutes. |
 | `unknown` | PayPal may or may not have performed the action. | `succeeded` or `pending` (same key) once a reconcile has read PayPal. |
 | `failed` | Refused: by PayPal for good, by the worker (a passed deadline), or skipped because the action did not apply. | `pending` (same key) when revived. |
-| `needs_attention` | Retries used up. | `pending` (same key) only when revived by hand. |
+| `needs_attention` | Retries used up (`create_order`, `authorize`, `capture`; a close parked before this rule is revived by the periodic work). | `pending` (same key) only when revived by hand. |
 | `succeeded` | Done. | Final. A succeeded seat release or read-only reconcile is deleted after 30 days (see Periodic work). |
 
 Automatic paths revive only a job that failed without a PayPal answer (a
@@ -101,7 +101,10 @@ now.
 
 A job whose retries are used up flags its enrollment (the status stays),
 unless the enrollment is paid or finished; a `close` or `release_seats` job
-that gives up flags its workshop.
+that keeps failing flags its workshop and keeps retrying. Retrying a void or
+a refund forever is safe: this path only sees failures PayPal never
+performed (an ambiguous one is reconciled instead), and every retry reuses
+the same `PayPal-Request-Id`.
 
 ## Idempotency keys
 
@@ -131,8 +134,9 @@ second enqueue within the same minute or hour is a no-op.
 
 A result is ambiguous when PayPal may have performed the action: a timeout or
 any transport failure, a 5xx, or a 409 (`PREVIOUS_REQUEST_IN_PROGRESS`). The
-job becomes `unknown` and `reconcile:{attempt}:{n}` is scheduled 30 seconds
-later. The reconcile reads the order, authorization, capture and refund from
+job becomes `unknown` and `reconcile:{attempt}:{n}` is scheduled after a gap
+that grows with the generation: 30 s, 2 min, 10 min, 1 h and 6 h, so a PayPal
+outage of a few minutes never uses the generations up. The reconcile reads the order, authorization, capture and refund from
 PayPal and applies them; an unknown job whose resource now exists is
 completed, and one whose resource does not exist is sent again under its own
 key. The fifth generation sends nothing: it leaves the job `unknown` for an
@@ -211,7 +215,7 @@ The workshop is flagged `NEEDS_ATTENTION` when:
   seat or an older attempt);
 - the last reconcile generation leaves a job unknown on an enrollment that is
   finished or paid;
-- a `close` or `release_seats` job gives up.
+- a `close` or `release_seats` job fails a fifth time (it keeps retrying).
 
 A flag survives the workshop's confirmation or cancellation.
 
@@ -241,8 +245,10 @@ in the periodic work.
 The worker, in process:
 
 - every minute takes back jobs claimed more than five minutes ago (parked as
-  `needs_attention` once their attempts are used up) and enqueues
-  `release_seats` for every workshop with a reserved seat;
+  `needs_attention` once their attempts are used up, unless their kind
+  retries forever) and enqueues `release_seats` for every workshop with a
+  seat that expired (a seat holds through its expiry instant, and one kept
+  for a `PENDING` authorization is not released);
 - every two minutes enqueues `reconcile:{attempt}:periodic:{hour}` for the
   latest attempt of every `CAPTURE_PENDING` or `REFUND_PENDING` enrollment,
   and of every `SEAT_RESERVED` enrollment whose authorization PayPal reports
@@ -251,7 +257,9 @@ The worker, in process:
   authorization then moves `CREATED` → `AUTHORIZED` or `DENIED` →
   `CAPTURE_FAILED`, which frees the seat), and `reconcile:{attempt}:periodic:{minute}`
   for every attempt with a job unknown for more than five minutes, unless its
-  fifth reconcile generation exists; then heals every `FUNDING` workshop and
+  fifth reconcile generation exists; runs again the close of every workshop
+  still `FUNDING` more than five minutes past its `closes_at` (enqueued, or
+  revived when it failed or was parked); then heals every `FUNDING` workshop and
   every workshop whose money is not settled (`RESOLVING`, or cancelled and
   not `SETTLED`, `NEEDS_ATTENTION` included);
 - on the same two-minute tick deletes the `succeeded` jobs last updated

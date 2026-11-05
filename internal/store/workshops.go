@@ -287,6 +287,22 @@ func (s *Store) WorkshopIDsFundingOrUnsettled(ctx context.Context) ([]string, er
 	return ids, nil
 }
 
+// OverdueClose names a funding workshop whose payments closed before some
+// time without its close having run.
+type OverdueClose struct {
+	WorkshopID, ProposalID string
+}
+
+// OverdueCloses returns the FUNDING workshops whose proposal closed before
+// before, oldest first: their close job was lost or parked, since a close
+// that runs takes the workshop out of FUNDING.
+func (s *Store) OverdueCloses(ctx context.Context, before time.Time) ([]OverdueClose, error) {
+	return many[OverdueClose](ctx, s.Pool, "overdue closes",
+		`select w.id::text, p.id::text from workshops w join proposals p on p.workshop_id = w.id
+		 where w.status = $1 and p.closes_at < $2
+		 order by p.closes_at, w.id`, string(domain.WorkshopFunding), before)
+}
+
 // texts turns a list of string-like values into a text array; nil stays nil,
 // which is sent as NULL.
 func texts[T ~string](vs []T) []string {

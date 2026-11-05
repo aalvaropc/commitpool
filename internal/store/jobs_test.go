@@ -1228,3 +1228,52 @@ func TestPurgeSucceededJobs_DropsOldReadsAndSeatReleasesOnly(t *testing.T) {
 		t.Errorf("second PurgeSucceededJobs = %d, %v; want 0, nil", n, err)
 	}
 }
+
+func TestRetryJob_KindsThatReturnMoneyOrKeepHouseNeverPark(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	backoff := []time.Duration{5 * time.Second, 30 * time.Second, 2 * time.Minute, 10 * time.Minute, 30 * time.Minute, time.Hour, time.Hour}
+	for _, kind := range []string{"void", "refund", "reconcile", "close", "release_seats"} {
+		key := kind + ":forever"
+		enqueue(t, s, kind, key, baseTime)
+		now := baseTime
+		for attempt := 1; attempt <= len(backoff); attempt++ {
+			j := claim(t, s, "w1", now)
+			if j.IdempotencyKey != key {
+				t.Fatalf("%s: claimed %s, want %s", kind, j.IdempotencyKey, key)
+			}
+			escalate, err := s.RetryJob(ctx, j.ID, now, "rate limited", ptr(429), nil, nil)
+			if err != nil {
+				t.Fatalf("%s: RetryJob after attempt %d: %v", kind, attempt, err)
+			}
+			if escalate != (attempt == 5) {
+				t.Errorf("%s: escalate after attempt %d = %v, want it only at the fifth", kind, attempt, escalate)
+			}
+			got := jobByKey(t, s, key)
+			if got.Status != "pending" {
+				t.Fatalf("%s: status after attempt %d = %s, want pending: it never parks", kind, attempt, got.Status)
+			}
+			assertTime(t, fmt.Sprintf("%s run_at after attempt %d", kind, attempt), got.RunAt, now.Add(backoff[attempt-1]))
+			now = got.RunAt
+		}
+	}
+}
+
+func TestRequeueStale_NeverParksKindsThatRetryForever(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	enqueue(t, s, "close", "close:hangs", baseTime)
+	if _, err := s.Pool.Exec(ctx,
+		`update jobs set status = 'running', attempts = 9, locked_at = $1, locked_by = 'crashed-worker' where idempotency_key = 'close:hangs'`,
+		baseTime); err != nil {
+		t.Fatal(err)
+	}
+
+	if n, err := s.RequeueStale(ctx, baseTime.Add(time.Hour), 5*time.Minute); err != nil || n != 1 {
+		t.Fatalf("RequeueStale = %d, %v; want the one job", n, err)
+	}
+
+	if got := jobByKey(t, s, "close:hangs"); got.Status != "pending" {
+		t.Errorf("close job after RequeueStale = %s, want pending: a close never parks", got.Status)
+	}
+}

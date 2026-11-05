@@ -357,17 +357,20 @@ func TestReleaseSeatsTick_EnqueuesOnePerWorkshopPerMinute(t *testing.T) {
 		e.wantNoJob(releaseSeatsKey(quiet.ID, at))
 	}
 
-	first := t0.Add(30 * time.Second)
+	// The seats were reserved at t0 for 30 minutes; a tick enqueues a release
+	// only once one has expired.
+	base := t0.Add(31 * time.Minute)
+	first := base.Add(30 * time.Second)
 	e.clock.Set(first)
 	tick()
-	e.clock.Set(t0.Add(50 * time.Second))
+	e.clock.Set(base.Add(50 * time.Second))
 	tick()
 	if n := releaseJobs(); n != 2 {
 		t.Fatalf("release_seats jobs after two ticks in one minute = %d, want 2", n)
 	}
 	wantMinute(first)
 
-	next := t0.Add(70 * time.Second)
+	next := base.Add(70 * time.Second)
 	e.clock.Set(next)
 	tick()
 	if n := releaseJobs(); n != 4 {
@@ -631,7 +634,7 @@ func TestSettle_WaitsForPendingVoidAfterCaptureFailed(t *testing.T) {
 	})
 }
 
-func TestEscalate_CloseJobExhaustionFlagsWorkshop(t *testing.T) {
+func TestEscalate_CloseJobThatKeepsFailingFlagsWorkshopAndRetries(t *testing.T) {
 	e := newEnv(t)
 	w, _, _, err := e.st.CreateWorkshop(e.ctx, store.CreateWorkshopParams{
 		Title: "No proposal", Description: "Payments were never opened.", DurationMin: 60, Timezone: "UTC",
@@ -651,7 +654,8 @@ func TestEscalate_CloseJobExhaustionFlagsWorkshop(t *testing.T) {
 		e.runKey(key)
 	}
 
-	e.wantJob(key, "needs_attention")
+	// A close never parks: it keeps retrying, and its workshop is flagged once.
+	e.wantJob(key, "pending")
 	got, err := e.st.WorkshopByID(e.ctx, w.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -954,4 +958,69 @@ func TestHeal_StartsRoundMissedByFundingHook(t *testing.T) {
 		wantRound(e, []store.AttemptRow{danAttempt})
 		e.wantWorkshop(domain.WorkshopConfirmed, domain.ResolutionOpen)
 	})
+}
+
+func TestPeriodic_RevivesTheCloseOfAnOverdueWorkshop(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		break_ func(e *env)
+	}{
+		{"close job lost", func(e *env) { e.dropJob(e.closeKey()) }},
+		{"close job parked", func(e *env) {
+			if _, err := e.st.Pool.Exec(e.ctx, `update jobs set status = 'needs_attention' where idempotency_key = $1`, e.closeKey()); err != nil {
+				e.t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.paid("Ana")
+			tc.break_(e)
+			e.clock.Set(e.proposal.ClosesAt.Add(6 * time.Minute))
+
+			e.runPeriodic()
+			e.runUntilIdle()
+
+			e.wantJob(e.closeKey(), "succeeded")
+			e.wantWorkshop(domain.WorkshopCancelled, domain.ResolutionSettled)
+		})
+	}
+}
+
+func TestHeal_ReloadsTheViewAfterConfirming(t *testing.T) {
+	e := newEnv(t)
+	e.nearClose()
+	dan, danAttempt := e.withOrder("Dan")
+	e.confirmed()
+	// The confirmation hook was missed: the workshop is still funding.
+	e.moveWorkshop(domain.WorkshopConfirmed, domain.WorkshopFunding, domain.ResolutionOpen)
+	danAttempt = e.authorizeJustBeforeClose(dan, danAttempt)
+	if _, err := e.st.Pool.Exec(e.ctx, `delete from jobs where idempotency_key = $1`, "capture:"+danAttempt.ID); err != nil {
+		t.Fatal(err)
+	}
+	e.wantStatus(dan.ID, domain.EnrollmentAuthorized)
+	e.clock.Set(e.proposal.ClosesAt.Add(time.Minute))
+
+	if err := e.runner.HealWorkshop(e.ctx, e.workshop.ID); err != nil {
+		t.Fatalf("HealWorkshop: %v", err)
+	}
+
+	e.wantWorkshop(domain.WorkshopConfirmed, domain.ResolutionOpen)
+	e.wantJob("void:"+danAttempt.ID, "pending")
+}
+
+func TestEnqueueSeatReleases_OnlyForWorkshopsWithExpiredSeats(t *testing.T) {
+	e := newEnv(t)
+	en, _ := e.enroll("Ana")
+
+	if err := e.runner.EnqueueSeatReleases(e.ctx); err != nil {
+		t.Fatalf("EnqueueSeatReleases: %v", err)
+	}
+	e.wantNoJob(releaseSeatsKey(e.workshop.ID, e.clock.Now()))
+
+	e.clock.Set(en.SeatExpiresAt.Add(time.Second))
+	if err := e.runner.EnqueueSeatReleases(e.ctx); err != nil {
+		t.Fatalf("EnqueueSeatReleases: %v", err)
+	}
+	e.wantJob(releaseSeatsKey(e.workshop.ID, e.clock.Now()), "pending")
 }

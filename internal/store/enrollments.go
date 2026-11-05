@@ -9,7 +9,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/aalvaropc/commitpool/internal/domain"
-	"github.com/aalvaropc/commitpool/internal/paypal"
 )
 
 type EnrollmentRow struct {
@@ -272,20 +271,29 @@ func (s *Store) ClearEnrollmentFlag(ctx context.Context, id string) (bool, error
 	return tag.RowsAffected() == 1, nil
 }
 
-// WorkshopIDsWithReservedSeats returns, once each and in order, the
-// workshops with at least one SEAT_RESERVED enrollment, expired or not: the
-// ones a seat release may have work for. It is an empty list when there are
-// none.
-func (s *Store) WorkshopIDsWithReservedSeats(ctx context.Context) ([]string, error) {
+// releasable is the condition, on enrollment e, of a seat ReleaseExpiredSeats
+// releases at the time in parameter now (such as "$2"): SEAT_RESERVED,
+// expired before it (domain.SeatExpired), and not kept for an authorization
+// PayPal holds PENDING.
+func releasable(now string) string {
+	return `e.status = 'SEAT_RESERVED' and e.seat_expires_at < ` + now + `
+		and coalesce((select a.authorization_status from payment_attempts a
+		              where a.enrollment_id = e.id order by a.attempt_no desc limit 1), '') <> 'PENDING'`
+}
+
+// WorkshopIDsWithExpiredSeats returns, once each and in order, the
+// workshops with a seat ReleaseExpiredSeats would release at now. It is an
+// empty list when there are none.
+func (s *Store) WorkshopIDsWithExpiredSeats(ctx context.Context, now time.Time) ([]string, error) {
 	rows, err := s.Pool.Query(ctx,
-		`select workshop_id::text from enrollments where status = $1 group by workshop_id order by workshop_id`,
-		string(domain.EnrollmentSeatReserved))
+		`select e.workshop_id::text from enrollments e where `+releasable("$1")+`
+		 group by e.workshop_id order by e.workshop_id`, now)
 	if err != nil {
-		return nil, wrap("workshops with reserved seats", err)
+		return nil, wrap("workshops with expired seats", err)
 	}
 	ids, err := pgx.CollectRows(rows, pgx.RowTo[string])
 	if err != nil {
-		return nil, wrap("workshops with reserved seats", err)
+		return nil, wrap("workshops with expired seats", err)
 	}
 	if ids == nil {
 		ids = []string{}
@@ -302,10 +310,8 @@ func (s *Store) ReleaseExpiredSeats(ctx context.Context, workshopID string, now 
 	tag, err := s.Pool.Exec(ctx,
 		`update enrollments e
 		 set status = $3, released_at = $2, updated_at = now()
-		 where e.workshop_id = $1 and e.status = $4 and e.seat_expires_at < $2
-		   and coalesce((select a.authorization_status from payment_attempts a
-		                 where a.enrollment_id = e.id order by a.attempt_no desc limit 1), '') <> $5`,
-		workshopID, now, string(domain.EnrollmentReleased), string(domain.EnrollmentSeatReserved), paypal.StatusPending)
+		 where e.workshop_id = $1 and `+releasable("$2"),
+		workshopID, now, string(domain.EnrollmentReleased))
 	if err != nil {
 		return 0, wrap("release expired seats", err)
 	}

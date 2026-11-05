@@ -358,13 +358,17 @@ func TestReconcile_StopsAfterFiveGenerationsAndFlagsEnrollment(t *testing.T) {
 	en, a := e.authorized("Ana")
 	key := e.enqueue("capture", a)
 
+	gaps := []time.Duration{30 * time.Second, 2 * time.Minute, 10 * time.Minute, time.Hour, 6 * time.Hour}
 	for gen := 1; gen <= 5; gen++ {
 		e.fake.FailNext("capture", 503, "")
 		e.runOnce()
 		e.wantJob(key, "unknown")
 		reconcileKey := "reconcile:" + a.ID + ":" + strconv.Itoa(gen)
-		e.wantJob(reconcileKey, "pending")
-		e.advance(31 * time.Second)
+		r := e.wantJob(reconcileKey, "pending")
+		if !r.RunAt.Equal(e.clock.Now().Add(gaps[gen-1])) {
+			t.Fatalf("reconcile %d due at %s, want now+%s: the gaps grow", gen, r.RunAt, gaps[gen-1])
+		}
+		e.clock.Set(r.RunAt)
 		e.runKey(reconcileKey)
 		e.wantJob(reconcileKey, "succeeded")
 		if gen < 5 {
@@ -403,8 +407,8 @@ func TestScheduleReconcile_BumpsGenerationWithoutProbing(t *testing.T) {
 	e.runKey(captureKey)
 
 	e.wantJob(captureKey, "unknown")
-	if r := e.wantJob("reconcile:"+a.ID+":4", "pending"); !r.RunAt.Equal(now.Add(30 * time.Second)) {
-		t.Errorf("new reconcile run_at = %s, want now+30s", r.RunAt)
+	if r := e.wantJob("reconcile:"+a.ID+":4", "pending"); !r.RunAt.Equal(now.Add(time.Hour)) {
+		t.Errorf("new reconcile run_at = %s, want now+1h, the fourth generation's gap", r.RunAt)
 	}
 	if j, err := e.st.JobByKey(e.ctx, "reconcile:"+a.ID+":2"); err != nil || j != nil {
 		t.Errorf("reconcile :2 = %+v, %v; want none (the next generation follows the highest one)", j, err)
@@ -443,7 +447,7 @@ func TestReconcile_CompletesUnknownJobWithItsOwnStatus(t *testing.T) {
 	e.wantStatus(en.ID, domain.EnrollmentPaid)
 }
 
-func TestRetry_ExhaustedReconcileNeverFlagsPaidEnrollment(t *testing.T) {
+func TestRetry_ReconcileKeepsRetryingAndNeverFlagsPaidEnrollment(t *testing.T) {
 	e := newEnv(t)
 	en, a := e.paid("Ana")
 	key := "reconcile:" + a.ID + ":1"
@@ -458,8 +462,12 @@ func TestRetry_ExhaustedReconcileNeverFlagsPaidEnrollment(t *testing.T) {
 		}
 	}
 
-	e.wantJob(key, "needs_attention")
+	// A reconcile only reads: it keeps retrying under its key instead of parking.
+	e.wantJob(key, "pending")
 	e.wantStatus(en.ID, domain.EnrollmentPaid)
+	if got, _ := e.st.EnrollmentByID(e.ctx, en.ID); got.NeedsAttentionAt != nil {
+		t.Errorf("paid enrollment flagged by a reconcile that keeps failing; want it left alone")
+	}
 }
 
 func TestRunOnce_PanickingHandlerIsRetried(t *testing.T) {

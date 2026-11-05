@@ -780,11 +780,11 @@ func TestReReserveSeat(t *testing.T) {
 	})
 }
 
-func TestWorkshopIDsWithReservedSeats_ListsEachWorkshopOnce(t *testing.T) {
+func TestWorkshopIDsWithExpiredSeats_ListsEachWorkshopOnce(t *testing.T) {
 	ctx := context.Background()
 	s := store.TestStore(t)
-	if ids, err := s.WorkshopIDsWithReservedSeats(ctx); err != nil || ids == nil || len(ids) != 0 {
-		t.Fatalf("WorkshopIDsWithReservedSeats on an empty database = %v, %v; want an empty list", ids, err)
+	if ids, err := s.WorkshopIDsWithExpiredSeats(ctx, baseTime); err != nil || ids == nil || len(ids) != 0 {
+		t.Fatalf("WorkshopIDsWithExpiredSeats on an empty database = %v, %v; want an empty list", ids, err)
 	}
 
 	two, _, _ := newWorkshop(t, s, 1, 6)
@@ -798,21 +798,22 @@ func TestWorkshopIDsWithReservedSeats_ListsEachWorkshopOnce(t *testing.T) {
 	newWorkshop(t, s, 1, 6)
 
 	reserve(t, s, two, twoP, newParticipant(t, s, two, "Expired").ID, baseTime)
-	reserve(t, s, two, twoP, newParticipant(t, s, two, "Live").ID, baseTime.Add(2*time.Hour))
+	reserve(t, s, two, twoP, newParticipant(t, s, two, "Also expired").ID, baseTime)
+	reserve(t, s, one, oneP, newParticipant(t, s, one, "Expired").ID, baseTime)
 	reserve(t, s, one, oneP, newParticipant(t, s, one, "Live").ID, baseTime.Add(2*time.Hour))
 	held := reserve(t, s, authorized, authorizedP, newParticipant(t, s, authorized, "Authorized").ID, baseTime)
 	mustTransition(t, s, held.ID, []domain.EnrollmentStatus{domain.EnrollmentSeatReserved}, domain.EnrollmentAuthorized)
 	gone := reserve(t, s, released, releasedP, newParticipant(t, s, released, "Released").ID, baseTime)
 	mustTransition(t, s, gone.ID, []domain.EnrollmentStatus{domain.EnrollmentSeatReserved}, domain.EnrollmentReleased)
 
-	ids, err := s.WorkshopIDsWithReservedSeats(ctx)
+	ids, err := s.WorkshopIDsWithExpiredSeats(ctx, baseTime.Add(time.Hour))
 	if err != nil {
-		t.Fatalf("WorkshopIDsWithReservedSeats: %v", err)
+		t.Fatalf("WorkshopIDsWithExpiredSeats: %v", err)
 	}
 	want := []string{two.ID, one.ID}
 	slices.Sort(want)
 	if !slices.Equal(ids, want) {
-		t.Errorf("WorkshopIDsWithReservedSeats = %v, want %v (each workshop with a SEAT_RESERVED enrollment once, expired or not)", ids, want)
+		t.Errorf("WorkshopIDsWithExpiredSeats = %v, want %v (each workshop with an expired SEAT_RESERVED seat, once)", ids, want)
 	}
 }
 
@@ -944,5 +945,49 @@ func TestSchema_RejectsUnknownStatuses(t *testing.T) {
 		if !errors.As(err, &pgErr) || pgErr.Code != "23514" {
 			t.Errorf("%s: err = %v, want a check violation (23514)", q, err)
 		}
+	}
+}
+
+func TestReleaseExpiredSeats_AgreesWithDomainSeatExpired(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	en := newEnrollment(t, s)
+
+	for _, now := range []time.Time{en.SeatExpiresAt, en.SeatExpiresAt.Add(time.Second)} {
+		n, err := s.ReleaseExpiredSeats(ctx, en.WorkshopID, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := domain.SeatExpired(en.SeatExpiresAt, now); (n == 1) != want {
+			t.Errorf("ReleaseExpiredSeats at %s released %d; domain.SeatExpired = %v", now, n, want)
+		}
+	}
+}
+
+func TestWorkshopIDsWithExpiredSeats_OnlyWhenASeatCanBeReleased(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	en := newEnrollment(t, s)
+
+	ids, err := s.WorkshopIDsWithExpiredSeats(ctx, en.SeatExpiresAt.Add(-time.Second))
+	if err != nil || len(ids) != 0 {
+		t.Fatalf("before the expiry = %v, %v; want none", ids, err)
+	}
+	if ids, err = s.WorkshopIDsWithExpiredSeats(ctx, en.SeatExpiresAt); err != nil || len(ids) != 0 {
+		t.Fatalf("at the expiry instant = %v, %v; want none: the seat still holds", ids, err)
+	}
+	ids, err = s.WorkshopIDsWithExpiredSeats(ctx, en.SeatExpiresAt.Add(time.Second))
+	if err != nil || len(ids) != 1 || ids[0] != en.WorkshopID {
+		t.Fatalf("after the expiry = %v, %v; want the workshop", ids, err)
+	}
+	a, err := s.CreateAttempt(ctx, en.ID, 1000, "USD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Pool.Exec(ctx, `update payment_attempts set authorization_status = 'PENDING' where id = $1`, a.ID); err != nil {
+		t.Fatal(err)
+	}
+	if ids, err = s.WorkshopIDsWithExpiredSeats(ctx, en.SeatExpiresAt.Add(time.Hour)); err != nil || len(ids) != 0 {
+		t.Fatalf("a seat kept for a PENDING authorization = %v, %v; want none: nothing to release", ids, err)
 	}
 }

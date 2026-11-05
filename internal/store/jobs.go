@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -55,10 +56,37 @@ const jobCols = `id, kind, idempotency_key, workshop_id, attempt_id, payload, st
 
 // jobBackoff is how long RetryJob waits before the next run, indexed by the
 // number of attempts already made minus one. A job whose attempts reach
-// maxJobAttempts is parked as needs_attention instead.
+// maxJobAttempts is parked as needs_attention instead, unless its kind
+// retries forever (RetriesForever): such a job waits 30 minutes after its
+// fifth attempt and an hour after each later one.
 var jobBackoff = [...]time.Duration{5 * time.Second, 30 * time.Second, 2 * time.Minute, 10 * time.Minute}
 
 const maxJobAttempts = len(jobBackoff) + 1
+
+// foreverKinds retry forever with the same key instead of parking: voids and
+// refunds give money back, and a reconcile, a close or a seat release only
+// reads or decides. Their failures here are never ambiguous at PayPal (an
+// ambiguous one is reconciled instead), so sending again is safe.
+var foreverKinds = []string{KindVoid, KindRefund, KindReconcile, KindClose, KindReleaseSeats}
+
+// RetriesForever reports whether a job of this kind retries forever instead
+// of parking as needs_attention.
+func RetriesForever(kind string) bool { return slices.Contains(foreverKinds, kind) }
+
+// retryDelay is the wait before a job's next run after `attempts` attempts,
+// and whether it parks instead.
+func retryDelay(kind string, attempts int) (delay time.Duration, park bool) {
+	switch {
+	case attempts < maxJobAttempts:
+		return jobBackoff[max(attempts, 1)-1], false
+	case !RetriesForever(kind):
+		return 0, true
+	case attempts == maxJobAttempts:
+		return 30 * time.Minute, false
+	default:
+		return time.Hour, false
+	}
+}
 
 // EnqueueJob adds a pending job that runs at runAt, with payload marshalled as
 // JSON (nil is stored as {}). The idempotency key is unique: when a job with
@@ -160,7 +188,8 @@ func (s *Store) CompleteJob(ctx context.Context, id string, httpStatus *int) err
 func (s *Store) RetryJob(ctx context.Context, id string, now time.Time, lastError string, httpStatus *int, issue, debugID *string) (needsAttention bool, err error) {
 	err = pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 		var attempts int
-		err := tx.QueryRow(ctx, `select attempts from jobs where id = $1 and status = $2 for update`, id, JobRunning).Scan(&attempts)
+		var kind string
+		err := tx.QueryRow(ctx, `select attempts, kind from jobs where id = $1 and status = $2 for update`, id, JobRunning).Scan(&attempts, &kind)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return jobMissError(ctx, tx, "retry job", id)
 		}
@@ -169,12 +198,15 @@ func (s *Store) RetryJob(ctx context.Context, id string, now time.Time, lastErro
 		}
 		status := JobNeedsAttention
 		var runAt *time.Time
-		if attempts < maxJobAttempts {
+		delay, park := retryDelay(kind, attempts)
+		if !park {
 			status = JobPending
-			next := now.Add(jobBackoff[max(attempts, 1)-1])
+			next := now.Add(delay)
 			runAt = &next
 		}
-		needsAttention = status == JobNeedsAttention
+		// A job that parks, or one that retries forever at its fifth
+		// attempt, asks the caller to flag it for an operator once.
+		needsAttention = park || attempts == maxJobAttempts
 		_, err = tx.Exec(ctx,
 			`update jobs set status = $2, run_at = coalesce($3, run_at), last_error = $4, http_status = $5,
 				provider_issue = $6, debug_id = $7,
@@ -380,12 +412,12 @@ const abandonedReason = "abandoned by its worker after the last attempt"
 func (s *Store) RequeueStale(ctx context.Context, now time.Time, olderThan time.Duration) (int, error) {
 	tag, err := s.Pool.Exec(ctx,
 		`update jobs set
-			status = case when attempts >= $3 then $5 else $6 end,
-			run_at = case when attempts >= $3 then run_at else $1 end,
-			last_error = case when attempts >= $3 then $4 else last_error end,
+			status = case when attempts >= $3 and not kind = any($8) then $5 else $6 end,
+			run_at = case when attempts >= $3 and not kind = any($8) then run_at else $1 end,
+			last_error = case when attempts >= $3 and not kind = any($8) then $4 else last_error end,
 			locked_at = null, locked_by = null, updated_at = now()
 		 where status = $7 and locked_at < $2`,
-		now, now.Add(-olderThan), maxJobAttempts, abandonedReason, JobNeedsAttention, JobPending, JobRunning)
+		now, now.Add(-olderThan), maxJobAttempts, abandonedReason, JobNeedsAttention, JobPending, JobRunning, foreverKinds)
 	if err != nil {
 		return 0, wrap("requeue stale jobs", err)
 	}

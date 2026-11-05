@@ -66,7 +66,8 @@ affect.
 - **One set of rules.** Every tool calls the same JSON API the web app uses,
   in process, so validation, limits, capability checks and the payment rules
   are shared. Requests to `/mcp` are rate-limited per client address like any
-  other write; the in-process calls behind them are not counted twice.
+  other write; the in-process calls behind them are not counted twice, and
+  JSON-RPC batches are refused, so one request is one tool call.
 - **Every answer says what to do next.** Each result carries a `next` field
   worded for the assistant, such as "show this reading to the person and ask
   them to confirm it".

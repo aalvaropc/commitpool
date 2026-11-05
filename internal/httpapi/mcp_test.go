@@ -1,7 +1,9 @@
 package httpapi_test
 
 import (
+	"bytes"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strings"
@@ -300,4 +302,40 @@ func (e *env) ownerByLink(link string) ownerViewJSON {
 	var v ownerViewJSON
 	e.call("GET", "/api/v1/owner/"+link[strings.LastIndex(link, "/")+1:], nil, 200, &v)
 	return v
+}
+
+func TestMCP_BatchRequestsRefused(t *testing.T) {
+	e := newEnv(t, withRateLimit(2))
+	var batch []map[string]any
+	for i := range 20 {
+		batch = append(batch, map[string]any{
+			"jsonrpc": "2.0", "id": i + 1, "method": "tools/call",
+			"params": map[string]any{"name": "create_workshop", "arguments": map[string]any{
+				"title": "Batch", "duration_min": 60, "timezone": "UTC", "minimum": 1, "capacity": 2,
+				"price": "10.00", "currency": "USD",
+				"date_starts": []string{satStart.Format(time.RFC3339), sunStart.Format(time.RFC3339)},
+			}},
+		})
+	}
+	raw, err := json.Marshal(batch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequestWithContext(e.ctx, http.MethodPost, "/mcp", bytes.NewReader(append([]byte(" \n"), raw...)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	req.RemoteAddr = "203.0.113.7:4000"
+	rec := httptest.NewRecorder()
+	e.h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("batch POST /mcp = %d %s, want 400", rec.Code, rec.Body.String())
+	}
+	var n int
+	if err := e.st.Pool.QueryRow(e.ctx, `select count(*) from workshops`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("workshops created by one rate-limited batch = %d, want 0", n)
+	}
 }

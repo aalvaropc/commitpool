@@ -79,11 +79,33 @@ func (s *Server) Attach(api http.Handler) { s.api = api }
 // MCP is the underlying protocol server, for a transport other than HTTP.
 func (s *Server) MCP() *mcp.Server { return s.srv }
 
+// maxBody caps one request to /mcp.
+const maxBody = 64 << 10
+
 // HTTPHandler serves the server over streamable HTTP, statelessly and with
-// plain JSON answers, so any request can reach any instance.
+// plain JSON answers, so any request can reach any instance. JSON-RPC
+// batches are refused: the rate limit counts requests, and one batch would
+// run many tool calls under one.
 func (s *Server) HTTPHandler() http.Handler {
-	return mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return s.srv },
-		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true, MaxRequestBodyBytes: 64 << 10})
+	h := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return s.srv },
+		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true, MaxRequestBodyBytes: maxBody})
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.Body != nil {
+			body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBody))
+			if err != nil {
+				http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+				return
+			}
+			if trimmed := bytes.TrimLeft(body, " \t\r\n"); len(trimmed) > 0 && trimmed[0] == '[' {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"batch requests are not supported; send one request at a time"}}`))
+				return
+			}
+			r.Body = io.NopCloser(bytes.NewReader(body))
+		}
+		h.ServeHTTP(w, r)
+	})
 }
 
 const instructions = `CommitPool runs paid workshops that only happen when enough people commit.

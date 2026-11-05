@@ -1,4 +1,4 @@
-.PHONY: db-up db-down test web-build run seed
+.PHONY: db-up db-down test check web-build run seed
 
 db-up:
 	docker compose -f deploy/compose.yaml up -d --wait
@@ -8,7 +8,14 @@ db-down:
 
 test:
 	export TEST_DATABASE_URL='postgres://commitpool:commitpool@localhost:55432/commitpool_test?sslmode=disable'; \
-	go test ./...
+	go test -race ./...
+
+# gofmt, vet, staticcheck and govulncheck, the last two at pinned versions.
+check:
+	gofmt -l . | (! grep .)
+	go vet ./...
+	go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
+	go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
 web-build:
 	pnpm -C web install --frozen-lockfile

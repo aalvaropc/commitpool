@@ -12,17 +12,6 @@ import (
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
-// unknownCapture runs the authorized attempt's capture into an ambiguous 503,
-// which leaves the job unknown.
-func (e *env) unknownCapture(a store.AttemptRow) string {
-	e.t.Helper()
-	e.fake.FailNext("capture", 503, "")
-	key := e.enqueue("capture", a)
-	e.runKey(key)
-	e.wantJob(key, "unknown")
-	return key
-}
-
 // unknownAuthorize runs the attempt's authorize into an ambiguous 503 after
 // the buyer approved, which leaves the job unknown and the seat reserved.
 func (e *env) unknownAuthorize(a store.AttemptRow) string {

@@ -57,3 +57,22 @@ func TestMoney_ParseAndString(t *testing.T) {
 		})
 	}
 }
+
+func FuzzParseMoney(f *testing.F) {
+	for _, seed := range []string{"10.00", "0.01", "1", "-1.00", "10.001", "1e3", " 5.00", "99999999999999999999.99", ""} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, value string) {
+		m, err := domain.ParseMoney(value, "usd")
+		if err != nil {
+			return
+		}
+		if m.Minor < 0 || m.Currency != "USD" {
+			t.Fatalf("ParseMoney(%q) = %+v, want a non-negative USD amount", value, m)
+		}
+		again, err := domain.ParseMoney(m.String(), "USD")
+		if err != nil || again != m {
+			t.Fatalf("ParseMoney(%q) = %+v, but %q reads back as %+v, %v", value, m, m.String(), again, err)
+		}
+	})
+}

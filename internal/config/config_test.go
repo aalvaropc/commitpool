@@ -218,10 +218,11 @@ func TestConfig_LogValueAndStringRedactSecrets(t *testing.T) {
 			var logged strings.Builder
 			slog.New(slog.NewJSONHandler(&logged, nil)).Info("starting", "config", cfg)
 			renderings := map[string]string{
-				"slog":  logged.String(),
-				"%v":    fmt.Sprintf("%v", cfg),
-				"%+v":   fmt.Sprintf("%+v", cfg),
-				"%#v":   fmt.Sprintf("%#v", cfg),
+				"slog": logged.String(),
+				"%v":   fmt.Sprintf("%v", cfg),
+				"%+v":  fmt.Sprintf("%+v", cfg),
+				"%#v":  fmt.Sprintf("%#v", cfg),
+				//lint:ignore S1025 the test checks what every fmt verb prints
 				"%s":    fmt.Sprintf("%s", cfg),
 				"Print": fmt.Sprint(cfg),
 			}

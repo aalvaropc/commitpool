@@ -60,12 +60,6 @@ resource "aws_iam_role" "task" {
 
 data "aws_iam_policy_document" "task" {
   statement {
-    sid       = "BedrockMantle"
-    actions   = ["bedrock-mantle:CreateInference"]
-    resources = ["*"]
-  }
-
-  statement {
     sid     = "BedrockInvokeAnthropic"
     actions = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
     resources = [

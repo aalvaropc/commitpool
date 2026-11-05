@@ -6,9 +6,9 @@
 # Full image URI with tag; empty uses <ecr_repository_url>:latest.
 # image = "123456789012.dkr.ecr.us-east-1.amazonaws.com/commitpool:v1"
 
-# bedrock_model          = "anthropic.claude-opus-5-5"
-# bedrock_fallback_model = "anthropic.claude-opus-4-8"
-# bedrock_effort         = "low"
+# bedrock_model          = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+# bedrock_fallback_model = "none"
+# bedrock_effort         = "none"
 # seat_ttl_min           = 30
 
 # db_instance_class = "db.t4g.micro"

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"os"
 	"strings"
 	"time"
 
@@ -14,12 +15,20 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/v2/bedrock"
 	"github.com/anthropics/anthropic-sdk-go/v2/lib/betafallback"
 	"github.com/anthropics/anthropic-sdk-go/v2/option"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 
 	"github.com/aalvaropc/commitpool/internal/domain"
 )
 
 const (
 	bedrockProvider = "bedrock"
+
+	// bedrockAPIVersion is the anthropic_version InvokeModel accepts; it
+	// rejects the first-party API versions the SDK sends by default.
+	bedrockAPIVersion = "bedrock-2023-05-31"
+
+	credentialTimeout = 10 * time.Second
 
 	interpretMaxTokens = 2048
 	explainMaxTokens   = 2048
@@ -36,7 +45,8 @@ var (
 )
 
 // BedrockConfig selects Claude on Amazon Bedrock. Model and FallbackModel are
-// Bedrock model IDs such as "anthropic.claude-opus-5-5"; FallbackModel
+// Bedrock model or inference profile IDs such as
+// "us.anthropic.claude-sonnet-4-5-20250929-v1:0"; FallbackModel
 // answers a request Model declines, and an empty one disables the fallback.
 // Effort is the output_config.effort of every call (low, medium, high, xhigh
 // or max); an empty one sends none. A nil Log uses slog.Default.
@@ -49,7 +59,8 @@ type BedrockConfig struct {
 }
 
 // Bedrock is the Interpreter backed by Claude on Amazon Bedrock, through the
-// Bedrock Mantle endpoint (the Messages API). Readings come back as strict
+// Bedrock runtime (InvokeModel with a Messages API body, signed with SigV4).
+// Readings come back as strict
 // structured output and are checked again against InterpretationSchema; the
 // server, not the model, computes compatibility and the recommendation.
 type Bedrock struct {
@@ -66,10 +77,21 @@ var _ Interpreter = (*Bedrock)(nil)
 // here, so a missing credential fails at startup rather than on the first
 // message.
 func NewBedrock(ctx context.Context, cfg BedrockConfig) (*Bedrock, error) {
-	return newBedrock(ctx, cfg, bedrock.MantleClientConfig{AWSRegion: cfg.Region})
+	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(cfg.Region))
+	if err != nil {
+		return nil, fmt.Errorf("ai: bedrock client: %w", err)
+	}
+	if os.Getenv("AWS_BEARER_TOKEN_BEDROCK") == "" {
+		rctx, cancel := context.WithTimeout(ctx, credentialTimeout)
+		defer cancel()
+		if _, err := awsCfg.Credentials.Retrieve(rctx); err != nil {
+			return nil, fmt.Errorf("ai: bedrock client: failed to resolve AWS credentials: %w", err)
+		}
+	}
+	return newBedrock(cfg, awsCfg)
 }
 
-func newBedrock(ctx context.Context, cfg BedrockConfig, mantle bedrock.MantleClientConfig, opts ...option.RequestOption) (*Bedrock, error) {
+func newBedrock(cfg BedrockConfig, awsCfg aws.Config, opts ...option.RequestOption) (*Bedrock, error) {
 	if cfg.Model == "" {
 		return nil, errors.New("ai: bedrock needs a model id")
 	}
@@ -86,14 +108,14 @@ func newBedrock(ctx context.Context, cfg BedrockConfig, mantle bedrock.MantleCli
 		fallbacks = []anthropic.BetaFallbackParam{{Model: cfg.FallbackModel}}
 	}
 	// The refusal fallback must be the first middleware: it needs the request
-	// as the Messages API shapes it.
+	// as the Messages API shapes it, before the Bedrock middleware rewrites it
+	// for InvokeModel and signs it.
 	opts = append([]option.RequestOption{
 		option.WithMiddleware(betafallback.BetaRefusalFallbackMiddleware(fallbacks)),
+		bedrock.WithConfig(awsCfg),
+		option.WithJSONSet("anthropic_version", bedrockAPIVersion),
 	}, opts...)
-	client, err := bedrock.NewMantleClient(ctx, mantle, opts...)
-	if err != nil {
-		return nil, fmt.Errorf("ai: bedrock client: %w", err)
-	}
+	client := anthropic.NewClient(opts...)
 	return &Bedrock{messages: client.Beta.Messages, model: cfg.Model, effort: anthropic.BetaOutputConfigEffort(cfg.Effort), log: cfg.Log}, nil
 }
 

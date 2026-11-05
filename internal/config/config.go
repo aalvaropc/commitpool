@@ -16,10 +16,10 @@ const (
 	// DefaultBedrockModel is the Bedrock model that reads availability and
 	// explains recommendations; DefaultBedrockFallbackModel answers when it
 	// declines a request.
-	DefaultBedrockModel         = "anthropic.claude-opus-5-5"
-	DefaultBedrockFallbackModel = "anthropic.claude-opus-4-8"
-	// defaultBedrockEffort keeps a reading and an explanation quick.
-	defaultBedrockEffort = "low"
+	DefaultBedrockModel         = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+	DefaultBedrockFallbackModel = ""
+	// defaultBedrockEffort sends no effort: Claude Sonnet 4.5 does not take one.
+	defaultBedrockEffort = "none"
 
 	AIProviderBedrock = "bedrock"
 	AIProviderFake    = "fake"

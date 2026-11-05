@@ -33,14 +33,14 @@ func TestLoad_DefaultsAndRequired(t *testing.T) {
 	if cfg.PayPalBaseURL != "https://api-m.sandbox.paypal.com" {
 		t.Errorf("PayPalBaseURL = %q", cfg.PayPalBaseURL)
 	}
-	if cfg.BedrockModel != "anthropic.claude-opus-5-5" {
-		t.Errorf("BedrockModel = %q", cfg.BedrockModel)
+	if cfg.BedrockModel != "us.anthropic.claude-sonnet-4-5-20250929-v1:0" {
+		t.Errorf("BedrockModel = %q, want Claude Sonnet 4.5 through the US inference profile", cfg.BedrockModel)
 	}
-	if cfg.BedrockFallbackModel != "anthropic.claude-opus-4-8" {
-		t.Errorf("BedrockFallbackModel = %q", cfg.BedrockFallbackModel)
+	if cfg.BedrockFallbackModel != "" {
+		t.Errorf("BedrockFallbackModel = %q, want no fallback by default", cfg.BedrockFallbackModel)
 	}
-	if cfg.BedrockEffort != "low" {
-		t.Errorf("BedrockEffort = %q, want low", cfg.BedrockEffort)
+	if cfg.BedrockEffort != "" {
+		t.Errorf("BedrockEffort = %q, want none by default: Sonnet 4.5 takes no effort", cfg.BedrockEffort)
 	}
 	if cfg.SeatTTL != 30*time.Minute {
 		t.Errorf("SeatTTL = %v", cfg.SeatTTL)

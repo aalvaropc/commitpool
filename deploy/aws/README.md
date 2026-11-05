@@ -26,7 +26,7 @@ buyer ──HTTPS──▶ CloudFront ──HTTP:80──▶ ALB ──:8080─�
   Anthropic models need, once per account, the use-case form and the model
   agreement accepted in the Bedrock console. Until then every call answers
   403 and
-  `aws bedrock get-foundation-model-availability --model-id anthropic.claude-opus-5-5`
+  `aws bedrock get-foundation-model-availability --model-id anthropic.claude-sonnet-4-5-20250929-v1:0`
   shows `"agreementAvailability": {"status": "NOT_AVAILABLE"}`.
 - A PayPal Sandbox REST app: its client id and secret.
 - `curl` and `jq`, for `scripts/register-webhook.sh`.
@@ -68,13 +68,13 @@ and `COMMITPOOL_SEAT_TTL_MIN` as plain environment variables, and `DATABASE_URL`
   (the CloudFront domain). The ALB has a single forward action and does not
   route on `Host`, and the app never reads it (its links come from
   `COMMITPOOL_BASE_URL`), so `AllViewerExceptHostHeader` is not needed.
-- **Bedrock permissions.** The app calls Claude through the Bedrock Mantle
-  endpoint with the task role's credentials. The task role allows
-  `bedrock-mantle:CreateInference` on `*` (no narrower resource pattern for
-  that service is certain) and `bedrock:InvokeModel` and
-  `bedrock:InvokeModelWithResponseStream` on Anthropic foundation models in any
-  region (`foundation-model/anthropic.*`, so cross-region routing works) and on
-  the account's inference profiles. The only other wildcard is
+- **Bedrock permissions.** The app calls Claude through the Bedrock runtime
+  (`InvokeModel`) with the task role's credentials, by default Claude Sonnet
+  4.5 through the `us.` inference profile. The task role allows
+  `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream` on
+  Anthropic foundation models in any region (`foundation-model/anthropic.*`,
+  so the profile's cross-region routing works) and on the account's
+  inference profiles. The only other wildcard is
   `ecr:GetAuthorizationToken`, which has no resource-level scope.
 - **Placeholder secrets.** The three PayPal secrets are created with a single
   space as their value, and Terraform ignores later changes to them. The app

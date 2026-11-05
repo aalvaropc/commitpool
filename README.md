@@ -112,7 +112,7 @@ mock header is refused outside the Sandbox.
 - React + TypeScript single-page app built with Vite (`web/`), embedded into the
   Go binary with `go:embed`
 - SQL migrations (`migrations/`) embedded and applied on startup
-- Anthropic Go SDK against the Bedrock Mantle endpoint
+- Claude Sonnet 4.5 on Amazon Bedrock through the Anthropic Go SDK
 - Terraform for AWS; Playwright for the end-to-end journeys
 
 ## Run it locally
@@ -160,8 +160,8 @@ one of them with its default. Secrets are only ever read from the environment.
 | `PAYPAL_WEBHOOK_ID` | Id of the Sandbox webhook pointing at `/paypal/webhook` (`scripts/register-webhook.sh` creates it). Without it the webhook endpoint answers 503 and the periodic reconcile does the work alone. |
 | `COMMITPOOL_AI_PROVIDER` | `bedrock` (default) or `fake`, the deterministic keyword interpreter for tests and demos. |
 | `AWS_REGION` | Required unless `COMMITPOOL_AI_PROVIDER=fake`. |
-| `COMMITPOOL_BEDROCK_MODEL`, `COMMITPOOL_BEDROCK_FALLBACK_MODEL` | Bedrock model IDs; default `anthropic.claude-opus-5-5` and `anthropic.claude-opus-4-8`. `none` as the fallback model turns the refusal fallback off. |
-| `COMMITPOOL_BEDROCK_EFFORT` | Effort for every Bedrock call: `low` (default), `medium`, `high`, `xhigh`, `max`, or `none` to send no effort. |
+| `COMMITPOOL_BEDROCK_MODEL`, `COMMITPOOL_BEDROCK_FALLBACK_MODEL` | Bedrock model or inference profile IDs. The model defaults to Claude Sonnet 4.5 through the US inference profile, `us.anthropic.claude-sonnet-4-5-20250929-v1:0`; the fallback model defaults to none, which turns the refusal fallback off. |
+| `COMMITPOOL_BEDROCK_EFFORT` | Effort for every Bedrock call: `none` (default; Sonnet 4.5 takes no effort), or `low`, `medium`, `high`, `xhigh`, `max` for a model that takes one. |
 | `COMMITPOOL_SEAT_TTL_MIN` | Minutes a reserved seat is held while the buyer approves at PayPal (default `30`). |
 | `COMMITPOOL_DEMO_MODE` | `1` enables the organizer's **Close payments now** control. |
 | `COMMITPOOL_SANDBOX_MOCKS` | `1` enables **Fail next charge** and the `PayPal-Mock-Response` header; rejected unless `PAYPAL_BASE_URL` is a sandbox URL. |
@@ -171,9 +171,9 @@ one of them with its default. Secrets are only ever read from the environment.
 
 Participants describe their availability in plain language. With
 `COMMITPOOL_AI_PROVIDER=bedrock`, Claude on Amazon Bedrock reads each message
-into one verdict per candidate date, through the Bedrock Mantle endpoint
-(`https://bedrock-mantle.{region}.api.aws/anthropic`, the Messages API) of the
-Anthropic Go SDK. The answer is strict structured output: a JSON schema with
+into one verdict per candidate date. The model is Claude Sonnet 4.5, called
+through the Bedrock runtime (`InvokeModel` with a Messages API body, signed
+with SigV4) by the Anthropic Go SDK. The answer is strict structured output: a JSON schema with
 every object closed and the candidate dates as an enum. The server validates
 it again before keeping it, so a reading with an extra field or an unknown
 date is refused. The message is data, never instructions, and the schema has
@@ -183,15 +183,15 @@ compatible for whom and which date to recommend; the model only writes the
 owner's one-paragraph explanation of that recommendation (at most 80 words).
 The owner view never waits for it: the explanation is written once per input
 in the background and kept in memory, and until it is ready the view answers
-with `explanation_pending: true`. If the model declines a request, the SDK's
-client-side refusal fallback retries it once on the fallback model.
+with `explanation_pending: true`. With a fallback model configured, the
+SDK's client-side refusal fallback retries a declined request once on it.
 
-Model IDs on Bedrock carry the `anthropic.` prefix (`anthropic.claude-opus-5-5`).
-If Bedrock answers 400 or 404 for that ID, first try the bare form,
-`COMMITPOOL_BEDROCK_MODEL=claude-opus-5-5` (and
-`COMMITPOOL_BEDROCK_FALLBACK_MODEL=claude-opus-4-8`): the SDK's own Mantle
-tests use bare IDs. If that fails too, copy the ID from the Bedrock console's
-model catalog for your region. To use Bedrock:
+Claude Sonnet 4.5 is served on Bedrock only through inference profiles: use
+`us.anthropic.claude-sonnet-4-5-20250929-v1:0` (US regions) or
+`global.anthropic.claude-sonnet-4-5-20250929-v1:0`; the bare
+`anthropic.claude-sonnet-4-5-20250929-v1:0` is refused for on-demand calls.
+Bedrock lists Sonnet 4.5 as a legacy model, available until April 2027. To
+use Bedrock:
 
 1. Run `aws configure` (or set `AWS_PROFILE`, or `AWS_ACCESS_KEY_ID` and
    `AWS_SECRET_ACCESS_KEY`) and pick a region where the model is offered, then

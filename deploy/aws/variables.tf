@@ -24,19 +24,19 @@ variable "image" {
 variable "bedrock_model" {
   description = "Bedrock model id (COMMITPOOL_BEDROCK_MODEL)."
   type        = string
-  default     = "anthropic.claude-opus-5-5"
+  default     = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
 }
 
 variable "bedrock_fallback_model" {
   description = "Bedrock model that answers when the main model declines a request, or none (COMMITPOOL_BEDROCK_FALLBACK_MODEL)."
   type        = string
-  default     = "anthropic.claude-opus-4-8"
+  default     = "none"
 }
 
 variable "bedrock_effort" {
   description = "Effort for every Bedrock call: low, medium, high, xhigh, max or none (COMMITPOOL_BEDROCK_EFFORT)."
   type        = string
-  default     = "low"
+  default     = "none"
 
   validation {
     condition     = contains(["low", "medium", "high", "xhigh", "max", "none"], var.bedrock_effort)

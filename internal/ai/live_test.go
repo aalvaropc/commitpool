@@ -34,7 +34,7 @@ func TestBedrock_Live(t *testing.T) {
 	}
 	model := envOr("COMMITPOOL_BEDROCK_MODEL", config.DefaultBedrockModel)
 	fallback := envOr("COMMITPOOL_BEDROCK_FALLBACK_MODEL", config.DefaultBedrockFallbackModel)
-	effort := envOr("COMMITPOOL_BEDROCK_EFFORT", "low")
+	effort := envOr("COMMITPOOL_BEDROCK_EFFORT", "none")
 	if effort == "none" {
 		effort = ""
 	}

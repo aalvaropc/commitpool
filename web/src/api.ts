@@ -99,7 +99,9 @@ export interface Enrollment {
   status_label: string
   seat_expires_at: string
   approval_cancelled_at: string | null
-  /** The seat waits on the organizer's check (operator actions); it keeps its status meanwhile. */
+  /** Where the money is: the same as status, except for a flagged seat, whose status reads NEEDS_ATTENTION. */
+  money_status?: EnrollmentStatus
+  /** The seat waits on the organizer's check (operator actions); it keeps its money_status meanwhile. */
   needs_attention?: boolean
   payment: Payment | null
 }

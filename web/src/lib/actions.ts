@@ -42,11 +42,15 @@ export function withdrawKind(
 
 export type OperatorAction = 'reconcile' | 'retry_refund' | 'clear'
 
-/** The organizer's operator actions for a seat: a PayPal check and clearing for a flagged one, a retry for a failed refund. */
-export function operatorActions(e: { status: EnrollmentStatus; needs_attention?: boolean }): OperatorAction[] {
+/**
+ * The organizer's operator actions for a seat: a PayPal check and clearing for
+ * a flagged one, a retry for a failed refund. A flagged seat comes with status
+ * NEEDS_ATTENTION, so the refund is read from money_status.
+ */
+export function operatorActions(e: { status: EnrollmentStatus; money_status?: EnrollmentStatus; needs_attention?: boolean }): OperatorAction[] {
   const out: OperatorAction[] = []
   if (e.needs_attention) out.push('reconcile')
-  if (e.status === 'REFUND_FAILED') out.push('retry_refund')
+  if ((e.money_status ?? e.status) === 'REFUND_FAILED') out.push('retry_refund')
   if (e.needs_attention) out.push('clear')
   return out
 }

@@ -61,10 +61,15 @@ describe('operatorActions', () => {
     expect(operatorActions(en('VOIDED'))).toEqual([])
   })
   it('offers a PayPal check and clearing for a flagged seat', () => {
-    expect(operatorActions(en('VOIDING', { needs_attention: true }))).toEqual(['reconcile', 'clear'])
+    expect(operatorActions({ status: 'NEEDS_ATTENTION', money_status: 'VOIDING', needs_attention: true })).toEqual(['reconcile', 'clear'])
   })
   it('offers a refund retry for a failed refund, flagged or not', () => {
-    expect(operatorActions(en('REFUND_FAILED'))).toEqual(['retry_refund'])
-    expect(operatorActions(en('REFUND_FAILED', { needs_attention: true }))).toEqual(['reconcile', 'retry_refund', 'clear'])
+    expect(operatorActions({ status: 'REFUND_FAILED', money_status: 'REFUND_FAILED', needs_attention: false })).toEqual(['retry_refund'])
+    // A flagged seat comes as status NEEDS_ATTENTION; money_status says where the money is.
+    expect(operatorActions({ status: 'NEEDS_ATTENTION', money_status: 'REFUND_FAILED', needs_attention: true })).toEqual([
+      'reconcile',
+      'retry_refund',
+      'clear',
+    ])
   })
 })

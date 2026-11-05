@@ -214,7 +214,13 @@ func TestReconcile_AbandonedCaptureKeepsNoMoneyAfterTheClose(t *testing.T) {
 	e.enqueueClose()
 	e.runUntilIdle()
 
-	e.wantFlagged(en.ID, domain.EnrollmentRefunded)
-	wantString(t, "refund_status", e.attempt(a.ID).RefundStatus, "COMPLETED")
+	// PayPal never captured, and the cancelled workshop does not send the
+	// capture again: the hold is voided and the seat stays flagged.
+	if n := e.fake.Captures(); n != 0 {
+		t.Fatalf("captures at PayPal = %d, want 0", n)
+	}
+	e.wantFlagged(en.ID, domain.EnrollmentCaptureFailed)
+	wantString(t, "authorization", e.attempt(a.ID).AuthorizationStatus, "VOIDED")
+	wantString(t, "capture_issue", e.attempt(a.ID).CaptureIssue, "WORKSHOP_CANCELLED")
 	e.wantWorkshop(domain.WorkshopCancelled, domain.ResolutionNeedsAttention)
 }

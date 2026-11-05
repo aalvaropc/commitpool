@@ -582,7 +582,9 @@ func TestClose_RetryOnCancelledResolvingEnqueuesSameKeys(t *testing.T) {
 	e.runUntilIdle()
 	e.wantStatus(ana.ID, domain.EnrollmentRefunded)
 	e.wantStatus(ben.ID, domain.EnrollmentRefunded)
-	e.wantStatus(cleo.ID, domain.EnrollmentCaptureFailed)
+	// Cleo's queued capture is skipped in the cancelled workshop and her
+	// hold voided, never charged.
+	e.wantStatus(cleo.ID, domain.EnrollmentVoided)
 	wantString(t, "Cleo's authorization", e.attempt(a3.ID).AuthorizationStatus, "VOIDED")
 	e.wantStatus(dan.ID, domain.EnrollmentCapturePending)
 	if n := len(e.fake.Requests("void")); n != 1 {

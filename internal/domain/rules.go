@@ -22,6 +22,8 @@ var (
 	ErrPaidNoSelfRefund      = errors.New("a paid seat is refunded only if the workshop is cancelled")
 	ErrHoldUnderReview       = errors.New("PayPal is reviewing the hold")
 	ErrNeedsOperator         = errors.New("the enrollment needs an operator")
+	ErrNotRefundFailed       = errors.New("the enrollment's refund has not failed")
+	ErrStillUnresolved       = errors.New("something still needs an operator or is still in flight")
 )
 
 const minLeadAfterClose = 24 * time.Hour

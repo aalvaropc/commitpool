@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -339,4 +340,58 @@ func (s *Store) MarkOrderExpired(ctx context.Context, attemptID string) (marked 
 		return false, ErrNotFound
 	}
 	return false, nil
+}
+
+// RetryRefund sets a failed refund up to be sent again, in one transaction:
+// the enrollment must be REFUND_FAILED (domain.ErrNotRefundFailed
+// otherwise); its latest attempt keeps the failed refund's id in
+// failed_refund_ids and forgets the refund and any mock code; the
+// enrollment goes back to PAID with its flag cleared; and
+// refund:{attempt}:retry:{n} is enqueued due now. It returns that key. A new
+// key is safe: a failed or cancelled refund returned nothing, and PayPal
+// refuses a refund beyond what was captured.
+func (s *Store) RetryRefund(ctx context.Context, enrollmentID string, now time.Time) (string, error) {
+	var key string
+	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+		var status, workshopID string
+		if err := tx.QueryRow(ctx, `select status, workshop_id from enrollments where id = $1 for update`, enrollmentID).Scan(&status, &workshopID); err != nil {
+			return lookupErr("lock enrollment", err)
+		}
+		if status != string(domain.EnrollmentRefundFailed) {
+			return domain.ErrNotRefundFailed
+		}
+		var attemptID string
+		if err := tx.QueryRow(ctx, `select id from payment_attempts where enrollment_id = $1 order by attempt_no desc limit 1 for update`,
+			enrollmentID).Scan(&attemptID); err != nil {
+			return lookupErr("lock attempt", err)
+		}
+		var retries int
+		if err := tx.QueryRow(ctx, `select count(*) from jobs where attempt_id = $1 and kind = $2 and idempotency_key like $3`,
+			attemptID, KindRefund, JobKey(KindRefund, attemptID)+":retry:%").Scan(&retries); err != nil {
+			return wrap("count refund retries", err)
+		}
+		key = JobKey(KindRefund, attemptID) + ":retry:" + strconv.Itoa(retries+1)
+		if _, err := tx.Exec(ctx,
+			`update payment_attempts set
+				failed_refund_ids = case when refund_id is null then failed_refund_ids else array_append(failed_refund_ids, refund_id) end,
+				refund_id = null, refund_status = null, refund_reason = null, mock_code = null, updated_at = now()
+			 where id = $1`, attemptID); err != nil {
+			return wrap("reset refund", err)
+		}
+		if _, err := tx.Exec(ctx,
+			`update enrollments set status = $2, needs_attention_at = null, attention_reason = null, updated_at = now() where id = $1`,
+			enrollmentID, string(domain.EnrollmentPaid)); err != nil {
+			return wrap("enrollment back to paid", err)
+		}
+		if _, err := tx.Exec(ctx,
+			`insert into jobs (kind, idempotency_key, workshop_id, attempt_id, payload, run_at) values ($1, $2, $3, $4, '{}', $5)`,
+			KindRefund, key, workshopID, attemptID, now); err != nil {
+			return wrap("enqueue refund retry", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return key, nil
 }

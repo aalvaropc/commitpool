@@ -57,3 +57,21 @@ func TestCheckout_RefusesADateTheReadingRulesOut(t *testing.T) {
 		t.Errorf("date_incompatible without a message")
 	}
 }
+
+func TestOperatorRoutes_ActOnlyOnTheOwnersEnrollments(t *testing.T) {
+	e := newEnv(t)
+	_, p, ps := e.fundingWorkshop()
+	en, _ := e.checkout(ps[0], p.ID)
+	other := e.createWorkshop()
+
+	e.wantError(http.MethodPost, other.ownerPath+"/operator/reconcile", map[string]string{"enrollment_id": en.EnrollmentID}, http.StatusNotFound, "not_found")
+	e.wantError(http.MethodPost, other.ownerPath+"/operator/retry-refund", map[string]string{"enrollment_id": en.EnrollmentID}, http.StatusNotFound, "not_found")
+
+	var out struct {
+		Workshop workshopJSON `json:"workshop"`
+	}
+	e.call(http.MethodPost, other.ownerPath+"/operator/clear-flag", nil, http.StatusOK, &out)
+	if out.Workshop.Resolution != "OPEN" {
+		t.Errorf("clear-flag on a workshop with nothing flagged = %+v, want it left OPEN", out.Workshop)
+	}
+}

@@ -145,7 +145,7 @@ func TestConfirmed_EnrollmentNeedingAttentionFlagsTheWorkshop(t *testing.T) {
 		if err := e.runner.ApplyOrder(e.ctx, danAttempt.ID, paypal.Order{ID: "SECONDORDER", Status: "CREATED"}); err != nil {
 			t.Fatalf("ApplyOrder: %v", err)
 		}
-		e.wantStatus(dan.ID, domain.EnrollmentNeedsAttention)
+		e.wantFlagged(dan.ID, domain.EnrollmentSeatReserved)
 		// A funding workshop is not flagged for it: participants still pay.
 		e.wantWorkshop(domain.WorkshopFunding, domain.ResolutionOpen)
 
@@ -166,7 +166,7 @@ func TestHeal_ConfirmedWorkshopWithAnEnrollmentNeedingAttentionIsFlagged(t *test
 		t.Fatal(err)
 	}
 	// Ana was flagged, but the hook that flags the workshop never ran.
-	e.transition(ana.ID, domain.EnrollmentPaid, domain.EnrollmentNeedsAttention)
+	e.flag(ana.ID)
 	e.wantWorkshop(domain.WorkshopConfirmed, domain.ResolutionOpen)
 
 	if err := e.runner.HealWorkshop(e.ctx, e.workshop.ID); err != nil {
@@ -174,4 +174,64 @@ func TestHeal_ConfirmedWorkshopWithAnEnrollmentNeedingAttentionIsFlagged(t *test
 	}
 
 	e.wantWorkshop(domain.WorkshopConfirmed, domain.ResolutionNeedsAttention)
+}
+
+func TestEnroll_FlaggedParticipantCannotPlaceASecondHold(t *testing.T) {
+	e := newEnv(t)
+	en, _ := e.authorized("Ana")
+	e.flag(en.ID)
+
+	again, created, err := e.st.ReserveSeatAndCreateEnrollment(e.ctx, store.ReserveParams{
+		WorkshopID: e.workshop.ID, ParticipantID: en.ParticipantID, ProposalID: e.proposal.ID,
+		ConsentVersion: "consent-v1", Now: e.clock.Now(), SeatTTL: 30 * time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("ReserveSeatAndCreateEnrollment: %v", err)
+	}
+	if created || again.ID != en.ID {
+		t.Errorf("enrollment after a flag = %s (created %v); want the flagged %s back: its hold still counts", again.ID, created, en.ID)
+	}
+}
+
+func TestHeal_CancelledWorkshopRefundsAFlaggedPayment(t *testing.T) {
+	e := newEnv(t)
+	en, a := e.paid("Ana")
+	if err := e.runner.ApplyCapture(e.ctx, a.ID, paypal.Capture{ID: "SECONDCAPTURE", Status: "COMPLETED"}); err != nil {
+		t.Fatalf("ApplyCapture: %v", err)
+	}
+	e.wantFlagged(en.ID, domain.EnrollmentPaid)
+	e.moveWorkshop(domain.WorkshopFunding, domain.WorkshopCancelled, domain.ResolutionResolving)
+
+	if err := e.runner.HealWorkshop(e.ctx, e.workshop.ID); err != nil {
+		t.Fatalf("HealWorkshop: %v", err)
+	}
+
+	e.wantJob("refund:"+a.ID, "pending")
+	e.wantWorkshop(domain.WorkshopCancelled, domain.ResolutionNeedsAttention)
+}
+
+// An abandoned capture (no trace at PayPal after the last reconcile) keeps
+// its seat and its flag until the close, whose reconcile sends it once more:
+// at the close instant it still counts, so the buyer is charged and refunded
+// at once, and no money is kept.
+func TestReconcile_AbandonedCaptureKeepsNoMoneyAfterTheClose(t *testing.T) {
+	e := newEnv(t)
+	en, a := e.authorized("Ana")
+	key := e.enqueue("capture", a)
+	for gen := 1; gen <= 5; gen++ {
+		e.fake.FailNext("capture", 503, "")
+		e.runKey(key)
+		reconcileKey := "reconcile:" + a.ID + ":" + strconv.Itoa(gen)
+		e.clock.Set(e.job(reconcileKey).RunAt)
+		e.runKey(reconcileKey)
+	}
+	e.wantFlagged(en.ID, domain.EnrollmentCapturing)
+
+	e.clock.Set(e.proposal.ClosesAt)
+	e.enqueueClose()
+	e.runUntilIdle()
+
+	e.wantFlagged(en.ID, domain.EnrollmentRefunded)
+	wantString(t, "refund_status", e.attempt(a.ID).RefundStatus, "COMPLETED")
+	e.wantWorkshop(domain.WorkshopCancelled, domain.ResolutionNeedsAttention)
 }

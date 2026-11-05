@@ -899,3 +899,50 @@ func TestMarkApprovalCancelled_StampsOnlyAReservedSeat(t *testing.T) {
 		}
 	}
 }
+
+func TestFlagEnrollment_KeepsTheStatusAndIsSticky(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	en := newEnrollment(t, s)
+
+	first, err := s.FlagEnrollment(ctx, en.ID, "capture gave up")
+	if err != nil || !first {
+		t.Fatalf("FlagEnrollment = %v, %v; want a new flag", first, err)
+	}
+	again, err := s.FlagEnrollment(ctx, en.ID, "second reason")
+	if err != nil || again {
+		t.Fatalf("FlagEnrollment again = %v, %v; want no change: the first reason stays", again, err)
+	}
+	got, err := s.EnrollmentByID(ctx, en.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != domain.EnrollmentSeatReserved || got.NeedsAttentionAt == nil || got.AttentionReason == nil || *got.AttentionReason != "capture gave up" {
+		t.Fatalf("flagged enrollment = %s, at %v, reason %v; want SEAT_RESERVED flagged with the first reason", got.Status, got.NeedsAttentionAt, got.AttentionReason)
+	}
+
+	cleared, err := s.ClearEnrollmentFlag(ctx, en.ID)
+	if err != nil || !cleared {
+		t.Fatalf("ClearEnrollmentFlag = %v, %v; want cleared", cleared, err)
+	}
+	if got, _ = s.EnrollmentByID(ctx, en.ID); got.NeedsAttentionAt != nil || got.AttentionReason != nil {
+		t.Errorf("after clearing: at %v, reason %v; want neither", got.NeedsAttentionAt, got.AttentionReason)
+	}
+}
+
+func TestSchema_RejectsUnknownStatuses(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	en := newEnrollment(t, s)
+	for _, q := range []string{
+		`update workshops set status = 'BOGUS' where id = $1`,
+		`update workshops set resolution = 'BOGUS' where id = $1`,
+		`update enrollments set status = 'BOGUS' where workshop_id = $1`,
+	} {
+		_, err := s.Pool.Exec(ctx, q, en.WorkshopID)
+		var pgErr *pgconn.PgError
+		if !errors.As(err, &pgErr) || pgErr.Code != "23514" {
+			t.Errorf("%s: err = %v, want a check violation (23514)", q, err)
+		}
+	}
+}

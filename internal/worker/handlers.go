@@ -439,8 +439,14 @@ func (r *Runner) refund(ctx context.Context, job *store.Job) (*int, error) {
 		return statusOf(pe), r.ApplyRefund(ctx, a.ID, paypal.Refund{Status: paypal.StatusCompleted})
 	}
 	s.log.Error("PayPal refused the refund", "http_status", pe.HTTPStatus, "issue", pe.Issue, "debug_id", pe.DebugID)
-	if _, err := r.transition(ctx, s.log, s.enrollment.ID, move{statuses(domain.EnrollmentRefunding), domain.EnrollmentNeedsAttention}); err != nil {
+	moved, err = r.transition(ctx, s.log, s.enrollment.ID, move{statuses(domain.EnrollmentRefunding), domain.EnrollmentRefundFailed})
+	if err != nil {
 		return nil, err
+	}
+	if moved {
+		if err := r.flag(ctx, s.log, s.enrollment.ID, statuses(domain.EnrollmentRefundFailed), "PayPal refused the refund: "+pe.Issue); err != nil {
+			return nil, err
+		}
 	}
 	return refused(pe)
 }

@@ -43,20 +43,35 @@ and authorizations placed only while payments are open.
 
 | Status | Seat | Reached when | Next |
 |---|---|---|---|
-| `SEAT_RESERVED` | yes | The participant enrolls (capacity permitting), or a released seat is taken again. Also while PayPal holds the authorization `PENDING` (review): the seat is kept past its expiry and read back hourly, and the enrollment is labelled “Hold pending verification”. | `AUTHORIZED`, `RELEASED`, `CAPTURE_FAILED` (authorization denied), `NEEDS_ATTENTION` |
-| `AUTHORIZED` | yes | PayPal created the authorization. | `CAPTURING`, `VOIDING`, `VOIDED`, `PAID`, `CAPTURE_PENDING`, `CAPTURE_FAILED`, `NEEDS_ATTENTION` |
-| `CAPTURING` | yes | The capture job is about to call PayPal. | `PAID`, `CAPTURE_PENDING`, `CAPTURE_FAILED`, `NEEDS_ATTENTION` |
-| `CAPTURE_PENDING` | yes | PayPal reported the capture `PENDING`. | `PAID`, `CAPTURE_FAILED`, `NEEDS_ATTENTION` |
-| `PAID` | yes | The capture `COMPLETED`. | `REFUNDING`, `REFUND_PENDING`, `REFUNDED`, `NEEDS_ATTENTION` |
-| `VOIDING` | no | The void job is about to call PayPal for the enrollment's own hold. | `VOIDED`, `NEEDS_ATTENTION` |
-| `REFUNDING` | no | The refund job is about to call PayPal. | `REFUNDED`, `REFUND_PENDING`, `REFUND_FAILED`, `NEEDS_ATTENTION` |
-| `REFUND_PENDING` | no | PayPal reported the refund `PENDING`. | `REFUNDED`, `REFUND_FAILED`, `NEEDS_ATTENTION` |
+| `SEAT_RESERVED` | yes | The participant enrolls (capacity permitting), or a released seat is taken again. Also while PayPal holds the authorization `PENDING` (review): the seat is kept past its expiry and read back hourly, and the enrollment is labelled “Hold pending verification”. | `AUTHORIZED`, `RELEASED`, `CAPTURE_FAILED` (authorization denied) |
+| `AUTHORIZED` | yes | PayPal created the authorization. | `CAPTURING`, `VOIDING`, `VOIDED`, `PAID`, `CAPTURE_PENDING`, `CAPTURE_FAILED` |
+| `CAPTURING` | yes | The capture job is about to call PayPal. | `PAID`, `CAPTURE_PENDING`, `CAPTURE_FAILED` |
+| `CAPTURE_PENDING` | yes | PayPal reported the capture `PENDING`. | `PAID`, `CAPTURE_FAILED` |
+| `PAID` | yes | The capture `COMPLETED`. | `REFUNDING`, `REFUND_PENDING`, `REFUNDED` |
+| `VOIDING` | no | The void job is about to call PayPal for the enrollment's own hold. | `VOIDED` |
+| `REFUNDING` | no | The refund job is about to call PayPal. | `REFUNDED`, `REFUND_PENDING`, `REFUND_FAILED` |
+| `REFUND_PENDING` | no | PayPal reported the refund `PENDING`. | `REFUNDED`, `REFUND_FAILED` |
 | `VOIDED` | no | The hold was released. | Terminal. |
 | `REFUNDED` | no | The refund `COMPLETED`. | Terminal. |
-| `REFUND_FAILED` | no | The refund `FAILED` or was `CANCELLED`. | Terminal; needs an operator. |
-| `CAPTURE_FAILED` | no | PayPal declined or refused the capture, or its deadline passed. The hold is voided. | Terminal, or `NEEDS_ATTENTION` when PayPal refuses the void. |
+| `REFUND_FAILED` | no | The refund `FAILED`, was `CANCELLED`, or PayPal refused it (then also flagged). | Terminal; needs an operator. |
+| `CAPTURE_FAILED` | no | PayPal declined or refused the capture, or its deadline passed. The hold is voided. | Terminal (flagged when PayPal refuses the void). |
 | `RELEASED` | no | The seat expired before the authorization (never while the latest attempt's authorization is `PENDING`). | `SEAT_RESERVED` when the buyer comes back to pay while payments are open and a seat is free. |
-| `NEEDS_ATTENTION` | no | An operator must act (see below). | Terminal. |
+| `NEEDS_ATTENTION` | no | Legacy: rows written before the operator flag (migration 0003) keep it, flagged; never written again. | Terminal. |
+
+### The operator flag
+
+An enrollment that needs an operator is **flagged** (`needs_attention_at`,
+`attention_reason`) and keeps its status, so the status always says where the
+money is. A flagged enrollment keeps its seat, stays the participant's one
+active enrollment (no second hold can be placed), and is still voided,
+captured or refunded by status when the workshop is healed or closed. It is
+flagged when PayPal reports a second resource for one attempt, money moved on
+an older attempt, a partial refund nobody asked for, a void or refund PayPal
+refuses (`VOIDING` stays, `CAPTURE_FAILED` stays, `REFUNDING` becomes
+`REFUND_FAILED`), a job gives up after its retries, or the last reconcile
+still finds no trace of an action. The flag is never cleared by the worker.
+The API shows a flagged enrollment's `status` as `NEEDS_ATTENTION` (label
+“Needs attention”) and its real status in `money_status`.
 
 A move only happens from the statuses listed for it, so applying the same
 PayPal answer twice changes nothing and a finished enrollment is never moved
@@ -84,7 +99,7 @@ PayPal refused as `ORDER_NOT_APPROVED`: the return page and a reconcile that
 finds the order `APPROVED` both revive it, because the order is approved
 now.
 
-A job whose retries are used up flags its enrollment `NEEDS_ATTENTION`,
+A job whose retries are used up flags its enrollment (the status stays),
 unless the enrollment is paid or finished; a `close` or `release_seats` job
 that gives up flags its workshop.
 
@@ -183,13 +198,12 @@ A `RESOLVING` workshop becomes `SETTLED` once every enrollment is finished
 (or paid, in a confirmed workshop) and no failed capture or released seat may
 still hold the buyer's money: an authorization PayPal has not shown voided,
 denied or expired, or an authorize that is running or whose result is
-unknown. It becomes `NEEDS_ATTENTION` as soon as an enrollment is
-`REFUND_FAILED` or `NEEDS_ATTENTION`, which also reopens a `SETTLED`
-workshop.
+unknown. It becomes `NEEDS_ATTENTION` as soon as an enrollment is flagged
+or `REFUND_FAILED`, which also reopens a `SETTLED` workshop.
 
 The workshop is flagged `NEEDS_ATTENTION` when:
 
-- an enrollment is `REFUND_FAILED` or `NEEDS_ATTENTION` in a resolving or
+- an enrollment is flagged or `REFUND_FAILED` in a resolving or
   settled workshop (settlement) or in a confirmed one, which is never
   settled;
 - a funding workshop is confirmed while such an enrollment exists;
@@ -320,10 +334,10 @@ with `$2`:
   and no hold may remain;
 - `OPEN` for a `CONFIRMED` workshop.
 
-An enrollment in `REFUND_FAILED` or `NEEDS_ATTENTION` flags its workshop
-again (settlement, healing, the next hook). Once its money is settled at
-PayPal, record what PayPal shows on it first, for example
-`update enrollments set status = 'REFUNDED', updated_at = now() where id = $1 and status = 'REFUND_FAILED';`.
+A flagged or `REFUND_FAILED` enrollment flags its workshop again
+(settlement, healing, the next hook). Once its money is settled at PayPal,
+record what PayPal shows on it and clear its flag first, for example
+`update enrollments set status = 'REFUNDED', needs_attention_at = null, attention_reason = null, updated_at = now() where id = $1 and status = 'REFUND_FAILED';`.
 
 ### What the owner view shows and what only `jobs` shows
 

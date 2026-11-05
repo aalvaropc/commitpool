@@ -127,16 +127,10 @@ func cancellationOwed(v view, now time.Time) domain.Close {
 // never settled and nothing else would show it.
 func fundingResolution(v view, status domain.WorkshopStatus, resolution domain.Resolution) domain.Resolution {
 	if v.w.Resolution == domain.ResolutionNeedsAttention ||
-		status == domain.WorkshopConfirmed && slices.ContainsFunc(v.es, needsOperator) {
+		status == domain.WorkshopConfirmed && slices.ContainsFunc(v.es, domain.Enrollment.NeedsOperator) {
 		return domain.ResolutionNeedsAttention
 	}
 	return resolution
-}
-
-// needsOperator reports an enrollment only an operator can finish: a refund
-// PayPal failed, or one flagged NEEDS_ATTENTION.
-func needsOperator(e domain.Enrollment) bool {
-	return e.Status == domain.EnrollmentRefundFailed || e.Status == domain.EnrollmentNeedsAttention
 }
 
 // SettleIfResolved records how a resolving workshop ended: SETTLED once every
@@ -181,7 +175,7 @@ func settlement(v view) domain.Resolution {
 	settled := true
 	for i, e := range v.es {
 		switch {
-		case needsOperator(e):
+		case e.NeedsOperator():
 			return domain.ResolutionNeedsAttention
 		case (e.Status == domain.EnrollmentCaptureFailed || e.Status == domain.EnrollmentReleased) && v.mayHold(i):
 			settled = false
@@ -270,7 +264,7 @@ func (r *Runner) HealWorkshop(ctx context.Context, workshopID string) error {
 	if round {
 		errs = append(errs, r.StartCaptureRoundIfReady(ctx, workshopID))
 	}
-	if v.w.Status == domain.WorkshopConfirmed && slices.ContainsFunc(v.es, needsOperator) {
+	if v.w.Status == domain.WorkshopConfirmed && slices.ContainsFunc(v.es, domain.Enrollment.NeedsOperator) {
 		errs = append(errs, r.flagWorkshop(ctx, r.log, workshopID))
 	}
 	errs = append(errs, r.SettleIfResolved(ctx, workshopID))

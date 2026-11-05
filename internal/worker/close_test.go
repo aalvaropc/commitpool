@@ -251,7 +251,7 @@ func TestSettle_NeedsAttentionWhenARefundFails(t *testing.T) {
 
 		e.runKey("refund:" + benAttempt.ID)
 
-		e.wantStatus(ben.ID, domain.EnrollmentNeedsAttention)
+		e.wantFlagged(ben.ID, domain.EnrollmentRefundFailed)
 		e.wantStatus(ana.ID, domain.EnrollmentPaid)
 		e.wantWorkshop(domain.WorkshopCancelled, domain.ResolutionNeedsAttention)
 
@@ -626,7 +626,7 @@ func TestSettle_WaitsForPendingVoidAfterCaptureFailed(t *testing.T) {
 
 		e.runKey("void:" + a.ID)
 
-		e.wantStatus(ana.ID, domain.EnrollmentNeedsAttention)
+		e.wantFlagged(ana.ID, domain.EnrollmentCaptureFailed)
 		e.wantWorkshop(domain.WorkshopCancelled, domain.ResolutionNeedsAttention)
 	})
 }

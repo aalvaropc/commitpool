@@ -97,7 +97,7 @@ func (r *Runner) workshopView(ctx context.Context, workshopID string) (view, err
 				v.jobs[i][j.IdempotencyKey] = j
 			}
 		}
-		v.es[i] = domain.Enrollment{ID: row.ID, ParticipantID: row.ParticipantID, Status: row.Status, SeatExpiresAt: row.SeatExpiresAt}
+		v.es[i] = row.Domain()
 		if j, ok := v.job(i, store.KindCapture); ok {
 			due := j.RunAt
 			v.es[i].CaptureStartedAt = &due
@@ -215,7 +215,7 @@ func (r *Runner) afterAuthorized(ctx context.Context, en store.EnrollmentRow) er
 // payment as late once this hook has passed. When the workshop leaves
 // FUNDING while this decides, it decides again from the new state.
 func (r *Runner) afterPaid(ctx context.Context, en store.EnrollmentRow) error {
-	paid := domain.Enrollment{ID: en.ID, ParticipantID: en.ParticipantID, Status: en.Status, SeatExpiresAt: en.SeatExpiresAt}
+	paid := en.Domain()
 	for range casRetries {
 		w, err := r.st.WorkshopByID(ctx, en.WorkshopID)
 		if err != nil {

@@ -367,6 +367,9 @@ func (s *server) returnOutcome(ctx context.Context, c *checkout, key string) str
 		c.log.Error("paypal return: reload the enrollment", "error", err)
 		return resultError
 	}
+	if en.NeedsAttentionAt != nil {
+		return resultError
+	}
 	switch en.Status {
 	case domain.EnrollmentSeatReserved:
 	case domain.EnrollmentAuthorized:

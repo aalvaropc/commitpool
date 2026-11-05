@@ -172,6 +172,9 @@ func paymentsOpen(ws store.WorkshopRow, p *store.ProposalRow, now time.Time) boo
 // enrollmentLabel is statusLabel for a stored enrollment at now; latest is
 // the enrollment's latest payment attempt, or nil.
 func enrollmentLabel(en store.EnrollmentRow, ws store.WorkshopRow, p *store.ProposalRow, latest *store.AttemptRow, now time.Time) string {
+	if en.NeedsAttentionAt != nil {
+		return statusLabel(domain.EnrollmentNeedsAttention, labelState{})
+	}
 	return statusLabel(en.Status, labelState{
 		workshop:     ws.Status,
 		paymentsOpen: paymentsOpen(ws, p, now),
@@ -261,12 +264,16 @@ func paymentView(a *store.AttemptRow) *paymentDTO {
 }
 
 // enrollmentDTO's approval_cancelled_at is when the buyer last cancelled the
-// checkout at PayPal, or null; the seat stays reserved until it expires.
+// checkout at PayPal, or null; the seat stays reserved until it expires. A
+// flagged enrollment shows status NEEDS_ATTENTION; money_status always says
+// where the money is.
 type enrollmentDTO struct {
 	ID                  string      `json:"id"`
 	ParticipantID       string      `json:"participant_id,omitempty"`
 	DisplayName         string      `json:"display_name,omitempty"`
 	Status              string      `json:"status"`
+	MoneyStatus         string      `json:"money_status"`
+	NeedsAttention      bool        `json:"needs_attention"`
 	StatusLabel         string      `json:"status_label"`
 	SeatExpiresAt       time.Time   `json:"seat_expires_at"`
 	ApprovalCancelledAt *time.Time  `json:"approval_cancelled_at"`
@@ -279,9 +286,15 @@ func enrollmentView(en store.EnrollmentRow, w store.WorkshopRow, p *store.Propos
 		at := en.ApprovalCancelledAt.UTC()
 		cancelled = &at
 	}
+	status := en.Status
+	if en.NeedsAttentionAt != nil {
+		status = domain.EnrollmentNeedsAttention
+	}
 	return enrollmentDTO{
 		ID:                  en.ID,
-		Status:              string(en.Status),
+		Status:              string(status),
+		MoneyStatus:         string(en.Status),
+		NeedsAttention:      en.NeedsAttentionAt != nil,
 		StatusLabel:         enrollmentLabel(en, w, p, latest, now),
 		SeatExpiresAt:       en.SeatExpiresAt.UTC(),
 		ApprovalCancelledAt: cancelled,
@@ -376,7 +389,7 @@ func (s *server) loadState(ctx context.Context, w store.WorkshopRow) (workshopSt
 func (st workshopState) counts() domain.Tally {
 	es := make([]domain.Enrollment, len(st.enrollments))
 	for i, en := range st.enrollments {
-		es[i] = domain.Enrollment{ID: en.ID, ParticipantID: en.ParticipantID, Status: en.Status, SeatExpiresAt: en.SeatExpiresAt}
+		es[i] = en.Domain()
 	}
 	return domain.Counts(es)
 }

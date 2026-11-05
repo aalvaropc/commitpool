@@ -19,6 +19,15 @@ type EnrollmentRow struct {
 	ConsentVersion                            string
 	SeatReservedAt, SeatExpiresAt             time.Time
 	ApprovalCancelledAt, ReleasedAt           *time.Time
+	// NeedsAttentionAt is when the enrollment was flagged for an operator,
+	// and AttentionReason why; both nil when it is not flagged.
+	NeedsAttentionAt *time.Time
+	AttentionReason  *string
+}
+
+// Domain is the enrollment as the domain rules see it.
+func (e EnrollmentRow) Domain() domain.Enrollment {
+	return domain.Enrollment{ID: e.ID, ParticipantID: e.ParticipantID, Status: e.Status, SeatExpiresAt: e.SeatExpiresAt, NeedsAttention: e.NeedsAttentionAt != nil}
 }
 
 type ReserveParams struct {
@@ -27,7 +36,7 @@ type ReserveParams struct {
 	SeatTTL                                               time.Duration
 }
 
-const enrollmentCols = `id, workshop_id, participant_id, proposal_id, status, consent_at, consent_version, seat_reserved_at, seat_expires_at, approval_cancelled_at, released_at`
+const enrollmentCols = `id, workshop_id, participant_id, proposal_id, status, consent_at, consent_version, seat_reserved_at, seat_expires_at, approval_cancelled_at, released_at, needs_attention_at, attention_reason`
 
 // ReserveSeatAndCreateEnrollment reserves a seat for the participant under the
 // workshop's row lock, so concurrent requests can never exceed the capacity of
@@ -229,6 +238,36 @@ func (s *Store) TransitionEnrollment(ctx context.Context, id string, from []doma
 			return false, nil
 		}
 		return false, wrap("transition enrollment", err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+// FlagEnrollment marks the enrollment for an operator without moving it, so
+// its seat and its hold stay accounted for. The first reason stays; it
+// reports whether this call set the flag.
+func (s *Store) FlagEnrollment(ctx context.Context, id, reason string) (bool, error) {
+	tag, err := s.Pool.Exec(ctx,
+		`update enrollments set needs_attention_at = now(), attention_reason = $2, updated_at = now()
+		 where id = $1 and needs_attention_at is null`, id, reason)
+	if err != nil {
+		if isMissing(err) {
+			return false, nil
+		}
+		return false, wrap("flag enrollment", err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+// ClearEnrollmentFlag removes the operator flag; it reports whether there was one.
+func (s *Store) ClearEnrollmentFlag(ctx context.Context, id string) (bool, error) {
+	tag, err := s.Pool.Exec(ctx,
+		`update enrollments set needs_attention_at = null, attention_reason = null, updated_at = now()
+		 where id = $1 and needs_attention_at is not null`, id)
+	if err != nil {
+		if isMissing(err) {
+			return false, nil
+		}
+		return false, wrap("clear enrollment flag", err)
 	}
 	return tag.RowsAffected() == 1, nil
 }

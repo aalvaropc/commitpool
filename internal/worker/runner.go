@@ -408,7 +408,7 @@ func (r *Runner) escalate(ctx context.Context, log *slog.Logger, job *store.Job)
 	if err != nil || a == nil {
 		return err
 	}
-	return r.flag(ctx, log.With("enrollment_id", a.EnrollmentID), a.EnrollmentID, unpaidActiveStatuses)
+	return r.flag(ctx, log.With("enrollment_id", a.EnrollmentID), a.EnrollmentID, unpaidActiveStatuses, "a "+job.Kind+" job gave up after its retries")
 }
 
 func (r *Runner) jobLog(job *store.Job) *slog.Logger {

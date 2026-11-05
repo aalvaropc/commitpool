@@ -126,7 +126,7 @@ func TestRun_TakesBackStaleJobsRunsDueOnesAndStopsOnCancel(t *testing.T) {
 	e.wantJob("release_seats:due", "succeeded")
 }
 
-func TestRetry_FiveFailuresMarkNeedsAttention(t *testing.T) {
+func TestRetry_FiveCaptureFailuresFlagAndKeepTheHold(t *testing.T) {
 	e := newEnv(t)
 	en, a := e.authorized("Ana")
 	key := e.enqueue("capture", a)
@@ -151,7 +151,9 @@ func TestRetry_FiveFailuresMarkNeedsAttention(t *testing.T) {
 	}
 
 	e.wantJob(key, "needs_attention")
-	e.wantStatus(en.ID, domain.EnrollmentNeedsAttention)
+	// The hold stays where it is and keeps its seat: only the flag says an
+	// operator must look.
+	e.wantFlagged(en.ID, domain.EnrollmentCapturing)
 	reqs := e.fake.Requests("capture")
 	if len(reqs) != 5 {
 		t.Fatalf("capture requests = %d, want 5", len(reqs))
@@ -326,7 +328,7 @@ func TestApply_DifferentResourceIDMarksNeedsAttention(t *testing.T) {
 	}
 
 	wantString(t, "capture_id", e.attempt(a.ID).CaptureID, known)
-	e.wantStatus(en.ID, domain.EnrollmentNeedsAttention)
+	e.wantFlagged(en.ID, domain.EnrollmentPaid)
 }
 
 func TestReconcile_OwnAmbiguousGetIsRetriedNotChained(t *testing.T) {
@@ -371,7 +373,7 @@ func TestReconcile_StopsAfterFiveGenerationsAndFlagsEnrollment(t *testing.T) {
 	}
 
 	e.wantJob(key, "unknown")
-	e.wantStatus(en.ID, domain.EnrollmentNeedsAttention)
+	e.wantFlagged(en.ID, domain.EnrollmentCapturing)
 	if j, err := e.st.JobByKey(e.ctx, "reconcile:"+a.ID+":6"); err != nil || j != nil {
 		t.Errorf("sixth reconcile = %+v, %v; want none", j, err)
 	}
@@ -511,7 +513,7 @@ func TestRecord_MoneyOnOlderAttemptFlagsEnrollment(t *testing.T) {
 	}
 
 	wantString(t, "older attempt capture_id", e.attempt(older.ID).CaptureID, "OLDERCAPTURE")
-	e.wantStatus(en.ID, domain.EnrollmentNeedsAttention)
+	e.wantFlagged(en.ID, domain.EnrollmentSeatReserved)
 	if logs := e.logs.String(); !strings.Contains(logs, "level=ERROR") || !strings.Contains(logs, "older attempt") {
 		t.Errorf("worker log has no error about money on an older attempt:\n%s", logs)
 	}

@@ -423,6 +423,26 @@ func (e *env) wantStatus(enrollmentID string, want domain.EnrollmentStatus) {
 	}
 }
 
+// wantFlagged asserts the enrollment kept status and carries the operator flag.
+func (e *env) wantFlagged(enrollmentID string, status domain.EnrollmentStatus) {
+	e.t.Helper()
+	en, err := e.st.EnrollmentByID(e.ctx, enrollmentID)
+	if err != nil {
+		e.t.Fatalf("EnrollmentByID: %v", err)
+	}
+	if en.Status != status || en.NeedsAttentionAt == nil {
+		e.t.Fatalf("enrollment = %s, flagged %v; want %s flagged for an operator", en.Status, en.NeedsAttentionAt != nil, status)
+	}
+}
+
+// flag marks the enrollment for an operator without moving it.
+func (e *env) flag(enrollmentID string) {
+	e.t.Helper()
+	if _, err := e.st.FlagEnrollment(e.ctx, enrollmentID, "test"); err != nil {
+		e.t.Fatalf("FlagEnrollment: %v", err)
+	}
+}
+
 func (e *env) transition(enrollmentID string, from, to domain.EnrollmentStatus) {
 	e.t.Helper()
 	ok, err := e.st.TransitionEnrollment(e.ctx, enrollmentID, []domain.EnrollmentStatus{from}, to)

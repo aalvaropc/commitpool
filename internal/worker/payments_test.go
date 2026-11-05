@@ -641,7 +641,7 @@ func TestCreateOrder_DifferentOrderIsFlaggedWithoutApproveURL(t *testing.T) {
 		t.Errorf("job payload = %s, want no approve_url for a conflicting order", j.Payload)
 	}
 	wantString(t, "order_id", e.attempt(a.ID).OrderID, "OTHERORDER")
-	e.wantStatus(en.ID, domain.EnrollmentNeedsAttention)
+	e.wantFlagged(en.ID, domain.EnrollmentSeatReserved)
 }
 
 func TestCreateOrder_UnknownWithoutOrderIsResentUnderTheSameKey(t *testing.T) {
@@ -745,7 +745,7 @@ func TestVoid_AlreadyGoneCountsAsVoidedOtherRefusalsFlag(t *testing.T) {
 	}{
 		{"PREVIOUSLY_VOIDED", domain.EnrollmentVoided, "succeeded"},
 		{"AUTHORIZATION_EXPIRED", domain.EnrollmentVoided, "succeeded"},
-		{"PREVIOUSLY_CAPTURED", domain.EnrollmentNeedsAttention, "failed"},
+		{"PREVIOUSLY_CAPTURED", domain.EnrollmentVoiding, "failed"},
 	}
 	for i, tc := range cases {
 		en, a := e.authorized("Participant " + string(rune('A'+i)))
@@ -766,6 +766,7 @@ func TestVoid_AlreadyGoneCountsAsVoidedOtherRefusalsFlag(t *testing.T) {
 			t.Errorf("%s: job = %s, want %s", tc.issue, j.Status, tc.job)
 		}
 		if tc.job == "failed" {
+			e.wantFlagged(en.ID, tc.want)
 			wantString(t, tc.issue+" provider_issue", j.ProviderIssue, tc.issue)
 			wantString(t, tc.issue+" authorization_status", e.attempt(a.ID).AuthorizationStatus, "CREATED")
 		} else {

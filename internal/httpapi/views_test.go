@@ -54,6 +54,20 @@ func TestStatusLabel_CopyForEveryStatus(t *testing.T) {
 	}
 }
 
+func TestEnrollmentView_FlaggedShowsNeedsAttentionAndTheMoneyStatus(t *testing.T) {
+	now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
+	at := now.Add(-time.Minute)
+	en := store.EnrollmentRow{ID: "e1", Status: domain.EnrollmentAuthorized, SeatExpiresAt: now.Add(time.Hour), NeedsAttentionAt: &at}
+	w := store.WorkshopRow{Status: domain.WorkshopFunding, Resolution: domain.ResolutionOpen}
+
+	got := enrollmentView(en, w, nil, nil, now)
+
+	if got.Status != "NEEDS_ATTENTION" || got.StatusLabel != "Needs attention" || got.MoneyStatus != "AUTHORIZED" || !got.NeedsAttention {
+		t.Errorf("flagged view = status %q label %q money %q flag %v; want NEEDS_ATTENTION, Needs attention, AUTHORIZED, true",
+			got.Status, got.StatusLabel, got.MoneyStatus, got.NeedsAttention)
+	}
+}
+
 func TestDateLabel_UsesTheWorkshopClock(t *testing.T) {
 	lima, err := time.LoadLocation("America/Lima")
 	if err != nil {

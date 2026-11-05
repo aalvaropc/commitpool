@@ -37,6 +37,8 @@ const (
 	EnrollmentRefundPending  EnrollmentStatus = "REFUND_PENDING"
 	EnrollmentRefunded       EnrollmentStatus = "REFUNDED"
 	EnrollmentRefundFailed   EnrollmentStatus = "REFUND_FAILED"
+	// EnrollmentNeedsAttention is a legacy status: an enrollment that needs an
+	// operator now keeps its money status and carries Enrollment.NeedsAttention.
 	EnrollmentNeedsAttention EnrollmentStatus = "NEEDS_ATTENTION"
 	EnrollmentReleased       EnrollmentStatus = "RELEASED"
 )
@@ -90,6 +92,16 @@ type Enrollment struct {
 	Status            EnrollmentStatus
 	SeatExpiresAt     time.Time
 	CaptureStartedAt  *time.Time
+	// NeedsAttention is the operator flag: something PayPal reported, or a
+	// job that gave up, needs a person. The status still says where the
+	// money is.
+	NeedsAttention bool
+}
+
+// NeedsOperator reports an enrollment only an operator can finish: one
+// flagged for attention, a refund PayPal failed, or the legacy status.
+func (e Enrollment) NeedsOperator() bool {
+	return e.NeedsAttention || e.Status == EnrollmentRefundFailed || e.Status == EnrollmentNeedsAttention
 }
 
 type Tally struct {

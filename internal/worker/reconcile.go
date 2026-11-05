@@ -275,15 +275,15 @@ func (r *Runner) resolveUnknown(ctx context.Context, log *slog.Logger, a store.A
 	return nil
 }
 
-// flagForOperator flags the enrollment NEEDS_ATTENTION or, when it is
-// finished or paid and so cannot carry the flag, such as a released seat
-// whose authorize may still have placed a hold, its workshop.
+// flagForOperator flags the enrollment or, when it is finished or paid and so
+// is not flagged, such as a released seat whose authorize may still have
+// placed a hold, its workshop.
 func (r *Runner) flagForOperator(ctx context.Context, log *slog.Logger, enrollmentID string) error {
-	if err := r.flag(ctx, log, enrollmentID, unpaidActiveStatuses); err != nil {
+	if err := r.flag(ctx, log, enrollmentID, unpaidActiveStatuses, "PayPal shows no trace of an action after the last reconcile"); err != nil {
 		return err
 	}
 	en, err := r.st.EnrollmentByID(ctx, enrollmentID)
-	if err != nil || en.Status == domain.EnrollmentNeedsAttention {
+	if err != nil || en.NeedsAttentionAt != nil {
 		return err
 	}
 	return r.flagWorkshop(ctx, log, en.WorkshopID)

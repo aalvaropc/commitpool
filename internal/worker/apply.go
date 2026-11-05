@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 
 	"github.com/aalvaropc/commitpool/internal/domain"
 	"github.com/aalvaropc/commitpool/internal/paypal"
@@ -47,6 +48,8 @@ var (
 		paypal.StatusPending:   {statuses(domain.EnrollmentAuthorized, domain.EnrollmentCapturing), domain.EnrollmentCapturePending},
 		paypal.StatusDeclined:  {statuses(domain.EnrollmentCapturing, domain.EnrollmentCapturePending), domain.EnrollmentCaptureFailed},
 		paypal.StatusFailed:    {statuses(domain.EnrollmentCapturing, domain.EnrollmentCapturePending), domain.EnrollmentCaptureFailed},
+		// A partial refund nobody asked for: the enrollment keeps its status
+		// and is flagged for an operator (see transition).
 		paypal.StatusPartiallyRefunded: {statuses(domain.EnrollmentCapturing, domain.EnrollmentCapturePending, domain.EnrollmentPaid,
 			domain.EnrollmentRefunding, domain.EnrollmentRefundPending), domain.EnrollmentNeedsAttention},
 	}
@@ -264,7 +267,7 @@ func (r *Runner) record(ctx context.Context, attemptID string, fn func(a *store.
 		log = log.With("enrollment_id", a.EnrollmentID)
 		log.Error("PayPal reports a second resource for one payment attempt; flagging the enrollment")
 		// A second resource may be a second charge, so PAID is flagged too; a job that gave up never is (unpaidActiveStatuses).
-		return recorded{attempt: *a}, r.flag(ctx, log, a.EnrollmentID, activeStatuses)
+		return recorded{attempt: *a}, r.flag(ctx, log, a.EnrollmentID, activeStatuses, "PayPal reports a second resource for one payment attempt")
 	}
 	if err != nil {
 		return recorded{}, err
@@ -279,7 +282,7 @@ func (r *Runner) record(ctx context.Context, attemptID string, fn func(a *store.
 	}
 	if !res.driving && money {
 		log.Error("PayPal moved money on an older attempt of the enrollment; flagging it")
-		return res, r.flag(ctx, log, saved.EnrollmentID, unpaidActiveStatuses)
+		return res, r.flag(ctx, log, saved.EnrollmentID, unpaidActiveStatuses, "PayPal moved money on an older attempt")
 	}
 	if !res.driving {
 		log.Debug("enrollment left as it is: it follows its latest attempt, not this one")
@@ -307,7 +310,12 @@ func (r *Runner) driving(ctx context.Context, a store.AttemptRow) (bool, error) 
 // inside an UpdateAttemptFunc fn. Every move the worker makes on one
 // enrollment goes through here; only seat releases, done by the store for a
 // whole workshop, do not, and their callers settle the workshop themselves.
+// A move to the legacy NEEDS_ATTENTION status flags the enrollment instead
+// and reports no move: the status keeps saying where the money is.
 func (r *Runner) transition(ctx context.Context, log *slog.Logger, enrollmentID string, m move) (bool, error) {
+	if m.to == domain.EnrollmentNeedsAttention {
+		return false, r.flag(ctx, log, enrollmentID, m.from, "PayPal refused or reported something only an operator can finish")
+	}
 	moved, err := r.st.TransitionEnrollment(ctx, enrollmentID, m.from, m.to)
 	if err != nil {
 		return false, err
@@ -320,10 +328,26 @@ func (r *Runner) transition(ctx context.Context, log *slog.Logger, enrollmentID 
 	return true, r.afterMove(ctx, enrollmentID, m.to)
 }
 
-// flag marks the enrollment NEEDS_ATTENTION when it is in one of from.
-func (r *Runner) flag(ctx context.Context, log *slog.Logger, enrollmentID string, from []domain.EnrollmentStatus) error {
-	_, err := r.transition(ctx, log, enrollmentID, move{from, domain.EnrollmentNeedsAttention})
-	return err
+// flag marks the enrollment for an operator when its status is one of from,
+// and keeps the status: the seat and the hold stay accounted for, the
+// one-active-enrollment index still refuses a second hold, and healing
+// still voids or refunds by status. A new flag flags a confirmed workshop
+// and settles a resolving one, as a failed refund does.
+func (r *Runner) flag(ctx context.Context, log *slog.Logger, enrollmentID string, from []domain.EnrollmentStatus, reason string) error {
+	en, err := r.st.EnrollmentByID(ctx, enrollmentID)
+	if err != nil {
+		return err
+	}
+	if !slices.Contains(from, en.Status) {
+		log.Debug("enrollment not flagged: it is paid or finished", "status", en.Status)
+		return nil
+	}
+	flagged, err := r.st.FlagEnrollment(ctx, enrollmentID, reason)
+	if err != nil || !flagged {
+		return err
+	}
+	log.Error("enrollment flagged for an operator", "status", en.Status, "reason", reason)
+	return errors.Join(r.flagIfConfirmed(ctx, en.WorkshopID), r.SettleIfResolved(ctx, en.WorkshopID))
 }
 
 // setID fills an id column. An empty id (PayPal did not say which resource)

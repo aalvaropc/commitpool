@@ -314,7 +314,7 @@ func (r *Runner) captureTooLate(ctx context.Context, s subject, resumed bool, is
 // a released seat, is voided without touching the enrollment.
 // PREVIOUSLY_VOIDED and AUTHORIZATION_EXPIRED mean the hold is already gone
 // and count as voided; any other final refusal flags the enrollment
-// NEEDS_ATTENTION when the authorization was its own, and the workshop when it
+// for an operator when the authorization was its own, and the workshop when it
 // was not: a finished enrollment cannot carry the flag, and only an operator
 // can release that hold.
 func (r *Runner) void(ctx context.Context, job *store.Job) (*int, error) {
@@ -392,7 +392,7 @@ func (r *Runner) recordVoided(ctx context.Context, s subject, voided paypal.Auth
 // the refund's status; a job of an older attempt is skipped.
 // CAPTURE_FULLY_REFUNDED means the money is already back and counts as
 // refunded, the refund id being filled in by a later reconcile; any other
-// final refusal flags the enrollment NEEDS_ATTENTION.
+// final refusal ends REFUND_FAILED and flags the enrollment for an operator.
 func (r *Runner) refund(ctx context.Context, job *store.Job) (*int, error) {
 	s, err := r.load(ctx, job)
 	if err != nil {

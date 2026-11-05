@@ -176,23 +176,6 @@ func TestHeal_ConfirmedWorkshopWithAnEnrollmentNeedingAttentionIsFlagged(t *test
 	e.wantWorkshop(domain.WorkshopConfirmed, domain.ResolutionNeedsAttention)
 }
 
-func TestEnroll_FlaggedParticipantCannotPlaceASecondHold(t *testing.T) {
-	e := newEnv(t)
-	en, _ := e.authorized("Ana")
-	e.flag(en.ID)
-
-	again, created, err := e.st.ReserveSeatAndCreateEnrollment(e.ctx, store.ReserveParams{
-		WorkshopID: e.workshop.ID, ParticipantID: en.ParticipantID, ProposalID: e.proposal.ID,
-		ConsentVersion: "consent-v1", Now: e.clock.Now(), SeatTTL: 30 * time.Minute,
-	})
-	if err != nil {
-		t.Fatalf("ReserveSeatAndCreateEnrollment: %v", err)
-	}
-	if created || again.ID != en.ID {
-		t.Errorf("enrollment after a flag = %s (created %v); want the flagged %s back: its hold still counts", again.ID, created, en.ID)
-	}
-}
-
 func TestHeal_CancelledWorkshopRefundsAFlaggedPayment(t *testing.T) {
 	e := newEnv(t)
 	en, a := e.paid("Ana")

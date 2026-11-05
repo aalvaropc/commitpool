@@ -71,9 +71,13 @@ request: a buyer closing the tab never cuts a PayPal call short.
 
 An enrollment that needs an operator is **flagged** (`needs_attention_at`,
 `attention_reason`) and keeps its status, so the status always says where the
-money is. A flagged enrollment keeps its seat, stays the participant's one
-active enrollment (no second hold can be placed), and is still voided,
-captured or refunded by status when the workshop is healed or closed. It is
+money is. A flagged enrollment stays the participant's one active
+enrollment whatever its status (migration 0005 widens the unique index), so
+no second hold can be placed beside it; a flagged reserved seat is never
+released and the PayPal return never authorizes a flagged enrollment. It is
+still voided, captured or refunded by status when the workshop is healed or
+closed, and a capture that ran out of retries is sent again once payments
+have closed, which past its deadline fails it and voids the hold. It is
 flagged when PayPal reports a second resource for one attempt, money moved on
 an older attempt, a partial refund nobody asked for, a void or refund PayPal
 refuses (`VOIDING` stays, `CAPTURE_FAILED` stays, `REFUNDING` becomes
@@ -110,10 +114,14 @@ now.
 
 A job whose retries are used up flags its enrollment (the status stays),
 unless the enrollment is paid or finished; a `close` or `release_seats` job
-that keeps failing flags its workshop and keeps retrying. Retrying a void or
-a refund forever is safe: this path only sees failures PayPal never
-performed (an ambiguous one is reconciled instead), and every retry reuses
-the same `PayPal-Request-Id`.
+that keeps failing flags its workshop and keeps retrying; so does a void or
+refund that keeps failing for an enrollment that cannot carry the flag (a
+failed capture, a released seat, an older attempt). Retrying a void or a
+refund forever is safe: every retry reuses the same `PayPal-Request-Id`, so
+PayPal replays an action it already performed, and once it forgets the key
+a void or full refund sent again meets `PREVIOUSLY_VOIDED` or
+`CAPTURE_FULLY_REFUNDED`, both counted as done. An ambiguous answer is
+reconciled instead of retried.
 
 ## Idempotency keys
 
@@ -150,7 +158,10 @@ PayPal and applies them; an unknown job whose resource now exists is
 completed, and one whose resource does not exist is sent again under its own
 key. The fifth generation sends nothing: it leaves the job `unknown` for an
 operator and flags the enrollment, or the workshop when the enrollment is
-finished or paid. Only numeric generations count towards that limit.
+finished or paid. Only numeric generations count towards that limit. While
+the fifth waits its six hours, the periodic reconciles below keep reading
+PayPal and sending the action again, so a PayPal that recovers in the
+meantime still completes it without an operator.
 
 A 429, 401 or 403 is not ambiguous (PayPal did not process the request) and
 is retried with the same key. Any other 4xx is a final answer.
@@ -282,7 +293,7 @@ The worker, in process:
   authorization then moves `CREATED` → `AUTHORIZED` or `DENIED` →
   `CAPTURE_FAILED`, which frees the seat), and `reconcile:{attempt}:periodic:{minute}`
   for every attempt with a job unknown for more than five minutes, unless its
-  fifth reconcile generation exists; runs again the close of every workshop
+  fifth reconcile generation has run; runs again the close of every workshop
   still `FUNDING` more than five minutes past its `closes_at` (enqueued, or
   revived when it failed or was parked); then heals every `FUNDING` workshop and
   every workshop whose money is not settled (`RESOLVING`, or cancelled and
@@ -321,6 +332,7 @@ left join workshops w on w.id = j.workshop_id
 left join payment_attempts a on a.id = j.attempt_id
 left join enrollments e on e.id = a.enrollment_id
 where j.status in ('needs_attention', 'unknown')
+   or (j.status = 'pending' and j.attempts >= 5)
 order by j.updated_at;
 ```
 

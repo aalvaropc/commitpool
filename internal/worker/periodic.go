@@ -119,10 +119,12 @@ func (r *Runner) reviveOverdueCloses(ctx context.Context, now time.Time) error {
 }
 
 // leftToOperator reports whether the attempt's last reconcile generation,
-// reconcile:{attempt}:{maxReconcileGenerations}, exists: once it has run it
-// sends nothing again and leaves the attempt's unknown jobs to an operator,
-// and until then it is the reconcile already scheduled.
+// reconcile:{attempt}:{maxReconcileGenerations}, has run: it sends nothing
+// again and leaves the attempt's unknown jobs to an operator. While it waits
+// its six hours, the periodic reconciles keep reading PayPal and sending the
+// action again under its own key, so a PayPal that recovers in the meantime
+// still gets the money back without an operator.
 func (r *Runner) leftToOperator(ctx context.Context, attemptID string) (bool, error) {
 	j, err := r.st.JobByKey(ctx, reconcilePrefix(attemptID)+strconv.Itoa(maxReconcileGenerations))
-	return j != nil, err
+	return j != nil && j.Status == store.JobSucceeded, err
 }

@@ -1263,3 +1263,23 @@ func TestWebhook_VerificationOutageIs502AndNotStored(t *testing.T) {
 		t.Errorf("the log carries the id of an event PayPal did not verify")
 	}
 }
+
+func TestReturn_FlaggedEnrollmentIsNotAuthorized(t *testing.T) {
+	e := newEnv(t)
+	_, p, ps := e.fundingWorkshop()
+	en, a := e.checkout(ps[0], p.ID)
+	if _, err := e.st.FlagEnrollment(e.ctx, en.EnrollmentID, "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	back := e.buyer(http.MethodPost, "/approve", url.Values{"order": {*a.OrderID}})
+	got := e.fromPayPal(back)
+
+	if got.result != "error" {
+		t.Errorf("return of a flagged enrollment = %s, want error", got.result)
+	}
+	e.wantRequests("authorize", 0)
+	if held := e.latestAttempt(en.EnrollmentID); held.AuthorizationID != nil {
+		t.Errorf("a flagged enrollment got a hold: %+v", held)
+	}
+}

@@ -185,7 +185,10 @@ func checkCapacity(ctx context.Context, tx pgx.Tx, workshopID string, capacity i
 	return domain.ReserveSeat(domain.Counts(enrollments), capacity)
 }
 
-// activeEnrollment returns the participant's one non-terminal enrollment, or nil.
+// activeEnrollment returns the participant's one active enrollment, or nil:
+// non-terminal, or flagged for an operator whatever its status, since a
+// flagged enrollment's money state is uncertain and must not get a second
+// hold beside it.
 func activeEnrollment(ctx context.Context, q querier, participantID string) (*EnrollmentRow, error) {
 	all, err := many[EnrollmentRow](ctx, q, "enrollments by participant",
 		`select `+enrollmentCols+` from enrollments where participant_id = $1 order by created_at desc, id`, participantID)
@@ -193,7 +196,7 @@ func activeEnrollment(ctx context.Context, q querier, participantID string) (*En
 		return nil, err
 	}
 	for _, e := range all {
-		if !e.Status.Terminal() {
+		if !e.Status.Terminal() || e.NeedsAttentionAt != nil {
 			return &e, nil
 		}
 	}
@@ -279,10 +282,10 @@ func (s *Store) ClearEnrollmentFlag(ctx context.Context, id string) (bool, error
 
 // releasable is the condition, on enrollment e, of a seat ReleaseExpiredSeats
 // releases at the time in parameter now (such as "$2"): SEAT_RESERVED,
-// expired before it (domain.SeatExpired), and not kept for an authorization
-// PayPal holds PENDING.
+// expired before it (domain.SeatExpired), not flagged for an operator, and
+// not kept for an authorization PayPal holds PENDING.
 func releasable(now string) string {
-	return `e.status = 'SEAT_RESERVED' and e.seat_expires_at < ` + now + `
+	return `e.status = 'SEAT_RESERVED' and e.seat_expires_at < ` + now + ` and e.needs_attention_at is null
 		and coalesce((select a.authorization_status from payment_attempts a
 		              where a.enrollment_id = e.id order by a.attempt_no desc limit 1), '') <> 'PENDING'`
 }

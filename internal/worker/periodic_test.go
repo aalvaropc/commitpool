@@ -68,6 +68,9 @@ func TestPeriodicReconcile_EnqueuesPendingAttempts(t *testing.T) {
 	// Eve's last reconcile generation already ran and left the job to an
 	// operator: no periodic reconcile may send it again.
 	e.enqueueKey("reconcile", "reconcile:"+eveAttempt.ID+":5", eveAttempt, e.clock.Now().Add(-time.Hour))
+	if _, err := e.st.Pool.Exec(e.ctx, `update jobs set status = 'succeeded' where idempotency_key = $1`, "reconcile:"+eveAttempt.ID+":5"); err != nil {
+		t.Fatal(err)
+	}
 	_, fayAttempt := e.authorized("Fay")
 	before := len(e.allJobKeys())
 

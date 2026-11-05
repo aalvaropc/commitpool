@@ -258,6 +258,17 @@ func (r *Runner) HealWorkshop(ctx context.Context, workshopID string) error {
 			heal(store.KindRefund, en, "payment kept in a cancelled workshop")
 		case v.w.Status == domain.WorkshopCancelled && en.Status == domain.EnrollmentAuthorized && !v.has(i, store.KindVoid):
 			heal(store.KindVoid, en, "authorization kept in a cancelled workshop")
+		case en.Status == domain.EnrollmentCapturing && (v.w.Status == domain.WorkshopCancelled || !open):
+			// A capture that ran out of retries is sent again only past its
+			// deadline, where the handler reads PayPal and, finding no
+			// capture, fails it and voids the hold instead of capturing.
+			if j, ok := v.job(i, store.KindCapture); ok && j.Status == store.JobNeedsAttention {
+				revived, err := r.st.ReviveJob(ctx, j.IdempotencyKey, now, true)
+				if revived {
+					r.log.Warn("healing a parked capture after payments closed", "workshop_id", workshopID, "enrollment_id", en.ID)
+				}
+				errs = append(errs, err)
+			}
 		case v.w.Status == domain.WorkshopConfirmed && en.Status == domain.EnrollmentAuthorized &&
 			!v.has(i, store.KindCapture) && !v.has(i, store.KindVoid):
 			if open {
@@ -329,7 +340,7 @@ func (r *Runner) releaseSeats(ctx context.Context, job *store.Job) (*int, error)
 }
 
 // EnqueueSeatReleases enqueues release_seats:{workshop}:{minute}, due now,
-// for every workshop with a reserved seat; minute is now's minute in UTC, so
+// for every workshop with an expired seat; minute is now's minute in UTC, so
 // a second call within the same minute adds nothing. Run calls it once a
 // minute.
 func (r *Runner) EnqueueSeatReleases(ctx context.Context) error {

@@ -162,6 +162,11 @@ func (s *server) findCheckout(ctx context.Context, op, enrollmentID, orderID str
 // repeated return sends nothing twice.
 func (s *server) completeReturn(ctx context.Context, c *checkout) string {
 	key := store.JobKey(store.KindAuthorize, c.attempt.ID)
+	if c.enrollment.NeedsAttentionAt != nil {
+		// Its money state is uncertain: no hold is added until an operator looks.
+		c.log.Warn("paypal return: the enrollment is flagged for an operator; not authorizing")
+		return resultError
+	}
 	if st := c.enrollment.Status; c.attempt.AuthorizationID != nil ||
 		(st != domain.EnrollmentSeatReserved && st != domain.EnrollmentReleased) {
 		return s.returnOutcome(ctx, c, key)

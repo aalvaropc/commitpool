@@ -591,5 +591,7 @@ func TestRunKey_CallerCancellationDoesNotCancelTheJob(t *testing.T) {
 	}
 
 	e.wantJob(key, "succeeded")
-	wantString(t, "order_id", e.attempt(a.ID).OrderID, *e.attempt(a.ID).OrderID)
+	if e.attempt(a.ID).OrderID == nil || len(e.fake.Requests("create_order")) != 1 {
+		t.Errorf("order id %v after %d create_order requests; want the order created once", e.attempt(a.ID).OrderID, len(e.fake.Requests("create_order")))
+	}
 }

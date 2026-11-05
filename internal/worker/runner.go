@@ -110,7 +110,7 @@ func (r *Runner) Register(kind string, h Handler) {
 // Run claims and runs due jobs until ctx is done, then returns ctx.Err(). When
 // nothing is due it waits two seconds before looking again. Once a minute it
 // takes back jobs claimed more than five minutes ago and never finished, and
-// enqueues the minute's seat release for every workshop with a reserved seat;
+// enqueues the minute's seat release for every workshop with an expired seat;
 // every two minutes it reconciles what PayPal may still change and heals the
 // workshops still funding or resolving (RunPeriodic). Once ctx is done it
 // claims nothing new and returns when the job in flight has finished, which
@@ -424,7 +424,21 @@ func (r *Runner) escalate(ctx context.Context, log *slog.Logger, job *store.Job)
 	if err != nil || a == nil {
 		return err
 	}
-	return r.flag(ctx, log.With("enrollment_id", a.EnrollmentID), a.EnrollmentID, unpaidActiveStatuses, "a "+job.Kind+" job gave up after its retries")
+	log = log.With("enrollment_id", a.EnrollmentID)
+	if err := r.flag(ctx, log, a.EnrollmentID, unpaidActiveStatuses, "a "+job.Kind+" job keeps failing"); err != nil {
+		return err
+	}
+	if job.Kind != store.KindVoid && job.Kind != store.KindRefund {
+		return nil
+	}
+	// A void or refund that keeps failing for an enrollment that cannot
+	// carry the flag (a failed capture, a released seat, an older attempt)
+	// flags its workshop, so the stuck money shows.
+	en, err := r.st.EnrollmentByID(ctx, a.EnrollmentID)
+	if err != nil || en.NeedsAttentionAt != nil {
+		return err
+	}
+	return r.flagWorkshop(ctx, log, en.WorkshopID)
 }
 
 func (r *Runner) jobLog(job *store.Job) *slog.Logger {

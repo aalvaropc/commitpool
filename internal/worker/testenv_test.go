@@ -13,6 +13,7 @@ import (
 	"github.com/aalvaropc/commitpool/internal/clock"
 	"github.com/aalvaropc/commitpool/internal/config"
 	"github.com/aalvaropc/commitpool/internal/domain"
+	"github.com/aalvaropc/commitpool/internal/mail"
 	"github.com/aalvaropc/commitpool/internal/paypal"
 	"github.com/aalvaropc/commitpool/internal/store"
 	"github.com/aalvaropc/commitpool/internal/worker"
@@ -34,6 +35,7 @@ type env struct {
 	clock    *clock.Fake
 	runner   *worker.Runner
 	logs     *logBuffer
+	mailer   *mail.Memory
 	workshop store.WorkshopRow
 	proposal store.ProposalRow
 }
@@ -85,7 +87,9 @@ func newEnv(t *testing.T, edit ...func(*paypal.Config)) *env {
 			t.Logf("worker log:\n%s", logs)
 		}
 	})
+	mailer := &mail.Memory{}
 	r := worker.New(worker.Deps{
+		Mailer: mailer,
 		Store:  st,
 		PayPal: api,
 		Clock:  clk,
@@ -100,7 +104,7 @@ func newEnv(t *testing.T, edit ...func(*paypal.Config)) *env {
 		Log: slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
 	})
 
-	e := &env{t: t, ctx: ctx, st: st, fake: fake, api: api, clock: clk, runner: r, logs: logs}
+	e := &env{t: t, ctx: ctx, st: st, fake: fake, api: api, clock: clk, runner: r, logs: logs, mailer: mailer}
 	e.openWorkshop()
 	return e
 }

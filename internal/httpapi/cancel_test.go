@@ -2,6 +2,7 @@ package httpapi_test
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -74,4 +75,24 @@ func TestOperatorRoutes_ActOnlyOnTheOwnersEnrollments(t *testing.T) {
 	if out.Workshop.Resolution != "OPEN" {
 		t.Errorf("clear-flag on a workshop with nothing flagged = %+v, want it left OPEN", out.Workshop)
 	}
+}
+
+func TestJoin_StoresEmailAndSendsThePrivateLinkOnce(t *testing.T) {
+	e := newEnv(t)
+	h := e.createWorkshop()
+	var out struct {
+		ParticipantURL string `json:"participant_url"`
+	}
+	e.call(http.MethodPost, h.sharePath+"/participants", map[string]string{"display_name": "Ana", "email": "ana@example.com"}, http.StatusCreated, &out)
+	e.runner.RunPending(e.ctx)
+
+	sent := e.mailer.Sent()
+	if len(sent) != 1 || sent[0].To != "ana@example.com" || !strings.Contains(sent[0].Text, out.ParticipantURL) {
+		t.Fatalf("sent = %+v, want one message to Ana with her private link", sent)
+	}
+	var body string
+	if err := e.st.Pool.QueryRow(e.ctx, `select body from notifications where to_email = 'ana@example.com'`).Scan(&body); err != nil || body != "" {
+		t.Errorf("stored body after sending = %q, %v; want it cleared: it carried the private link", body, err)
+	}
+	e.wantError(http.MethodPost, h.sharePath+"/participants", map[string]string{"display_name": "Luis", "email": "not an address"}, http.StatusBadRequest, "invalid_email")
 }

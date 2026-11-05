@@ -241,6 +241,26 @@ A participant whose availability in force rules out the proposal's date
 never said when they can come is let through, since the consent names the
 date.
 
+## Notifications
+
+A participant may leave an email when joining. Notifications go through an
+outbox (`notifications`, one row per idempotency key) and a `notify` job
+under the same key, which retries forever on a transient failure and marks
+the row `failed` on a final refusal (an unverified recipient while SES is in
+its sandbox). They never block a money move: a notification that cannot be
+queued is logged.
+
+| Key | When |
+|---|---|
+| `notify:joined:{participant}` | On joining; the only message with the private link, since only its hash is kept. Its body is dropped once sent. |
+| `notify:confirmed:{enrollment}` | The workshop is confirmed, for each paid seat, and for a seat paid after the confirmation. |
+| `notify:cancelled:{participant}` | The workshop is cancelled, by its close or by the organizer (with the reason). |
+| `notify:payment_failed:{enrollment}` | A charge failed and the hold is released. |
+| `notify:refund_completed:{enrollment}` | A refund completed. |
+
+Delivery is at least once: a send that succeeded at the provider but was not
+recorded is sent again.
+
 ## Organizer cancel
 
 `POST /api/v1/owner/{token}/cancel` (optional `reason`, at most 280

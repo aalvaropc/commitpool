@@ -20,6 +20,7 @@ import (
 
 	"github.com/aalvaropc/commitpool/internal/clock"
 	"github.com/aalvaropc/commitpool/internal/config"
+	"github.com/aalvaropc/commitpool/internal/mail"
 	"github.com/aalvaropc/commitpool/internal/paypal"
 	"github.com/aalvaropc/commitpool/internal/store"
 )
@@ -55,6 +56,8 @@ type Deps struct {
 	Clock  clock.Clock
 	Cfg    config.Config
 	Log    *slog.Logger
+	// Mailer sends the notifications; nil logs them instead (mail.Log).
+	Mailer mail.Mailer
 }
 
 // Handler runs one job. A nil error completes the job. Otherwise the error
@@ -75,6 +78,7 @@ type Runner struct {
 	log      *slog.Logger
 	workerID string
 	handlers map[string]Handler
+	mailer   mail.Mailer
 }
 
 // New returns a runner with the payment handlers, close and release_seats
@@ -88,7 +92,11 @@ func New(d Deps) *Runner {
 	if clk == nil {
 		clk = clock.Real{}
 	}
-	r := &Runner{st: d.Store, pp: d.PayPal, clock: clk, cfg: d.Cfg, log: log, workerID: newWorkerID()}
+	mailer := d.Mailer
+	if mailer == nil {
+		mailer = mail.Log{Log: log}
+	}
+	r := &Runner{st: d.Store, pp: d.PayPal, clock: clk, cfg: d.Cfg, log: log, workerID: newWorkerID(), mailer: mailer}
 	r.handlers = map[string]Handler{
 		store.KindCreateOrder:  r.createOrder,
 		store.KindAuthorize:    r.authorize,
@@ -98,6 +106,7 @@ func New(d Deps) *Runner {
 		store.KindReconcile:    r.reconcile,
 		store.KindClose:        r.closePayments,
 		store.KindReleaseSeats: r.releaseSeats,
+		store.KindNotify:       r.notify,
 	}
 	return r
 }

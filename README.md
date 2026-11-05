@@ -166,6 +166,7 @@ one of them with its default. Secrets are only ever read from the environment.
 | `COMMITPOOL_SEAT_TTL_MIN` | Minutes a reserved seat is held while the buyer approves at PayPal (default `30`). |
 | `COMMITPOOL_DEMO_MODE` | `1` enables the organizer's **Close payments now** control. |
 | `COMMITPOOL_SANDBOX_MOCKS` | `1` enables **Fail next charge** and the `PayPal-Mock-Response` header; rejected unless `PAYPAL_BASE_URL` is a sandbox URL. |
+| `COMMITPOOL_MAILER`, `COMMITPOOL_MAIL_FROM` | How notifications go out: `log` (default: logged with a masked address, not sent) or `ses` (Amazon SES v2 with the default AWS credentials, from `COMMITPOOL_MAIL_FROM`, a verified sender identity). |
 | `COMMITPOOL_RATE_LIMIT` | Writes (POST, PUT) a minute one client address may send, in bursts of half that; `off` turns it off (the end-to-end script does). Default `120`. Reads are never limited. |
 | `COMMITPOOL_MCP_SECRET` | Signs the MCP server's confirmation tokens; without it a random key per process is used, so a preview made before a restart must be made again. |
 | `E2E_FAKE_PAYPAL` | `1` runs an in-process fake PayPal, for the end-to-end tests. Refused next to real PayPal credentials or with a `COMMITPOOL_BASE_URL` that is not localhost. |

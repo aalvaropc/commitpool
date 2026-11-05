@@ -506,6 +506,7 @@ func (s *Server) getWorkshop(ctx context.Context, _ *mcp.CallToolRequest, in Sha
 type JoinIn struct {
 	ShareLink   string `json:"share_link" jsonschema:"the workshop's share link"`
 	DisplayName string `json:"display_name" jsonschema:"the name the person wants the organizer to see"`
+	Email       string `json:"email,omitempty" jsonschema:"optional: an address for news about the seat; the welcome message carries the private link"`
 }
 
 type JoinOut struct {
@@ -521,7 +522,7 @@ func (s *Server) joinWorkshop(ctx context.Context, _ *mcp.CallToolRequest, in Jo
 	var joined struct {
 		ParticipantURL string `json:"participant_url"`
 	}
-	if err := s.call(ctx, "POST", "/api/v1/w/"+tok+"/participants", map[string]string{"display_name": in.DisplayName}, &joined); err != nil {
+	if err := s.call(ctx, "POST", "/api/v1/w/"+tok+"/participants", map[string]string{"display_name": in.DisplayName, "email": in.Email}, &joined); err != nil {
 		return nil, JoinOut{}, err
 	}
 	return nil, JoinOut{

@@ -21,6 +21,7 @@ import (
 	"github.com/aalvaropc/commitpool/internal/config"
 	"github.com/aalvaropc/commitpool/internal/domain"
 	"github.com/aalvaropc/commitpool/internal/httpapi"
+	"github.com/aalvaropc/commitpool/internal/mail"
 	"github.com/aalvaropc/commitpool/internal/mcpserver"
 	"github.com/aalvaropc/commitpool/internal/paypal"
 	"github.com/aalvaropc/commitpool/internal/store"
@@ -53,6 +54,7 @@ type env struct {
 	h      http.Handler
 	mcp    *mcp.Server
 	logs   *logBuffer
+	mailer *mail.Memory
 	// explained receives a value each time a background explanation is
 	// stored.
 	explained chan struct{}
@@ -192,7 +194,8 @@ func newEnv(t *testing.T, opts ...option) *env {
 		}
 	})
 	log := slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	runner := worker.New(worker.Deps{Store: st, PayPal: api, Clock: clk, Cfg: s.cfg, Log: log})
+	mailer := &mail.Memory{}
+	runner := worker.New(worker.Deps{Store: st, PayPal: api, Clock: clk, Cfg: s.cfg, Log: log, Mailer: mailer})
 	assistant := mcpserver.New(mcpserver.Config{Secret: []byte("test-confirmation-secret"), Clock: clk, Log: log})
 	h := httpapi.New(httpapi.Deps{
 		MCP:    assistant,
@@ -208,7 +211,7 @@ func newEnv(t *testing.T, opts ...option) *env {
 			"assets/app.js": {Data: []byte("console.log('commitpool')")},
 		},
 	})
-	return &env{t: t, ctx: ctx, st: st, fake: fake, clock: clk, runner: runner, cfg: s.cfg, h: h, mcp: assistant.MCP(), logs: logs, explained: explained}
+	return &env{t: t, ctx: ctx, st: st, fake: fake, clock: clk, runner: runner, cfg: s.cfg, h: h, mcp: assistant.MCP(), mailer: mailer, logs: logs, explained: explained}
 }
 
 // request sends body as JSON (a string or []byte is sent as is) and returns

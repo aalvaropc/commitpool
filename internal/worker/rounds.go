@@ -177,9 +177,17 @@ func (r *Runner) afterMove(ctx context.Context, enrollmentID string, to domain.E
 	case domain.EnrollmentAuthorized:
 		return r.afterAuthorized(ctx, en)
 	case domain.EnrollmentPaid:
-		return r.afterPaid(ctx, en)
+		err := r.afterPaid(ctx, en)
+		if w, werr := r.st.WorkshopByID(ctx, en.WorkshopID); werr == nil && w.Status == domain.WorkshopConfirmed {
+			r.notifyEnrollment(ctx, en.ID, NotifyConfirmed)
+		}
+		return err
 	case domain.EnrollmentCaptureFailed:
+		r.notifyEnrollment(ctx, en.ID, NotifyPaymentFailed)
 		return errors.Join(r.StartCaptureRoundIfReady(ctx, en.WorkshopID), r.SettleIfResolved(ctx, en.WorkshopID))
+	case domain.EnrollmentRefunded:
+		r.notifyEnrollment(ctx, en.ID, NotifyRefundCompleted)
+		return r.SettleIfResolved(ctx, en.WorkshopID)
 	case domain.EnrollmentNeedsAttention, domain.EnrollmentRefundFailed:
 		return errors.Join(r.flagIfConfirmed(ctx, en.WorkshopID), r.SettleIfResolved(ctx, en.WorkshopID))
 	default:
@@ -267,6 +275,13 @@ func (r *Runner) confirmIfFunded(ctx context.Context, workshopID string) (done b
 		[]domain.WorkshopStatus{domain.WorkshopFunding}, []domain.Resolution{v.w.Resolution}, status, resolution)
 	if ok {
 		r.log.Info("workshop confirmed: enough payments completed", "workshop_id", workshopID, "paid", t.Paid, "minimum", v.p.Minimum)
+		if status == domain.WorkshopConfirmed {
+			for _, en := range v.rows {
+				if en.Status == domain.EnrollmentPaid {
+					r.notifyEnrollment(ctx, en.ID, NotifyConfirmed)
+				}
+			}
+		}
 	}
 	return ok, err
 }

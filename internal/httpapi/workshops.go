@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"net/http"
+	"net/mail"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -226,6 +227,7 @@ func (s *server) joinWorkshop(w http.ResponseWriter, r *http.Request) error {
 	}
 	var req struct {
 		DisplayName string `json:"display_name"`
+		Email       string `json:"email"`
 	}
 	if err := decode(r, &req); err != nil {
 		return err
@@ -233,6 +235,10 @@ func (s *server) joinWorkshop(w http.ResponseWriter, r *http.Request) error {
 	name := strings.TrimSpace(req.DisplayName)
 	if n := utf8.RuneCountInString(name); n == 0 || n > maxDisplayName {
 		return badRequest("invalid_display_name", "The name must have between 1 and %d characters.", maxDisplayName)
+	}
+	email, err := optionalEmail(req.Email)
+	if err != nil {
+		return err
 	}
 	if err := s.open(r.Context(), ws); err != nil {
 		return err
@@ -244,10 +250,35 @@ func (s *server) joinWorkshop(w http.ResponseWriter, r *http.Request) error {
 	if joined >= maxParticipantsPerWorkshop {
 		return conflict("too_many_participants", "This workshop already has as many participants as it can take.")
 	}
-	_, token, err := s.Store.CreateParticipant(r.Context(), ws.ID, name)
+	p, token, err := s.Store.CreateParticipant(r.Context(), ws.ID, name)
 	if err != nil {
 		return err
 	}
-	writeJSON(w, http.StatusCreated, map[string]string{"participant_url": s.Cfg.BaseURL + "/p/" + token})
+	link := s.Cfg.BaseURL + "/p/" + token
+	if email != "" {
+		// The welcome message is the one place the private link travels:
+		// only its hash is kept. A failure here never fails the join.
+		if err := s.Store.SetParticipantEmail(r.Context(), p.ID, email); err != nil {
+			return err
+		}
+		if err := s.Worker.NotifyJoined(r.Context(), ws.ID, p.ID, link); err != nil {
+			s.Log.Error("join: could not queue the welcome message", "workshop_id", ws.ID, "error", err)
+		}
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"participant_url": link})
 	return nil
+}
+
+// optionalEmail checks an address a participant may leave for news about
+// their seat: empty, or one plain address of at most 254 characters.
+func optionalEmail(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", nil
+	}
+	addr, err := mail.ParseAddress(raw)
+	if err != nil || addr.Address != raw || len(raw) > 254 {
+		return "", badRequest("invalid_email", "The email must be one plain address, such as ana@example.com.")
+	}
+	return raw, nil
 }

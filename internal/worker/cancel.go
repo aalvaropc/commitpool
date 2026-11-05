@@ -48,6 +48,7 @@ func (r *Runner) CancelWorkshop(ctx context.Context, workshopID, reason string) 
 			continue
 		}
 		r.log.Info("workshop cancelled by its organizer", "workshop_id", workshopID, "from", w.Status, "resolution", resolution)
+		r.notifyCancelled(ctx, workshopID)
 		if p == nil {
 			return nil
 		}

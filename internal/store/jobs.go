@@ -64,10 +64,10 @@ var jobBackoff = [...]time.Duration{5 * time.Second, 30 * time.Second, 2 * time.
 const maxJobAttempts = len(jobBackoff) + 1
 
 // foreverKinds retry forever with the same key instead of parking: voids and
-// refunds give money back, and a reconcile, a close or a seat release only
-// reads or decides. Their failures here are never ambiguous at PayPal (an
+// refunds give money back, a reconcile, a close or a seat release only
+// reads or decides, and a notification is idempotent in its outbox. Their failures here are never ambiguous at PayPal (an
 // ambiguous one is reconciled instead), so sending again is safe.
-var foreverKinds = []string{KindVoid, KindRefund, KindReconcile, KindClose, KindReleaseSeats}
+var foreverKinds = []string{KindVoid, KindRefund, KindReconcile, KindClose, KindReleaseSeats, KindNotify}
 
 // RetriesForever reports whether a job of this kind retries forever instead
 // of parking as needs_attention.

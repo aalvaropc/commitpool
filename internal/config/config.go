@@ -43,6 +43,9 @@ type Config struct {
 	// MCPSecret signs the MCP server's confirmation tokens; nil uses a random
 	// key per process.
 	MCPSecret []byte
+	// Mailer is how notifications go out: "log" (logged, not sent) or "ses";
+	// MailFrom is the SES sender, a verified identity.
+	Mailer, MailFrom string
 	// RateLimitPerMin is how many writes a minute one client address may
 	// send; 0 turns the limit off.
 	RateLimitPerMin int
@@ -95,6 +98,17 @@ func Load(getenv func(string) string) (Config, error) {
 		} else {
 			cfg.RateLimitPerMin = n
 		}
+	}
+	cfg.Mailer = strings.ToLower(str("COMMITPOOL_MAILER", "log"))
+	cfg.MailFrom = str("COMMITPOOL_MAIL_FROM", "")
+	switch cfg.Mailer {
+	case "log":
+	case "ses":
+		if cfg.MailFrom == "" {
+			problems = append(problems, "COMMITPOOL_MAILER=ses needs COMMITPOOL_MAIL_FROM, a verified SES sender")
+		}
+	default:
+		problems = append(problems, "COMMITPOOL_MAILER must be log or ses")
 	}
 	if secret := str("COMMITPOOL_MCP_SECRET", ""); secret != "" {
 		cfg.MCPSecret = []byte(secret)

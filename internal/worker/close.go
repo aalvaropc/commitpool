@@ -92,6 +92,7 @@ func (r *Runner) decideClose(ctx context.Context, workshopID string) (view, doma
 				return v, c, nil
 			}
 			if ok {
+				r.notifyCancelled(ctx, workshopID)
 				if v, err = r.workshopView(ctx, workshopID); err != nil {
 					return view{}, domain.Close{}, err
 				}

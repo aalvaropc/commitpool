@@ -19,6 +19,7 @@ import (
 	"github.com/aalvaropc/commitpool/internal/clock"
 	"github.com/aalvaropc/commitpool/internal/config"
 	"github.com/aalvaropc/commitpool/internal/httpapi"
+	"github.com/aalvaropc/commitpool/internal/mail"
 	"github.com/aalvaropc/commitpool/internal/mcpserver"
 	"github.com/aalvaropc/commitpool/internal/paypal"
 	"github.com/aalvaropc/commitpool/internal/store"
@@ -71,7 +72,15 @@ func run(log *slog.Logger) error {
 	}
 
 	clk := clock.Real{}
-	runner := worker.New(worker.Deps{Store: st, PayPal: pp, Clock: clk, Cfg: cfg, Log: log})
+	var mailer mail.Mailer = mail.Log{Log: log}
+	if cfg.Mailer == "ses" {
+		ses, err := mail.NewSES(ctx, cfg.AWSRegion, cfg.MailFrom)
+		if err != nil {
+			return err
+		}
+		mailer = ses
+	}
+	runner := worker.New(worker.Deps{Store: st, PayPal: pp, Clock: clk, Cfg: cfg, Log: log, Mailer: mailer})
 	srv := &http.Server{
 		Addr: ":" + cfg.Port,
 		Handler: httpapi.New(httpapi.Deps{

@@ -288,3 +288,18 @@ func TestLoad_RateLimit(t *testing.T) {
 		t.Errorf("COMMITPOOL_RATE_LIMIT=lots: err = %v, want a refusal", err)
 	}
 }
+
+func TestLoad_Mailer(t *testing.T) {
+	env := baseEnv()
+	if cfg, err := load(env); err != nil || cfg.Mailer != "log" {
+		t.Errorf("default mailer = %q, %v; want log", cfg.Mailer, err)
+	}
+	env["COMMITPOOL_MAILER"] = "ses"
+	if _, err := load(env); err == nil || !strings.Contains(err.Error(), "COMMITPOOL_MAIL_FROM") {
+		t.Errorf("ses without a sender: err = %v, want a refusal naming COMMITPOOL_MAIL_FROM", err)
+	}
+	env["COMMITPOOL_MAIL_FROM"] = "CommitPool <hello@example.com>"
+	if cfg, err := load(env); err != nil || cfg.Mailer != "ses" || cfg.MailFrom != "CommitPool <hello@example.com>" {
+		t.Errorf("ses with a sender = %+v, %v", cfg.Mailer, err)
+	}
+}

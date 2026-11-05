@@ -33,6 +33,8 @@ const (
 	// shutdownGrace is how long a job Run is running may go on once Run's
 	// context is done.
 	shutdownGrace = 10 * time.Second
+	// inlineJobTimeout bounds a job RunKey runs for a caller that waits on it.
+	inlineJobTimeout = 60 * time.Second
 )
 
 // reconcileGaps is how long after an ambiguous result each reconcile
@@ -206,6 +208,10 @@ func withShutdownGrace(ctx context.Context) (context.Context, context.CancelFunc
 // is finished or it is not due yet) is left alone and RunKey returns nil; when
 // no job has the key it returns store.ErrNotFound.
 func (r *Runner) RunKey(ctx context.Context, key string) error {
+	// The caller's request may end (a buyer closing the tab) while PayPal is
+	// answering: the job runs on, so its answer is recorded, not lost.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), inlineJobTimeout)
+	defer cancel()
 	job, err := r.st.ClaimJobByKey(ctx, key, r.workerID, r.clock.Now())
 	if err != nil {
 		return err

@@ -142,9 +142,10 @@ func TestClose_RepeatedCloseJobIsNoop(t *testing.T) {
 	e := newEnv(t)
 	ana, a1 := e.paid("Ana")
 	ben, a2 := e.paid("Ben")
-	dan, _ := e.enroll("Dan")
 	e.nearClose()
 	cleo, a3 := e.withOrder("Cleo")
+	// Dan's seat is still live when payments close and lapses after.
+	dan, _ := e.enroll("Dan")
 	a3 = e.authorizeJustBeforeClose(cleo, a3)
 	e.clock.Set(e.proposal.ClosesAt)
 
@@ -188,6 +189,7 @@ func TestClose_RepeatedCloseJobIsNoop(t *testing.T) {
 
 	e.wantStatus(dan.ID, domain.EnrollmentSeatReserved)
 	e.wantWorkshop(domain.WorkshopCancelled, domain.ResolutionResolving)
+	e.clock.Set(dan.SeatExpiresAt.Add(time.Minute))
 	e.runKey(e.releaseSeatsNow())
 	e.wantStatus(dan.ID, domain.EnrollmentReleased)
 	e.wantWorkshop(domain.WorkshopCancelled, domain.ResolutionSettled)

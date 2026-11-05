@@ -13,11 +13,14 @@ import (
 
 // Limits on what a workshop and a participant may carry.
 const (
-	maxTitle         = 120
-	maxDescription   = 2000
-	maxDurationMin   = 24 * 60
-	maxCapacity      = 500
-	maxWindowMin     = 30 * 24 * 60
+	maxTitle       = 120
+	maxDescription = 2000
+	maxDurationMin = 24 * 60
+	maxCapacity    = 500
+	maxWindowMin   = int(domain.MaxPaymentWindow / time.Minute)
+	// dateLengthSlack is how far a candidate date's length may be from the
+	// duration: an hour, for a date that crosses a daylight-saving change.
+	dateLengthSlack  = time.Hour
 	maxDates         = 10
 	maxDisplayName   = 80
 	maxMessageLength = 2000
@@ -125,7 +128,7 @@ func (s *server) workshopParams(req createWorkshopRequest) (store.CreateWorkshop
 	if req.PaymentWindowMin != nil {
 		window = *req.PaymentWindowMin
 		if window < 1 || window > maxWindowMin {
-			return none, badRequest("invalid_payment_window", "The payment window must be between 1 and %d minutes.", maxWindowMin)
+			return none, badRequest("invalid_payment_window", "The payment window must be between 1 and %d minutes: PayPal honours a hold for three days.", maxWindowMin)
 		}
 	}
 	if len(req.Dates) == 0 || len(req.Dates) > maxDates {
@@ -139,6 +142,9 @@ func (s *server) workshopParams(req createWorkshopRequest) (store.CreateWorkshop
 		}
 		if !d.StartsAt.After(now) {
 			return none, badRequest("invalid_dates", "Each candidate date must be in the future.")
+		}
+		if diff := d.EndsAt.Sub(d.StartsAt) - time.Duration(req.DurationMin)*time.Minute; diff > dateLengthSlack || diff < -dateLengthSlack {
+			return none, badRequest("invalid_dates", "Each candidate date must last the workshop's duration.")
 		}
 		dates[i] = struct{ StartsAt, EndsAt time.Time }{d.StartsAt.UTC(), d.EndsAt.UTC()}
 	}

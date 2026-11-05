@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/aalvaropc/commitpool/internal/domain"
@@ -83,7 +84,7 @@ func (s *server) enroll(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	if !paymentsOpen(ws, proposal, now) || req.ProposalID != proposal.ID {
+	if !paymentsOpen(ws, proposal, now) || !strings.EqualFold(req.ProposalID, proposal.ID) {
 		return errProposalNotOpen
 	}
 

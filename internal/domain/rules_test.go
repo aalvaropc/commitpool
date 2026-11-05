@@ -179,6 +179,27 @@ func TestValidateProposal_StartsAtLeast24hAfterClose(t *testing.T) {
 			wantErr:    domain.ErrWindowMismatch,
 		},
 		{
+			name: "window beyond PayPal's three-day honour period",
+			mutate: func(w *domain.Workshop, p *domain.Proposal, d *domain.CandidateDate) {
+				w.PaymentWindow = 72*time.Hour + time.Minute
+				p.ClosesAt = opensAt.Add(w.PaymentWindow)
+				p.StartsAt = p.ClosesAt.Add(48 * time.Hour)
+				d.StartsAt = p.StartsAt
+			},
+			compatible: 3,
+			wantErr:    domain.ErrWindowTooLong,
+		},
+		{
+			name: "three-day window honoured",
+			mutate: func(w *domain.Workshop, p *domain.Proposal, d *domain.CandidateDate) {
+				w.PaymentWindow = 72 * time.Hour
+				p.ClosesAt = opensAt.Add(w.PaymentWindow)
+				p.StartsAt = p.ClosesAt.Add(48 * time.Hour)
+				d.StartsAt = p.StartsAt
+			},
+			compatible: 3,
+		},
+		{
 			name: "short window honoured",
 			mutate: func(w *domain.Workshop, p *domain.Proposal, _ *domain.CandidateDate) {
 				w.PaymentWindow = 2 * time.Hour

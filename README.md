@@ -166,7 +166,7 @@ one of them with its default. Secrets are only ever read from the environment.
 | `COMMITPOOL_SEAT_TTL_MIN` | Minutes a reserved seat is held while the buyer approves at PayPal (default `30`). |
 | `COMMITPOOL_DEMO_MODE` | `1` enables the organizer's **Close payments now** control. |
 | `COMMITPOOL_SANDBOX_MOCKS` | `1` enables **Fail next charge** and the `PayPal-Mock-Response` header; rejected unless `PAYPAL_BASE_URL` is a sandbox URL. |
-| `E2E_FAKE_PAYPAL` | `1` runs an in-process fake PayPal, for the end-to-end tests. |
+| `E2E_FAKE_PAYPAL` | `1` runs an in-process fake PayPal, for the end-to-end tests. Refused next to real PayPal credentials or with a `COMMITPOOL_BASE_URL` that is not localhost. |
 
 ### Availability with Claude on Amazon Bedrock
 
@@ -304,9 +304,9 @@ fake interpreter or a local stand-in for the Bedrock endpoint.
 ## Limitations
 
 - Prices are in USD only.
-- The payment window defaults to 24 hours. PayPal honours an authorization
-  for a limited period; a window longer than 72 hours has not been exercised
-  in the Sandbox and should be before it is offered.
+- The payment window defaults to 24 hours and is capped at 72 hours, the
+  period PayPal honours an authorization for; longer windows would need
+  reauthorization, which is not built.
 - Access is by capability links (organizer, invite, participant); there are
   no user accounts.
 - Sandbox only. The deployment has no WAF, rate limiting or autoscaling.

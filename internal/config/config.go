@@ -127,6 +127,20 @@ func Load(getenv func(string) string) (Config, error) {
 		problems = append(problems, "missing required environment variables: "+strings.Join(missing, ", "))
 	}
 
+	if cfg.BaseURL != "" {
+		if u, err := url.Parse(cfg.BaseURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			problems = append(problems, "COMMITPOOL_BASE_URL must be an absolute http(s) URL, such as https://commitpool.example")
+		}
+	}
+	if cfg.FakePayPal {
+		if cfg.PayPalClientID != "" || cfg.PayPalClientSecret != "" {
+			problems = append(problems, "E2E_FAKE_PAYPAL=1 cannot run next to real PayPal credentials")
+		}
+		if !localURL(cfg.BaseURL) {
+			problems = append(problems, "E2E_FAKE_PAYPAL=1 is only for a local COMMITPOOL_BASE_URL (localhost)")
+		}
+	}
+
 	if cfg.SandboxMocks && !strings.Contains(cfg.PayPalBaseURL, "sandbox") {
 		problems = append(problems, "COMMITPOOL_SANDBOX_MOCKS=1 requires PAYPAL_BASE_URL to be a PayPal sandbox URL")
 	}
@@ -192,4 +206,17 @@ func redactURL(raw string) string {
 		u.RawQuery = q.Encode()
 	}
 	return u.Redacted()
+}
+
+// localURL reports whether raw is an http(s) URL on this machine.
+func localURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	switch h := u.Hostname(); {
+	case h == "localhost", h == "127.0.0.1", h == "::1", strings.HasSuffix(h, ".localhost"):
+		return true
+	}
+	return false
 }

@@ -578,3 +578,18 @@ func TestSettle_AmbiguousErrorOfOtherKindIsRetried(t *testing.T) {
 		t.Errorf("reconcile job = %+v, %v; want none: a reconcile cannot resolve this kind", r, err)
 	}
 }
+
+func TestRunKey_CallerCancellationDoesNotCancelTheJob(t *testing.T) {
+	e := newEnv(t)
+	_, a := e.enroll("Ana")
+	key := e.enqueue("create_order", a)
+	gone, cancel := context.WithCancel(e.ctx)
+	cancel() // the buyer closed the tab before the handler ran the job
+
+	if err := e.runner.RunKey(gone, key); err != nil {
+		t.Fatalf("RunKey with a cancelled caller: %v", err)
+	}
+
+	e.wantJob(key, "succeeded")
+	wantString(t, "order_id", e.attempt(a.ID).OrderID, *e.attempt(a.ID).OrderID)
+}

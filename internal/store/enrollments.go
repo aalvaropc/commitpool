@@ -75,6 +75,12 @@ func (s *Store) ReserveSeatAndCreateEnrollment(ctx context.Context, p ReservePar
 			return ErrProposalNotOpen
 		}
 
+		// A lapsed seat no release job has freed yet does not count.
+		if _, err := tx.Exec(ctx,
+			`update enrollments e set status = 'RELEASED', released_at = $2, updated_at = now()
+			 where e.workshop_id = $1 and `+releasable("$2"), p.WorkshopID, p.Now); err != nil {
+			return wrap("release lapsed seats", err)
+		}
 		if err := checkCapacity(ctx, tx, p.WorkshopID, proposal.Capacity); err != nil {
 			return err
 		}

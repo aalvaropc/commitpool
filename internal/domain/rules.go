@@ -10,6 +10,7 @@ var (
 	ErrCapacityFull          = errors.New("capacity full")
 	ErrWorkshopNotCollecting = errors.New("workshop is not collecting availability")
 	ErrWindowMismatch        = errors.New("payment window does not match the workshop setting")
+	ErrWindowTooLong         = errors.New("payment window is longer than PayPal's authorization honour period")
 	ErrStartsAtMismatch      = errors.New("proposal start does not match the chosen date")
 	ErrStartsTooSoon         = errors.New("workshop must start at least 24h after payments close")
 	ErrMinimumAboveCapacity  = errors.New("minimum exceeds capacity")
@@ -17,6 +18,10 @@ var (
 )
 
 const minLeadAfterClose = 24 * time.Hour
+
+// MaxPaymentWindow is the longest payment window: PayPal honours an
+// authorization for three days, and a hold captured after that may fail.
+const MaxPaymentWindow = 72 * time.Hour
 
 // Counts tallies enrollments by status. Occupying counts every enrollment that
 // holds a seat, including captures still pending.
@@ -57,6 +62,9 @@ func ReserveSeat(t Tally, capacity int) error {
 func ValidateProposal(w Workshop, p Proposal, date CandidateDate, compatible int, _ time.Time) error {
 	if w.Status != WorkshopCollecting {
 		return fmt.Errorf("%w: status is %s", ErrWorkshopNotCollecting, w.Status)
+	}
+	if w.PaymentWindow > MaxPaymentWindow {
+		return fmt.Errorf("%w: %s, at most %s", ErrWindowTooLong, w.PaymentWindow, MaxPaymentWindow)
 	}
 	if want := p.OpensAt.Add(w.PaymentWindow); !p.ClosesAt.Equal(want) {
 		return fmt.Errorf("%w: closes at %s, want %s", ErrWindowMismatch, p.ClosesAt.Format(time.RFC3339), want.Format(time.RFC3339))

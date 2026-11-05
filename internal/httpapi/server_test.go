@@ -96,6 +96,8 @@ func TestWorkshops_CreateRejectsInvalidTerms(t *testing.T) {
 		{"local timezone", withField("timezone", "Local"), "invalid_timezone", ""},
 		{"zero minimum", withField("minimum", 0), "invalid_minimum", ""},
 		{"zero window", withField("payment_window_min", 0), "invalid_payment_window", ""},
+		{"window beyond PayPal's honour period", withField("payment_window_min", 4321), "invalid_payment_window", ""},
+		{"date shorter than the duration", withField("dates", []map[string]string{{"starts_at": satStart.Format(time.RFC3339), "ends_at": satStart.Add(time.Hour).Format(time.RFC3339)}}), "invalid_dates", ""},
 		{"no dates", withField("dates", []any{}), "invalid_dates", ""},
 		{"end before start", withField("dates", []map[string]string{{"starts_at": satStart.Format(time.RFC3339), "ends_at": satStart.Add(-time.Hour).Format(time.RFC3339)}}), "invalid_dates", ""},
 		{"date in the past", withField("dates", []map[string]string{{"starts_at": past.Format(time.RFC3339), "ends_at": t0.Format(time.RFC3339)}}), "invalid_dates", ""},
@@ -167,7 +169,7 @@ func TestProposal_RefusesUnknownDatesAndTooFewCompatible(t *testing.T) {
 
 	soon := e.createWorkshop(func(b map[string]any) {
 		start := t0.Add(36 * time.Hour)
-		b["dates"] = []map[string]string{{"starts_at": start.Format(time.RFC3339), "ends_at": start.Add(time.Hour).Format(time.RFC3339)}}
+		b["dates"] = []map[string]string{{"starts_at": start.Format(time.RFC3339), "ends_at": start.Add(3 * time.Hour).Format(time.RFC3339)}}
 		b["minimum"] = 1
 	})
 	e.joinAndSay(soon, "Ana", "Any day works for me")
@@ -180,6 +182,22 @@ func TestProposal_RefusesUnknownDatesAndTooFewCompatible(t *testing.T) {
 	if v := e.owner(h); v.Workshop.Status != "COLLECTING" || v.Proposal != nil {
 		t.Errorf("refused proposals changed the workshop: %+v, proposal %+v", v.Workshop, v.Proposal)
 	}
+}
+
+func TestEnrollment_ProposalIDIsCaseInsensitive(t *testing.T) {
+	e := newEnv(t)
+	h := e.createWorkshop()
+	ana := e.joinAndSay(h, "Ana", "Saturday works if we finish before six")
+	e.joinAndSay(h, "Luis", "Any day works for me")
+	p := e.openProposal(h, h.satID)
+
+	e.enroll(ana, strings.ToUpper(p.ID), http.StatusCreated)
+}
+
+func TestWorkshops_ThreeDayWindowAccepted(t *testing.T) {
+	e := newEnv(t)
+	var out createdJSON
+	e.call(http.MethodPost, "/api/v1/workshops", withField("payment_window_min", 4320), http.StatusCreated, &out)
 }
 
 func TestEnrollment_RequiresConsentVersionAndLockedProposal(t *testing.T) {

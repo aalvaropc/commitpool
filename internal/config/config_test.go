@@ -240,3 +240,33 @@ func TestConfig_LogValueAndStringRedactSecrets(t *testing.T) {
 		})
 	}
 }
+
+func TestLoad_RefusesFakePayPalWithRealCredentialsOrAPublicURL(t *testing.T) {
+	env := baseEnv()
+	env["E2E_FAKE_PAYPAL"] = "1"
+	if _, err := load(env); err == nil || !strings.Contains(err.Error(), "E2E_FAKE_PAYPAL") {
+		t.Errorf("fake PayPal next to real credentials: err = %v, want a refusal naming E2E_FAKE_PAYPAL", err)
+	}
+
+	delete(env, "PAYPAL_CLIENT_ID")
+	delete(env, "PAYPAL_CLIENT_SECRET")
+	env["COMMITPOOL_BASE_URL"] = "https://demo.example.com"
+	if _, err := load(env); err == nil || !strings.Contains(err.Error(), "E2E_FAKE_PAYPAL") {
+		t.Errorf("fake PayPal on a public URL: err = %v, want a refusal naming E2E_FAKE_PAYPAL", err)
+	}
+
+	env["COMMITPOOL_BASE_URL"] = "http://localhost:18080"
+	if _, err := load(env); err != nil {
+		t.Errorf("fake PayPal on localhost: %v", err)
+	}
+}
+
+func TestLoad_RequiresAnAbsoluteHTTPBaseURL(t *testing.T) {
+	for _, bad := range []string{"localhost:8080", "/relative", "ftp://example.com"} {
+		env := baseEnv()
+		env["COMMITPOOL_BASE_URL"] = bad
+		if _, err := load(env); err == nil || !strings.Contains(err.Error(), "COMMITPOOL_BASE_URL") {
+			t.Errorf("COMMITPOOL_BASE_URL=%q: err = %v, want a refusal", bad, err)
+		}
+	}
+}

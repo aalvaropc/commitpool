@@ -39,6 +39,15 @@ The resolution tracks the money side, separately from the status:
 `FUNDING` or `CONFIRMED` and now is before `closes_at`. Seats are reserved
 and authorizations placed only while payments are open.
 
+The payment window is at most 72 hours (`domain.MaxPaymentWindow`), the
+period PayPal honours an authorization for: workshop creation refuses a
+longer one, and opening payments refuses it too (`window_too_long`) for a
+workshop created before the rule. A seat holds through its expiry instant
+(`domain.SeatExpired`); a reservation first releases the workshop's lapsed
+seats, so a seat no release job has freed yet never blocks a new one. A job
+a request runs inline (the PayPal return, the checkout) is detached from the
+request: a buyer closing the tab never cuts a PayPal call short.
+
 ## Enrollment
 
 | Status | Seat | Reached when | Next |

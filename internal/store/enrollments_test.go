@@ -799,8 +799,9 @@ func TestWorkshopIDsWithExpiredSeats_ListsEachWorkshopOnce(t *testing.T) {
 
 	reserve(t, s, two, twoP, newParticipant(t, s, two, "Expired").ID, baseTime)
 	reserve(t, s, two, twoP, newParticipant(t, s, two, "Also expired").ID, baseTime)
-	reserve(t, s, one, oneP, newParticipant(t, s, one, "Expired").ID, baseTime)
+	// Live first: reserving later would free the lapsed seat on the way.
 	reserve(t, s, one, oneP, newParticipant(t, s, one, "Live").ID, baseTime.Add(2*time.Hour))
+	reserve(t, s, one, oneP, newParticipant(t, s, one, "Expired").ID, baseTime)
 	held := reserve(t, s, authorized, authorizedP, newParticipant(t, s, authorized, "Authorized").ID, baseTime)
 	mustTransition(t, s, held.ID, []domain.EnrollmentStatus{domain.EnrollmentSeatReserved}, domain.EnrollmentAuthorized)
 	gone := reserve(t, s, released, releasedP, newParticipant(t, s, released, "Released").ID, baseTime)
@@ -989,5 +990,35 @@ func TestWorkshopIDsWithExpiredSeats_OnlyWhenASeatCanBeReleased(t *testing.T) {
 	}
 	if ids, err = s.WorkshopIDsWithExpiredSeats(ctx, en.SeatExpiresAt.Add(time.Hour)); err != nil || len(ids) != 0 {
 		t.Fatalf("a seat kept for a PENDING authorization = %v, %v; want none: nothing to release", ids, err)
+	}
+}
+
+func TestReserveSeat_ReleasesExpiredSeatsBeforeCountingCapacity(t *testing.T) {
+	ctx := context.Background()
+	s := store.TestStore(t)
+	w, _, _ := newWorkshop(t, s, 1, 1)
+	p := openFunding(t, s, w, baseTime)
+	reserveAt := func(name string, now time.Time) (store.EnrollmentRow, error) {
+		e, _, err := s.ReserveSeatAndCreateEnrollment(ctx, store.ReserveParams{
+			WorkshopID: w.ID, ParticipantID: newParticipant(t, s, w, name).ID, ProposalID: p.ID,
+			ConsentVersion: "consent-v1", Now: now, SeatTTL: 30 * time.Minute,
+		})
+		return e, err
+	}
+	ana, err := reserveAt("Ana", baseTime.Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Ana's seat lapsed and no release job has run yet.
+	ben, err := reserveAt("Ben", ana.SeatExpiresAt.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("reserve after the only seat lapsed = %v; want it to free that seat first", err)
+	}
+	if got, _ := s.EnrollmentByID(ctx, ana.ID); got.Status != domain.EnrollmentReleased {
+		t.Errorf("lapsed seat = %s, want RELEASED", got.Status)
+	}
+	if ben.Status != domain.EnrollmentSeatReserved {
+		t.Errorf("new seat = %s, want SEAT_RESERVED", ben.Status)
 	}
 }

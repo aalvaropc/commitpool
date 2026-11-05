@@ -127,3 +127,43 @@ func TestCancel_RefusedAfterTheWorkshopStarted(t *testing.T) {
 	}
 	e.wantWorkshop(domain.WorkshopConfirmed, domain.ResolutionOpen)
 }
+
+func TestCancel_QueuedCapturesNeverCharge(t *testing.T) {
+	e := newEnv(t)
+	ana, _ := e.authorized("Ana")
+	ben, _ := e.authorized("Ben")
+	cleo, c := e.authorized("Cleo")
+	e.wantJob("capture:"+c.ID, "pending")
+
+	e.cancel()
+	e.runUntilIdle()
+
+	if n := e.fake.Captures(); n != 0 {
+		t.Fatalf("captures at PayPal after the organizer cancelled = %d, want 0", n)
+	}
+	for _, id := range []string{ana.ID, ben.ID, cleo.ID} {
+		e.wantStatus(id, domain.EnrollmentVoided)
+	}
+	e.wantWorkshop(domain.WorkshopCancelled, domain.ResolutionSettled)
+}
+
+func TestCancel_CaptureWaitingOutABackoffIsNotSentAgain(t *testing.T) {
+	e := newEnv(t)
+	ana, a := e.authorized("Ana")
+	e.fake.FailNext("capture", 429, "RATE_LIMIT_REACHED")
+	e.runKey(e.enqueue("capture", a))
+	e.wantStatus(ana.ID, domain.EnrollmentCapturing)
+
+	e.cancel()
+	e.advance(10 * time.Second)
+	e.runUntilIdle()
+
+	if n := len(e.fake.Requests("capture")); n != 1 {
+		t.Fatalf("capture requests = %d, want only the one refused before the cancel", n)
+	}
+	e.wantStatus(ana.ID, domain.EnrollmentCaptureFailed)
+	if got := e.attempt(a.ID).AuthorizationStatus; got == nil || *got != "VOIDED" {
+		t.Fatalf("authorization status = %v, want the hold voided", got)
+	}
+	e.wantWorkshop(domain.WorkshopCancelled, domain.ResolutionSettled)
+}

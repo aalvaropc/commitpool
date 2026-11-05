@@ -190,6 +190,12 @@ round is evaluated again, as after a refusal from PayPal. A capture that is
 resumed past its deadline first reads PayPal and keeps a capture an earlier
 run already made.
 
+A cancelled workshop is past every capture deadline, also when the organizer
+cancels before `closes_at`: a queued capture of an `AUTHORIZED` enrollment is
+skipped (the cancel voids the hold), and one already `CAPTURING` (resumed after
+a retryable error, or overtaken by the cancel right after it moved) is failed
+without sending it, with `capture_issue = WORKSHOP_CANCELLED`, and voided.
+
 An authorization that lands once payments have closed, or on a cancelled
 workshop, is voided; the authorize job itself refuses to call PayPal once
 payments have closed.
@@ -449,7 +455,8 @@ record what PayPal shows on it and clear its flag first, for example
 The owner view lists every enrollment with its status, its seat expiry and,
 for its latest attempt, the PayPal order, authorization, capture and refund
 ids, their statuses and `capture_issue` (the issue PayPal gave for a refused
-capture, or `AUTHORIZATION_EXPIRED_LOCAL` / `CAPTURE_DEADLINE_PASSED`), plus
+capture, or `AUTHORIZATION_EXPIRED_LOCAL` / `CAPTURE_DEADLINE_PASSED` /
+`WORKSHOP_CANCELLED`), plus
 the workshop's status and resolution.
 
 Only the `jobs` table shows which action is stuck and why: the job status,

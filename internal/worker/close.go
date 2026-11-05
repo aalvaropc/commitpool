@@ -258,8 +258,9 @@ func (r *Runner) HealWorkshop(ctx context.Context, workshopID string) error {
 			heal(store.KindVoid, en, "authorization kept in a cancelled workshop")
 		case en.Status == domain.EnrollmentCapturing && (v.w.Status == domain.WorkshopCancelled || !open):
 			// A capture that ran out of retries is sent again only past its
-			// deadline, where the handler reads PayPal and, finding no
-			// capture, fails it and voids the hold instead of capturing.
+			// deadline or in a cancelled workshop, where the handler reads
+			// PayPal and, finding no capture, fails it and voids the hold
+			// instead of capturing.
 			if j, ok := v.job(i, store.KindCapture); ok && j.Status == store.JobNeedsAttention {
 				revived, err := r.st.ReviveJob(ctx, j.IdempotencyKey, now, true)
 				if revived {

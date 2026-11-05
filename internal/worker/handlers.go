@@ -23,6 +23,7 @@ const (
 	issueCaptureFullyRefunded = "CAPTURE_FULLY_REFUNDED"
 	issueDeadlinePassed       = "CAPTURE_DEADLINE_PASSED"
 	issueExpiredLocally       = "AUTHORIZATION_EXPIRED_LOCAL"
+	issueWorkshopCancelled    = "WORKSHOP_CANCELLED"
 )
 
 // subject is what a payment job acts on, as it stood when the job started.
@@ -205,6 +206,11 @@ func (r *Runner) authorize(ctx context.Context, job *store.Job) (*int, error) {
 // leaves the authorization open, so both that and a final refusal from PayPal
 // mark the enrollment CAPTURE_FAILED, which runs the same hooks, and enqueue
 // its void.
+//
+// Nothing is captured in a cancelled workshop, whenever it was cancelled: an
+// AUTHORIZED enrollment is skipped (the cancel voids its hold), and one already
+// CAPTURING, or that a cancel overtook after it moved, is failed as past its
+// deadline with issue WORKSHOP_CANCELLED.
 func (r *Runner) capture(ctx context.Context, job *store.Job) (*int, error) {
 	s, err := r.load(ctx, job)
 	if err != nil {
@@ -232,6 +238,14 @@ func (r *Runner) capture(ctx context.Context, job *store.Job) (*int, error) {
 	if p == nil {
 		return nil, fmt.Errorf("proposal %s: %w", s.enrollment.ProposalID, store.ErrNotFound)
 	}
+	cancelled, err := r.workshopCancelled(ctx, s.enrollment.WorkshopID)
+	if err != nil {
+		return nil, err
+	}
+	if cancelled && !resumed {
+		s.log.Info("workshop cancelled; the capture is skipped and the hold voided")
+		return s.skip()
+	}
 	moved, err := r.transition(ctx, s.log, s.enrollment.ID, move{from, domain.EnrollmentCapturing})
 	if err != nil {
 		return nil, err
@@ -240,6 +254,14 @@ func (r *Runner) capture(ctx context.Context, job *store.Job) (*int, error) {
 		return s.skip()
 	}
 
+	if !cancelled {
+		if cancelled, err = r.workshopCancelled(ctx, s.enrollment.WorkshopID); err != nil {
+			return nil, err
+		}
+	}
+	if cancelled {
+		return r.captureTooLate(ctx, s, true, issueWorkshopCancelled)
+	}
 	if deadline, missed := captureDeadline(p.ClosesAt, a.AuthExpiresAt); r.clock.Now().After(deadline) {
 		return r.captureTooLate(ctx, s, resumed, missed)
 	}
@@ -304,8 +326,11 @@ func (r *Runner) captureTooLate(ctx context.Context, s subject, resumed bool, is
 		}
 	}
 	reason := "capture deadline passed"
-	if issue == issueExpiredLocally {
+	switch issue {
+	case issueExpiredLocally:
 		reason = "authorization expired before the capture"
+	case issueWorkshopCancelled:
+		reason = "workshop cancelled before the capture"
 	}
 	s.log.Warn(reason+"; failing the capture without sending it", "issue", issue)
 	err := r.failCapture(ctx, s.attempt.ID, issue, "")
@@ -460,4 +485,14 @@ func (r *Runner) refund(ctx context.Context, job *store.Job) (*int, error) {
 		}
 	}
 	return refused(pe)
+}
+
+// workshopCancelled reports whether the workshop has been cancelled, by the
+// organizer or at the close.
+func (r *Runner) workshopCancelled(ctx context.Context, workshopID string) (bool, error) {
+	w, err := r.st.WorkshopByID(ctx, workshopID)
+	if err != nil {
+		return false, err
+	}
+	return w.Status == domain.WorkshopCancelled, nil
 }

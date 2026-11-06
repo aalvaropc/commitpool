@@ -45,7 +45,7 @@ export function usePolling(fn: () => Promise<unknown>, ms: number, active: boole
     let stopped = false
     let timer: ReturnType<typeof setTimeout>
     const tick = async () => {
-      await fnRef.current()
+      if (globalThis.document?.visibilityState !== 'hidden') await fnRef.current()
       if (!stopped) timer = setTimeout(tick, ms)
     }
     timer = setTimeout(tick, ms)

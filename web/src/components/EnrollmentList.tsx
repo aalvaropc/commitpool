@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { api, type Enrollment, type OwnerView } from '../api'
 import { authorizationPending, enrollmentTone, reservedSeatNote, seatHeld } from '../lib/status'
 import { earlier, formatClock } from '../lib/time'
-import { Button, DemoTag, Notice, Tag } from './ui'
+import { Avatar, Button, DemoTag, Notice, Pill, Tile } from './ui'
 
 interface Props {
   token: string
@@ -44,12 +44,12 @@ export default function EnrollmentList({ token, view, onChange }: Props) {
   }
 
   return (
-    <section aria-labelledby="enrollments-title" className="flex flex-col gap-4">
-      <h2 id="enrollments-title" className="text-2xl font-bold">
+    <Tile as="section" aria-labelledby="enrollments-title" className="flex flex-col gap-4 sm:p-6">
+      <h2 id="enrollments-title" className="text-2xl">
         Payments
       </h2>
       {view.enrollments.length === 0 ? (
-        <p className="text-ink-soft">No one has reserved a seat yet.</p>
+        <p className="text-ink-soft">No one has reserved a spot yet.</p>
       ) : (
         <ul className="flex flex-col">
           {view.enrollments.map((e) => {
@@ -59,14 +59,23 @@ export default function EnrollmentList({ token, view, onChange }: Props) {
             const pending = authorizationPending(e)
             const canFail = mocks && (e.status === 'SEAT_RESERVED' || e.status === 'AUTHORIZED') && e.payment && !e.payment.capture_status
             return (
-              <li key={e.id} className="flex flex-col gap-2 border-t border-rule py-4 sm:flex-row sm:items-start sm:gap-4">
-                <p className="font-semibold sm:w-40 sm:shrink-0">{e.display_name}</p>
-                <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <li key={e.id} className="flex flex-col gap-2 border-t border-line py-3.5 first:border-t-0 sm:flex-row sm:items-start sm:gap-4">
+                <p className="flex items-center gap-2.5 font-semibold sm:w-44 sm:shrink-0">
+                  <Avatar name={e.display_name ?? '?'} size="sm" />
+                  <span>{e.display_name}</span>
+                </p>
+                <div className="flex min-w-0 flex-1 flex-col gap-1.5">
                   <p className="flex flex-wrap items-center gap-2">
-                    <Tag tone={enrollmentTone(e.status, { paymentsOpen: open, seatHeld: held, authPending: pending })}>{e.status_label}</Tag>
-                    <span className="text-sm text-ink-soft">Status: {human(e.status)}</span>
+                    <Pill tone={enrollmentTone(e.status, { paymentsOpen: open, seatHeld: held, authPending: pending })}>{e.status_label}</Pill>
                   </p>
-                  {line && <p className="text-sm break-words text-ink-soft">{line}</p>}
+                  {line && (
+                    <details className="text-sm text-ink-soft">
+                      <summary className="w-fit cursor-pointer rounded-sm font-medium text-ink-soft hover:text-ink">PayPal details</summary>
+                      <p className="mt-1 break-words">
+                        {line} · {human(e.status)}
+                      </p>
+                    </details>
+                  )}
                   {e.payment?.capture_issue && <p className="text-sm font-medium text-attention">PayPal answered {e.payment.capture_issue}.</p>}
                   {e.status === 'SEAT_RESERVED' && (
                     <p className="text-sm text-ink-soft">
@@ -80,7 +89,7 @@ export default function EnrollmentList({ token, view, onChange }: Props) {
                   )}
                 </div>
                 {canFail && (
-                  <Button variant="demo" onClick={() => failNext(e)} busy={busy === e.id} busyLabel="Applying…" className="self-start px-3 py-1.5 text-sm">
+                  <Button variant="demo" size="sm" onClick={() => failNext(e)} busy={busy === e.id} busyLabel="Applying…" className="self-start">
                     <DemoTag /> Fail next charge
                   </Button>
                 )}
@@ -94,6 +103,6 @@ export default function EnrollmentList({ token, view, onChange }: Props) {
           {result.text}
         </Notice>
       )}
-    </section>
+    </Tile>
   )
 }

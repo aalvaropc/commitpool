@@ -1,26 +1,29 @@
-import { useEffect, useRef } from 'react'
+import { useRef, useState } from 'react'
 import { useParams } from 'react-router'
 import { api, type OwnerView } from '../api'
-import AvailabilityList from '../components/AvailabilityList'
+import AvailabilityGrid from '../components/AvailabilityGrid'
 import CancelWorkshop from '../components/CancelWorkshop'
+import ClaudeRead from '../components/ClaudeRead'
 import CopyField from '../components/CopyField'
 import Deadline from '../components/Deadline'
 import DemoControls from '../components/DemoControls'
 import EnrollmentList from '../components/EnrollmentList'
+import NextStep from '../components/NextStep'
+import OpenReservationsDialog from '../components/OpenReservationsDialog'
 import OperatorPanel from '../components/OperatorPanel'
 import { Loading, LoadError, RefreshError } from '../components/PageState'
-import RecommendationPanel from '../components/RecommendationPanel'
-import SeatMeter from '../components/SeatMeter'
+import SpotsTile from '../components/SpotsTile'
 import StatusBanner from '../components/StatusBanner'
-import Terms, { TermsList } from '../components/Terms'
-import { Button, Page } from '../components/ui'
+import { TermsList } from '../components/Terms'
+import { Icon, Page, Tile, TileLabel } from '../components/ui'
 import { usePolling, useResource } from '../lib/hooks'
+import { nextStep, ownerRefresh } from '../lib/owner'
 import { count } from '../lib/plural'
-import { headline, heldAny, refundsAny, releasesAny, shouldPollOwner, tone } from '../lib/status'
-import { lockedTerms, workshopTerms } from '../lib/terms'
+import { headline, heldAny, refundsAny, releasesAny, tone } from '../lib/status'
+import { lockedTerms } from '../lib/terms'
 import { formatDateRange, windowLabel, zoneName } from '../lib/time'
 
-const EXPLANATION_TRIES = 6
+const STALLED_AFTER_MS = 20000
 
 function cancellationDetail(v: OwnerView): string {
   const howMany = (pred: (s: string) => boolean) => v.enrollments.filter((e) => pred(e.status)).length
@@ -38,32 +41,22 @@ function cancellationDetail(v: OwnerView): string {
 export default function Owner() {
   const { token = '' } = useParams()
   const view = useResource(() => api.owner(token), token)
+  const [opening, setOpening] = useState<string | null>(null)
+  const pendingSince = useRef<number | null>(null)
   const d = view.data
-  const polling = d
-    ? shouldPollOwner({
+  const pending = d?.recommendation.explanation_pending ?? false
+  if (!pending) pendingSince.current = null
+  else if (pendingSince.current === null) pendingSince.current = Date.now()
+  const refresh = d
+    ? ownerRefresh({
         status: d.workshop.status,
         resolution: d.workshop.resolution,
         paymentsOpen: d.proposal?.payments_open ?? false,
         enrollments: d.enrollments.map((e) => e.status),
+        explanationPending: pending,
       })
-    : false
-  usePolling(view.reload, 5000, polling)
-
-  const tries = useRef(0)
-  const pending = d?.recommendation.explanation_pending ?? false
-  const reload = view.reload
-  useEffect(() => {
-    if (!pending) {
-      tries.current = 0
-      return
-    }
-    if (tries.current >= EXPLANATION_TRIES) return
-    const t = setTimeout(() => {
-      tries.current++
-      void reload()
-    }, 3000)
-    return () => clearTimeout(t)
-  }, [pending, d, reload])
+    : null
+  usePolling(view.reload, refresh ?? 0, refresh !== null)
 
   if (!d) {
     if (view.error) return <LoadError error={view.error} missing="Check that you opened the whole organizer link you saved when you created the workshop." onRetry={view.reload} />
@@ -72,102 +65,45 @@ export default function Owner() {
 
   const w = d.workshop
   const t = d.tally
-  const refunds = refundsAny(d.enrollments)
-  const held = heldAny(d.enrollments)
-  const releases = releasesAny(d.enrollments)
+  const step = nextStep(d)
+  const stalled = pendingSince.current !== null && Date.now() - pendingSince.current > STALLED_AFTER_MS
+  const chosen = d.proposal ? d.dates.find((x) => x.id === d.proposal?.date_id) : undefined
   return (
     <Page wide>
       <title>{`${w.title} – organizer – CommitPool`}</title>
-      <header className="mb-8 flex flex-col gap-2">
-        <h1 className="text-3xl font-bold sm:text-4xl">{w.title}</h1>
-        <p className="text-ink-soft">Your organizer page. Keep its link to yourself.</p>
+      <header className="mb-5 flex flex-col gap-2 sm:mb-6">
+        <h1 className="text-3xl sm:text-5xl">{w.title}</h1>
+        <p className="text-ink-soft">{[w.host_name && `With ${w.host_name}`, w.location, `Times in ${zoneName(w.timezone)}`].filter(Boolean).join(' · ')}</p>
+        <p className="flex items-center gap-1.5 text-sm font-semibold text-brand">
+          <Icon name="lock" size={16} />
+          Your organizer page. Keep this link to yourself.
+        </p>
       </header>
 
-      <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
-        <aside className="flex flex-col gap-8 lg:order-2" aria-label="Workshop summary">
-          <StatusBanner headline={headline({ status: w.status, resolution: w.resolution, refunds, held, releases })} tone={tone(w.status, w.resolution)}>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_24rem] lg:items-start lg:gap-5">
+        <div className="flex min-w-0 flex-col gap-4 lg:gap-5">
+          <OperatorPanel token={token} view={d} onChange={view.reload} />
+          <StatusBanner headline={headline({ status: w.status, resolution: w.resolution, refunds: refundsAny(d.enrollments), held: heldAny(d.enrollments), releases: releasesAny(d.enrollments) })} tone={tone(w.status, w.resolution)}>
             {d.proposal && d.proposal.payments_open && <Deadline closesAt={d.proposal.closes_at} timeZone={w.timezone} open />}
             {w.status === 'CANCELLED' && <p>{cancellationDetail(d)}</p>}
-            {w.status === 'CONFIRMED' && (
-              <p>
-                {count(t.paid, 'payment')} reached the {t.minimum} needed.
-              </p>
-            )}
+            {w.status === 'CONFIRMED' && <p>{count(t.paid, 'payment')} reached the {t.minimum} needed.</p>}
           </StatusBanner>
-          {view.error && <RefreshError polling={polling} onRetry={() => void view.reload()} />}
+          {view.error && <RefreshError polling={refresh !== null} onRetry={() => void view.reload()} />}
+          <NextStep view={d} step={step} onOpen={setOpening} />
+          <ClaudeRead view={d} stalled={stalled} onCheck={() => void view.reload()} />
 
-          <section aria-labelledby="counts-title" className="flex flex-col gap-4">
-            <div className="flex items-center justify-between gap-3">
-              <h2 id="counts-title" className="text-xl font-bold">
-                Spots
-              </h2>
-              <Button variant="secondary" onClick={() => void view.reload()} className="px-3 py-1.5 text-sm">
-                Refresh
-              </Button>
-            </div>
-            <dl className="grid grid-cols-3 gap-3">
-              <div>
-                <dt className="text-sm text-ink-soft">Joined</dt>
-                <dd className="wide text-3xl font-bold tabular-nums">{t.interested}</dd>
+          {d.proposal && (
+            <Tile as="section" aria-labelledby="locked-title" className="flex flex-col gap-4 sm:p-6">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 id="locked-title" className="text-2xl">
+                  {d.proposal.payments_open ? 'Reservations open' : 'Reservations closed'}
+                </h2>
+                <span className="flex items-center gap-1.5 text-sm text-ink-soft">
+                  <Icon name="lock" size={16} />
+                  Terms locked
+                </span>
               </div>
-              <div>
-                <dt className="text-sm text-ink-soft">Reserved</dt>
-                <dd className="wide text-3xl font-bold text-hold tabular-nums">{t.authorized}</dd>
-              </div>
-              <div>
-                <dt className="text-sm text-ink-soft">Paid</dt>
-                <dd className="wide text-3xl font-bold text-paid tabular-nums">
-                  {t.paid}
-                  <span className="text-lg font-semibold text-ink-soft">/{t.minimum}</span>
-                </dd>
-              </div>
-            </dl>
-            <SeatMeter capacity={t.capacity} minimum={t.minimum} paid={t.paid} authorized={t.authorized} reserved={t.reserved} />
-            <p className="text-sm text-ink-soft">
-              {t.seats_taken} of {count(t.capacity, 'spot')} taken. {count(t.capturing + t.pending, 'charge')} in progress
-              {t.failed ? `, ${t.failed} failed` : ''}.
-            </p>
-          </section>
-
-          <section aria-labelledby="share-title" className="flex flex-col gap-2">
-            <h2 id="share-title" className="text-xl font-bold">
-              Invite participants
-            </h2>
-            {d.share_url ? (
-              <CopyField id="share-url" label="Link for participants" value={d.share_url} hint="Anyone with this link can join and say when they can come." />
-            ) : (
-              <p className="text-ink-soft">This workshop was created before share links were kept, so it has none to show.</p>
-            )}
-          </section>
-
-          <CancelWorkshop token={token} view={d} onChange={view.reload} />
-
-          <DemoControls token={token} view={d} onChange={view.reload} />
-        </aside>
-
-        <div className="flex flex-col gap-12 lg:order-1">
-          <OperatorPanel token={token} view={d} onChange={view.reload} />
-
-          <section aria-labelledby="terms-title" className="flex flex-col gap-4">
-            <h2 id="terms-title" className="sr-only">
-              Terms
-            </h2>
-            {w.description && <p className="max-w-prose whitespace-pre-line">{w.description}</p>}
-            {!d.proposal && <Terms items={workshopTerms(w)} />}
-            <p className="text-sm text-ink-soft">
-              Times in {zoneName(w.timezone)}. {w.payment_window_min < 1440 ? windowLabel(w.payment_window_min) : `Reservations stay open ${windowLabel(w.payment_window_min)}`}.
-            </p>
-          </section>
-
-          {d.proposal ? (
-            <section aria-labelledby="locked-title" className="flex flex-col gap-4 rounded-sm border border-rule border-t-4 border-t-ink bg-sheet p-5 sm:p-7">
-              <h2 id="locked-title" className="text-2xl font-bold">
-                {d.proposal.payments_open ? 'Reservations open' : 'Reservations closed'}
-              </h2>
-              <p className="wide text-xl font-semibold tabular-nums">{(() => {
-                  const chosen = d.dates.find((x) => x.id === d.proposal?.date_id)
-                  return chosen ? formatDateRange(chosen.starts_at, chosen.ends_at, w.timezone) : null
-                })()}</p>
+              {chosen && <p className="font-display text-xl font-bold tabular-nums">{formatDateRange(chosen.starts_at, chosen.ends_at, w.timezone)}</p>}
               <TermsList
                 items={lockedTerms({
                   timeZone: w.timezone,
@@ -180,17 +116,32 @@ export default function Owner() {
                   paymentsOpen: d.proposal.payments_open,
                 })}
               />
-              <p className="text-sm text-ink-soft">These terms are locked.</p>
-            </section>
-          ) : null}
-
+            </Tile>
+          )}
           {d.proposal && <EnrollmentList token={token} view={d} onChange={view.reload} />}
-
-          <RecommendationPanel token={token} view={d} explanationStalled={tries.current >= EXPLANATION_TRIES} onChange={view.reload} />
-
-          <AvailabilityList view={d} />
+          <AvailabilityGrid view={d} onOpen={setOpening} />
         </div>
+
+        <aside className="flex flex-col gap-4 lg:sticky lg:top-4 lg:gap-5" aria-label="Workshop summary">
+          <SpotsTile view={d} />
+          <Tile as="section" aria-labelledby="manage-title" className="flex flex-col gap-5">
+            <h2 id="manage-title" className="text-xl">
+              Manage
+            </h2>
+            {step.action.kind !== 'share' && d.share_url && (
+              <CopyField id="share-url" label="Invite link" value={d.share_url} hint="Anyone with this link can join and say when they can come." />
+            )}
+            <div className="flex flex-col gap-1">
+              <TileLabel>Time to reserve</TileLabel>
+              <p className="text-sm">{w.payment_window_min < 1440 ? windowLabel(w.payment_window_min) : `Reservations stay open ${windowLabel(w.payment_window_min)}`}</p>
+            </div>
+            <CancelWorkshop token={token} view={d} onChange={view.reload} />
+            <DemoControls token={token} view={d} onChange={view.reload} />
+          </Tile>
+        </aside>
       </div>
+
+      <OpenReservationsDialog token={token} view={d} dateId={opening} onClose={() => setOpening(null)} onOpened={view.reload} />
     </Page>
   )
 }

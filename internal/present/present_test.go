@@ -23,6 +23,10 @@ func TestZoneName(t *testing.T) {
 		"America/Argentina/Buenos_Aires": "Buenos Aires time",
 		"Europe/London":                  "London time",
 		"UTC":                            "UTC",
+		"Etc/UTC":                        "UTC",
+		"Etc/GMT+5":                      "UTC−5",
+		"Etc/GMT-14":                     "UTC+14",
+		"Etc/GMT":                        "UTC",
 	}
 	for name, want := range cases {
 		if got := present.ZoneName(zone(t, name)); got != want {

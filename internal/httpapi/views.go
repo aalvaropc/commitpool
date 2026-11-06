@@ -38,6 +38,9 @@ func statusLabel(s domain.EnrollmentStatus, st labelState) string {
 		}
 		return "Reservation expired"
 	case domain.EnrollmentAuthorized:
+		if st.workshop == domain.WorkshopCancelled || !st.paymentsOpen {
+			return "Not charged — releasing the hold"
+		}
 		return "Spot reserved — not charged yet"
 	case domain.EnrollmentCapturing:
 		return "Charging…"
@@ -176,11 +179,11 @@ func enrollmentLabel(en store.EnrollmentRow, ws store.WorkshopRow, p *store.Prop
 	if en.WithdrawnAt != nil {
 		switch en.Status {
 		case domain.EnrollmentReleased:
-			return "Left the group"
+			return "Gave up the spot"
 		case domain.EnrollmentVoiding:
-			return "Left — releasing the hold"
+			return "Gave up the spot — releasing the hold"
 		case domain.EnrollmentVoided:
-			return "Left — hold released"
+			return "Gave up the spot — hold released"
 		}
 	}
 	return statusLabel(en.Status, labelState{

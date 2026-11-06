@@ -105,7 +105,7 @@ func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
 }
 
 var (
-	errProposalAlreadyOpen = conflict("proposal_already_open", "Payments are already open for this workshop; its terms are locked.")
+	errProposalAlreadyOpen = conflict("proposal_already_open", "Reservations are already open for this workshop; its terms are locked.")
 	errCaptureStarted      = conflict("capture_already_started", "This enrollment's capture has already started or it is finished.")
 )
 
@@ -113,12 +113,12 @@ var proposalRefusals = []struct {
 	err             error
 	reason, message string
 }{
-	{domain.ErrWindowMismatch, "window_mismatch", "The payment window does not match the workshop's setting."},
-	{domain.ErrWindowTooLong, "window_too_long", "The payment window can be at most 72 hours: PayPal honours a hold for three days."},
+	{domain.ErrWindowMismatch, "window_mismatch", "The time to reserve does not match the workshop's setting."},
+	{domain.ErrWindowTooLong, "window_too_long", "Reservations can stay open at most 72 hours: PayPal honours a hold for three days."},
 	{domain.ErrStartsAtMismatch, "starts_at_mismatch", "The proposal does not start when the chosen date does."},
-	{domain.ErrStartsTooSoon, "starts_too_soon", "The workshop must start at least 24 hours after payments close."},
-	{domain.ErrMinimumAboveCapacity, "minimum_above_capacity", "The minimum cannot be greater than the capacity."},
-	{domain.ErrNotEnoughCompatible, "not_enough_compatible", "Fewer participants can attend this date than the minimum."},
+	{domain.ErrStartsTooSoon, "starts_too_soon", "The workshop must start at least 24 hours after reservations close."},
+	{domain.ErrMinimumAboveCapacity, "minimum_above_capacity", "The people needed cannot be more than the spots."},
+	{domain.ErrNotEnoughCompatible, "not_enough_compatible", "Fewer people can come on this date than the workshop needs."},
 }
 
 func (s *server) openProposal(w http.ResponseWriter, r *http.Request) error {

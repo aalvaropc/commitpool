@@ -46,7 +46,7 @@ var (
 	errInvalidEvent      = badRequest("invalid_event", "The webhook body is not a PayPal event with an id and an event type.")
 	errVerifyUnavailable = newError(http.StatusBadGateway, "paypal_unavailable",
 		"PayPal could not verify the webhook right now. Please deliver it again later.")
-	errSeatExpired = conflict("seat_expired", "Your seat reservation expired and could not be renewed.")
+	errSeatExpired = conflict("seat_expired", "Your reservation expired and could not be renewed.")
 )
 
 type checkout struct {

@@ -13,11 +13,28 @@ const dayLayout = "Mon, Jan 2"
 
 func ZoneName(loc *time.Location) string {
 	name := loc.String()
+	if fixed, ok := strings.CutPrefix(name, "Etc/"); ok {
+		return fixedOffsetName(fixed)
+	}
 	slash := strings.LastIndexByte(name, '/')
 	if slash < 0 {
 		return name
 	}
 	return strings.ReplaceAll(name[slash+1:], "_", " ") + " time"
+}
+
+func fixedOffsetName(name string) string {
+	hours, ok := strings.CutPrefix(name, "GMT")
+	if !ok || hours == "" || hours == "0" || hours == "+0" || hours == "-0" {
+		return "UTC"
+	}
+	switch hours[0] {
+	case '+':
+		return "UTC−" + hours[1:]
+	case '-':
+		return "UTC+" + hours[1:]
+	}
+	return "UTC"
 }
 
 func Clock(t time.Time) string {

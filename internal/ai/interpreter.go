@@ -47,11 +47,10 @@ type Interpreter interface {
 }
 
 func PlainExplanation(in ExplainInput) string {
-	date, ok := recommendedDate(in)
-	if !ok {
+	day := DateName(in)
+	if day == "" {
 		return "There is no date to recommend yet."
 	}
-	day := present.Day(date.StartsAt, date.StartsAt.Location())
 	names := attendees(in)
 	switch {
 	case len(names) == 0:
@@ -60,6 +59,21 @@ func PlainExplanation(in ExplainInput) string {
 		return fmt.Sprintf("%s works for %s: %s. You need %d.", day, people(len(names)), joinNames(names), in.Minimum)
 	}
 	return fmt.Sprintf("%s works for the most people so far: %s. You need %d.", day, joinNames(names), in.Minimum)
+}
+
+func DateName(in ExplainInput) string {
+	date, ok := recommendedDate(in)
+	if !ok {
+		return ""
+	}
+	loc := date.StartsAt.Location()
+	day := present.Day(date.StartsAt, loc)
+	for _, other := range in.Dates {
+		if other.ID != date.ID && present.Day(other.StartsAt, loc) == day {
+			return day + " at " + present.Clock(date.StartsAt.In(loc))
+		}
+	}
+	return day
 }
 
 func recommendedDate(in ExplainInput) (DateOption, bool) {
@@ -112,6 +126,7 @@ func ExplainFacts(in ExplainInput) string {
 	fmt.Fprintf(&sb, "Workshop title: %s\n", jsonString(in.WorkshopTitle))
 	fmt.Fprintf(&sb, "Minimum participants to run it: %d\n", in.Minimum)
 	fmt.Fprintf(&sb, "Recommended date: %s\n", label)
+	fmt.Fprintf(&sb, "Call the date: %s\n", DateName(in))
 	reach := "no"
 	if in.Recommendation.MeetsMinimum {
 		reach = "yes"

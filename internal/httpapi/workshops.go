@@ -112,13 +112,13 @@ func (s *server) workshopParams(req createWorkshopRequest) (store.CreateWorkshop
 		return none, badRequest("invalid_timezone", "The time zone must be an IANA name such as America/Lima.")
 	}
 	if req.Minimum < 1 {
-		return none, badRequest("invalid_minimum", "The minimum must be at least 1 participant.")
+		return none, badRequest("invalid_minimum", "At least 1 person must be needed.")
 	}
 	if req.Capacity > maxCapacity {
-		return none, badRequest("invalid_capacity", "The capacity can be at most %d participants.", maxCapacity)
+		return none, badRequest("invalid_capacity", "A workshop can have at most %d spots.", maxCapacity)
 	}
 	if req.Minimum > req.Capacity {
-		return none, badRequest("minimum_above_capacity", "The minimum cannot be greater than the capacity.")
+		return none, badRequest("minimum_above_capacity", "The people needed cannot be more than the spots.")
 	}
 	price, err := domain.ParseMoney(req.Price, req.Currency)
 	if err != nil {
@@ -138,7 +138,7 @@ func (s *server) workshopParams(req createWorkshopRequest) (store.CreateWorkshop
 	if req.PaymentWindowMin != nil {
 		window = *req.PaymentWindowMin
 		if window < 1 || window > maxWindowMin {
-			return none, badRequest("invalid_payment_window", "The payment window must be between 1 and %d minutes: PayPal honours a hold for three days.", maxWindowMin)
+			return none, badRequest("invalid_payment_window", "Reservations can stay open between 1 and %d minutes: PayPal honours a hold for three days.", maxWindowMin)
 		}
 	}
 	if len(req.Dates) == 0 || len(req.Dates) > maxDates {

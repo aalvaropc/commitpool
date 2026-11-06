@@ -38,7 +38,7 @@ export const test = base.extend<{
 export async function createWorkshop(owner: Page, title: string): Promise<Workshop> {
   await owner.goto('/new')
   await owner.getByLabel('Title', { exact: true }).fill(title)
-  await owner.getByLabel('Minimum paid seats').fill(String(MINIMUM))
+  await owner.getByLabel('People needed to happen').fill(String(MINIMUM))
   await owner.getByRole('button', { name: 'Create workshop' }).click()
   await expect(owner.getByRole('heading', { name: `${title} is ready` })).toBeVisible()
   return {

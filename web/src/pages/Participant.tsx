@@ -12,7 +12,7 @@ import { useNow, usePolling, useResource } from '../lib/hooks'
 import { rememberParticipant } from '../lib/participant'
 import { authorizationPending, headline, returnCheckSettled, seatHeld, shouldPollParticipant, tone } from '../lib/status'
 import { workshopTerms } from '../lib/terms'
-import { formatDateRange } from '../lib/time'
+import { formatDateRange, zoneName } from '../lib/time'
 
 const CHECK_PATIENCE_MS = 30000
 
@@ -103,6 +103,7 @@ export default function Participant() {
                 </li>
               ))}
             </ul>
+            <p className="text-sm text-ink-soft">Times in {zoneName(w.timezone)}.</p>
           </section>
         )}
 

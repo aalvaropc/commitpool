@@ -72,6 +72,7 @@ export default function Share() {
               The date is set
             </h2>
             <p className="wide text-xl font-semibold tabular-nums">{chosen ? formatDateRange(chosen.starts_at, chosen.ends_at, w.timezone) : formatMoment(d.proposal.starts_at, w.timezone)}</p>
+            <p className="text-sm text-ink-soft">Times in {zoneName(w.timezone)}.</p>
             {d.proposal.payments_open && <Deadline closesAt={d.proposal.closes_at} timeZone={w.timezone} open />}
             <SeatMeter capacity={d.tally.capacity} minimum={d.tally.minimum} paid={d.tally.paid} authorized={d.tally.authorized} label="Group progress" />
           </section>

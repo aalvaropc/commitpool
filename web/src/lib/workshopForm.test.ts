@@ -28,7 +28,7 @@ describe('validateWorkshop', () => {
   })
 
   it('states the opening rule up front', () => {
-    expect(DATES_RULE).toBe('Each date must start at least 24 h after the payment window closes.')
+    expect(DATES_RULE).toBe('Each date must start at least 24 hours after reservations close.')
   })
 
   it('refuses a date that starts less than 24 h after the window would close', () => {

@@ -16,7 +16,7 @@ import Terms, { TermsList } from '../components/Terms'
 import { Button, Page } from '../components/ui'
 import { usePolling, useResource } from '../lib/hooks'
 import { count } from '../lib/plural'
-import { headline, heldAny, refundsAny, shouldPollOwner, tone } from '../lib/status'
+import { headline, heldAny, refundsAny, releasesAny, shouldPollOwner, tone } from '../lib/status'
 import { lockedTerms, workshopTerms } from '../lib/terms'
 import { formatDateRange, windowLabel, zoneName } from '../lib/time'
 
@@ -24,11 +24,13 @@ const EXPLANATION_TRIES = 6
 
 function cancellationDetail(v: OwnerView): string {
   const howMany = (pred: (s: string) => boolean) => v.enrollments.filter((e) => pred(e.status)).length
-  const released = howMany((s) => s === 'VOIDED' || s === 'VOIDING' || s === 'CAPTURE_FAILED')
+  const voided = (e: OwnerView['enrollments'][number]) => e.status === 'VOIDED' || e.payment?.authorization_status === 'VOIDED'
+  const released = v.enrollments.filter(voided).length
+  const releasing = v.enrollments.filter((e) => (e.status === 'VOIDING' || e.status === 'CAPTURE_FAILED') && !voided(e)).length
   const refunded = howMany((s) => s === 'REFUNDED')
   const refunding = howMany((s) => s === 'PAID' || s === 'REFUNDING' || s === 'REFUND_PENDING')
   const failed = v.enrollments.filter((e) => e.status === 'REFUND_FAILED' || e.status === 'NEEDS_ATTENTION' || e.needs_attention).length
-  const parts = [count(released, 'hold') + ' released', count(refunded, 'refund') + ' completed', `${refunding} in progress`]
+  const parts = [count(released, 'hold') + ' released', count(refunded, 'refund') + ' completed', `${refunding + releasing} in progress`]
   if (failed) parts.push(`${failed} ${failed === 1 ? 'needs' : 'need'} attention`)
   return parts.join(', ') + '.'
 }
@@ -72,6 +74,7 @@ export default function Owner() {
   const t = d.tally
   const refunds = refundsAny(d.enrollments)
   const held = heldAny(d.enrollments)
+  const releases = releasesAny(d.enrollments)
   return (
     <Page wide>
       <title>{`${w.title} – organizer – CommitPool`}</title>
@@ -82,7 +85,7 @@ export default function Owner() {
 
       <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
         <aside className="flex flex-col gap-8 lg:order-2" aria-label="Workshop summary">
-          <StatusBanner headline={headline({ status: w.status, resolution: w.resolution, refunds, held })} tone={tone(w.status, w.resolution)}>
+          <StatusBanner headline={headline({ status: w.status, resolution: w.resolution, refunds, held, releases })} tone={tone(w.status, w.resolution)}>
             {d.proposal && d.proposal.payments_open && <Deadline closesAt={d.proposal.closes_at} timeZone={w.timezone} open />}
             {w.status === 'CANCELLED' && <p>{cancellationDetail(d)}</p>}
             {w.status === 'CONFIRMED' && (
@@ -159,7 +162,7 @@ export default function Owner() {
           {d.proposal ? (
             <section aria-labelledby="locked-title" className="flex flex-col gap-4 rounded-sm border border-rule border-t-4 border-t-ink bg-sheet p-5 sm:p-7">
               <h2 id="locked-title" className="text-2xl font-bold">
-                Reservations open
+                {d.proposal.payments_open ? 'Reservations open' : 'Reservations closed'}
               </h2>
               <p className="wide text-xl font-semibold tabular-nums">{(() => {
                   const chosen = d.dates.find((x) => x.id === d.proposal?.date_id)

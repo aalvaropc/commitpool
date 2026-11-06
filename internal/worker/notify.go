@@ -80,16 +80,16 @@ func (r *Runner) Notify(ctx context.Context, enrollmentID, kind string) error {
 	if p == nil {
 		return nil
 	}
-	price := domain.Money{Minor: p.PriceMinor, Currency: p.Currency}.String()
+	price := present.Price(domain.Money{Minor: p.PriceMinor, Currency: p.Currency})
 	when := describeStart(p.StartsAt, w.Timezone)
 	var subject, body string
 	switch kind {
 	case NotifyConfirmed:
-		subject = w.Title + " is confirmed"
-		body = fmt.Sprintf("Hi %s,\n\nIt's on! Enough people reserved: %s on %s is happening. Your payment of %s went through.\n\nOpen the private link you received when you joined to see your seat.\n", name, w.Title, when, price)
+		subject = "It's on: " + w.Title + " is confirmed"
+		body = fmt.Sprintf("Hi %s,\n\nIt's on! Enough people paid: %s on %s is happening. Your payment of %s went through.\n\nOpen the private link you received when you joined to see your spot.\n", name, w.Title, when, price)
 	case NotifyPaymentFailed:
 		subject = "Your payment for " + w.Title + " did not go through"
-		body = fmt.Sprintf("Hi %s,\n\nPayPal could not charge your hold of %s for %s on %s, so nothing was charged and your hold is released. While reservations are open you can try again from your private link.\n", name, price, w.Title, when)
+		body = fmt.Sprintf("Hi %s,\n\nPayPal could not charge your hold of %s for %s on %s, so nothing was charged and PayPal releases your hold. While reservations are open you can try again from your private link.\n", name, price, w.Title, when)
 	case NotifyRefundCompleted:
 		subject = "Your refund for " + w.Title + " is complete"
 		body = fmt.Sprintf("Hi %s,\n\nPayPal completed your refund of %s for %s.\n", name, price, w.Title)

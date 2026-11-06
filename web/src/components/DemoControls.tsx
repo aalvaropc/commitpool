@@ -32,7 +32,7 @@ export default function DemoControls({ token, view, onChange }: Props) {
       <h2 id="demo-title" className="text-base font-bold">
         Demo controls
       </h2>
-      <p className="text-sm text-ink-soft">This server runs in demo mode. Closing now ends the payment window as if the deadline had passed.</p>
+      <p className="text-sm text-ink-soft">This server runs in demo mode. Closing now ends reservations as if the deadline had passed.</p>
       <div>
         <Button variant="demo" onClick={closeNow} busy={busy} busyLabel="Closing reservations…">
           <DemoTag /> Close reservations now

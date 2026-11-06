@@ -34,7 +34,7 @@ test.describe('below minimum', () => {
 
     await owner.getByRole('button', { name: /Close reservations now/ }).click()
 
-    await expect(headline(owner)).toHaveText('Cancelled — everyone was refunded', { timeout: 60_000 })
+    await expect(headline(owner)).toHaveText('Cancelled — payments refunded, holds released', { timeout: 60_000 })
     await expect(owner.getByText('1 hold released, 2 refunds completed, 0 in progress.')).toBeVisible()
     for (const p of [ada, ben]) await expect(enrollmentRow(owner, p.name)).toContainText('Refunded')
     await expect(enrollmentRow(owner, cleo.name)).toContainText('Not charged')

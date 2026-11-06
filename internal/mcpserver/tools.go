@@ -334,13 +334,23 @@ func ifClosedNow(v ownerView) string {
 	case v.Proposal == nil:
 		return "Reservations are not open yet: nothing is held or charged."
 	case v.Workshop.Status == "CANCELLED":
-		return "The workshop is cancelled: every hold is released and every payment refunded."
+		return cancelledOutcome(v.Workshop.Resolution)
 	case v.Tally.Paid >= v.Proposal.Minimum:
 		return fmt.Sprintf("The workshop is on: %d payments reach the minimum of %d. Holds not charged by then are released.", v.Tally.Paid, v.Proposal.Minimum)
 	default:
 		return fmt.Sprintf("The workshop would be cancelled: %d payments are short of the minimum of %d, so %d holds would be released and %d payments refunded.",
 			v.Tally.Paid, v.Proposal.Minimum, v.Tally.Authorized, v.Tally.Paid)
 	}
+}
+
+func cancelledOutcome(resolution string) string {
+	switch resolution {
+	case "SETTLED":
+		return "The workshop is cancelled: every hold was released and every payment refunded."
+	case "NEEDS_ATTENTION":
+		return "The workshop is cancelled, and a release or a refund needs the organizer's check in the web app."
+	}
+	return "The workshop is cancelled: holds are being released and payments refunded."
 }
 
 type PreviewIn struct {

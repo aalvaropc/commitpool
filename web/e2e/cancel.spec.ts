@@ -28,8 +28,8 @@ test.describe('withdraw and cancel', () => {
     await expect(ben.page.getByText('You left. PayPal releases your hold; you are not charged.')).toBeVisible()
 
     await owner.reload()
-    await expect(enrollmentRow(owner, cleo.name)).toContainText('Left the group')
-    await expect(enrollmentRow(owner, ben.name)).toContainText('Left — hold released', { timeout: 30_000 })
+    await expect(enrollmentRow(owner, cleo.name)).toContainText('Gave up the spot')
+    await expect(enrollmentRow(owner, ben.name)).toContainText('Gave up the spot — hold released', { timeout: 30_000 })
 
     await owner.getByRole('button', { name: 'Cancel workshop…' }).click()
     await expect(owner.getByText('PayPal releases 1 hold.')).toBeVisible()

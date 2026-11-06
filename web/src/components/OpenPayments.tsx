@@ -72,11 +72,11 @@ export default function OpenPayments({ token, date, workshop, onOpened }: Props)
           })}
         />
         <p className="text-sm text-ink-soft">
-          Participants authorize a hold. Holds are charged once enough of them can reach the minimum; if the minimum of paid seats is
-          not reached by the deadline, the workshop is cancelled, holds are released and charges refunded.
+          Each person reserves with a PayPal hold. Holds are charged once enough people have reserved; if not enough people pay by the
+          deadline, the workshop is cancelled, holds are released and any charge is refunded.
         </p>
         <div className="flex flex-wrap gap-3">
-          <Button onClick={open} busy={busy} busyLabel="Opening payments…">
+          <Button onClick={open} busy={busy} busyLabel="Opening reservations…">
             Open reservations
           </Button>
           <Button variant="secondary" onClick={close} disabled={busy}>

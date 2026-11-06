@@ -6,7 +6,7 @@ import { formatMoney } from '../lib/money'
 import { count } from '../lib/plural'
 import { authorizationPending, canStartCheckout, enrollmentTone, seatHeld } from '../lib/status'
 import { lockedTerms } from '../lib/terms'
-import { durationLabel, earlier, formatClock, formatDateRange, formatMoment, windowLabel } from '../lib/time'
+import { durationLabel, earlier, formatClock, formatDateRange, formatMoment, windowLabel, zoneName } from '../lib/time'
 import Deadline from './Deadline'
 import SeatMeter from './SeatMeter'
 import { TermsList } from './Terms'
@@ -83,7 +83,7 @@ export default function CommitmentCard({ token, view, onChange }: Props) {
     <section aria-labelledby="terms-title" className="rounded-sm border border-rule border-t-4 border-t-ink bg-sheet">
       <div className="flex flex-col gap-6 p-5 sm:p-7">
         <h2 id="terms-title" className="text-2xl font-bold">
-          Payment terms
+          Your reservation
         </h2>
 
         <div className="grid gap-5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
@@ -92,10 +92,12 @@ export default function CommitmentCard({ token, view, onChange }: Props) {
             <p className="wide text-xl font-semibold tabular-nums sm:text-2xl">
               <time dateTime={proposal.starts_at}>{date ? formatDateRange(date.starts_at, date.ends_at, tz) : formatMoment(proposal.starts_at, tz)}</time>
             </p>
-            <p className="text-ink-soft">{durationLabel(workshop.duration_min)}</p>
+            <p className="text-ink-soft">
+              {durationLabel(workshop.duration_min)} · times in {zoneName(tz)}
+            </p>
           </div>
           <div className="flex flex-col gap-0.5 sm:text-right">
-            <p className="text-sm text-ink-soft">Price per seat</p>
+            <p className="text-sm text-ink-soft">Price</p>
             <p className="wide text-4xl font-bold tabular-nums">{formatMoney(proposal.price)}</p>
           </div>
         </div>
@@ -133,7 +135,7 @@ export default function CommitmentCard({ token, view, onChange }: Props) {
               </p>
               {enrollment.status === 'SEAT_RESERVED' &&
                 (pending ? (
-                  <p className="text-sm text-ink-soft">PayPal is reviewing your authorization. Your seat is kept until PayPal decides.</p>
+                  <p className="text-sm text-ink-soft">PayPal is reviewing your hold. Your spot is kept until PayPal decides.</p>
                 ) : held ? (
                   <p className="text-sm text-ink-soft">
                     Your spot is held until {formatClock(earlier(enrollment.seat_expires_at, proposal.closes_at), tz)}.{' '}
@@ -150,10 +152,10 @@ export default function CommitmentCard({ token, view, onChange }: Props) {
                 ))}
             </>
           ) : (
-            <p className="text-ink-soft">You have not authorized a hold yet.</p>
+            <p className="text-ink-soft">You haven’t reserved yet.</p>
           )}
           {enrollment?.status === 'PAID' && (
-            <p className="text-sm text-ink-soft">You’re paid and in. Payments are refunded only if the workshop is cancelled.</p>
+            <p className="text-sm text-ink-soft">You’re paid and in. Your payment is refunded only if the workshop is cancelled.</p>
           )}
           {canWithdraw &&
             (confirming ? (
@@ -183,7 +185,7 @@ export default function CommitmentCard({ token, view, onChange }: Props) {
         </div>
 
         <div className="flex flex-col gap-4 border-t border-rule pt-5">
-          <h3 className="text-base font-bold">{canAuthorize ? 'What you agree to' : enrollment ? 'What you agreed to' : 'The terms'}</h3>
+          <h3 className="text-base font-bold">{canAuthorize ? 'What you agree to' : 'The terms'}</h3>
           <blockquote id="consent-text" className="border-l-2 border-ink pl-4 text-ink">
             <p className="max-w-prose">{consent.text}</p>
           </blockquote>

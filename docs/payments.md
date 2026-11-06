@@ -240,8 +240,8 @@ are charged, under the enrollment's row lock (`store.Withdraw`, keeps
 A withdrawn enrollment never takes a seat again (`ReReserveSeat` refuses
 it, so a later PayPal return or reconcile does not bring it back); the
 person can still commit again with a new enrollment while payments are
-open. Its seat reads **Left the group**, **Left — releasing the hold** while
-the void is under way, and **Left — hold released** once it went
+open. Its seat reads **Gave up the spot**, **Gave up the spot — releasing the hold** while
+the void is under way, and **Gave up the spot — hold released** once it went
 through, never "Reservation expired". The consent (`consent-v3`, see
 [Consent versions](#consent-versions)) says all this before anyone
 reserves.

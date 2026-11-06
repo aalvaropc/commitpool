@@ -23,6 +23,12 @@ const REFUND_STATES: ReadonlySet<EnrollmentStatus> = new Set(['PAID', 'REFUNDING
 
 const NEVER_HELD: ReadonlySet<string> = new Set(['INTERESTED', 'SEAT_RESERVED', 'RELEASED'])
 
+const RELEASE_STATES: ReadonlySet<EnrollmentStatus> = new Set(['VOIDING', 'VOIDED', 'CAPTURE_FAILED'])
+
+export function releasesAny(enrollments: readonly { status: EnrollmentStatus }[]): boolean {
+  return enrollments.some((e) => RELEASE_STATES.has(e.status))
+}
+
 export function refundsAny(enrollments: readonly { status: EnrollmentStatus }[]): boolean {
   return enrollments.some((e) => REFUND_STATES.has(e.status))
 }
@@ -80,6 +86,7 @@ export interface HeadlineInput {
   paymentsOpen?: boolean
   refunds?: boolean
   held?: boolean
+  releases?: boolean
 }
 
 function flagged(resolution: Resolution, enrollment?: EnrollmentStatus | null): boolean {
@@ -96,6 +103,7 @@ export function headline({
   paymentsOpen = true,
   refunds = true,
   held = true,
+  releases = false,
 }: HeadlineInput): string {
   if (flagged(resolution, enrollment)) return 'Needs a check'
   if ((status === 'FUNDING' || status === 'CONFIRMED') && enrollment === 'SEAT_RESERVED' && authPending) return 'PayPal is reviewing your hold'
@@ -108,7 +116,7 @@ export function headline({
     case 'CONFIRMED':
       return confirmedHeadline(enrollment, paymentsOpen)
     case 'CANCELLED':
-      return cancelledHeadline(resolution, enrollment, refunds, held)
+      return cancelledHeadline(resolution, enrollment, refunds, held, releases)
   }
 }
 
@@ -117,7 +125,7 @@ function fundingHeadline(e: EnrollmentStatus | null | undefined, paymentsOpen: b
     case 'SEAT_RESERVED':
       return 'Finish reserving at PayPal'
     case 'AUTHORIZED':
-      return 'Spot reserved — not charged yet'
+      return paymentsOpen ? 'Spot reserved — not charged yet' : 'Reservations closed — not charged yet'
     case 'CAPTURING':
       return 'Charging your spot…'
     case 'CAPTURE_PENDING':
@@ -125,7 +133,7 @@ function fundingHeadline(e: EnrollmentStatus | null | undefined, paymentsOpen: b
     case 'PAID':
       return 'Paid — you’re in'
     case 'CAPTURE_FAILED':
-      return paymentsOpen ? 'Payment didn’t go through — try again' : 'Not charged — your hold was released'
+      return paymentsOpen ? 'Payment didn’t go through — try again' : 'Not charged — PayPal releases your hold'
     case 'RELEASED':
       return 'Your reservation expired'
     case 'NEEDS_ATTENTION':
@@ -139,6 +147,7 @@ function confirmedHeadline(e: EnrollmentStatus | null | undefined, paymentsOpen:
     case 'PAID':
       return 'You’re in — it’s on'
     case 'AUTHORIZED':
+      return paymentsOpen ? 'It’s on — charging your spot' : 'It’s on — your hold is being released, you weren’t charged'
     case 'CAPTURING':
     case 'CAPTURE_PENDING':
       return 'It’s on — charging your spot'
@@ -164,11 +173,16 @@ function confirmedHeadline(e: EnrollmentStatus | null | undefined, paymentsOpen:
   return 'It’s on'
 }
 
-function cancelledHeadline(r: Resolution, e: EnrollmentStatus | null | undefined, refunds: boolean, held: boolean): string {
+function settledCancellation(refunds: boolean, releases: boolean): string {
+  if (refunds && releases) return 'Cancelled — payments refunded, holds released'
+  return refunds ? 'Cancelled — every payment was refunded' : 'Cancelled — every hold was released'
+}
+
+function cancelledHeadline(r: Resolution, e: EnrollmentStatus | null | undefined, refunds: boolean, held: boolean, releases: boolean): string {
   if (e === undefined) {
     if (!refunds && !held && (r === 'RESOLVING' || r === 'SETTLED')) return 'Cancelled — nobody was charged'
     if (r === 'RESOLVING') return refunds ? 'Cancelled — refunds on their way' : 'Cancelled — releasing holds'
-    if (r === 'SETTLED') return refunds ? 'Cancelled — everyone was refunded' : 'Cancelled — every hold was released'
+    if (r === 'SETTLED') return settledCancellation(refunds, releases)
     return 'Cancelled'
   }
   switch (e) {

@@ -144,19 +144,19 @@ export default function NewWorkshop() {
         </fieldset>
 
         <fieldset className="flex flex-col gap-5">
-          <legend className="mb-4 text-xl font-bold">Money and seats</legend>
+          <legend className="mb-4 text-xl font-bold">Money and spots</legend>
           <div className="grid gap-5 sm:grid-cols-3">
-            <Field id="f-price" label="Price per seat, USD" hint="Prices are in US dollars." error={errors.price}>
+            <Field id="f-price" label="Price per person, USD" hint="Prices are in US dollars." error={errors.price}>
               <input {...input('price', true)} inputMode="decimal" autoComplete="off" />
             </Field>
-            <Field id="f-minimum" label="Minimum paid seats" error={errors.minimum}>
+            <Field id="f-minimum" label="People needed to happen" error={errors.minimum}>
               <input {...input('minimum')} type="number" inputMode="numeric" min={1} step={1} />
             </Field>
-            <Field id="f-capacity" label="Capacity" error={errors.capacity}>
+            <Field id="f-capacity" label="Spots" error={errors.capacity}>
               <input {...input('capacity')} type="number" inputMode="numeric" min={1} max={500} step={1} />
             </Field>
           </div>
-          <Field id="f-window" label="Payment window" hint="How long participants have to authorize once you open payments. At most 3 days, the time PayPal guarantees a hold." error={errors.window}>
+          <Field id="f-window" label="Time to reserve" hint="How long people have to reserve once you open reservations. At most 3 days, the time PayPal guarantees a hold." error={errors.window}>
             <select {...input('window', true)} className={`${inputClass} sm:max-w-xs`}>
               {WINDOWS.map((m) => (
                 <option key={m} value={m}>
@@ -170,9 +170,9 @@ export default function NewWorkshop() {
         <fieldset className="flex flex-col gap-5">
           <legend className="mb-4 text-xl font-bold">Candidate dates</legend>
           <p id="dates-rule" className="max-w-prose text-ink-soft">
-            {DATES_RULE} Payments open when you choose a date, and the payment window you picked runs from then.
+            {DATES_RULE} Reservations open when you choose a date, and the time to reserve runs from then.
           </p>
-          <Field id="f-timezone" label="Time zone" hint="Dates and deadlines are shown in this zone, with its name." error={errors.timezone}>
+          <Field id="f-timezone" label="Time zone" hint="Everyone sees the dates and deadlines in this time zone." error={errors.timezone}>
             <select {...input('timezone', true)} className={`${inputClass} sm:max-w-sm`}>
               {zones.map((z) => (
                 <option key={z} value={z}>

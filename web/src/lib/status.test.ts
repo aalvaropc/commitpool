@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import { canStartCheckout, enrollmentTone, headline, heldAny, isTerminal, refundsAny, reservedSeatNote, returnCheckSettled, seatHeld, shouldPollOwner, shouldPollParticipant, tone } from './status'
+import {
+  canStartCheckout,
+  enrollmentTone,
+  headline,
+  heldAny,
+  isTerminal,
+  refundsAny,
+  releasesAny,
+  reservedSeatNote,
+  returnCheckSettled,
+  seatHeld,
+  shouldPollOwner,
+  shouldPollParticipant,
+  tone,
+} from './status'
 
 describe('headline', () => {
   it('names a refund still in progress in a cancelled workshop', () => {
@@ -20,7 +34,7 @@ describe('headline', () => {
 
   it('tells the owner how a cancellation is resolving', () => {
     expect(headline({ status: 'CANCELLED', resolution: 'RESOLVING' })).toBe('Cancelled — refunds on their way')
-    expect(headline({ status: 'CANCELLED', resolution: 'SETTLED' })).toBe('Cancelled — everyone was refunded')
+    expect(headline({ status: 'CANCELLED', resolution: 'SETTLED' })).toBe('Cancelled — every payment was refunded')
   })
 
   it('puts a workshop that needs attention first', () => {
@@ -133,7 +147,7 @@ describe('the owner’s cancelled headline', () => {
 
   it('says refund when any refund happened', () => {
     expect(headline({ status: 'CANCELLED', resolution: 'RESOLVING', refunds: true })).toBe('Cancelled — refunds on their way')
-    expect(headline({ status: 'CANCELLED', resolution: 'SETTLED', refunds: true })).toBe('Cancelled — everyone was refunded')
+    expect(headline({ status: 'CANCELLED', resolution: 'SETTLED', refunds: true })).toBe('Cancelled — every payment was refunded')
   })
 
   it('says nothing was charged when nobody ever held a seat', () => {
@@ -165,7 +179,7 @@ describe('a failed charge once payments closed', () => {
       'Payment didn’t go through — try again',
     )
     expect(headline({ status: 'FUNDING', resolution: 'OPEN', enrollment: 'CAPTURE_FAILED', paymentsOpen: false })).toBe(
-      'Not charged — your hold was released',
+      'Not charged — PayPal releases your hold',
     )
   })
 })
@@ -295,5 +309,35 @@ describe('returnCheckSettled', () => {
   it('ends the check once the payment moved past the checkout or nothing more will change', () => {
     expect(returnCheckSettled({ enrollment: 'AUTHORIZED', polling: true, authPending: false })).toBe(true)
     expect(returnCheckSettled({ enrollment: 'SEAT_RESERVED', polling: false, authPending: false })).toBe(true)
+  })
+})
+
+describe('headlines that never get ahead of the money', () => {
+  it('names refunds and released holds together once a cancellation settles', () => {
+    expect(headline({ status: 'CANCELLED', resolution: 'SETTLED', refunds: true, releases: true })).toBe('Cancelled — payments refunded, holds released')
+    expect(headline({ status: 'CANCELLED', resolution: 'SETTLED', refunds: true, releases: false })).toBe('Cancelled — every payment was refunded')
+    expect(headline({ status: 'CANCELLED', resolution: 'SETTLED', refunds: false, releases: true })).toBe('Cancelled — every hold was released')
+  })
+
+  it('says a failed charge’s hold is still being released', () => {
+    expect(headline({ status: 'FUNDING', resolution: 'OPEN', enrollment: 'CAPTURE_FAILED', paymentsOpen: false })).toBe(
+      'Not charged — PayPal releases your hold',
+    )
+  })
+
+  it('does not call a hold reserved once reservations closed', () => {
+    expect(headline({ status: 'FUNDING', resolution: 'OPEN', enrollment: 'AUTHORIZED', paymentsOpen: false })).toBe(
+      'Reservations closed — not charged yet',
+    )
+    expect(headline({ status: 'CONFIRMED', resolution: 'OPEN', enrollment: 'AUTHORIZED', paymentsOpen: false })).toBe(
+      'It’s on — your hold is being released, you weren’t charged',
+    )
+    expect(headline({ status: 'CONFIRMED', resolution: 'OPEN', enrollment: 'AUTHORIZED', paymentsOpen: true })).toBe('It’s on — charging your spot')
+  })
+
+  it('counts a hold being released, not only a released one', () => {
+    expect(releasesAny([{ status: 'PAID' }, { status: 'VOIDING' }])).toBe(true)
+    expect(releasesAny([{ status: 'CAPTURE_FAILED' }])).toBe(true)
+    expect(releasesAny([{ status: 'PAID' }, { status: 'REFUNDED' }])).toBe(false)
   })
 })

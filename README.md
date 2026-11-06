@@ -133,16 +133,16 @@ The video follows this script against a local or hosted instance:
    and six participants whose availability is already sent. Four can come on
    the Saturday, three on the Sunday, and one message is too vague to read,
    so the organizer page shows a clarification request.
-2. On the organizer page, open payments on the recommended date.
+2. On the organizer page, open reservations on the recommended date.
 3. Three participants, in their own browser contexts, accept the consent and
-   authorize with Personal Sandbox accounts. The third authorization starts
+   reserve with Personal Sandbox accounts. The third reservation starts
    the capture round; with three completed payments the headline turns to
-   **Workshop confirmed** and each seat reads **Seat paid**.
+   **It's on** and each seat reads **Paid**.
 4. For the second run, with demo controls on, **Fail next charge** on one
    seat makes PayPal answer `AUTHORIZATION_EXPIRED` to that capture, and
-   **Close payments now** ends the window early: below the minimum the
+   **Close reservations now** ends the window early: below the minimum the
    workshop cancels, the open hold is voided and the completed captures are
-   refunded, each refund tracked to `Refund completed`.
+   refunded, each refund tracked to **Refunded**.
 
 Everything in the demo is labelled: the Sandbox, the prepared data, the
 accelerated clock and the induced failure. The demo controls exist only when
@@ -226,7 +226,7 @@ date is refused. The message is data, never instructions, and the schema has
 no field for the price, the currency, the minimum or the capacity: those come
 from the workshop alone. The server, not the model, decides which date is
 compatible for whom and which date to recommend; the model only writes the
-owner's one-paragraph explanation of that recommendation (at most 80 words).
+owner's one-paragraph explanation of that recommendation (at most 60 words).
 The owner view never waits for it: the explanation is written once per input
 in the background and kept in memory, and until it is ready the view answers
 with `explanation_pending: true`. With a fallback model configured, the

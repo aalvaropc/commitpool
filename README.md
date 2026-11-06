@@ -1,69 +1,88 @@
 # CommitPool
 
-CommitPool helps an instructor run a paid workshop without guessing demand.
-The instructor proposes a few candidate dates, participants describe their
-availability in plain language, and once a date is fixed each participant
-authorizes a PayPal payment. The workshop is confirmed only when the minimum
-number of completed payments is reached. If it is not reached by the deadline,
-the workshop is cancelled, every hold is released and every charge already made
-is refunded.
+**The class happens, or nobody pays.**
 
-The app talks to the **PayPal Sandbox** only. No real money moves.
+CommitPool is Doodle meets Kickstarter, for small paid classes. A pottery
+teacher, a yoga instructor or a baker shares one link in the group chat.
+People say when they can come in their own words, Claude reads every answer
+against every date, CommitPool picks the date that works, and everyone
+reserves with PayPal. Nobody is charged unless enough people reserve for the
+class to run. If they don't, every hold is released and any charge refunded.
 
-## How it works
+Try it in one click: **[Try it as Maya](https://3-209-60-155.sslip.io)**.
+You become Maya Okafor, who teaches wheel-throwing in Greenpoint, Brooklyn,
+and you watch six people's answers arrive. Everything runs on the **PayPal
+Sandbox**; no real money moves.
 
-1. **Create the workshop.** Title, duration, time zone, minimum and maximum
-   seats, price, payment window, and two or more candidate dates. The
-   organizer gets a private link and an invite link.
-2. **Share the invite link.** Each participant joins with a name and gets a
-   link of their own; no accounts, no passwords.
-3. **Say when you can come, in your own words.** "Saturday works if we finish
-   before six" is read by Claude into one verdict per candidate date:
-   available, unavailable, conditional (with the condition) or unknown. The
-   participant sees the reading and can correct it. A vague message is
-   flagged as needing clarification instead of being guessed.
-4. **The server recommends a date.** Compatibility per date is computed from
-   the verdicts and conditions, in the workshop's time zone, by code; the
-   model only writes a short explanation of that recommendation. The
-   organizer opens payments on a date, which locks date, price, minimum and
-   capacity.
-5. **Participants commit.** Each one reads the consent text, takes a seat
-   (held for a few minutes while they go to PayPal) and authorizes a hold for
-   the price. Nothing is charged yet.
-6. **Minimum reached, money moves.** When the holds plus completed payments
-   reach the minimum, the holds are captured. With the minimum of *completed*
-   payments the workshop is confirmed; later joiners are charged one by one
-   until it is full or the window closes. If the window closes short of the
-   minimum, the workshop is cancelled: open holds are voided and every
-   capture is refunded, and everyone can watch each refund land.
+![The organizer's board: who can come on each date, read by Claude](docs/images/organizer-board.png)
 
-Plans can change on both sides:
+## The story
 
-- **The organizer can cancel** until the workshop starts. The page first says
-  what happens to the money; then every hold is released and every payment
-  refunded, with the same tracking as a cancellation at the deadline.
-- **A participant can withdraw** until they are charged: a reserved seat goes
-  back to the group, an authorized hold is released. Once a seat is paid it is
-  refunded only if the workshop is cancelled; the consent text says so.
-- **Email is optional.** A participant who leaves an address gets their
-  private link and news about their seat: confirmed, cancelled, a failed
-  charge, a refund completed.
-- **When PayPal does not settle something on its own,** the seat is flagged
-  for the organizer instead of being dropped, and the organizer page offers
-  the runbook's actions: read the payment back from PayPal, retry a refused
-  refund with a new request, mark it resolved.
+1. **Maya describes her class.** "Two hours, $45 a person, the studio costs me
+   $120 and I have 6 wheels, Saturday or Sunday next week, 10 to 12." Claude
+   drafts the form; Maya checks every field. The studio cost suggests how many
+   people she needs (3 × $45 covers $120). Nothing is created until she says so.
+2. **She shares the link.** The invite unfurls in the chat with the class, the
+   dates and the price. People join with a name, no account.
+3. **Everyone answers like they'd text a friend.** "Either day is fine, but on
+   Saturday only if we finish before six." Claude reads each message into a
+   verdict per date, with the words it came from; anyone can correct theirs.
+   A vague answer gets a question, not a guess.
+4. **The date rises to the top.** CommitPool counts who can come, in the
+   class's time zone, and recommends the date; Claude puts the reason into
+   words and drafts the nudges Maya can copy to whoever still needs to answer
+   or reserve. Maya opens reservations on the date with one tap.
+5. **People reserve with PayPal.** Each person approves a hold at PayPal.
+   Nothing is charged. When enough have reserved, the holds are charged and
+   the class is **on**: everyone gets the calendar invite. If the deadline
+   passes short, the class is cancelled, holds are released and charges are
+   refunded, and everyone can watch their refund land.
 
-Three rules hold the whole thing together:
+## Screens
+
+| The invite, as it opens from the chat | Claude drafts the class from a sentence |
+| --- | --- |
+| ![The invite page on a phone](docs/images/invite-phone.png) | ![The create form drafted by Claude](docs/images/create-draft.png) |
+| **The landing page** | **"It's on", with the calendar invite** |
+| ![The landing page](docs/images/landing.png) | ![The confirmation email](docs/images/email-its-on.png) |
+
+## Fair for both sides
+
+- **The organizer** knows the room is covered before committing to it, stops
+  chasing a chat full of maybes, and keeps one private link (also by email).
+- **Everyone who comes** says when they can in plain words, reserves knowing
+  they pay only if it happens, and can give up their spot until they are
+  charged.
+
+## Claude reads, CommitPool decides, PayPal moves the money
+
+| | Claude on Amazon Bedrock | CommitPool (code) | People |
+| --- | --- | --- | --- |
+| Availability | Reads each message into verdicts per date, flags vague ones | Decides who can come and recommends the date | Correct how their message was read |
+| Creating a class | Drafts the form from a description | Validates and normalizes every field | The organizer checks and creates |
+| Explaining | Puts the recommendation and the nudges into words | Picks who to nudge and why | The organizer sends the messages, or not |
+| Money | Never | Charges, releases and refunds through PayPal by its rules | Each person approves their own hold at PayPal |
+
+Claude's output is always structured or checked: strict JSON schemas for
+readings and drafts, the server re-validates everything, an explanation or
+nudge that names another date falls back to plain words, and nothing it writes
+can open reservations or move money.
+
+## Rules that hold the money
 
 - **Confirmation counts completed payments only.** An authorized hold is a
-  promise, a declined capture is not a seat.
+  promise; a declined capture is not a seat.
 - **Every money operation is idempotent.** Each capture, void and refund has
   its own key, persisted before the request is sent, and is retried with the
   same key. A timeout or an ambiguous answer is never retried blindly: the
   order is read back from PayPal and the local state is reconciled to it.
-- **States are visible and separate.** Interested, hold authorized, charging,
-  paid, refund in progress, refund completed, needs attention: participants
-  see their own seat, the organizer sees everyone's.
+- **States are visible and separate.** At checkout, spot reserved, charging,
+  paid, releasing, released, refund on its way, refunded, needs a check:
+  participants see their own spot, the organizer sees everyone's.
+- **Plans can change.** The organizer can cancel until the class starts, and a
+  participant can withdraw until they are charged. When PayPal does not settle
+  something on its own, the seat is flagged for the organizer with the
+  runbook's actions instead of being dropped.
 
 ## Use it from an AI assistant (MCP)
 
@@ -75,8 +94,9 @@ claude mcp add --transport http commitpool https://3-209-60-155.sslip.io/mcp
 ```
 
 An organizer's assistant can create the workshop, read who can come and why
-a date is recommended, and open payments after a preview whose terms the
-organizer approves (a token bound to those exact terms). A participant's
+a date is recommended, see who CommitPool suggests nudging with a message
+Claude drafted (nothing is sent), and open reservations after a preview whose
+terms the organizer approves (a token bound to those exact terms). A participant's
 assistant can join, pass on their availability in their own words and hand
 them the PayPal link once they accept the consent text. No tool moves money:
 only the person's approval at PayPal places a hold, and the payment worker
@@ -114,8 +134,15 @@ browser ── React SPA (embedded) ──► Go HTTP API ──► PostgreSQL
 - **MCP server** (`internal/mcpserver`) at `/mcp`, in the same binary; each
   tool calls the JSON API in process ([docs/mcp.md](docs/mcp.md)).
 - **Notifications** go through an outbox table and a `notify` job, so an
-  email never blocks or undoes a money movement; Amazon SES sends them, or
-  the log stands in.
+  email never blocks or undoes a money movement. `internal/notice` renders
+  each kind as HTML and text in the CommitPool identity; "It's on" carries
+  the calendar invite. Amazon SES sends them, or the log stands in. A message
+  that is no longer true when its turn comes is skipped, and one carrying a
+  private link is cleared from the database once sent.
+- **Link previews and calendars.** Invite links unfurl with a 1200×630 card
+  rendered in Go (`internal/ogimage`) and Open Graph tags; `/p/`, `/owner/`
+  and `/w/` pages are `noindex`. `internal/ics` writes the calendar invite
+  (`/api/v1/w/{token}/calendar.ics`, and a link-free one per participant).
 - **Deployment** on AWS with Terraform: the demo on one EC2 VM with Caddy
   ([deploy/ec2/README.md](deploy/ec2/README.md)); a Fargate, RDS and
   CloudFront configuration for production in
@@ -131,15 +158,21 @@ The video follows this script against a local or hosted instance:
 1. **Try it as Maya** on the landing page (or `make seed`) creates Maya
    Okafor's "Wheel-throwing for beginners" at her studio in Greenpoint,
    Brooklyn: US$45 a spot, a US$120 studio, 3 needed of 6 spots, Saturday or
-   Sunday 10 AM–12 PM New York time. Six participants answer one by one; four
-   can come on the Saturday, three on the Sunday, and one message is too
-   vague to read, so the organizer page shows a clarification request.
-2. On the organizer page, open reservations on the recommended date.
-3. Three participants, in their own browser contexts, accept the consent and
-   reserve with Personal Sandbox accounts. The third reservation starts
-   the capture round; with three completed payments the headline turns to
-   **It's on** and each seat reads **Paid**.
-4. For the second run, with demo controls on, **Fail next charge** on one
+   Sunday 10 AM–12 PM New York time. Six participants answer one by one and
+   the grid fills in: four can come on the Saturday, three on the Sunday, and
+   Grace's "ideally in the afternoon" is too vague to place, so **Claude
+   suggests** asking her which hours work, with a message ready to copy.
+2. **Create a workshop** shows the other way in: Maya's description becomes a
+   drafted form she checks, with the studio cost suggesting 3 people.
+3. On the organizer page, open reservations on the recommended date. The
+   invite link now unfurls with the class card in any chat.
+4. Three participants, in their own browser contexts, accept the consent and
+   reserve with Personal Sandbox accounts; each one with an email hears
+   "spot reserved, not charged yet". The third reservation starts the capture
+   round; with three completed payments the headline turns to **It's on**,
+   each seat reads **Paid**, and the confirmation email carries the calendar
+   invite.
+5. For the second run, with demo controls on, **Fail next charge** on one
    seat makes PayPal answer `AUTHORIZATION_EXPIRED` to that capture, and
    **Close reservations now** ends the window early: below the minimum the
    workshop cancels, the open hold is voided and the completed captures are
@@ -219,12 +252,26 @@ one of them with its default. Secrets are only ever read from the environment.
 | `COMMITPOOL_DEMO_MODE` | `1` enables "Try it as Maya" (the demo workshop endpoints) and the organizer's **Close reservations now** control. |
 | `COMMITPOOL_DEMO_PACE_MS` | Milliseconds between the answers of a demo workshop (default `2000`; the end-to-end script uses `50`). |
 | `COMMITPOOL_SANDBOX_MOCKS` | `1` enables **Fail next charge** and the `PayPal-Mock-Response` header; rejected unless `PAYPAL_BASE_URL` is a sandbox URL. |
-| `COMMITPOOL_MAILER`, `COMMITPOOL_MAIL_FROM` | How notifications go out: `log` (default: logged with a masked address, not sent) or `ses` (Amazon SES v2 with the default AWS credentials, from `COMMITPOOL_MAIL_FROM`, a verified sender identity). |
+| `COMMITPOOL_MAILER`, `COMMITPOOL_MAIL_FROM` | How notifications go out: `log` (default: logged with a masked address, not sent) or `ses` (Amazon SES v2 with the default AWS credentials, from `COMMITPOOL_MAIL_FROM`, a verified sender identity, optionally with a name: `CommitPool <hello@example.com>`). |
 | `COMMITPOOL_RATE_LIMIT` | Writes (POST, PUT) a minute one client address may send, in bursts of half that; `off` turns it off (the end-to-end script does). Default `120`. Reads are never limited. |
 | `COMMITPOOL_MCP_SECRET` | Signs the MCP server's confirmation tokens; without it a random key per process is used, so a preview made before a restart must be made again. |
 | `E2E_FAKE_PAYPAL` | `1` runs an in-process fake PayPal, for the end-to-end tests. Only a binary built with `-tags e2e` carries it (`scripts/e2e.sh` builds one); refused next to real PayPal credentials or with a `COMMITPOOL_BASE_URL` that is not localhost. |
 
-### Availability with Claude on Amazon Bedrock
+### Claude on Amazon Bedrock
+
+Claude does four things in CommitPool, and decides none of them:
+
+| Use | What Claude returns | What the server does with it |
+| --- | --- | --- |
+| Read availability | A verdict per candidate date, strict JSON schema | Validates it, decides who can come and recommends the date |
+| Draft a class | A closed-schema draft from the organizer's description | Clips, bounds and re-validates every field; the organizer edits and creates |
+| Explain the recommendation | At most 60 words | Falls back to plain words if it names another date |
+| Suggest nudges | A short message per person CommitPool chose | Refuses links, contact details and long answers; falls back to a plain message |
+
+Every user-written text reaches Claude as a JSON string labelled as data,
+never instructions. Drafts and nudges never block a page: drafts answer 200
+with an empty draft when Claude is busy or fails, and explanations and nudges
+are written in the background and cached.
 
 Participants describe their availability in plain language. With
 `COMMITPOOL_AI_PROVIDER=bedrock`, Claude on Amazon Bedrock reads each message
@@ -346,7 +393,7 @@ pnpm -C web test           # vitest
 pnpm -C web build
 make check                 # gofmt, go vet, staticcheck, govulncheck, no test code in the binaries, no code comments
 pnpm -C web lint           # no code comments in the web sources
-bash scripts/e2e.sh        # four Playwright journeys against a fresh server with the fake PayPal
+bash scripts/e2e.sh        # the Playwright journeys (and axe checks) against a fresh server with the fake PayPal
 ```
 
 The code carries no comments: names, tests and the docs say why.
@@ -386,8 +433,9 @@ fake interpreter or a local stand-in for the Bedrock endpoint.
   minimum the organizer relies on cannot drop after the fact.
 - Emails are delivered at least once: after a crash between sending and
   recording, one may arrive twice. While the SES account is in its sandbox,
-  only verified addresses receive mail; the hosted demo logs notifications
-  instead of sending them.
+  only verified addresses receive mail.
+- Claude's nudges are copied and sent by the organizer; CommitPool does not
+  send them itself.
 - Without `COMMITPOOL_MCP_SECRET`, an MCP preview token dies with a restart
   and has to be made again.
 

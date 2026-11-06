@@ -108,3 +108,39 @@ export AWS_REGION=us-east-1
   notifications are only logged.
 - Tear down: `terraform -chdir=deploy/ec2 destroy`, then delete the three
   PayPal parameters with `aws ssm delete-parameter`.
+
+## Email through Amazon SES
+
+The demo sends real email once a sender is verified:
+
+1. Verify the sender (SES emails a link to click):
+
+   ```sh
+   aws sesv2 create-email-identity --region us-east-1 --email-identity you@example.com
+   ```
+
+2. Store it, with the name people see, and redeploy:
+
+   ```sh
+   aws ssm put-parameter --region us-east-1 --name /commitpool/mail_from --type String \
+     --value 'CommitPool <you@example.com>'
+   scripts/deploy-ec2.sh
+   ```
+
+3. A new SES account is in its sandbox and only delivers to verified
+   addresses. Verify the ones the demo uses the same way, or ask AWS to lift
+   the sandbox (it answers within about a day):
+
+   ```sh
+   aws sesv2 put-account-details --region us-east-1 --production-access-enabled \
+     --mail-type TRANSACTIONAL --website-url https://3-209-60-155.sslip.io \
+     --use-case-description 'Transactional email for CommitPool, a booking app for small paid classes: a link to their own page when people join or create a class, and notices when their reservation is held, charged, released or refunded. Only people who type their own address receive mail; there is no marketing email.'
+   ```
+
+4. Check one message end to end: create a class with "Your email" filled in
+   and look for "Your organizer link for …". The logs show the masked
+   recipient and the subject, never the body.
+
+A sender on a free mail domain (such as Gmail) is accepted by SES but its
+DMARC policy can send the mail to spam; a domain you control, verified with
+DKIM, delivers best.

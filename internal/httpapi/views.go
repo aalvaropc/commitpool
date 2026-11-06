@@ -220,6 +220,7 @@ type tallyDTO struct {
 	Interested int `json:"interested"`
 	Authorized int `json:"authorized"`
 	Paid       int `json:"paid"`
+	Charging   int `json:"charging"`
 	Minimum    int `json:"minimum"`
 	Capacity   int `json:"capacity"`
 }
@@ -390,11 +391,42 @@ func (st workshopState) counts() domain.Tally {
 
 func (st workshopState) tally() tallyDTO {
 	t := st.counts()
-	out := tallyDTO{Interested: len(st.participants), Authorized: t.Authorized, Paid: t.Paid, Minimum: st.w.Minimum, Capacity: st.w.Capacity}
+	out := tallyDTO{Interested: len(st.participants), Authorized: t.Authorized, Paid: t.Paid, Charging: t.Capturing + t.Pending, Minimum: st.w.Minimum, Capacity: st.w.Capacity}
 	if st.proposal != nil {
 		out.Minimum, out.Capacity = st.proposal.Minimum, st.proposal.Capacity
 	}
 	return out
+}
+
+type groupDTO struct {
+	Answered int            `json:"answered"`
+	CanCome  map[string]int `json:"can_come"`
+}
+
+func (s *server) group(ctx context.Context, st workshopState) (groupDTO, error) {
+	if st.proposal != nil {
+		return groupDTO{CanCome: map[string]int{}}, nil
+	}
+	avails, err := s.Store.AvailabilitiesByWorkshop(ctx, st.w.ID)
+	if err != nil {
+		return groupDTO{}, err
+	}
+	rec, err := st.recommend(avails)
+	if err != nil {
+		return groupDTO{}, err
+	}
+	answered := make(map[string]bool, len(avails))
+	for _, a := range avails {
+		answered[a.ParticipantID] = true
+	}
+	g := groupDTO{Answered: len(answered), CanCome: make(map[string]int, len(st.dates))}
+	for _, d := range st.dates {
+		g.CanCome[d.ID] = 0
+	}
+	for _, d := range rec.PerDate {
+		g.CanCome[d.DateID] = len(d.Compatible)
+	}
+	return g, nil
 }
 
 func (st workshopState) ownerTally() ownerTallyDTO {

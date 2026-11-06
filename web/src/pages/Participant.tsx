@@ -4,15 +4,13 @@ import { api } from '../api'
 import AvailabilityPanel from '../components/AvailabilityPanel'
 import CommitmentCard from '../components/CommitmentCard'
 import Deadline from '../components/Deadline'
+import { EventDetails, EventHero } from '../components/EventHeader'
 import { Loading, LoadError, RefreshError } from '../components/PageState'
 import StatusBanner from '../components/StatusBanner'
-import Terms from '../components/Terms'
-import { Notice, Page } from '../components/ui'
+import { Avatar, Notice, Page } from '../components/ui'
 import { useNow, usePolling, useResource } from '../lib/hooks'
 import { rememberParticipant } from '../lib/participant'
 import { authorizationPending, headline, returnCheckSettled, seatHeld, shouldPollParticipant, tone } from '../lib/status'
-import { workshopTerms } from '../lib/terms'
-import { formatDateRange, zoneName } from '../lib/time'
 
 const CHECK_PATIENCE_MS = 30000
 
@@ -62,52 +60,32 @@ export default function Participant() {
   const w = d.workshop
   const held = seatHeld(d.enrollment, d.proposal?.payments_open ?? false, now)
   return (
-    <Page>
+    <Page wide>
       <title>{`${w.title} – CommitPool`}</title>
-      <div className="flex flex-col gap-10">
-        <div className="flex flex-col gap-4">
-          <StatusBanner
-            headline={headline({ status: w.status, resolution: w.resolution, enrollment: own, seatHeld: held, authPending: pending, paymentsOpen: d.proposal?.payments_open ?? false })}
-            tone={tone(w.status, w.resolution, own)}
-          >
-            {w.status === 'FUNDING' && d.proposal && <Deadline closesAt={d.proposal.closes_at} timeZone={w.timezone} open={d.proposal.payments_open} />}
-          </StatusBanner>
-          {checking && (
-            <Notice tone="hold" title="Checking your payment…">
-              {now - checkingSince < CHECK_PATIENCE_MS
-                ? 'PayPal is confirming your hold. This page updates on its own.'
-                : 'PayPal has not confirmed your hold yet. This page keeps checking; if you left PayPal before approving, reserve again below.'}
-            </Notice>
-          )}
-          {view.error && <RefreshError polling={polling} onRetry={() => void view.reload()} />}
-        </div>
-
-        <header className="flex flex-col gap-4">
-          <p className="text-ink-soft">You joined as {d.participant.display_name}.</p>
-          <h1 className="text-3xl font-bold sm:text-4xl">{w.title}</h1>
-          {w.description && <p className="max-w-prose whitespace-pre-line">{w.description}</p>}
-          {!d.proposal && <Terms items={workshopTerms(w)} />}
-        </header>
-
-        {d.proposal ? (
-          <CommitmentCard token={token} view={d} onChange={view.reload} />
-        ) : (
-          <section aria-labelledby="dates-title" className="flex flex-col gap-3">
-            <h2 id="dates-title" className="text-2xl font-bold">
-              Candidate dates
-            </h2>
-            <ul className="flex flex-col">
-              {d.dates.map((date) => (
-                <li key={date.id} className="semiwide border-t border-rule py-3 font-semibold">
-                  {formatDateRange(date.starts_at, date.ends_at, w.timezone)}
-                </li>
-              ))}
-            </ul>
-            <p className="text-sm text-ink-soft">Times in {zoneName(w.timezone)}.</p>
-          </section>
+      <div className="mx-auto flex max-w-4xl flex-col gap-4 sm:gap-5">
+        <EventHero view={d} compact />
+        <p className="flex items-center gap-2 text-sm text-ink-soft">
+          <Avatar name={d.participant.display_name} size="sm" />
+          You joined as {d.participant.display_name}.
+        </p>
+        <StatusBanner
+          headline={headline({ status: w.status, resolution: w.resolution, enrollment: own, seatHeld: held, authPending: pending, paymentsOpen: d.proposal?.payments_open ?? false })}
+          tone={tone(w.status, w.resolution, own)}
+        >
+          {w.status === 'FUNDING' && d.proposal && <Deadline closesAt={d.proposal.closes_at} timeZone={w.timezone} open={d.proposal.payments_open} />}
+        </StatusBanner>
+        {checking && (
+          <Notice tone="hold" title="Checking your payment…">
+            {now - checkingSince < CHECK_PATIENCE_MS
+              ? 'PayPal is confirming your hold. This page updates on its own.'
+              : 'PayPal has not confirmed your hold yet. This page keeps checking; if you left PayPal before approving, reserve again below.'}
+          </Notice>
         )}
+        {view.error && <RefreshError polling={polling} onRetry={() => void view.reload()} />}
 
+        {d.proposal && <CommitmentCard token={token} view={d} onChange={view.reload} />}
         <AvailabilityPanel token={token} view={d} onSaved={view.reload} />
+        <EventDetails view={d} />
       </div>
     </Page>
   )

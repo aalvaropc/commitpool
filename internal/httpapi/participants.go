@@ -24,6 +24,7 @@ type participantViewDTO struct {
 	Availability *availabilityDTO `json:"availability"`
 	Enrollment   *enrollmentDTO   `json:"enrollment"`
 	Tally        tallyDTO         `json:"tally"`
+	Group        groupDTO         `json:"group"`
 	Consent      consentDTO       `json:"consent"`
 }
 
@@ -37,8 +38,13 @@ func (s *server) participantView(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	g, err := s.group(ctx, st)
+	if err != nil {
+		return err
+	}
 	now := s.Clock.Now()
 	view := participantViewDTO{
+		Group:       g,
 		Participant: participantDTO{ID: p.ID, DisplayName: p.DisplayName},
 		Workshop:    publicWorkshopView(ws),
 		Dates:       dateViews(st.dates, st.loc),

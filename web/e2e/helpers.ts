@@ -27,7 +27,7 @@ export const test = base.extend<{
       const page = await context.newPage()
       await page.goto(shareURL)
       await page.getByLabel('Your name').fill(name)
-      await page.getByRole('button', { name: 'Join workshop' }).click()
+      await page.getByRole('button', { name: 'Join the class' }).click()
       await expect(page.getByText(`You joined as ${name}.`)).toBeVisible()
       return { name, page }
     })

@@ -12,9 +12,11 @@ export default function Deadline({ closesAt, timeZone, open, size = 'sm' }: Prop
   const now = Math.max(useNow(15000), Date.now())
   const left = open ? timeLeft(closesAt, now) : null
   return (
-    <p className={size === 'lg' ? 'flex flex-col gap-0.5' : ''}>
-      <span className={size === 'lg' ? 'text-sm text-ink-soft' : ''}>{left ? 'Reservations close ' : 'Reservations closed '}</span>
-      <time dateTime={closesAt} className={`tabular-nums ${size === 'lg' ? 'wide text-xl font-semibold' : 'font-semibold'}`}>
+    <p className={size === 'lg' ? 'flex flex-col gap-0.5' : 'text-sm'}>
+      <span className={size === 'lg' ? 'text-xs font-semibold tracking-[0.06em] text-ink-soft uppercase' : 'text-ink-soft'}>
+        {left ? 'Reservations close ' : 'Reservations closed '}
+      </span>
+      <time dateTime={closesAt} className={`tabular-nums ${size === 'lg' ? 'font-display text-xl font-bold' : 'font-semibold'}`}>
         {formatMoment(closesAt, timeZone)}
       </time>
       {left && <span className={size === 'lg' ? 'font-semibold text-brand' : 'text-ink-soft'}> {size === 'lg' ? `${left} left` : `(${left} left)`}</span>}

@@ -1,16 +1,11 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { api, ApiError } from '../api'
-import Deadline from '../components/Deadline'
+import { EventDetails, EventHero } from '../components/EventHeader'
 import { Loading, LoadError } from '../components/PageState'
-import SeatMeter from '../components/SeatMeter'
-import Terms from '../components/Terms'
-import { Button, ButtonLink, Field, Notice, Page, describedBy, inputClass } from '../components/ui'
+import { Button, ButtonLink, Field, Notice, Page, Tile, describedBy, inputClass } from '../components/ui'
 import { useResource } from '../lib/hooks'
 import { joinedAs, rememberJoin, tokenFromParticipantURL } from '../lib/participant'
-import { count } from '../lib/plural'
-import { workshopTerms } from '../lib/terms'
-import { formatDateRange, formatMoment, zoneName } from '../lib/time'
 
 export default function Share() {
   const { share = '' } = useParams()
@@ -52,111 +47,74 @@ export default function Share() {
 
   const w = d.workshop
   const open = w.status === 'COLLECTING' || (d.proposal?.payments_open ?? false)
-  const chosen = d.proposal ? d.dates.find((x) => x.id === d.proposal?.date_id) : undefined
   const already = joinedAs(share)
 
   return (
-    <Page>
+    <Page wide>
       <title>{`${w.title} – CommitPool`}</title>
-      <div className="flex flex-col gap-10">
-        <header className="flex flex-col gap-4">
-          <p className="text-ink-soft">You are invited to</p>
-          <h1 className="text-3xl font-bold sm:text-4xl">{w.title}</h1>
-          {w.description && <p className="max-w-prose whitespace-pre-line">{w.description}</p>}
-          <Terms items={workshopTerms(w)} />
-        </header>
-
-        {d.proposal ? (
-          <section aria-labelledby="date-title" className="flex flex-col gap-4">
-            <h2 id="date-title" className="text-2xl font-bold">
-              The date is set
-            </h2>
-            <p className="wide text-xl font-semibold tabular-nums">{chosen ? formatDateRange(chosen.starts_at, chosen.ends_at, w.timezone) : formatMoment(d.proposal.starts_at, w.timezone)}</p>
-            <p className="text-sm text-ink-soft">Times in {zoneName(w.timezone)}.</p>
-            {d.proposal.payments_open && <Deadline closesAt={d.proposal.closes_at} timeZone={w.timezone} open />}
-            <SeatMeter capacity={d.tally.capacity} minimum={d.tally.minimum} paid={d.tally.paid} authorized={d.tally.authorized} label="Group progress" />
-          </section>
-        ) : (
-          <section aria-labelledby="dates-title" className="flex flex-col gap-3">
-            <h2 id="dates-title" className="text-2xl font-bold">
-              Candidate dates
-            </h2>
-            <ul className="flex flex-col">
-              {d.dates.map((date) => (
-                <li key={date.id} className="semiwide border-t border-rule py-3 font-semibold">
-                  {formatDateRange(date.starts_at, date.ends_at, w.timezone)}
-                </li>
-              ))}
-            </ul>
-            <p className="text-sm text-ink-soft">Times in {zoneName(w.timezone)}.</p>
-            <p className="text-ink-soft">
-              {count(d.tally.interested, 'person', 'people')} {d.tally.interested === 1 ? 'has' : 'have'} joined so far.
-            </p>
-          </section>
+      <div className="mx-auto flex max-w-4xl flex-col gap-4 sm:gap-5">
+        <EventHero view={d} />
+        {!open && (
+          <Notice tone={w.status === 'CANCELLED' ? 'cancel' : 'neutral'} title="This class is not taking new people">
+            {w.status === 'CANCELLED' ? 'It was cancelled.' : 'Reservations have closed.'}
+          </Notice>
         )}
+        <EventDetails view={d} />
 
         {already && (
-          <section aria-labelledby="continue-title" className="flex flex-col items-start gap-3">
-            <h2 id="continue-title" className="text-2xl font-bold">
+          <Tile as="section" aria-labelledby="continue-title" className="flex flex-col items-start gap-3">
+            <h2 id="continue-title" className="text-xl">
               You already joined
             </h2>
             <p className="text-ink-soft">This browser tab joined as {already.name}.</p>
             <ButtonLink to={`/p/${already.token}`}>Continue as {already.name}</ButtonLink>
-          </section>
+          </Tile>
         )}
 
         {open ? (
-          <section aria-labelledby="join-title" className="flex flex-col gap-4 rounded-sm border border-rule bg-sheet p-5 sm:p-7">
-            <h2 id="join-title" className="text-2xl font-bold">
-              {already ? 'Join as someone else' : 'Join'}
-            </h2>
-            <p className="max-w-prose text-ink-soft">
-              Joining gives you a personal page to say when you can come and, once the date is set, to reserve your spot. Nothing is
-              charged when you join.
-            </p>
+          <Tile as="section" aria-labelledby="join-title" className="flex flex-col gap-5 sm:p-7">
+            <div className="flex flex-col gap-1">
+              <h2 id="join-title" className="text-2xl">
+                {already ? 'Join as someone else' : 'Join and say when you can come'}
+              </h2>
+              <p className="max-w-prose text-ink-soft">
+                You get a personal page to answer and, once the date is set, to reserve your spot. Nothing is charged when you join.
+              </p>
+            </div>
             <form onSubmit={join} noValidate className="flex flex-col gap-4">
-              <Field id="display-name" label="Your name" error={error ?? undefined} hint="The organizer sees this name next to your availability.">
-                <input
-                  id="display-name"
-                  autoComplete="name"
-                  maxLength={80}
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  aria-invalid={error ? true : undefined}
-                  aria-describedby={describedBy('display-name', true, error ?? undefined)}
-                  className={`${inputClass} sm:max-w-sm`}
-                />
-              </Field>
-              <Field
-                id="email"
-                label="Email (optional)"
-                error={emailError ?? undefined}
-                hint="Only to send you your personal link and news about your spot: when it’s on, a cancellation, a failed charge or a refund."
-              >
-                <input
-                  id="email"
-                  type="email"
-                  autoComplete="email"
-                  maxLength={254}
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  aria-invalid={emailError ? true : undefined}
-                  aria-describedby={describedBy('email', true, emailError ?? undefined)}
-                  className={`${inputClass} sm:max-w-sm`}
-                />
-              </Field>
-              <div>
-                <Button type="submit" busy={busy} busyLabel="Joining…">
-                  Join workshop
-                </Button>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field id="display-name" label="Your name" error={error ?? undefined} hint="The organizer sees this name next to your answer.">
+                  <input
+                    id="display-name"
+                    autoComplete="name"
+                    maxLength={80}
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    aria-invalid={error ? true : undefined}
+                    aria-describedby={describedBy('display-name', true, error ?? undefined)}
+                    className={inputClass}
+                  />
+                </Field>
+                <Field id="email" label="Email (optional)" error={emailError ?? undefined} hint="Only for your personal link and news about your spot.">
+                  <input
+                    id="email"
+                    type="email"
+                    autoComplete="email"
+                    maxLength={254}
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    aria-invalid={emailError ? true : undefined}
+                    aria-describedby={describedBy('email', true, emailError ?? undefined)}
+                    className={inputClass}
+                  />
+                </Field>
               </div>
+              <Button type="submit" variant="go" size="lg" block busy={busy} busyLabel="Joining…">
+                Join the class
+              </Button>
             </form>
-          </section>
-        ) : (
-          <Notice title="This workshop is not taking new participants">
-            {w.status === 'CANCELLED' ? 'It was cancelled.' : 'Reservations have closed.'}
-          </Notice>
-        )}
+          </Tile>
+        ) : null}
       </div>
     </Page>
   )

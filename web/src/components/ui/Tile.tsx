@@ -1,7 +1,7 @@
 import type { HTMLAttributes, ReactNode } from 'react'
 
 type TileTone = 'surface' | 'brand' | 'muted'
-type TileElement = 'div' | 'section' | 'article' | 'aside' | 'li'
+type TileElement = 'div' | 'section' | 'article' | 'aside' | 'header' | 'li'
 
 const tones: Record<TileTone, string> = {
   surface: 'bg-surface text-ink',
@@ -24,6 +24,17 @@ export function Tile({ as: Element = 'div', tone = 'surface', padded = true, cla
   )
 }
 
-export function TileLabel({ children, className = '' }: { children: ReactNode; className?: string }) {
-  return <p className={`text-xs font-semibold tracking-[0.06em] text-ink-soft uppercase ${className}`}>{children}</p>
+interface TileLabelProps {
+  as?: 'p' | 'h2' | 'h3'
+  id?: string
+  children: ReactNode
+  className?: string
+}
+
+export function TileLabel({ as: Element = 'p', id, children, className = '' }: TileLabelProps) {
+  return (
+    <Element id={id} className={`font-sans text-xs leading-normal font-semibold tracking-[0.06em] text-ink-soft uppercase ${className}`}>
+      {children}
+    </Element>
+  )
 }

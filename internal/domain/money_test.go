@@ -76,3 +76,39 @@ func FuzzParseMoney(f *testing.F) {
 		}
 	})
 }
+
+func TestBreakEvenSeats(t *testing.T) {
+	usd := func(minor int64) domain.Money { return domain.Money{Minor: minor, Currency: "USD"} }
+	tests := []struct {
+		name  string
+		cost  domain.Money
+		price domain.Money
+		want  int
+	}{
+		{name: "studio covered by three seats", cost: usd(12000), price: usd(4500), want: 3},
+		{name: "exact multiple", cost: usd(9000), price: usd(4500), want: 2},
+		{name: "one cent over needs another seat", cost: usd(9001), price: usd(4500), want: 3},
+		{name: "free venue", cost: usd(0), price: usd(4500), want: 0},
+		{name: "venue cheaper than a seat", cost: usd(100), price: usd(4500), want: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := domain.BreakEvenSeats(tt.cost, tt.price)
+			if err != nil || got != tt.want {
+				t.Fatalf("BreakEvenSeats(%v, %v) = %d, %v; want %d", tt.cost, tt.price, got, err, tt.want)
+			}
+		})
+	}
+}
+
+func TestBreakEvenSeats_RefusesMismatchedOrFreePrices(t *testing.T) {
+	if _, err := domain.BreakEvenSeats(domain.Money{Minor: 100, Currency: "EUR"}, domain.Money{Minor: 100, Currency: "USD"}); err == nil {
+		t.Error("different currencies: want an error")
+	}
+	if _, err := domain.BreakEvenSeats(domain.Money{Minor: 100, Currency: "USD"}, domain.Money{Minor: 0, Currency: "USD"}); err == nil {
+		t.Error("free seats: want an error")
+	}
+	if _, err := domain.BreakEvenSeats(domain.Money{Minor: -1, Currency: "USD"}, domain.Money{Minor: 100, Currency: "USD"}); err == nil {
+		t.Error("negative cost: want an error")
+	}
+}

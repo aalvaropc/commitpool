@@ -14,6 +14,8 @@ import (
 
 const (
 	maxTitle         = 120
+	maxHostName      = 80
+	maxLocation      = 160
 	maxDescription   = 2000
 	maxDurationMin   = 24 * 60
 	maxCapacity      = 500
@@ -36,6 +38,9 @@ type createWorkshopRequest struct {
 	Price            string `json:"price"`
 	Currency         string `json:"currency"`
 	PaymentWindowMin *int   `json:"payment_window_min"`
+	HostName         string `json:"host_name"`
+	Location         string `json:"location"`
+	VenueCost        string `json:"venue_cost"`
 	Dates            []struct {
 		StartsAt time.Time `json:"starts_at"`
 		EndsAt   time.Time `json:"ends_at"`
@@ -89,6 +94,14 @@ func (s *server) workshopParams(req createWorkshopRequest) (store.CreateWorkshop
 	if utf8.RuneCountInString(description) > maxDescription {
 		return none, badRequest("invalid_description", "The description can have at most %d characters.", maxDescription)
 	}
+	hostName := strings.TrimSpace(req.HostName)
+	if utf8.RuneCountInString(hostName) > maxHostName {
+		return none, badRequest("invalid_host_name", "Your name can have at most %d characters.", maxHostName)
+	}
+	location := strings.TrimSpace(req.Location)
+	if utf8.RuneCountInString(location) > maxLocation {
+		return none, badRequest("invalid_location", "The place can have at most %d characters.", maxLocation)
+	}
 	if req.DurationMin < 1 || req.DurationMin > maxDurationMin {
 		return none, badRequest("invalid_duration", "The duration must be between 1 and %d minutes.", maxDurationMin)
 	}
@@ -116,6 +129,10 @@ func (s *server) workshopParams(req createWorkshopRequest) (store.CreateWorkshop
 	}
 	if !supportedCurrencies[price.Currency] {
 		return none, badRequest("unsupported_currency", "Prices are in USD for now.")
+	}
+	venueCost, err := optionalVenueCost(req.VenueCost, price.Currency)
+	if err != nil {
+		return none, err
 	}
 	window := store.DefaultPaymentWindowMin
 	if req.PaymentWindowMin != nil {
@@ -151,8 +168,23 @@ func (s *server) workshopParams(req createWorkshopRequest) (store.CreateWorkshop
 		PriceMinor:       price.Minor,
 		Currency:         price.Currency,
 		PaymentWindowMin: window,
+		HostName:         hostName,
+		Location:         location,
+		VenueCostMinor:   venueCost,
 		Dates:            dates,
 	}, nil
+}
+
+func optionalVenueCost(value, currency string) (*int64, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
+	}
+	cost, err := domain.ParseMoney(value, currency)
+	if err != nil {
+		return nil, badRequest("invalid_venue_cost", "The studio cost must be an amount with at most two decimals, such as 120 or 120.00.")
+	}
+	return &cost.Minor, nil
 }
 
 type publicView struct {

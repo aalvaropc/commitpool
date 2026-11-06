@@ -461,18 +461,22 @@ type moneyJSON struct {
 }
 
 type workshopJSON struct {
-	ID               string    `json:"id"`
-	Title            string    `json:"title"`
-	Description      string    `json:"description"`
-	DurationMin      int       `json:"duration_min"`
-	Timezone         string    `json:"timezone"`
-	Minimum          int       `json:"minimum"`
-	Capacity         int       `json:"capacity"`
-	Price            moneyJSON `json:"price"`
-	Currency         string    `json:"currency"`
-	PaymentWindowMin int       `json:"payment_window_min"`
-	Status           string    `json:"status"`
-	Resolution       string    `json:"resolution"`
+	ID               string     `json:"id"`
+	Title            string     `json:"title"`
+	Description      string     `json:"description"`
+	DurationMin      int        `json:"duration_min"`
+	Timezone         string     `json:"timezone"`
+	Minimum          int        `json:"minimum"`
+	Capacity         int        `json:"capacity"`
+	Price            moneyJSON  `json:"price"`
+	Currency         string     `json:"currency"`
+	PaymentWindowMin int        `json:"payment_window_min"`
+	Status           string     `json:"status"`
+	Resolution       string     `json:"resolution"`
+	HostName         string     `json:"host_name"`
+	Location         string     `json:"location"`
+	VenueCost        *moneyJSON `json:"venue_cost"`
+	BreakEvenSeats   int        `json:"break_even_seats"`
 }
 
 type createdJSON struct {

@@ -2,6 +2,8 @@ module github.com/aalvaropc/commitpool
 
 go 1.26.0
 
+toolchain go1.26.10
+
 require (
 	github.com/anthropics/anthropic-sdk-go/v2 v2.3.0
 	github.com/aws/aws-sdk-go-v2 v1.47.3

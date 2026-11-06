@@ -26,14 +26,7 @@ func NewSES(ctx context.Context, region, from string) (*SES, error) {
 }
 
 func (s *SES) Send(ctx context.Context, m Message) (string, error) {
-	out, err := s.client.SendEmail(ctx, &sesv2.SendEmailInput{
-		FromEmailAddress: aws.String(s.from),
-		Destination:      &types.Destination{ToAddresses: []string{m.To}},
-		Content: &types.EmailContent{Simple: &types.Message{
-			Subject: &types.Content{Data: aws.String(m.Subject), Charset: aws.String("UTF-8")},
-			Body:    &types.Body{Text: &types.Content{Data: aws.String(m.Text), Charset: aws.String("UTF-8")}},
-		}},
-	})
+	out, err := s.client.SendEmail(ctx, sendInput(s.from, m))
 	if err != nil {
 		var api smithy.APIError
 		if errors.As(err, &api) {
@@ -45,4 +38,29 @@ func (s *SES) Send(ctx context.Context, m Message) (string, error) {
 		return "", fmt.Errorf("mail: ses send: %w", err)
 	}
 	return aws.ToString(out.MessageId), nil
+}
+
+func sendInput(from string, m Message) *sesv2.SendEmailInput {
+	utf8 := func(s string) *types.Content {
+		return &types.Content{Data: aws.String(s), Charset: aws.String("UTF-8")}
+	}
+	body := &types.Body{Text: utf8(m.Text)}
+	if m.HTML != "" {
+		body.Html = utf8(m.HTML)
+	}
+	msg := &types.Message{Subject: utf8(m.Subject), Body: body}
+	for _, a := range m.Attachments {
+		msg.Attachments = append(msg.Attachments, types.Attachment{
+			FileName:                aws.String(a.Name),
+			ContentType:             aws.String(a.ContentType),
+			RawContent:              a.Data,
+			ContentDisposition:      types.AttachmentContentDispositionAttachment,
+			ContentTransferEncoding: types.AttachmentContentTransferEncodingBase64,
+		})
+	}
+	return &sesv2.SendEmailInput{
+		FromEmailAddress: aws.String(from),
+		Destination:      &types.Destination{ToAddresses: []string{m.To}},
+		Content:          &types.EmailContent{Simple: msg},
+	}
 }

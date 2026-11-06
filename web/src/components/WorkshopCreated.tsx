@@ -4,7 +4,7 @@ import { inviteMessage } from '../lib/workshopForm'
 import CopyField from './CopyField'
 import { ButtonLink, Icon, Notice, Tile } from './ui'
 
-export default function WorkshopCreated({ created }: { created: CreateWorkshopResponse }) {
+export default function WorkshopCreated({ created, emailedTo }: { created: CreateWorkshopResponse; emailedTo?: string }) {
   const heading = useRef<HTMLHeadingElement>(null)
   useEffect(() => heading.current?.focus(), [])
   const ownerPath = new URL(created.owner_url).pathname
@@ -22,6 +22,7 @@ export default function WorkshopCreated({ created }: { created: CreateWorkshopRe
       </header>
       <Notice tone="attention" title="Save your organizer link now" role="alert">
         It is the only way back to your organizer page and it will not be shown again. Anyone who has it can open reservations.
+        {emailedTo && ` We also sent it to ${emailedTo}.`}
       </Notice>
       <Tile className="flex flex-col gap-2 sm:p-6">
         <CopyField id="owner-url" label="Organizer link (keep it private)" value={created.owner_url} />

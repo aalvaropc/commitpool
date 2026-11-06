@@ -126,9 +126,51 @@ func TestJoin_StoresEmailAndSendsThePrivateLinkOnce(t *testing.T) {
 	if len(sent) != 1 || sent[0].To != "ana@example.com" || !strings.Contains(sent[0].Text, out.ParticipantURL) {
 		t.Fatalf("sent = %+v, want one message to Ana with her private link", sent)
 	}
-	var body string
-	if err := e.st.Pool.QueryRow(e.ctx, `select body from notifications where to_email = 'ana@example.com'`).Scan(&body); err != nil || body != "" {
-		t.Errorf("stored body after sending = %q, %v; want it cleared: it carried the private link", body, err)
+	if !strings.Contains(sent[0].HTML, out.ParticipantURL) {
+		t.Errorf("html part lacks the private link")
+	}
+	var body, html string
+	if err := e.st.Pool.QueryRow(e.ctx, `select body, html from notifications where to_email = 'ana@example.com'`).Scan(&body, &html); err != nil || body != "" || html != "" {
+		t.Errorf("stored body %q html %q after sending, %v; want both cleared: they carried the private link", body, html, err)
 	}
 	e.wantError(http.MethodPost, h.sharePath+"/participants", map[string]string{"display_name": "Luis", "email": "not an address"}, http.StatusBadRequest, "invalid_email")
+}
+
+func TestCreate_EmailsTheOrganizerTheirLinkOnce(t *testing.T) {
+	e := newEnv(t)
+	h := e.createWorkshop(func(b map[string]any) {
+		b["owner_email"] = "maya@example.com"
+		b["host_name"] = "Maya Okafor"
+	})
+	e.runner.RunPending(e.ctx)
+	sent := e.mailer.Sent()
+	if len(sent) != 1 || sent[0].To != "maya@example.com" || !strings.Contains(sent[0].Text, h.created.OwnerURL) || !strings.Contains(sent[0].HTML, h.created.OwnerURL) {
+		t.Fatalf("sent = %+v, want one message to Maya with her organizer link", sent)
+	}
+	if !strings.Contains(sent[0].Text, "Hi Maya,") || !strings.Contains(sent[0].Text, h.created.ShareURL) {
+		t.Errorf("text = %s", sent[0].Text)
+	}
+	var body, html string
+	if err := e.st.Pool.QueryRow(e.ctx, `select body, html from notifications where to_email = 'maya@example.com'`).Scan(&body, &html); err != nil || body != "" || html != "" {
+		t.Errorf("stored body %q html %q after sending, %v; want both cleared: they carried the organizer link", body, html, err)
+	}
+	for _, path := range []string{h.sharePath, h.ownerPath} {
+		if raw := e.request(http.MethodGet, path, nil).Body.String(); strings.Contains(raw, "maya@example.com") {
+			t.Errorf("GET %s shows the organizer's email", path)
+		}
+	}
+	e.wantError(http.MethodPost, "/api/v1/workshops", func() map[string]any {
+		b := workshopRequest()
+		b["owner_email"] = "Maya <maya@example.com>"
+		return b
+	}(), http.StatusBadRequest, "invalid_owner_email")
+}
+
+func TestCreate_WithoutAnEmailSendsNothing(t *testing.T) {
+	e := newEnv(t)
+	e.createWorkshop()
+	e.runner.RunPending(e.ctx)
+	if sent := e.mailer.Sent(); len(sent) != 0 {
+		t.Errorf("sent = %+v, want nothing", sent)
+	}
 }

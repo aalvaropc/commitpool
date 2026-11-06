@@ -181,6 +181,7 @@ func (r *Runner) afterAuthorized(ctx context.Context, en store.EnrollmentRow) er
 		return err
 	}
 	if open {
+		r.notifyEnrollment(ctx, en.ID, NotifyReserved)
 		return r.StartCaptureRoundIfReady(ctx, en.WorkshopID)
 	}
 	r.log.Warn("authorization landed after payments closed; voiding it",
@@ -241,6 +242,7 @@ func (r *Runner) confirmIfFunded(ctx context.Context, workshopID string) (done b
 					r.notifyEnrollment(ctx, en.ID, NotifyConfirmed)
 				}
 			}
+			r.notifyOwnerConfirmed(ctx, workshopID, t.Paid, domain.Money{Minor: int64(t.Paid) * v.p.Price.Minor, Currency: v.p.Price.Currency})
 		}
 	}
 	return ok, err

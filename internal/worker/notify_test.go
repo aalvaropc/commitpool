@@ -42,7 +42,7 @@ func TestNotify_ConfirmedOncePerParticipantWithEmail(t *testing.T) {
 	}
 	e.runUntilIdle()
 
-	got := e.sentTo("confirmed")
+	got := e.sentTo("It’s on")
 	if len(got) != 2 || !strings.Contains(strings.Join(got, ","), "ana@example.com") || !strings.Contains(strings.Join(got, ","), "ben@example.com") {
 		t.Fatalf("confirmed sent to %v, want Ana and Ben once each", got)
 	}
@@ -95,5 +95,69 @@ func TestNotify_RejectedRecipientIsNotRetried(t *testing.T) {
 	n, err := e.st.NotificationByKey(e.ctx, "notify:payment_failed:"+ben.ID)
 	if err != nil || n == nil || n.Status != "failed" {
 		t.Fatalf("rejected notification = %+v, %v; want failed and not retried", n, err)
+	}
+}
+
+func (e *env) setOwnerEmail(email string) {
+	e.t.Helper()
+	if _, err := e.st.Pool.Exec(e.ctx, `update workshops set owner_email = $2 where id = $1`, e.workshop.ID, email); err != nil {
+		e.t.Fatal(err)
+	}
+}
+
+func TestNotify_ReservedOnceTheHoldLands(t *testing.T) {
+	e := newEnv(t)
+	en, a := e.withOrder("Ana")
+	e.setEmail(en, "ana@example.com")
+	e.authorize(en, a)
+	e.runUntilIdle()
+	got := e.sentTo("Spot reserved")
+	if len(got) != 1 || got[0] != "ana@example.com" {
+		t.Fatalf("reserved sent to %v, want Ana once", got)
+	}
+	for _, m := range e.mailer.Sent() {
+		if m.HTML == "" || !strings.Contains(m.Text, "Nothing is charged yet") {
+			t.Errorf("message %q has no HTML part or the wrong words:\n%s", m.Subject, m.Text)
+		}
+	}
+}
+
+func TestNotify_OrganizerHearsItIsOnOnce(t *testing.T) {
+	e := newEnv(t)
+	e.setOwnerEmail("maya@example.com")
+	e.paid("Ana")
+	e.paid("Ben")
+	e.paid("Cleo")
+	e.runUntilIdle()
+	if err := e.runner.HealWorkshop(e.ctx, e.workshop.ID); err != nil {
+		t.Fatal(err)
+	}
+	e.runUntilIdle()
+	var owner []string
+	for _, m := range e.mailer.Sent() {
+		if m.To == "maya@example.com" {
+			owner = append(owner, m.Subject+" | "+m.Text)
+		}
+	}
+	if len(owner) != 1 || !strings.Contains(owner[0], "It’s on") || !strings.Contains(owner[0], "3 people paid") {
+		t.Fatalf("organizer messages = %v, want one saying 3 paid", owner)
+	}
+}
+
+func TestNotify_OrganizerHearsOfTheCancellation(t *testing.T) {
+	e := newEnv(t)
+	e.setOwnerEmail("maya@example.com")
+	e.paid("Ana")
+	e.clock.Set(e.proposal.ClosesAt)
+	e.runKey(e.closeKey())
+	e.runUntilIdle()
+	var owner []mail.Message
+	for _, m := range e.mailer.Sent() {
+		if m.To == "maya@example.com" {
+			owner = append(owner, m)
+		}
+	}
+	if len(owner) != 1 || !strings.Contains(owner[0].Subject, "is cancelled") || !strings.Contains(owner[0].Text, "Every hold is released") {
+		t.Fatalf("organizer messages = %+v", owner)
 	}
 }

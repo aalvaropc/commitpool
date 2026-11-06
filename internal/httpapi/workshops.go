@@ -41,6 +41,7 @@ type createWorkshopRequest struct {
 	HostName         string `json:"host_name"`
 	Location         string `json:"location"`
 	VenueCost        string `json:"venue_cost"`
+	OwnerEmail       string `json:"owner_email"`
 	Demo             bool   `json:"demo"`
 	Dates            []struct {
 		StartsAt time.Time `json:"starts_at"`
@@ -68,6 +69,12 @@ func (s *server) createWorkshop(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	ownerURL := s.Cfg.BaseURL + "/owner/" + ownerToken
+	if ws.OwnerEmail != "" && s.Worker != nil {
+		if err := s.Worker.NotifyOwnerCreated(r.Context(), ws.ID, ownerURL); err != nil {
+			s.Log.Error("create: could not queue the organizer's link", "workshop_id", ws.ID, "error", err)
+		}
+	}
 	dates, err := s.Store.CandidateDates(r.Context(), ws.ID)
 	if err != nil {
 		return err
@@ -79,7 +86,7 @@ func (s *server) createWorkshop(w http.ResponseWriter, r *http.Request) error {
 	writeJSON(w, http.StatusCreated, createWorkshopResponse{
 		Workshop: ownerWorkshopView(ws),
 		Dates:    dateViews(dates, loc),
-		OwnerURL: s.Cfg.BaseURL + "/owner/" + ownerToken,
+		OwnerURL: ownerURL,
 		ShareURL: s.Cfg.BaseURL + "/w/" + shareToken,
 	})
 	return nil
@@ -132,6 +139,10 @@ func (s *server) workshopParams(req createWorkshopRequest) (store.CreateWorkshop
 	if err != nil {
 		return none, err
 	}
+	ownerEmail, err := optionalEmail(req.OwnerEmail)
+	if err != nil {
+		return none, badRequest("invalid_owner_email", "Your email must be one plain address, such as maya@example.com.")
+	}
 	window := store.DefaultPaymentWindowMin
 	if req.PaymentWindowMin != nil {
 		window = *req.PaymentWindowMin
@@ -170,6 +181,7 @@ func (s *server) workshopParams(req createWorkshopRequest) (store.CreateWorkshop
 		Location:         location,
 		VenueCostMinor:   venueCost,
 		IsDemo:           req.Demo && s.Cfg.DemoMode,
+		OwnerEmail:       ownerEmail,
 		Dates:            dates,
 	}, nil
 }

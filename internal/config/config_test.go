@@ -303,6 +303,10 @@ func TestLoad_Mailer(t *testing.T) {
 	if cfg, err := load(env); err != nil || cfg.Mailer != "ses" || cfg.MailFrom != "CommitPool <hello@example.com>" {
 		t.Errorf("ses with a sender = %+v, %v", cfg.Mailer, err)
 	}
+	env["COMMITPOOL_MAIL_FROM"] = "CommitPool hello at example"
+	if _, err := load(env); err == nil || !strings.Contains(err.Error(), "COMMITPOOL_MAIL_FROM must be an address") {
+		t.Errorf("a malformed sender: err = %v", err)
+	}
 }
 
 func TestLoad_DemoPace(t *testing.T) {

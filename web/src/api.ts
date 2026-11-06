@@ -211,6 +211,7 @@ export interface CreateWorkshopRequest {
   host_name?: string
   location?: string
   venue_cost?: string
+  owner_email?: string
   dates: { starts_at: string; ends_at: string }[]
 }
 

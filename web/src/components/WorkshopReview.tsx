@@ -118,6 +118,9 @@ export default function WorkshopReview({ form, onChange, errors, missing, note, 
             <input {...input('location', 'Such as a studio and its neighbourhood.')} maxLength={160} />
           </Field>
         </div>
+        <Field id="f-ownerEmail" label="Your email" hint="Optional. We send you your organizer link and tell you when it’s on. Nobody else sees it." error={errors.ownerEmail}>
+          <input {...input('ownerEmail', 'Optional. We send you your organizer link and tell you when it’s on. Nobody else sees it.')} type="email" inputMode="email" autoComplete="email" maxLength={254} />
+        </Field>
       </Section>
 
       <Section title="Money and people">

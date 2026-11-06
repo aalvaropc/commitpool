@@ -34,8 +34,12 @@ export function EventHero({ view, compact = false }: { view: PublicView; compact
                 with {w.host_name}
               </span>
             )}
-            {w.host_name && w.location && <span aria-hidden="true">·</span>}
-            {w.location && <span className="min-w-0 font-medium text-on-brand-soft [overflow-wrap:anywhere]">{w.location}</span>}
+            {w.host_name && w.location && (
+              <span aria-hidden="true" className="hidden sm:inline">
+                ·
+              </span>
+            )}
+            {w.location && <span className="min-w-0 basis-full font-medium text-on-brand-soft [overflow-wrap:anywhere] sm:basis-auto">{w.location}</span>}
           </p>
         )}
       </div>

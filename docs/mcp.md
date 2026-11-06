@@ -33,7 +33,7 @@ For the organizer:
 | Tool | What it does |
 | --- | --- |
 | `create_workshop` | Creates a paid workshop with one or more candidate dates, the organizer's name and the place. An optional studio cost stays private to the organizer. Returns the owner link (private) and the share link (for participants). |
-| `get_status` | From the owner link: the recommended date and why, who can come, who committed or paid, how many paid seats cover the studio cost, and what closing payments now would do. Read-only. |
+| `get_status` | From the owner link: the recommended date and why, who can come, who committed or paid, how many paid seats cover the studio cost, what closing payments now would do, and who CommitPool suggests nudging, each with a message Claude drafted for the organizer to send. Read-only; nothing is sent. |
 | `preview_open_payments` | Shows the exact terms that opening payments on a date locks: date, price, minimum, capacity and payment window. Changes nothing. Returns a confirmation token valid for ten minutes. |
 | `confirm_open_payments` | Opens payments with that token, after the organizer has seen the terms and said yes. Refused when the token expired or any term changed since the preview. |
 

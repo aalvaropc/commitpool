@@ -333,9 +333,17 @@ go vet ./...
 pnpm -C web typecheck      # the SPA, the Playwright config and the e2e specs
 pnpm -C web test           # vitest
 pnpm -C web build
-make check                 # gofmt, go vet, staticcheck, govulncheck, no test code in the binaries
+make check                 # gofmt, go vet, staticcheck, govulncheck, no test code in the binaries, no code comments
+pnpm -C web lint           # no code comments in the web sources
 bash scripts/e2e.sh        # four Playwright journeys against a fresh server with the fake PayPal
 ```
+
+The code carries no comments: names, tests and the docs say why.
+`go test ./internal/codestyle` fails on a comment in Go, SQL, shell,
+Terraform, YAML, CSS or HTML, and `pnpm -C web lint` on one in the web
+sources. Compiler and linter directives are allowed. The payment rules live in
+[docs/payments.md](docs/payments.md) and the scripts in
+[scripts/README.md](scripts/README.md).
 
 `make test` and CI run the Go tests with the race detector. Two fuzz targets
 cover money parsing and the cleaning of the model's reading

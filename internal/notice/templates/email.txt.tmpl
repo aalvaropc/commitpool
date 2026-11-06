@@ -1,0 +1,17 @@
+{{.Headline}}
+
+{{range .Paragraphs}}{{.}}
+
+{{end}}{{if .Quote}}{{.Quote}}
+
+{{end}}{{range .Facts}}{{.Label}}: {{.Value}}
+{{end}}{{if .Facts}}
+{{end}}{{with .Action}}{{.Label}}: {{.URL}}
+
+{{end}}{{range .After}}{{.}}
+
+{{end}}{{if .Share}}{{.Share}}
+
+{{end}}--
+The class happens, or nobody pays.
+{{.Why}}

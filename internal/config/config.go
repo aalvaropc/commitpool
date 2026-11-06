@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"log/slog"
+	netmail "net/mail"
 	"net/url"
 	"strconv"
 	"strings"
@@ -96,6 +97,8 @@ func Load(getenv func(string) string) (Config, error) {
 	case "ses":
 		if cfg.MailFrom == "" {
 			problems = append(problems, "COMMITPOOL_MAILER=ses needs COMMITPOOL_MAIL_FROM, a verified SES sender")
+		} else if _, err := netmail.ParseAddress(cfg.MailFrom); err != nil {
+			problems = append(problems, "COMMITPOOL_MAIL_FROM must be an address such as hello@example.com or CommitPool <hello@example.com>")
 		}
 	default:
 		problems = append(problems, "COMMITPOOL_MAILER must be log or ses")

@@ -11,7 +11,13 @@ import (
 )
 
 type Message struct {
-	To, Subject, Text string
+	To, Subject, Text, HTML string
+	Attachments             []Attachment
+}
+
+type Attachment struct {
+	Name, ContentType string
+	Data              []byte
 }
 
 type Mailer interface {

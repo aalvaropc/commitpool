@@ -399,11 +399,11 @@ func TestBedrock_ExplainGetsOnlyTheRecommendedDateAndStaysShort(t *testing.T) {
 			t.Errorf("explain facts do not contain %q: %s", want, user)
 		}
 	}
-	if strings.Contains(string(user), dates[1].Label) || strings.Contains(string(user), "Sun 15 Nov") {
+	if strings.Contains(string(user), dates[1].Label) || strings.Contains(string(user), "Nov 15") {
 		t.Errorf("explain facts name a date the server did not recommend: %s", user)
 	}
 	system, _ := json.Marshal(req.body["system"])
-	if !strings.Contains(string(system), "80 words") {
+	if !strings.Contains(string(system), "60 words") {
 		t.Errorf("explain system prompt does not set the length: %s", system)
 	}
 }

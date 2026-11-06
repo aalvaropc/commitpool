@@ -85,10 +85,10 @@ func TestRecommendation_UsesServerCompatibilityNotModelText(t *testing.T) {
 		t.Fatal("recommendation has no explanation field")
 	}
 	exp := *rec.Explanation
-	if strings.Contains(exp, "Sun 15 Nov") || strings.Contains(exp, "Sunday") {
+	if strings.Contains(exp, "Nov 15") || strings.Contains(exp, "Sun") {
 		t.Errorf("explanation %q names the date the server did not recommend", exp)
 	}
-	if !strings.Contains(exp, "Sat 14 Nov 2026") {
+	if !strings.Contains(exp, "Sat, Nov 14") {
 		t.Errorf("explanation %q does not name the recommended date", exp)
 	}
 	if logs := e.logs.String(); !strings.Contains(logs, "did not recommend") || strings.Contains(logs, "only date that works") {
@@ -293,7 +293,7 @@ func TestOwner_ExplanationFailureFallsBackToPlainText(t *testing.T) {
 	e.joinAndSay(h, "Ana", "Any day works for me")
 
 	exp := e.settledOwner(h).Recommendation.Explanation
-	if !strings.Contains(*exp, "Sat 14 Nov 2026") || !strings.Contains(*exp, "Ana") {
+	if !strings.Contains(*exp, "Sat, Nov 14") || !strings.Contains(*exp, "Ana") {
 		t.Fatalf("explanation after a failure = %q, want the plain explanation", *exp)
 	}
 	wantPending(t, e.owner(h).Recommendation, false)

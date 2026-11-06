@@ -17,7 +17,7 @@ export interface WorkshopForm {
 
 export type FormErrors = Partial<Record<keyof WorkshopForm | 'form', string>>
 
-export const DATES_RULE = 'Each date must start at least 24 h after the payment window closes.'
+export const DATES_RULE = 'Each date must start at least 24 hours after reservations close.'
 
 const PRICE = /^\d{1,7}(\.\d{1,2})?$/
 const DAY_MS = 86400000
@@ -53,9 +53,9 @@ export function validateWorkshop(f: WorkshopForm, now: number): { errors: FormEr
   if (!Number.isInteger(duration) || duration < 1 || duration > 1440) errors.duration = 'Use whole minutes between 1 and 1440.'
   const minimum = Number(f.minimum)
   const capacity = Number(f.capacity)
-  if (!Number.isInteger(minimum) || minimum < 1) errors.minimum = 'The minimum is at least 1 paid seat.'
-  if (!Number.isInteger(capacity) || capacity < 1 || capacity > 500) errors.capacity = 'Capacity is between 1 and 500 seats.'
-  else if (!errors.minimum && minimum > capacity) errors.capacity = 'Capacity cannot be below the minimum.'
+  if (!Number.isInteger(minimum) || minimum < 1) errors.minimum = 'At least 1 person must be needed.'
+  if (!Number.isInteger(capacity) || capacity < 1 || capacity > 500) errors.capacity = 'Offer between 1 and 500 spots.'
+  else if (!errors.minimum && minimum > capacity) errors.capacity = 'Offer at least as many spots as people needed.'
   if (!PRICE.test(f.price.trim()) || Number(f.price) <= 0) errors.price = 'Write an amount above zero such as 10 or 10.00.'
 
   const earliest = now + Number(f.window) * 60000 + DAY_MS

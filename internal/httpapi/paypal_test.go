@@ -636,7 +636,7 @@ func TestCancel_MarksApprovalCancelledAndKeepsSeatUntilExpiry(t *testing.T) {
 	var v participantViewJSON
 	e.call(http.MethodGet, ps[0].path, nil, http.StatusOK, &v)
 	if v.Enrollment == nil || v.Enrollment.ApprovalCancelledAt == nil || !v.Enrollment.ApprovalCancelledAt.Equal(cancelledAt) ||
-		v.Enrollment.StatusLabel != "Seat reserved" {
+		v.Enrollment.StatusLabel != "At checkout" {
 		t.Errorf("participant view after the cancel = %+v, want the cancel shown on a reserved seat", v.Enrollment)
 	}
 
@@ -685,7 +685,7 @@ func TestEnrollment_LapsedSeatIsReReservedOrRefused(t *testing.T) {
 
 		again := e.enroll(ps[0], p.ID, http.StatusOK)
 		if again.EnrollmentID != first.EnrollmentID || again.ApproveURL != first.ApproveURL ||
-			again.Status != "SEAT_RESERVED" || again.StatusLabel != "Seat reserved" {
+			again.Status != "SEAT_RESERVED" || again.StatusLabel != "At checkout" {
 			t.Errorf("repeated POST on a lapsed seat = %+v, want %s live again with its link", again, first.EnrollmentID)
 		}
 		if row := e.enrollment(first.EnrollmentID); row.Status != domain.EnrollmentSeatReserved ||
@@ -775,7 +775,7 @@ func TestParticipantView_PendingAuthorizationIsLabelledAsPending(t *testing.T) {
 
 	var v participantViewJSON
 	e.call(http.MethodGet, ps[0].path, nil, http.StatusOK, &v)
-	if v.Enrollment == nil || v.Enrollment.Status != "SEAT_RESERVED" || v.Enrollment.StatusLabel != "Hold pending verification" ||
+	if v.Enrollment == nil || v.Enrollment.Status != "SEAT_RESERVED" || v.Enrollment.StatusLabel != "PayPal is reviewing the hold" ||
 		v.Enrollment.Payment == nil || v.Enrollment.Payment.AuthorizationStatus == nil || *v.Enrollment.Payment.AuthorizationStatus != "PENDING" {
 		t.Errorf("participant view = %+v, want SEAT_RESERVED labelled \"Hold pending verification\" with a PENDING authorization", v.Enrollment)
 	}
@@ -786,11 +786,11 @@ func TestParticipantView_PendingAuthorizationIsLabelledAsPending(t *testing.T) {
 			mine = &owner.Enrollments[i]
 		}
 	}
-	if mine == nil || mine.StatusLabel != "Hold pending verification" {
+	if mine == nil || mine.StatusLabel != "PayPal is reviewing the hold" {
 		t.Errorf("owner view enrollment = %+v, want it labelled \"Hold pending verification\"", mine)
 	}
 	again := e.enroll(ps[0], p.ID, http.StatusOK)
-	if again.StatusLabel != "Hold pending verification" {
+	if again.StatusLabel != "PayPal is reviewing the hold" {
 		t.Errorf("repeated POST label = %q, want \"Hold pending verification\"", again.StatusLabel)
 	}
 }

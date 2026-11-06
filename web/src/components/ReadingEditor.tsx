@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { api, type Availability, type CandidateDate, type ConditionType, type DateVerdict, type Verdict } from '../api'
 import { correctedReading, saveButton, verdictText } from '../lib/reading'
+import { formatDateRange } from '../lib/time'
 import { Button, Notice, inputClass } from './ui'
 
 interface Props {
   token: string
   availability: Availability
   dates: CandidateDate[]
+  timeZone: string
   editable: boolean
   onSaved: () => Promise<unknown>
 }
@@ -20,7 +22,7 @@ const VERDICTS: { value: Verdict; label: string }[] = [
 
 const selectClass = `${inputClass} w-auto py-2`
 
-export default function ReadingEditor({ token, availability, dates, editable, onSaved }: Props) {
+export default function ReadingEditor({ token, availability, dates, timeZone, editable, onSaved }: Props) {
   const reading = availability.corrected ?? availability.interpretation
   const [draft, setDraft] = useState<DateVerdict[]>(reading.per_date)
   const [busy, setBusy] = useState(false)
@@ -56,7 +58,10 @@ export default function ReadingEditor({ token, availability, dates, editable, on
     }
   }
 
-  const label = (id: string) => dates.find((d) => d.id === id)?.label ?? 'Candidate date'
+  const label = (id: string) => {
+    const d = dates.find((x) => x.id === id)
+    return d ? formatDateRange(d.starts_at, d.ends_at, timeZone) : 'Candidate date'
+  }
 
   return (
     <div className="flex flex-col gap-4">

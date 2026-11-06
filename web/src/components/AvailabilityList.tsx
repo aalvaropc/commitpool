@@ -1,9 +1,10 @@
 import type { OwnerView } from '../api'
 import { verdictText } from '../lib/reading'
+import { formatDateRange } from '../lib/time'
 import { Tag } from './ui'
 
 export default function AvailabilityList({ view }: { view: OwnerView }) {
-  const label = new Map(view.dates.map((d) => [d.id, d.label]))
+  const label = new Map(view.dates.map((d) => [d.id, formatDateRange(d.starts_at, d.ends_at, view.workshop.timezone)]))
   const answered = new Set(view.availabilities.map((a) => a.participant_id))
   const waiting = view.participants.filter((p) => !answered.has(p.id))
 

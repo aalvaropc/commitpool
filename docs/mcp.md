@@ -89,7 +89,7 @@ availability and a US$1 price. Links and tokens are redacted.
   Sun 15 Nov  unavailable                     evidence: "I'm away"
   next: "Show this reading to the person and ask them to confirm it."
 > get_status               recommended: Sat 14 Nov; 1 compatible, minimum 1, capacity 3
-  if_closed_now: "Payments are not open yet: nothing is held or charged."
+  if_closed_now: "Reservations are not open yet: nothing is held or charged."
 > preview_open_payments    Sat 14 Nov, 1.00 USD, minimum 1, capacity 3, window 1440 min, token valid 10 min
   next: "Read these terms to the organizer … Call confirm_open_payments with the token only after they say yes."
 > confirm_open_payments    status FUNDING, payments close Fri 6 Nov 14:44 UTC

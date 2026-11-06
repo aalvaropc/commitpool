@@ -31,7 +31,7 @@ function saveButton(html: string): string {
 }
 
 const render = (r: Interpretation) =>
-  renderToStaticMarkup(<ReadingEditor token="t" availability={availability(r)} dates={dates} editable onSaved={async () => undefined} />)
+  renderToStaticMarkup(<ReadingEditor token="t" availability={availability(r)} timeZone="America/New_York" dates={dates} editable onSaved={async () => undefined} />)
 
 describe('ReadingEditor', () => {
   it('lets a correct reading that needs clarification be confirmed without changes', () => {

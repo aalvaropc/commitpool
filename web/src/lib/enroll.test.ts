@@ -7,7 +7,7 @@ describe('enrollErrorMessage', () => {
     expect(enrollErrorMessage(new ApiError(502, 'paypal_unavailable', 'x'))).toBe(
       'PayPal is not answering — try again in a moment',
     )
-    expect(enrollErrorMessage(new ApiError(409, 'capacity_full', 'x'))).toBe('Every seat is taken.')
+    expect(enrollErrorMessage(new ApiError(409, 'capacity_full', 'x'))).toBe('Every spot is taken.')
     for (const code of ['proposal_not_open', 'consent_version_mismatch', 'seat_expired', 'checkout_in_progress', 'workshop_closed']) {
       expect(enrollErrorMessage(new ApiError(409, code, 'server text'))).not.toBe('server text')
     }

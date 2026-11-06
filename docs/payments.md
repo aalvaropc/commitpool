@@ -240,10 +240,11 @@ are charged, under the enrollment's row lock (`store.Withdraw`, keeps
 A withdrawn enrollment never takes a seat again (`ReReserveSeat` refuses
 it, so a later PayPal return or reconcile does not bring it back); the
 person can still commit again with a new enrollment while payments are
-open. Its seat reads **Withdrawn**, **Withdrawn — releasing the hold** while
-the void is under way, and **Withdrawn — hold released** once it went
-through, never "Seat expired". The consent (`consent-v2`) says all
-this before anyone authorizes.
+open. Its seat reads **Gave up the spot**, **Gave up the spot — releasing the hold** while
+the void is under way, and **Gave up the spot — hold released** once it went
+through, never "Reservation expired". The consent (`consent-v3`, see
+[Consent versions](#consent-versions)) says all this before anyone
+reserves.
 
 A participant whose availability in force rules out the proposal's date
 (`domain.Compatible`) is refused a checkout with `date_incompatible`; one who
@@ -465,6 +466,40 @@ Only the `jobs` table shows which action is stuck and why: the job status,
 owner view shows it as `capture_issue`), `debug_id` and `last_error`. Older attempts of an
 enrollment, `auth_expires_at`, `capture_debug_id`, `capture_reason` and
 `refund_reason` are only in `payment_attempts`.
+
+## Consent versions
+
+Every enrollment records the version of the consent its participant
+accepted (`enrollments.consent_version`), and a checkout is refused unless it
+names the version in force, so nobody reserves on text they did not see. A
+page left open while the version changes gets `consent_version_mismatch` and
+shows the new text before the participant tries again.
+
+`consent-v3` (current, from 6 November 2026):
+
+> Reserving your spot places a temporary hold for the price on your PayPal
+> account. Nothing is charged yet. Holds are charged once enough people have
+> reserved, and the workshop is on when the minimum number of payments has
+> gone through. If the minimum is not reached by the deadline, the workshop is
+> cancelled: every hold is released and any charge already made is refunded.
+> You can leave and have your hold released until you are charged; after
+> that, your payment is refunded only if the workshop is cancelled, including
+> when the organizer cancels it. Refunds can take a few days, and you can
+> follow yours on your page.
+
+`consent-v2` (5 to 6 November 2026), kept for the enrollments that accepted
+it:
+
+> You authorize a temporary hold. We will attempt to charge it once enough
+> people have authorized. The workshop is confirmed when the minimum number of
+> completed payments is reached. If the minimum is not reached by the
+> deadline, the workshop is cancelled and we request a refund of any charge
+> already made. You can withdraw and have your hold released until you are
+> charged; after that, payments are refunded only if the workshop is
+> cancelled, also when the organizer cancels it. Refunds can take time and you
+> will be able to follow their status.
+
+Both say the same thing; v3 says it in the words the app now uses.
 
 ## Implementation reference
 

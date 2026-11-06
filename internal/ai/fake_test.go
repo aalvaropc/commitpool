@@ -5,14 +5,23 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aalvaropc/commitpool/internal/ai"
 	"github.com/aalvaropc/commitpool/internal/domain"
 )
 
+var lima = func() *time.Location {
+	loc, err := time.LoadLocation("America/Lima")
+	if err != nil {
+		panic(err)
+	}
+	return loc
+}()
+
 var dates = []ai.DateOption{
-	{ID: "sat", Label: "Sat 14 Nov 2026, 15:00–18:00 America/Lima"},
-	{ID: "sun", Label: "Sun 15 Nov 2026, 10:00–13:00 America/Lima"},
+	{ID: "sat", Label: "Sat, Nov 14, 3 PM–6 PM (Lima time)", StartsAt: time.Date(2026, 11, 14, 15, 0, 0, 0, lima)},
+	{ID: "sun", Label: "Sun, Nov 15, 10 AM–1 PM (Lima time)", StartsAt: time.Date(2026, 11, 15, 10, 0, 0, 0, lima)},
 }
 
 func interpret(t *testing.T, message string) domain.Interpretation {
@@ -143,7 +152,7 @@ func TestFake_ExplainNamesTheDateAndPeople(t *testing.T) {
 	if err != nil || meta.Provider != "fake" {
 		t.Fatalf("Explain = %q, %+v, %v", text, meta, err)
 	}
-	for _, want := range []string{dates[0].Label, "Ana", "Luis"} {
+	for _, want := range []string{"Sat, Nov 14", "Ana", "Luis"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("explanation %q does not mention %q", text, want)
 		}

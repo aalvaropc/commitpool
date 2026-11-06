@@ -11,10 +11,10 @@ describe('verdictText', () => {
     expect(verdictText({ candidate_date_id: 'a', verdict: 'unknown', condition: none, evidence: '' })).toBe('Not sure')
     expect(
       verdictText({ candidate_date_id: 'a', verdict: 'conditional', condition: { type: 'end_before', time: '18:00' }, evidence: '' }),
-    ).toBe('Only if it ends by 18:00')
+    ).toBe('Only if it ends by 6 PM')
     expect(
       verdictText({ candidate_date_id: 'a', verdict: 'conditional', condition: { type: 'start_after', time: '10:30' }, evidence: '' }),
-    ).toBe('Only if it starts at 10:30 or later')
+    ).toBe('Only if it starts at 10:30 AM or later')
   })
 })
 
@@ -22,8 +22,8 @@ describe('blockerText', () => {
   it('turns the server’s blockers into plain words', () => {
     expect(blockerText('unavailable')).toBe('can’t come')
     expect(blockerText('needs clarification')).toBe('message needs clarifying')
-    expect(blockerText('ends after 18:00')).toBe('only if it ends by 18:00')
-    expect(blockerText('starts before 10:00')).toBe('only if it starts at 10:00 or later')
+    expect(blockerText('ends after 18:00')).toBe('only if it ends by 6 PM')
+    expect(blockerText('starts before 10:00')).toBe('only if it starts at 10 AM or later')
     expect(blockerText('something new')).toBe('something new')
   })
 })

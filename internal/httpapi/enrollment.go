@@ -14,11 +14,11 @@ import (
 )
 
 var (
-	errProposalNotOpen   = conflict("proposal_not_open", "Payments are not open for this workshop.")
+	errProposalNotOpen   = conflict("proposal_not_open", "Reservations are not open for this workshop.")
 	errConsentMismatch   = conflict("consent_version_mismatch", "Please review and accept the current terms before paying.")
-	errCapacityFull      = conflict("capacity_full", "Every seat is taken.")
+	errCapacityFull      = conflict("capacity_full", "Every spot is taken.")
 	errPayPalUnavailable = newError(http.StatusBadGateway, "paypal_unavailable",
-		"PayPal is not answering right now. Your seat is reserved; please try again in a moment.")
+		"PayPal is not answering right now. Your spot is kept; please try again in a moment.")
 	errCheckoutInProgress = conflict("checkout_in_progress",
 		"Your checkout is still being prepared in another window. Please try again in a moment.")
 )
@@ -245,18 +245,18 @@ func (s *server) withdraw(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	if en == nil {
-		return conflict("nothing_to_withdraw", "You have no seat to give up.")
+		return conflict("nothing_to_withdraw", "You have no spot to give up.")
 	}
 	_, voidKey, err := s.Worker.Withdraw(ctx, en.ID)
 	switch {
 	case errors.Is(err, domain.ErrNothingToWithdraw):
-		return conflict("nothing_to_withdraw", "You have no seat to give up.")
+		return conflict("nothing_to_withdraw", "You have no spot to give up.")
 	case errors.Is(err, domain.ErrCaptureInProgress):
 		return conflict("capture_in_progress", "Your payment is being charged right now; check again in a minute.")
 	case errors.Is(err, domain.ErrPaidNoSelfRefund):
-		return conflict("paid_no_self_refund", "Your seat is paid. Payments are refunded only if the workshop is cancelled; ask the organizer.")
+		return conflict("paid_no_self_refund", "You have paid. Payments are refunded only if the workshop is cancelled; ask the organizer.")
 	case errors.Is(err, domain.ErrHoldUnderReview):
-		return conflict("hold_under_review", "PayPal is still reviewing your hold; you can withdraw once it decides.")
+		return conflict("hold_under_review", "PayPal is still reviewing your hold; you can give up your spot once it decides.")
 	case errors.Is(err, domain.ErrNeedsOperator):
 		return conflict("needs_attention", "Your payment needs a check by the organizer before anything else can change.")
 	case err != nil:

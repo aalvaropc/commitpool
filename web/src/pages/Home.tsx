@@ -4,19 +4,19 @@ import { ButtonLink } from '../components/ui'
 const STEPS = [
   {
     title: 'Propose dates',
-    body: 'Set the price, the minimum number of paid seats and the capacity, and offer a few candidate dates.',
+    body: 'Set the price, how many people it takes to happen and how many spots there are, and offer a few candidate dates.',
   },
   {
     title: 'Participants say when they can come',
     body: 'In their own words. Each message is read date by date, and everyone can correct how theirs was read.',
   },
   {
-    title: 'You fix the date and open payments',
-    body: 'The terms lock and a payment window opens, 24 hours by default.',
+    title: 'You pick the date and open reservations',
+    body: 'The terms lock and people have 24 hours by default to reserve.',
   },
   {
     title: 'Holds now, charges only if the group is real',
-    body: 'Each participant authorizes a hold at PayPal. Holds are charged once enough of them can reach the minimum. If the minimum is not reached by the deadline, the workshop is cancelled, holds are released and any charge is refunded.',
+    body: 'Each person reserves with a PayPal hold. Holds are charged once enough people have reserved. If not enough people pay by the deadline, the workshop is cancelled, holds are released and any charge is refunded.',
   },
 ]
 
@@ -28,8 +28,8 @@ export default function Home() {
         <div className="flex flex-col gap-6">
           <h1 className="wide text-4xl leading-[1.05] font-bold sm:text-6xl">Run the workshop when the group has paid.</h1>
           <p className="max-w-[34rem] text-lg text-ink-soft">
-            Participants authorize a hold. Nobody is charged until enough people can reach your minimum, and if the group falls short,
-            every hold is released.
+            People reserve with a PayPal hold. Nobody is charged until enough of them reserve, and if the group falls short, every hold
+            is released.
           </p>
           <div>
             <ButtonLink to="/new" className="px-6 py-3 text-lg">
@@ -39,7 +39,7 @@ export default function Home() {
         </div>
         <div className="rounded-sm border border-rule bg-sheet p-5 sm:p-7">
           <p className="semiwide font-bold">Saturday clay workshop</p>
-          <p className="mb-5 text-sm text-ink-soft">Example: 3 of 4 paid, 2 more holds waiting.</p>
+          <p className="mb-5 text-sm text-ink-soft">Example: 3 of 4 paid, 2 more reserved.</p>
           <SeatMeter capacity={8} minimum={4} paid={3} authorized={2} label="Example" size="lg" />
         </div>
       </div>

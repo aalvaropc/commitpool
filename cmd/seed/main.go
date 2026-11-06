@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 	_ "time/tzdata"
+
+	"github.com/aalvaropc/commitpool/internal/present"
 )
 
 var cast = []struct{ Name, Message string }{
@@ -192,9 +194,9 @@ func run(ctx context.Context, client *http.Client, opts options, out io.Writer) 
 		res.PaymentsOpened = true
 		closes := "until the window closes"
 		if !proposal.Proposal.ClosesAt.IsZero() {
-			closes = "until " + proposal.Proposal.ClosesAt.In(loc).Format("Mon 2 Jan 2006, 15:04 MST")
+			closes = "until " + present.Moment(proposal.Proposal.ClosesAt, loc)
 		}
-		fmt.Fprintf(out, "Payments are open on that date %s.\n", closes)
+		fmt.Fprintf(out, "Reservations are open on that date %s.\n", closes)
 	}
 	return res, nil
 }

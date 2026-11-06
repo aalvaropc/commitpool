@@ -8,6 +8,7 @@ import (
 
 	"github.com/aalvaropc/commitpool/internal/domain"
 	"github.com/aalvaropc/commitpool/internal/mail"
+	"github.com/aalvaropc/commitpool/internal/present"
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
@@ -54,7 +55,7 @@ func (r *Runner) NotifyJoined(ctx context.Context, workshopID, participantID, li
 		WorkshopID: workshopID, ParticipantID: participantID, Kind: NotifyJoined, To: email,
 		Key:     "notify:" + NotifyJoined + ":" + participantID,
 		Subject: "Your seat link for " + w.Title,
-		Body: fmt.Sprintf("Hi %s,\n\nYou joined %s on CommitPool. This private link is your seat: keep it, it is where you say when you can come and, once payments open, commit.\n\n%s\n\nNothing is charged until enough people commit.\n",
+		Body: fmt.Sprintf("Hi %s,\n\nYou joined %s on CommitPool. This private link is your seat: keep it. It is where you say when you can come and, once reservations open, reserve your spot.\n\n%s\n\nNothing is charged until enough people reserve.\n",
 			name, w.Title, link),
 	})
 }
@@ -79,16 +80,16 @@ func (r *Runner) Notify(ctx context.Context, enrollmentID, kind string) error {
 	if p == nil {
 		return nil
 	}
-	price := domain.Money{Minor: p.PriceMinor, Currency: p.Currency}.String()
+	price := present.Price(domain.Money{Minor: p.PriceMinor, Currency: p.Currency})
 	when := describeStart(p.StartsAt, w.Timezone)
 	var subject, body string
 	switch kind {
 	case NotifyConfirmed:
-		subject = w.Title + " is confirmed"
-		body = fmt.Sprintf("Hi %s,\n\nEnough people paid: %s on %s is happening. Your payment of %s is complete.\n\nOpen the private link you received when you joined to see your seat.\n", name, w.Title, when, price)
+		subject = "It's on: " + w.Title + " is confirmed"
+		body = fmt.Sprintf("Hi %s,\n\nIt's on! Enough people paid: %s on %s is happening. Your payment of %s went through.\n\nOpen the private link you received when you joined to see your spot.\n", name, w.Title, when, price)
 	case NotifyPaymentFailed:
 		subject = "Your payment for " + w.Title + " did not go through"
-		body = fmt.Sprintf("Hi %s,\n\nPayPal could not charge your hold of %s for %s on %s, so nothing was charged and your hold is released. While payments are open you can try again from your private link.\n", name, price, w.Title, when)
+		body = fmt.Sprintf("Hi %s,\n\nPayPal could not charge your hold of %s for %s on %s, so nothing was charged and PayPal releases your hold. While reservations are open you can try again from your private link.\n", name, price, w.Title, when)
 	case NotifyRefundCompleted:
 		subject = "Your refund for " + w.Title + " is complete"
 		body = fmt.Sprintf("Hi %s,\n\nPayPal completed your refund of %s for %s.\n", name, price, w.Title)
@@ -142,7 +143,7 @@ func describeStart(t time.Time, tz string) string {
 	if err != nil {
 		loc = time.UTC
 	}
-	return t.In(loc).Format("Mon 2 Jan 2006, 15:04 MST")
+	return present.Moment(t, loc)
 }
 
 func (r *Runner) RunPending(ctx context.Context) error {

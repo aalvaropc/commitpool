@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -107,10 +108,11 @@ func namesAnotherDate(text, recommendedID string, dates []store.CandidateDateRow
 		start := d.StartsAt.In(loc)
 		var forms []string
 		if y, m, day := start.Date(); y != rec.Year() || m != rec.Month() || day != rec.Day() {
-			forms = append(forms, start.Format("2 Jan"), start.Format("Jan 2"), start.Format("2 January"), start.Format("January 2"))
+			forms = append(forms, dayOfMonthForms(start)...)
 		}
 		if start.Weekday() != rec.Weekday() {
-			forms = append(forms, start.Weekday().String())
+			weekday := start.Weekday().String()
+			forms = append(forms, weekday, weekday[:3])
 		}
 		for _, f := range forms {
 			if containsWord(lower, strings.ToLower(f)) {
@@ -119,6 +121,30 @@ func namesAnotherDate(text, recommendedID string, dates []store.CandidateDateRow
 		}
 	}
 	return false
+}
+
+func dayOfMonthForms(t time.Time) []string {
+	nth := ordinal(t.Day())
+	return []string{
+		t.Format("2 Jan"), t.Format("Jan 2"), t.Format("2 January"), t.Format("January 2"),
+		nth + " " + t.Format("Jan"), t.Format("Jan") + " " + nth,
+		nth + " " + t.Format("January"), t.Format("January") + " " + nth, nth + " of " + t.Format("January"),
+	}
+}
+
+func ordinal(day int) string {
+	suffix := "th"
+	if day%100 < 11 || day%100 > 13 {
+		switch day % 10 {
+		case 1:
+			suffix = "st"
+		case 2:
+			suffix = "nd"
+		case 3:
+			suffix = "rd"
+		}
+	}
+	return strconv.Itoa(day) + suffix
 }
 
 func containsWord(text, phrase string) bool {

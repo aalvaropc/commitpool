@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, type CandidateDate, type Workshop } from '../api'
 import { lockedTerms } from '../lib/terms'
+import { formatDateRange } from '../lib/time'
 import { TermsList } from './Terms'
 import { Button, Notice } from './ui'
 
@@ -39,7 +40,7 @@ export default function OpenPayments({ token, date, workshop, onOpened }: Props)
       await api.openProposal(token, date.id)
       await onOpened()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Payments could not be opened.')
+      setError(e instanceof Error ? e.message : 'Reservations could not be opened.')
       setBusy(false)
     }
   }
@@ -47,7 +48,7 @@ export default function OpenPayments({ token, date, workshop, onOpened }: Props)
   return (
     <div className="flex flex-col items-start gap-3">
       <Button ref={toggle} onClick={() => (confirming ? close() : setConfirming(true))} aria-expanded={confirming} aria-controls={panelId}>
-        Open payments for this date
+        Open reservations for this date
       </Button>
       <div
         id={panelId}
@@ -57,12 +58,12 @@ export default function OpenPayments({ token, date, workshop, onOpened }: Props)
         className="flex w-full flex-col gap-4 rounded-sm border border-ink bg-sheet p-4 sm:p-5"
       >
         <h4 id={headingId} ref={heading} tabIndex={-1} className="font-bold">
-          These terms lock when payments open. They cannot be changed afterwards.
+          These terms lock when reservations open. They cannot be changed afterwards.
         </h4>
         <TermsList
           items={lockedTerms({
             timeZone: workshop.timezone,
-            dateLabel: date.label,
+            dateLabel: formatDateRange(date.starts_at, date.ends_at, workshop.timezone),
             price: workshop.price,
             windowMin: workshop.payment_window_min,
             minimum: workshop.minimum,
@@ -71,15 +72,15 @@ export default function OpenPayments({ token, date, workshop, onOpened }: Props)
           })}
         />
         <p className="text-sm text-ink-soft">
-          Participants authorize a hold. Holds are charged once enough of them can reach the minimum; if the minimum of paid seats is
-          not reached by the deadline, the workshop is cancelled, holds are released and charges refunded.
+          Each person reserves with a PayPal hold. Holds are charged once enough people have reserved; if not enough people pay by the
+          deadline, the workshop is cancelled, holds are released and any charge is refunded.
         </p>
         <div className="flex flex-wrap gap-3">
-          <Button onClick={open} busy={busy} busyLabel="Opening payments…">
-            Open payments now
+          <Button onClick={open} busy={busy} busyLabel="Opening reservations…">
+            Open reservations
           </Button>
           <Button variant="secondary" onClick={close} disabled={busy}>
-            Keep collecting availability
+            Not yet
           </Button>
         </div>
         {error && (

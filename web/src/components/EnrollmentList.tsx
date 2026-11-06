@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { api, type Enrollment, type OwnerView } from '../api'
 import { authorizationPending, enrollmentTone, reservedSeatNote, seatHeld } from '../lib/status'
-import { earlier, formatTimeInZone } from '../lib/time'
+import { earlier, formatClock } from '../lib/time'
 import { Button, DemoTag, Notice, Tag } from './ui'
 
 interface Props {
@@ -73,7 +73,7 @@ export default function EnrollmentList({ token, view, onChange }: Props) {
                       {reservedSeatNote({
                         authPending: pending,
                         held,
-                        until: formatTimeInZone(view.proposal ? earlier(e.seat_expires_at, view.proposal.closes_at) : e.seat_expires_at, tz),
+                        until: formatClock(view.proposal ? earlier(e.seat_expires_at, view.proposal.closes_at) : e.seat_expires_at, tz),
                       })}
                       {e.approval_cancelled_at ? '; the participant cancelled at PayPal once.' : '.'}
                     </p>

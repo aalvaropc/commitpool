@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import { earlier, formatInZone, timeLeft, windowLabel, zonedPlusMinutes, zonedToRFC3339 } from './time'
+import {
+  clock12,
+  durationLabel,
+  earlier,
+  formatClock,
+  formatDateRange,
+  formatDay,
+  formatMoment,
+  timeLeft,
+  windowLabel,
+  zoneName,
+  zonedPlusMinutes,
+  zonedToRFC3339,
+} from './time'
 
 describe('zonedToRFC3339', () => {
   it('reads a wall-clock time in the workshop’s zone', () => {
@@ -34,9 +47,45 @@ describe('zonedPlusMinutes', () => {
   })
 })
 
-describe('formatInZone', () => {
-  it('names the zone after the local date and time', () => {
-    expect(formatInZone('2026-11-14T20:00:00Z', 'America/Lima')).toBe('Sat 14 Nov 2026, 15:00 America/Lima')
+describe('human dates and times', () => {
+  it('writes a moment as a short day and a 12-hour clock', () => {
+    expect(formatMoment('2026-11-14T20:00:00Z', 'America/Lima')).toBe('Sat, Nov 14 · 3 PM')
+    expect(formatMoment('2026-11-14T20:30:00Z', 'America/Lima')).toBe('Sat, Nov 14 · 3:30 PM')
+  })
+
+  it('writes a day and a clock on their own', () => {
+    expect(formatDay('2026-11-14T15:00:00Z', 'America/New_York')).toBe('Sat, Nov 14')
+    expect(formatClock('2026-11-14T15:00:00Z', 'America/New_York')).toBe('10 AM')
+    expect(formatClock('2026-11-14T05:00:00Z', 'America/New_York')).toBe('12 AM')
+    expect(formatClock('2026-11-14T17:00:00Z', 'America/New_York')).toBe('12 PM')
+  })
+
+  it('writes a candidate date as one range', () => {
+    expect(formatDateRange('2026-11-14T15:00:00Z', '2026-11-14T17:00:00Z', 'America/New_York')).toBe('Sat, Nov 14 · 10 AM–12 PM')
+    expect(formatDateRange('2026-11-15T03:00:00Z', '2026-11-15T06:00:00Z', 'America/New_York')).toBe(
+      'Sat, Nov 14 · 10 PM – Sun, Nov 15 · 1 AM',
+    )
+  })
+
+  it('names a zone after its city', () => {
+    expect(zoneName('America/New_York')).toBe('New York time')
+    expect(zoneName('America/Argentina/Buenos_Aires')).toBe('Buenos Aires time')
+    expect(zoneName('UTC')).toBe('UTC')
+  })
+
+  it('turns a 24-hour condition time into a 12-hour clock', () => {
+    expect(clock12('18:00')).toBe('6 PM')
+    expect(clock12('10:30')).toBe('10:30 AM')
+    expect(clock12('00:00')).toBe('12 AM')
+    expect(clock12('12:15')).toBe('12:15 PM')
+    expect(clock12('noon')).toBe('noon')
+  })
+
+  it('writes a duration in words', () => {
+    expect(durationLabel(120)).toBe('2 hours')
+    expect(durationLabel(60)).toBe('1 hour')
+    expect(durationLabel(90)).toBe('1 hour 30 min')
+    expect(durationLabel(45)).toBe('45 min')
   })
 })
 

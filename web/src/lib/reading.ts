@@ -1,4 +1,5 @@
 import type { DateVerdict, Interpretation } from '../api'
+import { clock12 } from './time'
 
 export function verdictText(v: DateVerdict): string {
   switch (v.verdict) {
@@ -7,8 +8,8 @@ export function verdictText(v: DateVerdict): string {
     case 'unavailable':
       return 'Can’t come'
     case 'conditional':
-      if (v.condition.type === 'end_before') return `Only if it ends by ${v.condition.time}`
-      if (v.condition.type === 'start_after') return `Only if it starts at ${v.condition.time} or later`
+      if (v.condition.type === 'end_before') return `Only if it ends by ${clock12(v.condition.time)}`
+      if (v.condition.type === 'start_after') return `Only if it starts at ${clock12(v.condition.time)} or later`
       return 'Only with a condition'
     default:
       return 'Not sure'
@@ -20,9 +21,9 @@ export function blockerText(blocker: string): string {
   if (blocker === 'unknown') return 'not sure'
   if (blocker === 'needs clarification') return 'message needs clarifying'
   const ends = /^ends after (\d{2}:\d{2})$/.exec(blocker)
-  if (ends) return `only if it ends by ${ends[1]}`
+  if (ends) return `only if it ends by ${clock12(ends[1])}`
   const starts = /^starts before (\d{2}:\d{2})$/.exec(blocker)
-  if (starts) return `only if it starts at ${starts[1]} or later`
+  if (starts) return `only if it starts at ${clock12(starts[1])} or later`
   return blocker
 }
 

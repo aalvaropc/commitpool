@@ -18,7 +18,7 @@ export default function DemoControls({ token, view, onChange }: Props) {
     setResult(null)
     try {
       await api.demoCloseNow(token)
-      setResult({ ok: true, text: 'Payments closed. The outcome appears above in a few seconds.' })
+      setResult({ ok: true, text: 'Reservations closed. The outcome appears above in a few seconds.' })
       await onChange()
     } catch (e) {
       setResult({ ok: false, text: e instanceof Error ? e.message : 'The demo control did not apply.' })
@@ -32,10 +32,10 @@ export default function DemoControls({ token, view, onChange }: Props) {
       <h2 id="demo-title" className="text-base font-bold">
         Demo controls
       </h2>
-      <p className="text-sm text-ink-soft">This server runs in demo mode. Closing now ends the payment window as if the deadline had passed.</p>
+      <p className="text-sm text-ink-soft">This server runs in demo mode. Closing now ends reservations as if the deadline had passed.</p>
       <div>
-        <Button variant="demo" onClick={closeNow} busy={busy} busyLabel="Closing payments…">
-          <DemoTag /> Close payments now
+        <Button variant="demo" onClick={closeNow} busy={busy} busyLabel="Closing reservations…">
+          <DemoTag /> Close reservations now
         </Button>
       </div>
       {result && (

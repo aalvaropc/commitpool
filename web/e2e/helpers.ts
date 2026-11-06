@@ -38,7 +38,7 @@ export const test = base.extend<{
 export async function createWorkshop(owner: Page, title: string): Promise<Workshop> {
   await owner.goto('/new')
   await owner.getByLabel('Title', { exact: true }).fill(title)
-  await owner.getByLabel('Minimum paid seats').fill(String(MINIMUM))
+  await owner.getByLabel('People needed to happen').fill(String(MINIMUM))
   await owner.getByRole('button', { name: 'Create workshop' }).click()
   await expect(owner.getByRole('heading', { name: `${title} is ready` })).toBeVisible()
   return {
@@ -57,22 +57,22 @@ export async function openPayments(owner: Page, workshop: Workshop, canCome: num
   await owner.goto(workshop.ownerURL)
   const recommended = owner.getByRole('listitem').filter({ has: owner.getByText('Recommended', { exact: true }) })
   await expect(recommended).toContainText(`${canCome} can come`)
-  await recommended.getByRole('button', { name: 'Open payments for this date' }).click()
-  await recommended.getByRole('button', { name: 'Open payments now' }).click()
-  await expect(owner.getByRole('heading', { name: 'Payments opened' })).toBeVisible()
-  await expect(headline(owner)).toHaveText('Payments are open')
+  await recommended.getByRole('button', { name: 'Open reservations for this date' }).click()
+  await recommended.getByRole('button', { name: 'Open reservations', exact: true }).click()
+  await expect(owner.getByRole('heading', { name: 'Reservations open' })).toBeVisible()
+  await expect(headline(owner)).toHaveText('Reservations open')
 }
 
 export async function startCheckout(p: Participant): Promise<void> {
   await p.page.reload()
-  await p.page.getByRole('button', { name: 'Authorize with PayPal' }).click()
+  await p.page.getByRole('button', { name: 'Reserve with PayPal' }).click()
   await expect(p.page.getByRole('heading', { name: 'Fake PayPal checkout' })).toBeVisible()
 }
 
 export async function approveCheckout(p: Participant): Promise<void> {
   await p.page.getByRole('button', { name: 'Approve' }).click()
   await expect(p.page.getByRole('heading', { name: 'Back from PayPal' })).toBeVisible()
-  await expect(p.page.getByText('Hold authorized', { exact: true })).toBeVisible()
+  await expect(p.page.getByText('Spot reserved', { exact: true })).toBeVisible()
   await p.page.getByRole('link', { name: 'Go to your workshop page' }).click()
   await expect(p.page.getByText(`You joined as ${p.name}.`)).toBeVisible()
 }
@@ -94,5 +94,5 @@ export function enrollmentRow(owner: Page, name: string): Locator {
 }
 
 export function paidSeats(owner: Page, paid: number): Locator {
-  return owner.getByRole('region', { name: 'Seats', exact: true }).getByText(`${paid} paid`, { exact: true })
+  return owner.getByRole('region', { name: 'Spots', exact: true }).getByText(`${paid} paid`, { exact: true })
 }

@@ -23,6 +23,12 @@ const REFUND_STATES: ReadonlySet<EnrollmentStatus> = new Set(['PAID', 'REFUNDING
 
 const NEVER_HELD: ReadonlySet<string> = new Set(['INTERESTED', 'SEAT_RESERVED', 'RELEASED'])
 
+const RELEASE_STATES: ReadonlySet<EnrollmentStatus> = new Set(['VOIDING', 'VOIDED', 'CAPTURE_FAILED'])
+
+export function releasesAny(enrollments: readonly { status: EnrollmentStatus }[]): boolean {
+  return enrollments.some((e) => RELEASE_STATES.has(e.status))
+}
+
 export function refundsAny(enrollments: readonly { status: EnrollmentStatus }[]): boolean {
   return enrollments.some((e) => REFUND_STATES.has(e.status))
 }
@@ -54,9 +60,9 @@ export function authorizationPending(
 }
 
 export function reservedSeatNote(input: { authPending: boolean; held: boolean; until: string }): string {
-  if (input.authPending) return 'Seat kept while PayPal reviews the authorization'
-  if (input.held) return `Seat held until ${input.until}`
-  return 'Seat expired'
+  if (input.authPending) return 'Spot kept while PayPal reviews the hold'
+  if (input.held) return `Spot held for you until ${input.until}`
+  return 'Your reservation expired'
 }
 
 export function returnCheckSettled(input: { enrollment: EnrollmentStatus | null; polling: boolean; authPending: boolean }): boolean {
@@ -80,6 +86,7 @@ export interface HeadlineInput {
   paymentsOpen?: boolean
   refunds?: boolean
   held?: boolean
+  releases?: boolean
 }
 
 function flagged(resolution: Resolution, enrollment?: EnrollmentStatus | null): boolean {
@@ -96,100 +103,109 @@ export function headline({
   paymentsOpen = true,
   refunds = true,
   held = true,
+  releases = false,
 }: HeadlineInput): string {
-  if (flagged(resolution, enrollment)) return 'Needs attention'
-  if ((status === 'FUNDING' || status === 'CONFIRMED') && enrollment === 'SEAT_RESERVED' && authPending) return 'Hold pending verification'
-  if ((status === 'FUNDING' || status === 'CONFIRMED') && enrollment === 'SEAT_RESERVED' && !seatHeld) return 'Seat expired'
+  if (flagged(resolution, enrollment)) return 'Needs a check'
+  if ((status === 'FUNDING' || status === 'CONFIRMED') && enrollment === 'SEAT_RESERVED' && authPending) return 'PayPal is reviewing your hold'
+  if ((status === 'FUNDING' || status === 'CONFIRMED') && enrollment === 'SEAT_RESERVED' && !seatHeld) return 'Your reservation expired'
   switch (status) {
     case 'COLLECTING':
-      return 'Collecting availability'
+      return 'Finding the date'
     case 'FUNDING':
       return fundingHeadline(enrollment, paymentsOpen)
     case 'CONFIRMED':
       return confirmedHeadline(enrollment, paymentsOpen)
     case 'CANCELLED':
-      return cancelledHeadline(resolution, enrollment, refunds, held)
+      return cancelledHeadline(resolution, enrollment, refunds, held, releases)
   }
 }
 
 function fundingHeadline(e: EnrollmentStatus | null | undefined, paymentsOpen: boolean): string {
   switch (e) {
     case 'SEAT_RESERVED':
-      return 'Seat reserved — authorize your hold'
+      return 'Finish reserving at PayPal'
     case 'AUTHORIZED':
-      return 'Hold authorized'
+      return paymentsOpen ? 'Spot reserved — not charged yet' : 'Reservations closed — not charged yet'
     case 'CAPTURING':
-      return 'Charging your hold'
+      return 'Charging your spot…'
     case 'CAPTURE_PENDING':
-      return 'Payment pending verification'
+      return 'PayPal is verifying your payment'
     case 'PAID':
-      return 'Seat paid'
+      return 'Paid — you’re in'
     case 'CAPTURE_FAILED':
-      return paymentsOpen ? 'Payment failed — you can try again' : 'Hold released — nothing was charged'
+      return paymentsOpen ? 'Payment didn’t go through — try again' : 'Not charged — PayPal releases your hold'
     case 'RELEASED':
-      return 'Seat expired'
+      return 'Your reservation expired'
     case 'NEEDS_ATTENTION':
-      return 'Needs attention'
+      return 'Needs a check'
   }
-  return 'Payments are open'
+  return 'Reservations open'
 }
 
 function confirmedHeadline(e: EnrollmentStatus | null | undefined, paymentsOpen: boolean): string {
   switch (e) {
     case 'PAID':
-      return 'Seat confirmed'
+      return 'You’re in — it’s on'
     case 'AUTHORIZED':
+      return paymentsOpen ? 'It’s on — charging your spot' : 'It’s on — your hold is being released, you weren’t charged'
     case 'CAPTURING':
     case 'CAPTURE_PENDING':
-      return 'Workshop confirmed — charging your hold'
+      return 'It’s on — charging your spot'
     case 'VOIDING':
+      return 'It’s on — releasing your hold'
     case 'VOIDED':
-      return 'Workshop confirmed — your hold was released'
+      return 'It’s on — your hold was released'
     case 'REFUNDING':
     case 'REFUND_PENDING':
-      return 'Workshop confirmed — refund in progress'
+      return 'It’s on — your refund is on its way'
     case 'REFUNDED':
-      return 'Workshop confirmed — refund completed'
+      return 'It’s on — you were refunded'
     case 'CAPTURE_FAILED':
       return paymentsOpen
-        ? 'Workshop confirmed — payment failed, you can try again'
-        : 'Workshop confirmed — your hold was released, nothing was charged'
+        ? 'It’s on — your payment didn’t go through, try again'
+        : 'It’s on — you weren’t charged'
     case 'RELEASED':
-      return 'Seat expired'
+      return 'Your reservation expired'
     case 'NEEDS_ATTENTION':
     case 'REFUND_FAILED':
-      return 'Needs attention'
+      return 'Needs a check'
   }
-  return 'Workshop confirmed'
+  return 'It’s on'
 }
 
-function cancelledHeadline(r: Resolution, e: EnrollmentStatus | null | undefined, refunds: boolean, held: boolean): string {
+function settledCancellation(refunds: boolean, releases: boolean): string {
+  if (refunds && releases) return 'Cancelled — payments refunded, holds released'
+  return refunds ? 'Cancelled — every payment was refunded' : 'Cancelled — every hold was released'
+}
+
+function cancelledHeadline(r: Resolution, e: EnrollmentStatus | null | undefined, refunds: boolean, held: boolean, releases: boolean): string {
   if (e === undefined) {
-    if (!refunds && !held && (r === 'RESOLVING' || r === 'SETTLED')) return 'Workshop cancelled — nothing was charged'
-    if (r === 'RESOLVING') return refunds ? 'Workshop cancelled — refund in progress' : 'Workshop cancelled — releasing holds'
-    if (r === 'SETTLED') return refunds ? 'Workshop cancelled — refund completed' : 'Workshop cancelled — holds released'
-    return 'Workshop cancelled'
+    if (!refunds && !held && (r === 'RESOLVING' || r === 'SETTLED')) return 'Cancelled — nobody was charged'
+    if (r === 'RESOLVING') return refunds ? 'Cancelled — refunds on their way' : 'Cancelled — releasing holds'
+    if (r === 'SETTLED') return settledCancellation(refunds, releases)
+    return 'Cancelled'
   }
   switch (e) {
     case 'PAID':
     case 'REFUNDING':
     case 'REFUND_PENDING':
-      return 'Workshop cancelled — refund in progress'
+      return 'Cancelled — your refund is on its way'
     case 'REFUNDED':
-      return 'Workshop cancelled — refund completed'
+      return 'Cancelled — you were refunded'
     case 'AUTHORIZED':
     case 'VOIDING':
+      return 'Cancelled — releasing your hold'
     case 'VOIDED':
+      return 'Cancelled — your hold was released'
     case 'CAPTURE_FAILED':
-      return 'Workshop cancelled — your hold was released'
     case 'SEAT_RESERVED':
     case 'RELEASED':
-      return 'Workshop cancelled — nothing was charged'
+      return 'Cancelled — you weren’t charged'
     case 'REFUND_FAILED':
     case 'NEEDS_ATTENTION':
-      return 'Workshop cancelled — refund needs attention'
+      return 'Cancelled — your refund needs a check'
   }
-  return 'Workshop cancelled'
+  return 'Cancelled'
 }
 
 export function tone(status: WorkshopStatus, resolution: Resolution, enrollment?: EnrollmentStatus | null): Tone {

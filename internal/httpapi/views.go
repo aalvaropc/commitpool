@@ -8,16 +8,17 @@ import (
 
 	"github.com/aalvaropc/commitpool/internal/ai"
 	"github.com/aalvaropc/commitpool/internal/domain"
+	"github.com/aalvaropc/commitpool/internal/present"
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
-const ConsentVersion = "consent-v2"
+const ConsentVersion = "consent-v3"
 
-const ConsentText = "You authorize a temporary hold. We will attempt to charge it once enough people have authorized. " +
-	"The workshop is confirmed when the minimum number of completed payments is reached. " +
-	"If the minimum is not reached by the deadline, the workshop is cancelled and we request a refund of any charge already made. " +
-	"You can withdraw and have your hold released until you are charged; after that, payments are refunded only if the workshop is cancelled, also when the organizer cancels it. " +
-	"Refunds can take time and you will be able to follow their status."
+const ConsentText = "Reserving your spot places a temporary hold for the price on your PayPal account. Nothing is charged yet. " +
+	"Holds are charged once enough people have reserved, and the workshop is on when the minimum number of payments has gone through. " +
+	"If the minimum is not reached by the deadline, the workshop is cancelled: every hold is released and any charge already made is refunded. " +
+	"You can leave and have your hold released until you are charged; after that, your payment is refunded only if the workshop is cancelled, including when the organizer cancels it. " +
+	"Refunds can take a few days, and you can follow yours on your page."
 
 type labelState struct {
 	workshop     domain.WorkshopStatus
@@ -30,40 +31,45 @@ func statusLabel(s domain.EnrollmentStatus, st labelState) string {
 	switch s {
 	case domain.EnrollmentSeatReserved:
 		if st.authPending {
-			return "Hold pending verification"
+			return "PayPal is reviewing the hold"
 		}
 		if st.paymentsOpen && st.seatLive {
-			return "Seat reserved"
+			return "At checkout"
 		}
-		return "Seat expired"
+		return "Reservation expired"
 	case domain.EnrollmentAuthorized:
-		return "Hold authorized"
+		if st.workshop == domain.WorkshopCancelled || !st.paymentsOpen {
+			return "Not charged — releasing the hold"
+		}
+		return "Spot reserved — not charged yet"
 	case domain.EnrollmentCapturing:
 		return "Charging…"
 	case domain.EnrollmentCapturePending:
-		return "Payment pending verification"
+		return "PayPal is verifying the payment"
 	case domain.EnrollmentPaid:
 		if st.workshop == domain.WorkshopCancelled {
-			return "Refund in progress"
+			return "Refund on its way"
 		}
-		return "Seat paid"
+		return "Paid"
 	case domain.EnrollmentCaptureFailed:
 		if st.paymentsOpen {
-			return "Payment failed — you can try again"
+			return "Payment didn't go through — try again"
 		}
-		return "Hold released"
-	case domain.EnrollmentVoiding, domain.EnrollmentVoided:
-		return "Hold released"
+		return "Not charged"
+	case domain.EnrollmentVoiding:
+		return "Releasing the hold…"
+	case domain.EnrollmentVoided:
+		return "Hold released — never charged"
 	case domain.EnrollmentRefunding, domain.EnrollmentRefundPending:
-		return "Refund in progress"
+		return "Refund on its way"
 	case domain.EnrollmentRefunded:
-		return "Refund completed"
+		return "Refunded"
 	case domain.EnrollmentRefundFailed:
-		return "Refund needs attention"
+		return "Refund needs a check"
 	case domain.EnrollmentReleased:
-		return "Seat expired"
+		return "Reservation expired"
 	}
-	return "Needs attention"
+	return "Needs a check"
 }
 
 type moneyDTO struct {
@@ -146,13 +152,7 @@ func dateViews(ds []store.CandidateDateRow, loc *time.Location) []dateDTO {
 }
 
 func dateLabel(d store.CandidateDateRow, loc *time.Location) string {
-	start, end := d.StartsAt.In(loc), d.EndsAt.In(loc)
-	sy, sm, sd := start.Date()
-	ey, em, ed := end.Date()
-	if sy == ey && sm == em && sd == ed {
-		return fmt.Sprintf("%s, %s–%s %s", start.Format("Mon 2 Jan 2006"), start.Format("15:04"), end.Format("15:04"), loc)
-	}
-	return fmt.Sprintf("%s – %s %s", start.Format("Mon 2 Jan 2006, 15:04"), end.Format("Mon 2 Jan 2006, 15:04"), loc)
+	return present.DateLabel(d.StartsAt, d.EndsAt, loc)
 }
 
 type proposalDTO struct {
@@ -179,11 +179,11 @@ func enrollmentLabel(en store.EnrollmentRow, ws store.WorkshopRow, p *store.Prop
 	if en.WithdrawnAt != nil {
 		switch en.Status {
 		case domain.EnrollmentReleased:
-			return "Withdrawn"
+			return "Gave up the spot"
 		case domain.EnrollmentVoiding:
-			return "Withdrawn — releasing the hold"
+			return "Gave up the spot — releasing the hold"
 		case domain.EnrollmentVoided:
-			return "Withdrawn — hold released"
+			return "Gave up the spot — hold released"
 		}
 	}
 	return statusLabel(en.Status, labelState{
@@ -443,7 +443,7 @@ func inForce(a store.AvailabilityRow) (domain.Interpretation, error) {
 func (st workshopState) dateOptions() []ai.DateOption {
 	out := make([]ai.DateOption, len(st.dates))
 	for i, d := range st.dates {
-		out[i] = ai.DateOption{ID: d.ID, Label: dateLabel(d, st.loc)}
+		out[i] = ai.DateOption{ID: d.ID, Label: dateLabel(d, st.loc), StartsAt: d.StartsAt.In(st.loc)}
 	}
 	return out
 }

@@ -6,13 +6,16 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/aalvaropc/commitpool/internal/domain"
+	"github.com/aalvaropc/commitpool/internal/present"
 )
 
 type DateOption struct {
-	ID    string
-	Label string
+	ID       string
+	Label    string
+	StartsAt time.Time
 }
 
 type InterpretInput struct {
@@ -44,21 +47,56 @@ type Interpreter interface {
 }
 
 func PlainExplanation(in ExplainInput) string {
-	label := ""
-	for _, d := range in.Dates {
-		if d.ID == in.Recommendation.DateID {
-			label = d.Label
-		}
-	}
-	if label == "" {
-		return "There is no candidate date to recommend yet."
+	day := DateName(in)
+	if day == "" {
+		return "There is no date to recommend yet."
 	}
 	names := attendees(in)
-	if len(names) == 0 {
-		return label + " is the earliest date, but nobody can attend it yet."
+	switch {
+	case len(names) == 0:
+		return day + " is the earliest date, but nobody can come yet."
+	case in.Recommendation.MeetsMinimum:
+		return fmt.Sprintf("%s works for %s: %s. You need %d.", day, people(len(names)), joinNames(names), in.Minimum)
 	}
-	return fmt.Sprintf("%s works for the most people (%d, minimum %d): %s.",
-		label, len(names), in.Minimum, strings.Join(names, ", "))
+	return fmt.Sprintf("%s works for the most people so far: %s. You need %d.", day, joinNames(names), in.Minimum)
+}
+
+func DateName(in ExplainInput) string {
+	date, ok := recommendedDate(in)
+	if !ok {
+		return ""
+	}
+	loc := date.StartsAt.Location()
+	day := present.Day(date.StartsAt, loc)
+	for _, other := range in.Dates {
+		if other.ID != date.ID && present.Day(other.StartsAt, loc) == day {
+			return day + " at " + present.Clock(date.StartsAt.In(loc))
+		}
+	}
+	return day
+}
+
+func recommendedDate(in ExplainInput) (DateOption, bool) {
+	for _, d := range in.Dates {
+		if d.ID == in.Recommendation.DateID {
+			return d, true
+		}
+	}
+	return DateOption{}, false
+}
+
+func people(n int) string {
+	if n == 1 {
+		return "1 person"
+	}
+	return fmt.Sprintf("%d people", n)
+}
+
+func joinNames(names []string) string {
+	if len(names) <= 1 {
+		return strings.Join(names, "")
+	}
+	return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
 }
 
 func attendees(in ExplainInput) []string {
@@ -82,16 +120,13 @@ func displayName(names map[string]string, id string) string {
 }
 
 func ExplainFacts(in ExplainInput) string {
-	label := ""
-	for _, d := range in.Dates {
-		if d.ID == in.Recommendation.DateID {
-			label = d.Label
-		}
-	}
+	date, _ := recommendedDate(in)
+	label := date.Label
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "Workshop title: %s\n", jsonString(in.WorkshopTitle))
 	fmt.Fprintf(&sb, "Minimum participants to run it: %d\n", in.Minimum)
 	fmt.Fprintf(&sb, "Recommended date: %s\n", label)
+	fmt.Fprintf(&sb, "Call the date: %s\n", DateName(in))
 	reach := "no"
 	if in.Recommendation.MeetsMinimum {
 		reach = "yes"

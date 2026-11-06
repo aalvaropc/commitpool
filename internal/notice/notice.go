@@ -37,6 +37,8 @@ type Data struct {
 	Collected     string
 	Deadline      string
 	Reason        string
+	Opened        bool
+	Closed        bool
 	Link          string
 	InviteLink    string
 	InviteMessage string
@@ -98,8 +100,26 @@ func InviteMessage(title, place, price string, needed int, link string) string {
 	return fmt.Sprintf("I’m planning %s%s. It’s %s a spot, and it only happens if %s; otherwise nobody pays. Tell me when you can come: %s", title, where, price, who, link)
 }
 
+func CarriesPrivateLink(kind Kind) bool {
+	return kind == Joined || kind == OwnerCreated
+}
+
 func oneLine(s string) string {
 	return strings.Join(strings.Fields(s), " ")
+}
+
+func ownerWontHappen(d Data) string {
+	if d.Closed {
+		return "Not enough people reserved by " + d.Deadline + ", so " + d.Title + " won’t happen."
+	}
+	return d.Title + " won’t happen."
+}
+
+func cancelledMoney(opened bool, moved string) string {
+	if !opened {
+		return "Nobody had reserved, so nothing was held or charged."
+	}
+	return moved
 }
 
 func firstName(name string) string {
@@ -128,9 +148,18 @@ func compose(kind Kind, d Data) (message, error) {
 	if d.Needed == 1 {
 		people = "1 person"
 	}
-	said := ""
+	said, youSaid := "", ""
 	if d.Reason != "" {
 		said = "The organizer said: “" + d.Reason + "”"
+		youSaid = "You said: “" + d.Reason + "”"
+	}
+	wontHappen := "The class won’t happen."
+	if d.Closed {
+		wontHappen = "Not enough people reserved by " + d.Deadline + ", so the class won’t happen."
+	}
+	paidPeople := fmt.Sprintf("%d people", d.Paid)
+	if d.Paid == 1 {
+		paidPeople = "1 person"
 	}
 	switch kind {
 	case Joined:
@@ -186,9 +215,9 @@ func compose(kind Kind, d Data) (message, error) {
 			Subject:    d.Title + " is cancelled",
 			Preheader:  "Any hold is released and any payment refunded.",
 			Headline:   d.Title + " is cancelled",
-			Paragraphs: []string{hi, "The class won’t happen."},
+			Paragraphs: []string{hi, wontHappen},
 			Quote:      said,
-			After:      []string{"If PayPal was holding money for you, the hold is released. If you were charged, the refund is on its way and can take a few days; you can follow it on the private link you got when you joined."},
+			After:      []string{cancelledMoney(d.Opened, "If PayPal was holding money for you, the hold is released. If you were charged, the refund is on its way and can take a few days; you can follow it on the private link you got when you joined.")},
 			Why:        joined,
 		}, nil
 	case OwnerCreated:
@@ -207,7 +236,7 @@ func compose(kind Kind, d Data) (message, error) {
 			Subject:    "It’s on: " + d.Title,
 			Preheader:  fmt.Sprintf("%d paid, %s collected.", d.Paid, d.Collected),
 			Headline:   fmt.Sprintf("It’s on — %d paid", d.Paid),
-			Paragraphs: []string{hi, fmt.Sprintf("%d people paid %s in total for %s. That’s enough to run it.", d.Paid, d.Collected, d.Title)},
+			Paragraphs: []string{hi, fmt.Sprintf("%s paid %s in total for %s. That’s enough to run it.", paidPeople, d.Collected, d.Title)},
 			Facts:      d.facts("When", "Where"),
 			After:      []string{"Your organizer link shows who paid. Spots still open can be reserved until reservations close."},
 			Why:        created,
@@ -217,9 +246,9 @@ func compose(kind Kind, d Data) (message, error) {
 			Subject:    d.Title + " is cancelled",
 			Preheader:  "Every hold is released and every payment refunded.",
 			Headline:   d.Title + " is cancelled",
-			Paragraphs: []string{hi, d.Title + " won’t happen."},
-			Quote:      said,
-			After:      []string{"Every hold is released and every payment refunded through PayPal. Your organizer link shows each one as it completes."},
+			Paragraphs: []string{hi, ownerWontHappen(d)},
+			Quote:      youSaid,
+			After:      []string{cancelledMoney(d.Opened, "Every hold is released and every payment refunded through PayPal. Your organizer link shows each one as it completes.")},
 			Why:        created,
 		}, nil
 	}

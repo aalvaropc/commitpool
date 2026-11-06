@@ -66,6 +66,9 @@ func (r *Runner) decideClose(ctx context.Context, workshopID string) (view, doma
 				return view{}, domain.Close{}, err
 			}
 			if ok && c.NewStatus != domain.WorkshopCancelled {
+				if c.NewStatus == domain.WorkshopConfirmed {
+					r.onConfirmed(ctx, workshopID)
+				}
 				return v, c, nil
 			}
 			if ok {

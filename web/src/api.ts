@@ -248,6 +248,7 @@ export interface CreateWorkshopResponse {
   dates: CandidateDate[]
   owner_url: string
   share_url: string
+  owner_emailed?: boolean
 }
 
 export interface EnrollResponse {

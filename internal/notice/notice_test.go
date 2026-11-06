@@ -36,6 +36,7 @@ func TestRender_EveryKindMatchesItsGolden(t *testing.T) {
 			d := maya()
 			if kind == notice.Cancelled || kind == notice.OwnerCancelled {
 				d.Reason = "The studio flooded."
+				d.Opened = true
 			}
 			if kind == notice.OwnerCreated {
 				d.Name = "Maya Okafor"
@@ -121,5 +122,32 @@ func TestInviteMessage_SaysWhatItTakes(t *testing.T) {
 	}
 	if got := notice.InviteMessage("Clay", "", "$10", 1, "x"); !strings.Contains(got, "I’m planning Clay. It’s $10 a spot, and it only happens if 1 person reserves;") {
 		t.Errorf("message = %q", got)
+	}
+}
+
+func TestRender_CancellationsSayWhatHappened(t *testing.T) {
+	d := maya()
+	d.Opened, d.Closed = true, true
+	e, _ := notice.Render(notice.OwnerCancelled, d)
+	if !strings.Contains(e.Text, "Not enough people reserved by Fri, Nov 13 at 10 AM (New York time), so Wheel-throwing for beginners won’t happen.") {
+		t.Errorf("closed at the deadline:\n%s", e.Text)
+	}
+	d.Opened, d.Closed, d.Reason = false, false, "I’m ill."
+	e, _ = notice.Render(notice.OwnerCancelled, d)
+	if !strings.Contains(e.Text, "You said: “I’m ill.”") || !strings.Contains(e.Text, "Nobody had reserved, so nothing was held or charged.") || strings.Contains(e.Text, "refunded") {
+		t.Errorf("cancelled before reservations opened:\n%s", e.Text)
+	}
+	p, _ := notice.Render(notice.Cancelled, d)
+	if !strings.Contains(p.Text, "The organizer said: “I’m ill.”") || strings.Contains(p.Text, "refund") {
+		t.Errorf("participant:\n%s", p.Text)
+	}
+}
+
+func TestRender_OnePersonPaid(t *testing.T) {
+	d := maya()
+	d.Paid = 1
+	e, _ := notice.Render(notice.OwnerConfirmed, d)
+	if !strings.Contains(e.Text, "1 person paid") || strings.Contains(e.Text, "1 people") {
+		t.Errorf("text:\n%s", e.Text)
 	}
 }

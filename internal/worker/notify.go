@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/aalvaropc/commitpool/internal/domain"
+	"github.com/aalvaropc/commitpool/internal/ics"
+	"github.com/aalvaropc/commitpool/internal/invite"
 	"github.com/aalvaropc/commitpool/internal/mail"
 	"github.com/aalvaropc/commitpool/internal/notice"
 	"github.com/aalvaropc/commitpool/internal/present"
@@ -25,7 +28,7 @@ const (
 	NotifyOwnerCancelled  = string(notice.OwnerCancelled)
 )
 
-var carriesPrivateLink = map[string]bool{NotifyJoined: true, NotifyOwnerCreated: true}
+const linkAttempts = 5
 
 func (r *Runner) notify(ctx context.Context, job *store.Job) (*int, error) {
 	n, err := r.st.NotificationByKey(ctx, job.IdempotencyKey)
@@ -35,11 +38,29 @@ func (r *Runner) notify(ctx context.Context, job *store.Job) (*int, error) {
 	if n == nil || n.Status != "pending" {
 		return nil, nil
 	}
+	if stale, err := r.stale(ctx, n); err != nil || stale {
+		if err == nil {
+			r.log.Info("notification no longer true; not sent", "kind", n.Kind, "to", mail.Mask(n.To))
+			err = r.st.MarkNotificationSkipped(ctx, n.Key)
+		}
+		return nil, err
+	}
 	attachments, err := r.attachments(ctx, n)
 	if err != nil {
 		return nil, err
 	}
-	id, err := r.mailer.Send(ctx, mail.Message{To: n.To, Subject: n.Subject, Text: n.Body, HTML: n.HTML, Attachments: attachments})
+	msg := mail.Message{To: n.To, Subject: n.Subject, Text: n.Body, HTML: n.HTML, Attachments: attachments}
+	id, err := r.mailer.Send(ctx, msg)
+	if errors.Is(err, mail.ErrRejected) && len(msg.Attachments) > 0 {
+		r.log.Warn("message with an attachment rejected; sending it without", "kind", n.Kind, "to", mail.Mask(n.To), "error", err)
+		msg.Attachments = nil
+		id, err = r.mailer.Send(ctx, msg)
+	}
+	link := notice.CarriesPrivateLink(notice.Kind(n.Kind))
+	if err != nil && !errors.Is(err, mail.ErrRejected) && link && job.Attempts >= linkAttempts {
+		r.log.Warn("message carrying a private link still failing; dropping it so the link is not kept", "kind", n.Kind, "to", mail.Mask(n.To), "error", err)
+		err = fmt.Errorf("%w: %v", mail.ErrRejected, err)
+	}
 	if errors.Is(err, mail.ErrRejected) {
 		r.log.Warn("notification rejected by the mail provider; not sent again", "kind", n.Kind, "to", mail.Mask(n.To), "error", err)
 		if err := r.st.MarkNotificationFailed(ctx, n.Key); err != nil {
@@ -50,11 +71,64 @@ func (r *Runner) notify(ctx context.Context, job *store.Job) (*int, error) {
 	if err != nil {
 		return nil, err
 	}
-	return nil, r.st.MarkNotificationSent(ctx, n.Key, id, r.clock.Now(), carriesPrivateLink[n.Kind])
+	return nil, r.st.MarkNotificationSent(ctx, n.Key, id, r.clock.Now(), link)
 }
 
-func (r *Runner) attachments(context.Context, *store.NotificationRow) ([]mail.Attachment, error) {
-	return nil, nil
+func (r *Runner) stale(ctx context.Context, n *store.NotificationRow) (bool, error) {
+	switch n.Kind {
+	case NotifyReserved:
+		en, err := r.st.EnrollmentByID(ctx, strings.TrimPrefix(n.Key, "notify:"+NotifyReserved+":"))
+		if err != nil {
+			return false, err
+		}
+		return en.Status != domain.EnrollmentAuthorized, nil
+	case NotifyConfirmed, NotifyOwnerConfirmed:
+		w, err := r.st.WorkshopByID(ctx, n.WorkshopID)
+		if err != nil {
+			return false, err
+		}
+		return w.Status == domain.WorkshopCancelled, nil
+	}
+	return false, nil
+}
+
+func (r *Runner) attachments(ctx context.Context, n *store.NotificationRow) ([]mail.Attachment, error) {
+	if n.Kind != NotifyConfirmed {
+		return nil, nil
+	}
+	w, err := r.st.WorkshopByID(ctx, n.WorkshopID)
+	if err != nil {
+		return nil, err
+	}
+	p, err := r.st.ActiveProposal(ctx, w.ID)
+	if err != nil || p == nil {
+		return nil, err
+	}
+	dates, err := r.st.CandidateDates(ctx, w.ID)
+	if err != nil {
+		return nil, err
+	}
+	loc, err := time.LoadLocation(w.Timezone)
+	if err != nil {
+		loc = time.UTC
+	}
+	enrollments, err := r.st.EnrollmentsByWorkshop(ctx, w.ID)
+	if err != nil {
+		return nil, err
+	}
+	paid := 0
+	for _, en := range enrollments {
+		if en.Status == domain.EnrollmentPaid {
+			paid++
+		}
+	}
+	price := present.Price(domain.Money{Minor: p.PriceMinor, Currency: p.Currency})
+	terms := invite.Terms(w.Status, price, p.Minimum, paid, loc)
+	event, ok := invite.Event(w, p, dates, invite.Describe(w, terms), "", r.clock.Now())
+	if !ok {
+		return nil, nil
+	}
+	return []mail.Attachment{{Name: invite.FileName(w.Title), ContentType: "text/calendar; charset=utf-8; method=PUBLISH", Data: ics.Calendar(event)}}, nil
 }
 
 func (r *Runner) noticeData(ctx context.Context, w store.WorkshopRow) (notice.Data, error) {
@@ -185,6 +259,8 @@ func (r *Runner) queueCancelled(ctx context.Context, workshopID string) error {
 	if w.CancelReason != nil {
 		d.Reason = *w.CancelReason
 	}
+	d.Opened = d.Deadline != ""
+	d.Closed = w.CancelledAt == nil && d.Opened
 	contacts, err := r.st.ContactsOfWorkshop(ctx, workshopID)
 	if err != nil {
 		return err
@@ -204,6 +280,27 @@ func (r *Runner) queueCancelled(ctx context.Context, workshopID string) error {
 		}))
 	}
 	return err
+}
+
+func (r *Runner) onConfirmed(ctx context.Context, workshopID string) {
+	enrollments, err := r.st.EnrollmentsByWorkshop(ctx, workshopID)
+	if err != nil {
+		r.log.Error("notify: could not list who paid", "workshop_id", workshopID, "error", err)
+		return
+	}
+	paid := 0
+	for _, en := range enrollments {
+		if en.Status == domain.EnrollmentPaid {
+			paid++
+			r.notifyEnrollment(ctx, en.ID, NotifyConfirmed)
+		}
+	}
+	p, err := r.st.ActiveProposal(ctx, workshopID)
+	if err != nil || p == nil {
+		r.log.Error("notify: no proposal to total the payments", "workshop_id", workshopID, "error", err)
+		return
+	}
+	r.notifyOwnerConfirmed(ctx, workshopID, paid, domain.Money{Minor: int64(paid) * p.PriceMinor, Currency: p.Currency})
 }
 
 func (r *Runner) notifyOwnerConfirmed(ctx context.Context, workshopID string, paid int, collected domain.Money) {

@@ -111,7 +111,7 @@ export default function NewWorkshop() {
   if (created) {
     return (
       <Page>
-        <WorkshopCreated created={created} emailedTo={form.ownerEmail.trim() || undefined} />
+        <WorkshopCreated created={created} emailedTo={created.owner_emailed ? form.ownerEmail.trim() : undefined} />
       </Page>
     )
   }

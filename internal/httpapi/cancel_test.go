@@ -144,6 +144,9 @@ func TestCreate_EmailsTheOrganizerTheirLinkOnce(t *testing.T) {
 	})
 	e.runner.RunPending(e.ctx)
 	sent := e.mailer.Sent()
+	if !h.created.OwnerEmailed {
+		t.Error("owner_emailed = false after queuing the organizer's link")
+	}
 	if len(sent) != 1 || sent[0].To != "maya@example.com" || !strings.Contains(sent[0].Text, h.created.OwnerURL) || !strings.Contains(sent[0].HTML, h.created.OwnerURL) {
 		t.Fatalf("sent = %+v, want one message to Maya with her organizer link", sent)
 	}
@@ -172,5 +175,21 @@ func TestCreate_WithoutAnEmailSendsNothing(t *testing.T) {
 	e.runner.RunPending(e.ctx)
 	if sent := e.mailer.Sent(); len(sent) != 0 {
 		t.Errorf("sent = %+v, want nothing", sent)
+	}
+}
+
+func TestCancel_BeforeReservationsTellsTheOrganizerNothingMoved(t *testing.T) {
+	e := newEnv(t)
+	h := e.createWorkshop(func(b map[string]any) { b["owner_email"] = "maya@example.com" })
+	e.call(http.MethodPost, h.ownerPath+"/cancel", map[string]string{"reason": "I’m ill."}, http.StatusOK, nil)
+	e.runner.RunPending(e.ctx)
+	var cancelled []string
+	for _, m := range e.mailer.Sent() {
+		if strings.Contains(m.Subject, "is cancelled") {
+			cancelled = append(cancelled, m.Text)
+		}
+	}
+	if len(cancelled) != 1 || !strings.Contains(cancelled[0], "You said: “I’m ill.”") || !strings.Contains(cancelled[0], "Nobody had reserved, so nothing was held or charged.") {
+		t.Errorf("organizer cancellation = %v", cancelled)
 	}
 }

@@ -30,3 +30,10 @@ func TestSendInput_TextOnlyHasNoHTMLPart(t *testing.T) {
 		t.Errorf("simple = %+v", in.Content.Simple)
 	}
 }
+
+func TestSendInput_EncodesANonASCIISenderName(t *testing.T) {
+	in := sendInput("Café Cerámica <hola@example.test>", Message{To: "b@example.test", Subject: "s", Text: "t"})
+	if got := aws.ToString(in.FromEmailAddress); got != "=?utf-8?q?Caf=C3=A9_Cer=C3=A1mica?= <hola@example.test>" {
+		t.Errorf("from = %q", got)
+	}
+}

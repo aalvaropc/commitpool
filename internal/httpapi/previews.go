@@ -16,6 +16,7 @@ import (
 
 	"github.com/aalvaropc/commitpool/internal/domain"
 	"github.com/aalvaropc/commitpool/internal/ics"
+	"github.com/aalvaropc/commitpool/internal/invite"
 	"github.com/aalvaropc/commitpool/internal/ogimage"
 	"github.com/aalvaropc/commitpool/internal/present"
 	"github.com/aalvaropc/commitpool/internal/store"
@@ -65,25 +66,8 @@ func previewOf(st workshopState, baseURL string, now time.Time) invitePreview {
 		Paid:     c.Paid,
 		Reserved: c.Authorized + c.Capturing + c.Pending,
 	}
-	var lead []string
-	if w.HostName != "" {
-		lead = append(lead, "With "+w.HostName)
-	}
-	if w.Location != "" {
-		lead = append(lead, w.Location)
-	}
-	terms := fmt.Sprintf("%s a spot; it happens if %d reserve, and nobody pays otherwise.", card.Price, t.Minimum)
-	switch w.Status {
-	case domain.WorkshopConfirmed:
-		terms = fmt.Sprintf("It’s on: %d paid %s a spot.", c.Paid, card.Price)
-	case domain.WorkshopCancelled:
-		terms = "This class is cancelled; nobody pays for it."
-	}
-	terms += " Times in " + present.ZoneName(st.loc) + "."
-	description := terms
-	if len(lead) > 0 {
-		description = strings.Join(lead, " · ") + ". " + terms
-	}
+	terms := invite.Terms(w.Status, card.Price, t.Minimum, c.Paid, st.loc)
+	description := invite.Describe(w, terms)
 	share := baseURL + "/w/" + w.ShareToken
 	return invitePreview{
 		WorkshopID:  w.ID,
@@ -285,66 +269,20 @@ func (s *server) writeCalendar(w http.ResponseWriter, r *http.Request, ws store.
 		return err
 	}
 	now := s.Clock.Now()
-	event, ok := calendarEvent(st, previewOf(st, s.Cfg.BaseURL, now), now, withInvite)
+	p := previewOf(st, s.Cfg.BaseURL, now)
+	link := ""
+	if withInvite {
+		link = p.URL
+	}
+	event, ok := invite.Event(st.w, st.proposal, st.dates, p.Description, link, now)
 	if !ok {
 		return errNoDateYet
 	}
 	w.Header().Set("Content-Type", "text/calendar; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="`+fileSlug(ws.Title)+`.ics"`)
+	w.Header().Set("Content-Disposition", `attachment; filename="`+invite.FileName(ws.Title)+`"`)
 	w.Header().Set("Cache-Control", "no-cache")
 	_, _ = w.Write(ics.Calendar(event))
 	return nil
-}
-
-func calendarEvent(st workshopState, p invitePreview, now time.Time, withInvite bool) (ics.Event, bool) {
-	if st.proposal == nil {
-		return ics.Event{}, false
-	}
-	var start, end time.Time
-	for _, d := range st.dates {
-		if d.ID == st.proposal.ChosenDateID {
-			start, end = d.StartsAt, d.EndsAt
-		}
-	}
-	if start.IsZero() {
-		return ics.Event{}, false
-	}
-	status, step := ics.Tentative, 0
-	switch st.w.Status {
-	case domain.WorkshopConfirmed:
-		status, step = ics.Confirmed, 1
-	case domain.WorkshopCancelled:
-		status, step = ics.Cancelled, 2
-	}
-	event := ics.Event{
-		UID:         "workshop-" + st.w.ID + "@commitpool",
-		Sequence:    st.proposal.Version*10 + step,
-		Stamp:       now,
-		Start:       start,
-		End:         end,
-		Summary:     st.w.Title,
-		Description: p.Description,
-		Location:    st.w.Location,
-		Status:      status,
-	}
-	if withInvite {
-		event.Description += "\nInvite: " + p.URL
-		event.URL = p.URL
-	}
-	return event, true
-}
-
-var slugBreak = regexp.MustCompile(`[^a-z0-9]+`)
-
-func fileSlug(title string) string {
-	slug := strings.Trim(slugBreak.ReplaceAllString(strings.ToLower(title), "-"), "-")
-	if len(slug) > 60 {
-		slug = strings.TrimRight(slug[:60], "-")
-	}
-	if slug == "" {
-		return "workshop"
-	}
-	return slug
 }
 
 var (

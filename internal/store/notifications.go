@@ -90,6 +90,14 @@ func (s *Store) MarkNotificationSent(ctx context.Context, key, providerID string
 	return nil
 }
 
+func (s *Store) MarkNotificationSkipped(ctx context.Context, key string) error {
+	if _, err := s.Pool.Exec(ctx,
+		`update notifications set status = 'skipped', body = '', html = '', updated_at = now() where idempotency_key = $1`, key); err != nil {
+		return wrap("mark notification skipped", err)
+	}
+	return nil
+}
+
 func (s *Store) MarkNotificationFailed(ctx context.Context, key string) error {
 	if _, err := s.Pool.Exec(ctx,
 		`update notifications set status = 'failed', body = '', html = '', updated_at = now() where idempotency_key = $1`, key); err != nil {

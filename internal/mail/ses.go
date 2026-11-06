@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	netmail "net/mail"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -58,9 +59,21 @@ func sendInput(from string, m Message) *sesv2.SendEmailInput {
 			ContentTransferEncoding: types.AttachmentContentTransferEncodingBase64,
 		})
 	}
+	if addr, err := netmail.ParseAddress(from); err == nil && !ascii(addr.Name) {
+		from = addr.String()
+	}
 	return &sesv2.SendEmailInput{
 		FromEmailAddress: aws.String(from),
 		Destination:      &types.Destination{ToAddresses: []string{m.To}},
 		Content:          &types.EmailContent{Simple: msg},
 	}
+}
+
+func ascii(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			return false
+		}
+	}
+	return true
 }

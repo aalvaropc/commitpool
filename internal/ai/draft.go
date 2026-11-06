@@ -30,6 +30,7 @@ type Draft struct {
 	Description string      `json:"description"`
 	HostName    string      `json:"host_name"`
 	Location    string      `json:"location"`
+	Timezone    string      `json:"timezone"`
 	DurationMin int         `json:"duration_min"`
 	Price       string      `json:"price"`
 	VenueCost   string      `json:"venue_cost"`
@@ -59,6 +60,7 @@ func DraftSchema() map[string]any {
 		"description":  text(`one or two sentences for the people invited, or ""`),
 		"host_name":    text(`the organizer's name, or ""`),
 		"location":     text(`where the class happens, or ""`),
+		"timezone":     text(`IANA time zone of the place, such as "America/New_York", only when the place makes it clear; otherwise ""`),
 		"duration_min": whole("minutes one session lasts, or 0"),
 		"price":        text(`US dollars each person pays, such as "45", or ""`),
 		"venue_cost":   text(`US dollars the place costs per session, or ""`),

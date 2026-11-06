@@ -45,7 +45,7 @@ export default function CopyField({ id, label, value, hint, multiline = false }:
       )}
       <div className={`flex flex-col gap-2 ${multiline ? '' : 'sm:flex-row'}`}>
         {multiline ? (
-          <textarea {...shared} rows={4} className={`${inputClass} min-w-0 resize-none leading-relaxed`} />
+          <textarea {...shared} rows={5} className={`${inputClass} min-w-0 resize-none leading-relaxed`} />
         ) : (
           <input {...shared} className={`${inputClass} min-w-0 text-sm`} />
         )}

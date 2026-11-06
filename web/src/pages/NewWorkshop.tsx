@@ -19,7 +19,6 @@ function focusFirstError(errors: FormErrors) {
 
 export default function NewWorkshop() {
   const zone = browserTimeZone()
-  const zones = useMemo(() => (TIME_ZONES.includes(zone) ? TIME_ZONES : [zone, ...TIME_ZONES]), [zone])
   const [step, setStep] = useState<Step>('describe')
   const [text, setText] = useState('')
   const [drafting, setDrafting] = useState(false)
@@ -31,6 +30,7 @@ export default function NewWorkshop() {
   const [busy, setBusy] = useState(false)
   const [created, setCreated] = useState<CreateWorkshopResponse | null>(null)
   const [focusErrors, setFocusErrors] = useState(0)
+  const zones = useMemo(() => [...new Set([form.timezone, zone].filter((z) => !TIME_ZONES.includes(z)))].concat(TIME_ZONES), [form.timezone, zone])
   const reviewHeading = useRef<HTMLHeadingElement>(null)
   const cameBack = useRef(false)
 

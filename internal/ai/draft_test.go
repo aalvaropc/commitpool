@@ -22,6 +22,7 @@ func validDraft() string {
 		"description": "Learn to center clay and throw your first bowls.",
 		"host_name": "Maya Okafor",
 		"location": "Maya's studio, Greenpoint, Brooklyn",
+		"timezone": "America/New_York",
 		"duration_min": 120,
 		"price": "45",
 		"venue_cost": "120",
@@ -89,7 +90,7 @@ func TestDraftSchema_IsClosedAndUsesOnlyWhatBedrockAccepts(t *testing.T) {
 		t.Errorf("nested objects found = %d, want 1 (the date)", objects)
 	}
 	props := schema["properties"].(map[string]any)
-	want := []string{"capacity", "dates", "description", "duration_min", "host_name", "location", "minimum", "price", "title", "venue_cost"}
+	want := []string{"capacity", "dates", "description", "duration_min", "host_name", "location", "minimum", "price", "timezone", "title", "venue_cost"}
 	got := make([]string, 0, len(props))
 	for k := range props {
 		got = append(got, k)
@@ -107,7 +108,7 @@ func TestParseDraft_ReadsAValidDraft(t *testing.T) {
 	}
 	want := ai.Draft{
 		Title: "Wheel-throwing for beginners", Description: "Learn to center clay and throw your first bowls.",
-		HostName: "Maya Okafor", Location: "Maya's studio, Greenpoint, Brooklyn", DurationMin: 120,
+		HostName: "Maya Okafor", Location: "Maya's studio, Greenpoint, Brooklyn", Timezone: "America/New_York", DurationMin: 120,
 		Price: "45", VenueCost: "120", Capacity: 6,
 		Dates: []ai.DraftDate{{Date: "2026-11-14", Start: "10:00"}, {Date: "2026-11-15", Start: "10:00"}},
 	}
@@ -165,7 +166,7 @@ func TestFakeDraft_ReadsMayasDescription(t *testing.T) {
 		t.Fatalf("Draft: %v", err)
 	}
 	want := ai.Draft{
-		Title: "Wheel-throwing for beginners", HostName: "Maya Okafor", Location: "Maya's studio in Greenpoint, Brooklyn",
+		Title: "Wheel-throwing for beginners", HostName: "Maya Okafor", Location: "Maya's studio in Greenpoint, Brooklyn", Timezone: "America/New_York",
 		DurationMin: 120, Price: "45", VenueCost: "120", Capacity: 6,
 		Dates: []ai.DraftDate{{Date: "2026-11-14", Start: "10:00"}, {Date: "2026-11-15", Start: "10:00"}},
 	}
@@ -229,8 +230,8 @@ func TestBedrockDraft_SendsTheSchemaAndTheDescriptionAsData(t *testing.T) {
 	if typ := path(t, body, "output_config", "format", "type"); typ != "json_schema" {
 		t.Errorf("output_config.format.type = %v, want json_schema", typ)
 	}
-	if fields := path(t, body, "output_config", "format", "schema", "properties").(map[string]any); len(fields) != 10 {
-		t.Errorf("schema fields = %d, want 10", len(fields))
+	if fields := path(t, body, "output_config", "format", "schema", "properties").(map[string]any); len(fields) != 11 {
+		t.Errorf("schema fields = %d, want 11", len(fields))
 	}
 	system, _ := json.Marshal(body["system"])
 	if !strings.Contains(string(system), "Today: 2026-11-06 (Friday)") {

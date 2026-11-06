@@ -26,6 +26,7 @@ type draftJSON struct {
 	Description string          `json:"description"`
 	HostName    string          `json:"host_name"`
 	Location    string          `json:"location"`
+	Timezone    string          `json:"timezone"`
 	DurationMin int             `json:"duration_min"`
 	Price       string          `json:"price"`
 	VenueCost   string          `json:"venue_cost"`
@@ -61,7 +62,7 @@ func TestDrafts_ClaudeFillsTheFormFromADescription(t *testing.T) {
 	var got draftResponseJSON
 	e.call(http.MethodPost, draftsPath, draftBody(mayaDescription), http.StatusOK, &got)
 	want := draftResponseJSON{Drafted: true, Draft: draftJSON{
-		Title: "Wheel-throwing for beginners", HostName: "Maya Okafor", Location: "Maya's studio in Greenpoint, Brooklyn",
+		Title: "Wheel-throwing for beginners", HostName: "Maya Okafor", Location: "Maya's studio in Greenpoint, Brooklyn", Timezone: "America/New_York",
 		DurationMin: 120, Price: "45.00", VenueCost: "120.00", Capacity: 6,
 		Dates:   []draftDateJSON{{Date: "2026-11-14", Start: "10:00"}, {Date: "2026-11-15", Start: "10:00"}},
 		Missing: []string{"description", "minimum"},
@@ -160,5 +161,23 @@ func TestDrafts_HaveTheirOwnLimitPerPerson(t *testing.T) {
 	got := e.wantError(http.MethodPost, draftsPath, draftBody(mayaDescription), http.StatusTooManyRequests, "draft_rate_limited")
 	if !strings.Contains(got.Message, "fill in the form") {
 		t.Errorf("message = %q, want it to point at the form", got.Message)
+	}
+}
+
+func TestDrafts_ReadDatesOnTheClockOfThePlace(t *testing.T) {
+	e := newEnv(t, withAI(cannedDraftAI{draft: ai.Draft{Timezone: "Europe/London", Dates: []ai.DraftDate{{Date: "2026-11-14", Start: "10:00"}}}}))
+	var got draftResponseJSON
+	e.call(http.MethodPost, draftsPath, map[string]string{"text": "anything", "timezone": "America/Lima"}, http.StatusOK, &got)
+	if got.Draft.Timezone != "Europe/London" || len(got.Draft.Dates) != 1 {
+		t.Errorf("timezone %q dates %+v, want the place's zone", got.Draft.Timezone, got.Draft.Dates)
+	}
+}
+
+func TestDrafts_KeepTheBrowsersZoneWhenThePlacesIsUnknown(t *testing.T) {
+	e := newEnv(t, withAI(cannedDraftAI{draft: ai.Draft{Timezone: "Mars/Olympus"}}))
+	var got draftResponseJSON
+	e.call(http.MethodPost, draftsPath, map[string]string{"text": "anything", "timezone": "America/Lima"}, http.StatusOK, &got)
+	if got.Draft.Timezone != "America/Lima" {
+		t.Errorf("timezone %q, want the browser's zone when the place's is unknown", got.Draft.Timezone)
 	}
 }

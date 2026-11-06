@@ -26,6 +26,7 @@ const draft = (over: Partial<WorkshopDraft> = {}): WorkshopDraft => ({
   description: '',
   host_name: '',
   location: '',
+  timezone: '',
   duration_min: 0,
   price: '',
   venue_cost: '',
@@ -88,6 +89,12 @@ describe('fromDraft', () => {
     expect(got.minimum).toBe('')
     expect(got.dates).toEqual([{ date: '2026-11-14', time: '10:00' }])
     expect(missing).toEqual(['description', 'minimum'])
+  })
+
+  it('takes the time zone of the place when Claude could tell it', () => {
+    const base = blankForm('America/Lima', now)
+    expect(fromDraft(draft({ timezone: 'America/New_York' }), base).form.timezone).toBe('America/New_York')
+    expect(fromDraft(draft(), base).form.timezone).toBe('America/Lima')
   })
 
   it('keeps the suggested dates when Claude found none', () => {

@@ -16,6 +16,7 @@ test.describe('create a workshop', () => {
     await expect(page.getByLabel('What the studio costs you, USD')).toHaveValue('120')
     await expect(page.getByLabel('Spots')).toHaveValue('6')
     await expect(page.getByLabel('Duration in minutes')).toHaveValue('120')
+    await expect(page.getByLabel('Time zone')).toHaveValue('America/New_York')
     await expect(page.getByLabel('Day 1')).not.toHaveValue('')
     await expect(page.getByLabel('Starts at').first()).toHaveValue('10:00')
     await expect(page.getByText('3 × $45 = $135 covers your $120 studio.')).toBeVisible()

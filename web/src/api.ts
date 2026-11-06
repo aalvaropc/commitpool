@@ -226,6 +226,7 @@ export interface WorkshopDraft {
   description: string
   host_name: string
   location: string
+  timezone: string
   duration_min: number
   price: string
   venue_cost: string

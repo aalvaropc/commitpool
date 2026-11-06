@@ -34,6 +34,7 @@ type draftDTO struct {
 	Description string         `json:"description"`
 	HostName    string         `json:"host_name"`
 	Location    string         `json:"location"`
+	Timezone    string         `json:"timezone"`
 	DurationMin int            `json:"duration_min"`
 	Price       string         `json:"price"`
 	VenueCost   string         `json:"venue_cost"`
@@ -64,13 +65,19 @@ func (s *server) draftWorkshop(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	zone := req.Timezone
 	now := s.Clock.Now()
 	if s.drafts != nil && !s.drafts.allow(clientAddr(r), now) {
 		w.Header().Set("Retry-After", "60")
 		return errDraftLimited
 	}
 	draft, ok := s.draft(r, ai.DraftInput{Text: text, Timezone: req.Timezone, Today: now.In(loc)})
-	writeJSON(w, http.StatusOK, draftResponse{Draft: cleanDraft(draft, loc, now), Drafted: ok})
+	if place, err := timeZone(draft.Timezone); err == nil {
+		loc, zone = place, draft.Timezone
+	}
+	out := cleanDraft(draft, loc, now)
+	out.Timezone = zone
+	writeJSON(w, http.StatusOK, draftResponse{Draft: out, Drafted: ok})
 	return nil
 }
 

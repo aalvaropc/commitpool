@@ -100,6 +100,7 @@ export function fromDraft(draft: WorkshopDraft, base: WorkshopForm): { form: Wor
     description: draft.description || base.description,
     hostName: draft.host_name || base.hostName,
     location: draft.location || base.location,
+    timezone: draft.timezone || base.timezone,
     duration: count(draft.duration_min, base.duration),
     price: draft.price ? plainAmount(draft.price) : base.price,
     venueCost: draft.venue_cost ? plainAmount(draft.venue_cost) : base.venueCost,

@@ -27,6 +27,11 @@ var (
 	draftAt        = regexp.MustCompile(`(?i)\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b`)
 	draftDay       = regexp.MustCompile(`(?i)\b(?:(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?|(sunday|monday|tuesday|wednesday|thursday|friday|saturday))\b`)
 	draftWordCount = map[string]int{"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6}
+	draftZones     = []struct{ place, zone string }{
+		{"brooklyn", "America/New_York"}, {"manhattan", "America/New_York"}, {"queens", "America/New_York"}, {"new york", "America/New_York"},
+		{"chicago", "America/Chicago"}, {"los angeles", "America/Los_Angeles"}, {"san francisco", "America/Los_Angeles"},
+		{"toronto", "America/Toronto"}, {"london", "Europe/London"}, {"paris", "Europe/Paris"}, {"berlin", "Europe/Berlin"},
+	}
 )
 
 func (Fake) Draft(_ context.Context, in DraftInput) (Draft, Meta, error) {
@@ -39,6 +44,7 @@ func (Fake) Draft(_ context.Context, in DraftInput) (Draft, Meta, error) {
 		Capacity:  firstNumber(draftCapacity, text),
 		Minimum:   firstNumber(draftMinimum, text),
 	}
+	d.Timezone = zoneOf(d.Location)
 	d.Title = capitalize(firstGroup(draftTitle, text))
 	if d.Title == "" {
 		d.Title = capitalize(firstGroup(draftLeadTitle, text))
@@ -49,6 +55,16 @@ func (Fake) Draft(_ context.Context, in DraftInput) (Draft, Meta, error) {
 		d.DurationMin = rangeMinutes(text)
 	}
 	return d, Meta{Provider: fakeProvider, Model: fakeModel}, nil
+}
+
+func zoneOf(place string) string {
+	lower := strings.ToLower(place)
+	for _, z := range draftZones {
+		if strings.Contains(lower, z.place) {
+			return z.zone
+		}
+	}
+	return ""
 }
 
 func firstGroup(re *regexp.Regexp, text string) string {

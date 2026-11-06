@@ -7,6 +7,7 @@ import {
   formatDateRange,
   formatDay,
   formatMoment,
+  formatTimeRange,
   timeLeft,
   windowLabel,
   zoneName,
@@ -65,6 +66,11 @@ describe('human dates and times', () => {
     expect(formatDateRange('2026-11-15T03:00:00Z', '2026-11-15T06:00:00Z', 'America/New_York')).toBe(
       'Sat, Nov 14 · 10 PM – Sun, Nov 15 · 1 AM',
     )
+  })
+
+  it('writes the time span of a date on its own', () => {
+    expect(formatTimeRange('2026-11-14T15:00:00Z', '2026-11-14T17:00:00Z', 'America/New_York')).toBe('10 AM–12 PM')
+    expect(formatTimeRange('2026-11-15T03:00:00Z', '2026-11-15T06:00:00Z', 'America/New_York')).toBe('10 PM – 1 AM next day')
   })
 
   it('names a zone after its city', () => {

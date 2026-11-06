@@ -118,6 +118,13 @@ export function formatDateRange(startIso: string, endIso: string, timeZone: stri
   return `${dayText(s)} · ${clockText(s.hour, s.minute)} – ${dayText(e)} · ${clockText(e.hour, e.minute)}`
 }
 
+export function formatTimeRange(startIso: string, endIso: string, timeZone: string): string {
+  const s = wallClock(Date.parse(startIso), timeZone)
+  const e = wallClock(Date.parse(endIso), timeZone)
+  const sameDay = s.year === e.year && s.month === e.month && s.day === e.day
+  return sameDay ? `${clockText(s.hour, s.minute)}–${clockText(e.hour, e.minute)}` : `${clockText(s.hour, s.minute)} – ${clockText(e.hour, e.minute)} next day`
+}
+
 export function zoneName(timeZone: string): string {
   const slash = timeZone.lastIndexOf('/')
   if (slash < 0) return timeZone

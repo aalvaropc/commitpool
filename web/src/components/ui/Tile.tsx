@@ -1,7 +1,7 @@
 import type { HTMLAttributes, ReactNode } from 'react'
 
 type TileTone = 'surface' | 'brand' | 'muted'
-type TileElement = 'div' | 'section' | 'article' | 'aside' | 'li'
+type TileElement = 'div' | 'section' | 'article' | 'aside' | 'header' | 'li'
 
 const tones: Record<TileTone, string> = {
   surface: 'bg-surface text-ink',

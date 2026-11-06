@@ -1,4 +1,4 @@
-import { useId } from 'react'
+import { useId, type CSSProperties } from 'react'
 
 export interface Segment<T extends string> {
   value: T
@@ -21,11 +21,14 @@ export function SegmentedControl<T extends string>({ legend, legendHidden = true
   return (
     <fieldset disabled={disabled} className="min-w-0">
       <legend className={legendHidden ? 'sr-only' : 'mb-1.5 text-sm font-semibold'}>{legend}</legend>
-      <div className="flex flex-wrap gap-1 rounded-control bg-surface-muted p-1 ring-1 ring-line ring-inset">
+      <div
+        className="grid grid-cols-2 gap-1 rounded-control bg-surface-muted p-1 ring-1 ring-line ring-inset sm:grid-cols-[repeat(var(--segments),minmax(0,1fr))]"
+        style={{ '--segments': options.length } as CSSProperties}
+      >
         {options.map((o) => {
           const id = `${group}-${o.value}`
           return (
-            <span key={o.value} className="flex-1">
+            <span key={o.value} className="min-w-0">
               <input id={id} type="radio" name={group} value={o.value} checked={value === o.value} onChange={() => onChange(o.value)} className="peer sr-only" />
               <label
                 htmlFor={id}

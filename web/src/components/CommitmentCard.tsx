@@ -3,14 +3,10 @@ import { api, ApiError, type ParticipantView } from '../api'
 import { withdrawKind } from '../lib/actions'
 import { enrollErrorMessage, isSafeRedirect, REFRESH_AFTER } from '../lib/enroll'
 import { formatMoney } from '../lib/money'
-import { count } from '../lib/plural'
 import { authorizationPending, canStartCheckout, enrollmentTone, seatHeld } from '../lib/status'
-import { lockedTerms } from '../lib/terms'
 import { durationLabel, earlier, formatClock, formatDateRange, formatMoment, windowLabel, zoneName } from '../lib/time'
 import Deadline from './Deadline'
-import SeatMeter from './SeatMeter'
-import { TermsList } from './Terms'
-import { Button, Notice, Tag } from './ui'
+import { Button, ConfirmDialog, Icon, Notice, Pill, Tile, TileLabel } from './ui'
 
 interface Props {
   token: string
@@ -21,7 +17,7 @@ interface Props {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 export default function CommitmentCard({ token, view, onChange }: Props) {
-  const { proposal, workshop, enrollment, consent, tally } = view
+  const { proposal, workshop, enrollment, consent } = view
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
@@ -72,6 +68,7 @@ export default function CommitmentCard({ token, view, onChange }: Props) {
       setWithdrawn(kind === 'void' ? 'You left. PayPal releases your hold; you are not charged.' : 'You gave up your spot. Nothing was held at PayPal.')
       await onChange()
     } catch (e) {
+      setConfirming(false)
       setError(e instanceof Error ? e.message : 'You could not leave right now.')
       if (e instanceof ApiError) await onChange()
     } finally {
@@ -80,132 +77,106 @@ export default function CommitmentCard({ token, view, onChange }: Props) {
   }
 
   return (
-    <section aria-labelledby="terms-title" className="rounded-sm border border-rule border-t-4 border-t-ink bg-sheet">
-      <div className="flex flex-col gap-6 p-5 sm:p-7">
-        <h2 id="terms-title" className="text-2xl font-bold">
+    <Tile as="section" aria-labelledby="terms-title" className="flex flex-col gap-5 sm:p-7">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <h2 id="terms-title" className="text-2xl">
           Your reservation
         </h2>
+        {enrollment && (
+          <Pill tone={enrollmentTone(enrollment.status, { paymentsOpen: proposal.payments_open, seatHeld: held, authPending: pending })}>
+            {enrollment.status_label}
+          </Pill>
+        )}
+      </div>
 
-        <div className="grid gap-5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-          <div className="flex flex-col gap-0.5">
-            <p className="text-sm text-ink-soft">Workshop date</p>
-            <p className="wide text-xl font-semibold tabular-nums sm:text-2xl">
-              <time dateTime={proposal.starts_at}>{date ? formatDateRange(date.starts_at, date.ends_at, tz) : formatMoment(proposal.starts_at, tz)}</time>
-            </p>
-            <p className="text-ink-soft">
-              {durationLabel(workshop.duration_min)} · times in {zoneName(tz)}
-            </p>
-          </div>
-          <div className="flex flex-col gap-0.5 sm:text-right">
-            <p className="text-sm text-ink-soft">Price</p>
-            <p className="wide text-4xl font-bold tabular-nums">{formatMoney(proposal.price)}</p>
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-2 border-t border-rule pt-5">
-          <Deadline closesAt={proposal.closes_at} timeZone={tz} open={proposal.payments_open} size="lg" />
-          {workshop.payment_window_min < 1440 && (
-            <p>
-              <Tag tone="attention">{windowLabel(workshop.payment_window_min)}</Tag>
-            </p>
-          )}
-        </div>
-
-        <TermsList
-          className="grid-cols-2 sm:max-w-md"
-          items={lockedTerms({ timeZone: tz, minimum: proposal.minimum, capacity: proposal.capacity })}
-        />
-
-        <div className="flex flex-col gap-2">
-          <h3 className="text-base font-bold">Group progress</h3>
-          <SeatMeter capacity={tally.capacity} minimum={tally.minimum} paid={tally.paid} authorized={tally.authorized} label="Group progress" />
+      <div className="grid gap-4 rounded-control bg-surface-muted p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+        <div className="flex flex-col gap-1">
+          <TileLabel>Date</TileLabel>
+          <p className="font-display text-xl font-bold tabular-nums sm:text-2xl">
+            <time dateTime={proposal.starts_at}>{date ? formatDateRange(date.starts_at, date.ends_at, tz) : formatMoment(proposal.starts_at, tz)}</time>
+          </p>
           <p className="text-sm text-ink-soft">
-            {count(tally.interested, 'person', 'people')} joined.
+            {durationLabel(workshop.duration_min)} · times in {zoneName(tz)}
           </p>
         </div>
-
-        <div className="flex flex-col gap-1 border-t border-rule pt-5">
-          <h3 className="text-base font-bold">Your status</h3>
-          {enrollment ? (
-            <>
-              <p>
-                <Tag tone={enrollmentTone(enrollment.status, { paymentsOpen: proposal.payments_open, seatHeld: held, authPending: pending })}>
-                  {enrollment.status_label}
-                </Tag>
-              </p>
-              {enrollment.status === 'SEAT_RESERVED' &&
-                (pending ? (
-                  <p className="text-sm text-ink-soft">PayPal is reviewing your hold. Your spot is kept until PayPal decides.</p>
-                ) : held ? (
-                  <p className="text-sm text-ink-soft">
-                    Your spot is held until {formatClock(earlier(enrollment.seat_expires_at, proposal.closes_at), tz)}.{' '}
-                    {enrollment.approval_cancelled_at
-                      ? 'You cancelled at PayPal; reserve again to keep it.'
-                      : 'Finish at PayPal to keep it.'}
-                  </p>
-                ) : (
-                  <p className="text-sm text-ink-soft">
-                    {proposal.payments_open
-                      ? 'Your reservation expired. Reserve again to take a spot if one is still free.'
-                      : 'Your reservation expired. Nothing was charged.'}
-                  </p>
-                ))}
-            </>
-          ) : (
-            <p className="text-ink-soft">You haven’t reserved yet.</p>
-          )}
-          {enrollment?.status === 'PAID' && (
-            <p className="text-sm text-ink-soft">You’re paid and in. Your payment is refunded only if the workshop is cancelled.</p>
-          )}
-          {canWithdraw &&
-            (confirming ? (
-              <div className="mt-3 flex flex-col gap-3 rounded-sm border border-rule p-4">
-                <p id="withdraw-effect" className="font-semibold">
-                  {kind === 'void'
-                    ? `PayPal releases your hold of ${formatMoney(proposal.price)} and you are not charged. Your spot goes back to the group.`
-                    : 'Your spot goes back to the group. Nothing was held at PayPal.'}
-                </p>
-                <div className="flex flex-wrap gap-3">
-                  <Button variant="danger" onClick={withdraw} busy={busy} busyLabel="Leaving…" aria-describedby="withdraw-effect">
-                    Yes, leave
-                  </Button>
-                  <Button variant="secondary" onClick={() => setConfirming(false)} disabled={busy}>
-                    Keep my spot
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="mt-3">
-                <Button variant="secondary" onClick={() => setConfirming(true)} className="px-3 py-1.5 text-sm">
-                  {kind === 'void' ? 'Leave and release my hold…' : 'Give up my spot…'}
-                </Button>
-              </div>
-            ))}
-          {withdrawn && <Notice className="mt-3">{withdrawn}</Notice>}
-        </div>
-
-        <div className="flex flex-col gap-4 border-t border-rule pt-5">
-          <h3 className="text-base font-bold">{canAuthorize ? 'What you agree to' : 'The terms'}</h3>
-          <blockquote id="consent-text" className="border-l-2 border-ink pl-4 text-ink">
-            <p className="max-w-prose">{consent.text}</p>
-          </blockquote>
-          {canAuthorize ? (
-            <div className="flex flex-col items-start gap-3">
-              <p className="text-sm text-ink-soft">Selecting Reserve with PayPal accepts these terms and opens PayPal in this tab.</p>
-              <Button onClick={authorize} busy={busy} busyLabel="Opening PayPal…" aria-describedby="consent-text" className="px-6 py-3 text-lg">
-                Reserve with PayPal
-              </Button>
-            </div>
-          ) : (
-            !proposal.payments_open && <p className="text-ink-soft">Reservations are closed for this workshop.</p>
-          )}
-          {error && (
-            <Notice tone="attention" role="alert">
-              {error}
-            </Notice>
-          )}
+        <div className="flex flex-col gap-1 sm:text-right">
+          <TileLabel>Price</TileLabel>
+          <p className="font-display text-4xl font-bold tracking-tight tabular-nums">{formatMoney(proposal.price)}</p>
         </div>
       </div>
-    </section>
+
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <Deadline closesAt={proposal.closes_at} timeZone={tz} open={proposal.payments_open} size="lg" />
+        {workshop.payment_window_min < 1440 && <Pill tone="attention">{windowLabel(workshop.payment_window_min)}</Pill>}
+      </div>
+
+      {enrollment?.status === 'SEAT_RESERVED' &&
+        (pending ? (
+          <Notice tone="hold">PayPal is reviewing your hold. Your spot is kept until PayPal decides.</Notice>
+        ) : held ? (
+          <Notice tone="hold">
+            Your spot is held until {formatClock(earlier(enrollment.seat_expires_at, proposal.closes_at), tz)}.{' '}
+            {enrollment.approval_cancelled_at ? 'You cancelled at PayPal; reserve again to keep it.' : 'Finish at PayPal to keep it.'}
+          </Notice>
+        ) : (
+          <Notice>
+            {proposal.payments_open ? 'Your reservation expired. Reserve again to take a spot if one is still free.' : 'Your reservation expired. Nothing was charged.'}
+          </Notice>
+        ))}
+      {!enrollment && proposal.payments_open && <p className="text-ink-soft">You haven’t reserved yet.</p>}
+      {enrollment?.status === 'PAID' && <Notice tone="paid">You’re paid and in. Your payment is refunded only if the workshop is cancelled.</Notice>}
+
+      <div className="flex flex-col gap-3">
+        <h3 className="flex items-center gap-2 text-base">
+          <Icon name="lock" className="text-brand" />
+          {canAuthorize ? 'What you agree to' : 'The terms'}
+        </h3>
+        <div id="consent-text" className="rounded-control bg-surface-muted p-4 text-[0.9375rem] leading-relaxed text-ink">
+          <p className="max-w-prose">{consent.text}</p>
+        </div>
+        {canAuthorize ? (
+          <div className="flex flex-col gap-2">
+            <Button variant="go" size="lg" block onClick={authorize} busy={busy} busyLabel="Opening PayPal…" aria-describedby="consent-text">
+              Reserve with PayPal
+            </Button>
+            <p className="text-center text-sm text-ink-soft">
+              {formatMoney(proposal.price)} held, charged only if it happens. Selecting it accepts the terms and opens PayPal in this tab.
+            </p>
+          </div>
+        ) : (
+          !proposal.payments_open && <p className="text-ink-soft">Reservations are closed for this workshop.</p>
+        )}
+        {error && (
+          <Notice tone="attention" role="alert">
+            {error}
+          </Notice>
+        )}
+      </div>
+
+      {canWithdraw && (
+        <div className="border-t border-line pt-4">
+          <Button variant="quiet" size="sm" onClick={() => setConfirming(true)}>
+            {kind === 'void' ? 'Leave and release my hold…' : 'Give up my spot…'}
+          </Button>
+        </div>
+      )}
+      {withdrawn && <Notice>{withdrawn}</Notice>}
+
+      <ConfirmDialog
+        open={confirming}
+        title={kind === 'void' ? 'Leave and release your hold?' : 'Give up your spot?'}
+        confirmLabel="Yes, leave"
+        cancelLabel="Keep my spot"
+        busy={busy}
+        busyLabel="Leaving…"
+        tone="danger"
+        onConfirm={withdraw}
+        onClose={() => setConfirming(false)}
+      >
+        {kind === 'void'
+          ? `PayPal releases your hold of ${formatMoney(proposal.price)} and you are not charged. Your spot goes back to the group.`
+          : 'Your spot goes back to the group. Nothing was held at PayPal.'}
+      </ConfirmDialog>
+    </Tile>
   )
 }

@@ -1,6 +1,14 @@
 import type { ReactNode } from 'react'
 import type { Tone } from '../lib/status'
-import { toneFill, toneText, toneWash } from './ui'
+import { Icon, type IconName, toneText, toneWash } from './ui'
+
+const icons: Record<Tone, IconName> = {
+  neutral: 'calendar',
+  hold: 'clock',
+  paid: 'check',
+  cancel: 'x',
+  attention: 'help',
+}
 
 interface Props {
   headline: string
@@ -10,12 +18,14 @@ interface Props {
 
 export default function StatusBanner({ headline, tone, children }: Props) {
   return (
-    <section aria-label="Workshop status" className={`rounded-sm px-4 py-4 sm:px-5 ${toneWash[tone]}`}>
-      <div role="status" aria-live="polite" className="flex items-start gap-3">
-        <span aria-hidden="true" className={`mt-1.5 size-3.5 shrink-0 ${toneFill[tone]}`} />
-        <p className={`semiwide text-xl font-bold leading-snug ${toneText[tone]}`}>{headline}</p>
+    <section aria-label="Workshop status" className="rounded-tile bg-surface p-4 shadow-tile sm:p-5">
+      <div role="status" aria-live="polite" className="flex items-center gap-3">
+        <span aria-hidden="true" className={`grid size-10 shrink-0 place-items-center rounded-full ${toneWash[tone]} ${toneText[tone]}`}>
+          <Icon name={icons[tone]} size={20} />
+        </span>
+        <p className={`font-display text-xl leading-snug font-bold sm:text-2xl ${tone === 'neutral' ? 'text-ink' : toneText[tone]}`}>{headline}</p>
       </div>
-      {children && <div className="mt-2 pl-[1.625rem] text-ink">{children}</div>}
+      {children && <div className="mt-3 text-ink sm:pl-[3.25rem]">{children}</div>}
     </section>
   )
 }

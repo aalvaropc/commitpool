@@ -175,11 +175,17 @@ export interface OwnerView {
   demo: { demo_mode: boolean; sandbox_mocks: boolean }
 }
 
+export interface Group {
+  answered: number
+  can_come: Record<string, number>
+}
+
 export interface PublicView {
   workshop: Workshop
   dates: CandidateDate[]
   proposal: Proposal | null
   tally: Tally
+  group: Group
 }
 
 export interface ParticipantView extends PublicView {

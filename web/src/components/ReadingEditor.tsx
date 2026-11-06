@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { api, type Availability, type CandidateDate, type ConditionType, type DateVerdict, type Verdict } from '../api'
 import { correctedReading, saveButton, verdictText } from '../lib/reading'
 import { formatDateRange } from '../lib/time'
-import { Button, Notice, inputClass } from './ui'
+import { Button, Notice, Pill, SegmentedControl, VerdictChip, inputClass, type Segment } from './ui'
 
 interface Props {
   token: string
@@ -13,14 +13,12 @@ interface Props {
   onSaved: () => Promise<unknown>
 }
 
-const VERDICTS: { value: Verdict; label: string }[] = [
-  { value: 'available', label: 'I can come' },
-  { value: 'unavailable', label: 'I can’t come' },
-  { value: 'conditional', label: 'Only with a condition' },
+const VERDICTS: Segment<Verdict>[] = [
+  { value: 'available', label: 'Can come' },
+  { value: 'conditional', label: 'Only if…' },
+  { value: 'unavailable', label: 'Can’t' },
   { value: 'unknown', label: 'Not sure' },
 ]
-
-const selectClass = `${inputClass} w-auto py-2`
 
 export default function ReadingEditor({ token, availability, dates, timeZone, editable, onSaved }: Props) {
   const reading = availability.corrected ?? availability.interpretation
@@ -65,12 +63,15 @@ export default function ReadingEditor({ token, availability, dates, timeZone, ed
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <h3 className="text-lg font-bold">How we read it</h3>
+      <div className="flex flex-col gap-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className="text-lg">How we read it</h3>
+          <Pill tone="hold" dot={false}>
+            {availability.corrected ? 'Corrected by you' : 'Read by Claude'}
+          </Pill>
+        </div>
         <p className="text-sm text-ink-soft">
-          {availability.corrected
-            ? 'You corrected this reading; the organizer plans with it.'
-            : 'Read automatically from your message. The organizer plans with it, so fix anything that is wrong.'}
+          {availability.corrected ? 'The organizer plans with your corrected answer.' : 'The organizer plans with this reading, so fix anything that is wrong.'}
         </p>
       </div>
 
@@ -83,39 +84,29 @@ export default function ReadingEditor({ token, availability, dates, timeZone, ed
               ))}
             </ul>
           )}
-          <p>
-            Until it is answered your message counts for no date. Check the answer for each date below and confirm it, or rewrite your
-            message.
-          </p>
+          <p>Until it is answered your message counts for no date. Check each date below and confirm it, or rewrite your message.</p>
         </Notice>
       )}
 
-      <ul className="flex flex-col">
+      <ul className="flex flex-col gap-3">
         {draft.map((v, i) => (
-          <li key={v.candidate_date_id} className="flex flex-col gap-2 border-t border-rule py-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-            <div className="min-w-0">
+          <li key={v.candidate_date_id} className="flex flex-col gap-3 rounded-control p-3.5 ring-1 ring-line ring-inset sm:p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="font-semibold">{label(v.candidate_date_id)}</p>
-              {v.evidence && <p className="text-sm text-ink-soft">From your message: “{v.evidence}”</p>}
+              <VerdictChip verdict={v.verdict}>{verdictText(v)}</VerdictChip>
             </div>
-            {editable ? (
-              <div className="flex flex-wrap items-center gap-2">
-                <label htmlFor={`verdict-${v.candidate_date_id}`} className="sr-only">
-                  Can you come on {label(v.candidate_date_id)}?
-                </label>
-                <select
-                  id={`verdict-${v.candidate_date_id}`}
+            {v.evidence && <p className="text-sm text-ink-soft italic">“{v.evidence}”</p>}
+            {editable && (
+              <div className="flex flex-col gap-2">
+                <SegmentedControl
+                  legend={`Can you come on ${label(v.candidate_date_id)}?`}
+                  name={`verdict-${v.candidate_date_id}`}
                   value={v.verdict}
-                  onChange={(e) => setVerdict(i, e.target.value as Verdict)}
-                  className={selectClass}
-                >
-                  {VERDICTS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
+                  options={VERDICTS}
+                  onChange={(verdict) => setVerdict(i, verdict)}
+                />
                 {v.verdict === 'conditional' && (
-                  <>
+                  <div className="flex flex-wrap items-center gap-2">
                     <label htmlFor={`condition-${v.candidate_date_id}`} className="sr-only">
                       Condition for {label(v.candidate_date_id)}
                     </label>
@@ -123,7 +114,7 @@ export default function ReadingEditor({ token, availability, dates, timeZone, ed
                       id={`condition-${v.candidate_date_id}`}
                       value={v.condition.type}
                       onChange={(e) => update(i, { condition: { ...v.condition, type: e.target.value as ConditionType } })}
-                      className={selectClass}
+                      className={`${inputClass} w-auto`}
                     >
                       <option value="end_before">if it ends by</option>
                       <option value="start_after">if it starts at or after</option>
@@ -137,13 +128,11 @@ export default function ReadingEditor({ token, availability, dates, timeZone, ed
                       required
                       value={v.condition.time}
                       onChange={(e) => update(i, { condition: { ...v.condition, time: e.target.value } })}
-                      className={`${inputClass} w-32 py-2`}
+                      className={`${inputClass} w-36`}
                     />
-                  </>
+                  </div>
                 )}
               </div>
-            ) : (
-              <p className="font-medium">{verdictText(v)}</p>
             )}
           </li>
         ))}

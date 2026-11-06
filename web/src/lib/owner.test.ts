@@ -34,6 +34,7 @@ function view(over: Partial<OwnerView> = {}): OwnerView {
     availabilities: [],
     recommendation: { date_id: '', meets_minimum: false, per_date: [], explanation: '', explanation_pending: false },
     enrollments: [],
+    suggestions: [],
     demo: { demo_mode: false, sandbox_mocks: false },
     ...over,
   }

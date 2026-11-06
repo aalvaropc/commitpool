@@ -5,6 +5,7 @@ import AvailabilityGrid from '../components/AvailabilityGrid'
 import AddToCalendar from '../components/AddToCalendar'
 import CancelWorkshop from '../components/CancelWorkshop'
 import ClaudeRead from '../components/ClaudeRead'
+import ClaudeSuggests from '../components/ClaudeSuggests'
 import Deadline from '../components/Deadline'
 import DemoControls from '../components/DemoControls'
 import DemoGuide from '../components/DemoGuide'
@@ -43,7 +44,7 @@ export default function Owner() {
         resolution: d.workshop.resolution,
         paymentsOpen: d.proposal?.payments_open ?? false,
         enrollments: d.enrollments.map((e) => e.status),
-        explanationPending: pending,
+        explanationPending: pending || d.suggestions.some((s) => s.pending),
         demoFilling: d.workshop.demo === true && d.availabilities.length < d.participants.length,
       })
     : null
@@ -93,6 +94,7 @@ export default function Owner() {
           </StatusBanner>
           {view.error && <RefreshError polling={refresh !== null} onRetry={() => void view.reload()} />}
           <NextStep view={d} step={step} onOpen={setOpening} />
+          <ClaudeSuggests suggestions={d.suggestions} />
           <ClaudeRead view={d} stalled={stalled} onCheck={() => void view.reload()} />
 
           {d.proposal && (

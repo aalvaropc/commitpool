@@ -338,13 +338,17 @@ func (e *env) settledOwner(h workshopHandle) ownerViewJSON {
 		if pending == nil {
 			e.t.Fatalf("recommendation has no explanation_pending: %+v", v.Recommendation)
 		}
-		if !*pending {
+		waiting := *pending
+		for _, sg := range v.Suggestions {
+			waiting = waiting || sg.Pending
+		}
+		if !waiting {
 			return v
 		}
 		select {
 		case <-e.explained:
 		case <-time.After(10 * time.Second):
-			e.t.Fatalf("the explanation is still pending after 10s")
+			e.t.Fatalf("the explanation or a suggestion is still pending after 10s")
 		}
 	}
 }
@@ -570,6 +574,15 @@ type recommendationJSON struct {
 	ExplanationPending *bool   `json:"explanation_pending"`
 }
 
+type suggestionJSON struct {
+	Kind          string `json:"kind"`
+	ParticipantID string `json:"participant_id"`
+	Name          string `json:"name"`
+	Reason        string `json:"reason"`
+	Message       string `json:"message"`
+	Pending       bool   `json:"pending"`
+}
+
 type ownerViewJSON struct {
 	ShareURL     string        `json:"share_url"`
 	Workshop     workshopJSON  `json:"workshop"`
@@ -583,6 +596,7 @@ type ownerViewJSON struct {
 	Availabilities []availabilityJSON `json:"availabilities"`
 	Recommendation recommendationJSON `json:"recommendation"`
 	Enrollments    []enrollmentJSON   `json:"enrollments"`
+	Suggestions    []suggestionJSON   `json:"suggestions"`
 	Demo           struct {
 		DemoMode     bool `json:"demo_mode"`
 		SandboxMocks bool `json:"sandbox_mocks"`

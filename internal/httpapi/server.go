@@ -50,7 +50,8 @@ type MCPServer interface {
 
 type server struct {
 	Deps
-	explanations *explanationCache
+	explanations *textCache
+	nudges       *textCache
 	limiter      *rateLimiter
 	demoQuota    *demoQuota
 	images       imageCache
@@ -70,7 +71,7 @@ func New(d Deps) http.Handler {
 	if d.Background == nil {
 		d.Background = &sync.WaitGroup{}
 	}
-	s := &server{Deps: d, explanations: newExplanationCache(), aiSem: make(chan struct{}, aiSlots)}
+	s := &server{Deps: d, explanations: newTextCache(), nudges: newTextCache(), aiSem: make(chan struct{}, aiSlots)}
 	if d.Cfg.RateLimitPerMin > 0 {
 		s.limiter = newRateLimiter(d.Cfg.RateLimitPerMin)
 	}

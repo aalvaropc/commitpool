@@ -45,6 +45,7 @@ type Interpreter interface {
 	Interpret(ctx context.Context, in InterpretInput) (domain.Interpretation, Meta, error)
 	Explain(ctx context.Context, in ExplainInput) (string, Meta, error)
 	Draft(ctx context.Context, in DraftInput) (Draft, Meta, error)
+	Suggest(ctx context.Context, in SuggestInput) (string, Meta, error)
 }
 
 func PlainExplanation(in ExplainInput) string {

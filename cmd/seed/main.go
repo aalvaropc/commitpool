@@ -10,32 +10,12 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path"
 	"strings"
 	"time"
 	_ "time/tzdata"
 
+	"github.com/aalvaropc/commitpool/internal/demo"
 	"github.com/aalvaropc/commitpool/internal/present"
-)
-
-var cast = []struct{ Name, Message string }{
-	{"Ana", "Saturday works for me, Sunday I can't."},
-	{"Ben", "Either day is fine, but on Saturday only if we finish before six."},
-	{"Cleo", "I can't do Saturday; Sunday morning is perfect."},
-	{"Dev", "Count me in on Saturday. Sunday is no good for me."},
-	{"Eli", "Both days work for me."},
-	{"Fay", "I can make it either day, ideally in the afternoon."},
-}
-
-const (
-	workshopTitle       = "Street photography walk"
-	workshopDescription = "A three-hour guided walk on composition and light, in a small group. Bring any camera.\n\nPrepared demo data: the participants and their answers were written for this demo."
-	durationMin         = 180
-	minimum             = 3
-	capacity            = 6
-	currency            = "USD"
-	startHour           = 10
-	leadDays            = 3
 )
 
 type options struct {
@@ -63,10 +43,10 @@ type result struct {
 func main() {
 	var opts options
 	flag.StringVar(&opts.BaseURL, "base", envOr("COMMITPOOL_BASE_URL", "http://localhost:8080"), "base URL of the running service")
-	flag.StringVar(&opts.Price, "price", "10.00", "price per seat in USD")
+	flag.StringVar(&opts.Price, "price", "", "price per person in USD (default: the scenario's 45.00)")
 	flag.StringVar(&opts.Timezone, "timezone", "America/New_York", "IANA time zone of the workshop")
-	flag.IntVar(&opts.WindowMin, "window-min", 1440, "payment window in minutes, counted from when payments open")
-	flag.BoolVar(&opts.OpenPayments, "open-payments", false, "also open payments on the recommended date")
+	flag.IntVar(&opts.WindowMin, "window-min", 1440, "minutes reservations stay open, counted from when they open")
+	flag.BoolVar(&opts.OpenPayments, "open-payments", false, "also open reservations on the recommended date")
 	flag.Parse()
 	opts.Now = time.Now()
 
@@ -92,57 +72,36 @@ func run(ctx context.Context, client *http.Client, opts options, out io.Writer) 
 	if err != nil {
 		return res, fmt.Errorf("time zone %q: %w", opts.Timezone, err)
 	}
-	base := strings.TrimRight(opts.BaseURL, "/")
-	api := apiClient{client: client, base: base}
-
-	saturday := firstSaturday(opts.Now, opts.WindowMin, loc)
-	type date struct {
-		StartsAt time.Time `json:"starts_at"`
-		EndsAt   time.Time `json:"ends_at"`
+	api := apiClient{client: client, base: strings.TrimRight(opts.BaseURL, "/")}
+	sc := demo.Maya
+	var info struct {
+		Workshops bool `json:"workshops"`
 	}
-	dates := make([]date, 0, 2)
-	for _, start := range []time.Time{saturday, saturday.AddDate(0, 0, 1)} {
-		dates = append(dates, date{StartsAt: start, EndsAt: start.Add(durationMin * time.Minute)})
+	if err := api.Call(ctx, http.MethodGet, "/api/v1/demo", nil, &info); err != nil || !info.Workshops {
+		sc.Description += " " + demo.PreparedNote
 	}
-	var created struct {
-		OwnerURL string `json:"owner_url"`
-		ShareURL string `json:"share_url"`
-	}
-	if err := api.call(ctx, http.MethodPost, "/api/v1/workshops", map[string]any{
-		"title":              workshopTitle,
-		"description":        workshopDescription,
-		"duration_min":       durationMin,
-		"timezone":           opts.Timezone,
-		"minimum":            minimum,
-		"capacity":           capacity,
-		"price":              opts.Price,
-		"currency":           currency,
-		"payment_window_min": opts.WindowMin,
-		"dates":              dates,
-	}, &created); err != nil {
+	seeded, err := demo.Create(ctx, api, sc, demo.Options{Now: opts.Now, Timezone: opts.Timezone, WindowMin: opts.WindowMin, Price: opts.Price, Demo: true})
+	if err != nil {
 		return res, err
 	}
-	res.OwnerURL, res.ShareURL = created.OwnerURL, created.ShareURL
-	ownerToken, shareToken := path.Base(created.OwnerURL), path.Base(created.ShareURL)
-	fmt.Fprintf(out, "%s: minimum %d of %d seats, %s %s per seat, payments stay open %s once opened\n",
-		workshopTitle, minimum, capacity, currency, opts.Price, window(opts.WindowMin))
+	res.OwnerURL, res.ShareURL = seeded.OwnerURL, seeded.ShareURL
+	ownerToken := seeded.OwnerToken
+	fmt.Fprintf(out, "%s with %s: %d needed of %d spots, %s %s a person, studio %s %s, reservations stay open %s once opened\n",
+		sc.Title, sc.HostName, sc.Minimum, sc.Capacity, sc.Currency, seeded.Price, sc.Currency, sc.VenueCost, window(opts.WindowMin))
 	fmt.Fprintf(out, "  organizer link (keep it private): %s\n", res.OwnerURL)
 	fmt.Fprintf(out, "  invite link:                      %s\n\n", res.ShareURL)
 
+	people, err := demo.Join(ctx, api, seeded, sc.People)
+	if err != nil {
+		return res, err
+	}
+	if err := demo.Answer(ctx, api, people, nil); err != nil {
+		return res, err
+	}
 	fmt.Fprintln(out, "Participants, availability already sent:")
-	for _, member := range cast {
-		var joined struct {
-			ParticipantURL string `json:"participant_url"`
-		}
-		if err := api.call(ctx, http.MethodPost, "/api/v1/w/"+shareToken+"/participants", map[string]any{"display_name": member.Name}, &joined); err != nil {
-			return res, fmt.Errorf("join %s: %w", member.Name, err)
-		}
-		token := path.Base(joined.ParticipantURL)
-		if err := api.call(ctx, http.MethodPost, "/api/v1/p/"+token+"/availability", map[string]any{"message": member.Message}, nil); err != nil {
-			return res, fmt.Errorf("availability of %s: %w", member.Name, err)
-		}
-		res.Participants = append(res.Participants, participant{Name: member.Name, Message: member.Message, URL: joined.ParticipantURL})
-		fmt.Fprintf(out, "  %-4s %q\n       %s\n", member.Name, member.Message, joined.ParticipantURL)
+	for _, p := range people {
+		res.Participants = append(res.Participants, participant{Name: p.Name, Message: p.Message, URL: p.URL})
+		fmt.Fprintf(out, "  %-12s %q\n               %s\n", p.Name, p.Message, p.URL)
 	}
 
 	var view struct {
@@ -159,7 +118,7 @@ func run(ctx context.Context, client *http.Client, opts options, out io.Writer) 
 			} `json:"per_date"`
 		} `json:"recommendation"`
 	}
-	if err := api.call(ctx, http.MethodGet, "/api/v1/owner/"+ownerToken, nil, &view); err != nil {
+	if err := api.Call(ctx, http.MethodGet, "/api/v1/owner/"+ownerToken, nil, &view); err != nil {
 		return res, err
 	}
 	rec := view.Recommendation
@@ -188,7 +147,7 @@ func run(ctx context.Context, client *http.Client, opts options, out io.Writer) 
 				ClosesAt time.Time `json:"closes_at"`
 			} `json:"proposal"`
 		}
-		if err := api.call(ctx, http.MethodPost, "/api/v1/owner/"+ownerToken+"/proposal", map[string]any{"date_id": rec.DateID}, &proposal); err != nil {
+		if err := api.Call(ctx, http.MethodPost, "/api/v1/owner/"+ownerToken+"/proposal", map[string]any{"date_id": rec.DateID}, &proposal); err != nil {
 			return res, fmt.Errorf("open payments: %w", err)
 		}
 		res.PaymentsOpened = true
@@ -201,18 +160,6 @@ func run(ctx context.Context, client *http.Client, opts options, out io.Writer) 
 	return res, nil
 }
 
-func firstSaturday(now time.Time, windowMin int, loc *time.Location) time.Time {
-	earliest := now.Add(time.Duration(windowMin)*time.Minute + leadDays*24*time.Hour).In(loc)
-	day := time.Date(earliest.Year(), earliest.Month(), earliest.Day(), startHour, 0, 0, 0, loc)
-	if day.Before(earliest) {
-		day = day.AddDate(0, 0, 1)
-	}
-	for day.Weekday() != time.Saturday {
-		day = day.AddDate(0, 0, 1)
-	}
-	return day
-}
-
 func window(minutes int) string {
 	if minutes%60 == 0 {
 		return fmt.Sprintf("%d h", minutes/60)
@@ -220,12 +167,30 @@ func window(minutes int) string {
 	return fmt.Sprintf("%d min", minutes)
 }
 
+type statusError struct {
+	method, route string
+	status        int
+	body          string
+}
+
+func (e *statusError) Error() string {
+	return fmt.Sprintf("%s %s: HTTP %d: %s", e.method, e.route, e.status, e.body)
+}
+
+func (e *statusError) Temporary() bool {
+	switch e.status {
+	case http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	}
+	return false
+}
+
 type apiClient struct {
 	client *http.Client
 	base   string
 }
 
-func (a apiClient) call(ctx context.Context, method, route string, body any, out any) error {
+func (a apiClient) Call(ctx context.Context, method, route string, body any, out any) error {
 	var payload io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -251,7 +216,7 @@ func (a apiClient) call(ctx context.Context, method, route string, body any, out
 		return fmt.Errorf("%s %s: %w", method, route, err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return fmt.Errorf("%s %s: HTTP %d: %s", method, route, resp.StatusCode, strings.TrimSpace(string(raw)))
+		return &statusError{method: method, route: route, status: resp.StatusCode, body: strings.TrimSpace(string(raw))}
 	}
 	if out == nil {
 		return nil

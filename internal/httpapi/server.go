@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aalvaropc/commitpool/internal/ai"
@@ -38,6 +39,8 @@ type Deps struct {
 	Log    *slog.Logger
 	Dist   fs.FS
 	MCP    MCPServer
+
+	Background *sync.WaitGroup
 }
 
 type MCPServer interface {
@@ -49,6 +52,8 @@ type server struct {
 	Deps
 	explanations *explanationCache
 	limiter      *rateLimiter
+	demoQuota    *demoQuota
+	self         http.Handler
 	aiSem        chan struct{}
 }
 
@@ -59,13 +64,18 @@ func New(d Deps) http.Handler {
 	if d.Clock == nil {
 		d.Clock = clock.Real{}
 	}
+	if d.Background == nil {
+		d.Background = &sync.WaitGroup{}
+	}
 	s := &server{Deps: d, explanations: newExplanationCache(), aiSem: make(chan struct{}, aiSlots)}
 	if d.Cfg.RateLimitPerMin > 0 {
 		s.limiter = newRateLimiter(d.Cfg.RateLimitPerMin)
 	}
+	s.demoQuota = newDemoQuota(s.limiter != nil)
 	mux := http.NewServeMux()
 	s.routes(mux)
 	h := s.observe(mux)
+	s.self = h
 	if d.MCP != nil {
 		d.MCP.Attach(h)
 		mux.Handle("/mcp", d.MCP.HTTPHandler())
@@ -77,6 +87,8 @@ func (s *server) routes(mux *http.ServeMux) {
 	api := func(pattern string, h handlerFunc) { mux.Handle(pattern, s.handle(h)) }
 
 	api("POST /api/v1/workshops", s.createWorkshop)
+	api("GET /api/v1/demo", s.demoInfo)
+	api("POST /api/v1/demo/workshops", s.createDemoWorkshop)
 	api("GET /api/v1/w/{token}", s.publicWorkshop)
 	api("POST /api/v1/w/{token}/participants", s.joinWorkshop)
 

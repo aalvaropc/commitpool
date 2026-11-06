@@ -1,0 +1,181 @@
+package httpapi
+
+import (
+	"context"
+	"fmt"
+	"math"
+	"net/http"
+	"slices"
+	"strconv"
+	"sync"
+	"time"
+
+	"github.com/aalvaropc/commitpool/internal/demo"
+	"github.com/aalvaropc/commitpool/internal/inproc"
+)
+
+const (
+	demoTimezone      = "America/New_York"
+	demoWindowMin     = 1440
+	demoAnswerTimeout = 3 * time.Minute
+	demoHourlyCap     = 30
+	demoRunningCap    = 6
+	demoVisitorEvery  = 20 * time.Minute
+	demoVisitorBurst  = 2
+)
+
+type demoRefusal struct {
+	err  *apiError
+	wait time.Duration
+}
+
+type demoQuota struct {
+	mu       sync.Mutex
+	visitors *rateLimiter
+	started  []time.Time
+	running  int
+}
+
+type demoTicket struct {
+	q       *demoQuota
+	started time.Time
+	once    sync.Once
+}
+
+func newDemoQuota(perVisitor bool) *demoQuota {
+	q := &demoQuota{}
+	if perVisitor {
+		q.visitors = newIntervalLimiter(demoVisitorEvery, demoVisitorBurst)
+	}
+	return q
+}
+
+func minutes(d time.Duration) string {
+	n := int(math.Ceil(d.Minutes()))
+	if n <= 1 {
+		return "a minute"
+	}
+	return strconv.Itoa(n) + " minutes"
+}
+
+func (q *demoQuota) start(addr string, now time.Time) (*demoTicket, *demoRefusal) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.started = slices.DeleteFunc(q.started, func(t time.Time) bool { return !now.Before(t.Add(time.Hour)) })
+	if len(q.started) >= demoHourlyCap {
+		wait := q.started[0].Add(time.Hour).Sub(now)
+		return nil, &demoRefusal{wait: wait, err: newError(http.StatusTooManyRequests, "demo_busy",
+			fmt.Sprintf("Many people tried the demo this hour. Try again in %s, or create your own workshop.", minutes(wait)))}
+	}
+	if q.running >= demoRunningCap {
+		return nil, &demoRefusal{wait: time.Minute, err: newError(http.StatusTooManyRequests, "demo_busy",
+			"Several demos are filling in right now. Try again in a minute.")}
+	}
+	if q.visitors != nil {
+		if wait := q.visitors.wait(addr, now); wait > 0 {
+			return nil, &demoRefusal{wait: wait, err: newError(http.StatusTooManyRequests, "demo_rate_limited",
+				fmt.Sprintf("You started a demo a few minutes ago. Use the links from that one, or try again in %s.", minutes(wait)))}
+		}
+	}
+	q.started = append(q.started, now)
+	q.running++
+	return &demoTicket{q: q, started: now}, nil
+}
+
+func (t *demoTicket) done() {
+	t.once.Do(func() {
+		t.q.mu.Lock()
+		defer t.q.mu.Unlock()
+		t.q.running--
+	})
+}
+
+func (t *demoTicket) refund() {
+	t.q.mu.Lock()
+	if i := slices.IndexFunc(t.q.started, t.started.Equal); i >= 0 {
+		t.q.started = slices.Delete(t.q.started, i, i+1)
+	}
+	t.q.mu.Unlock()
+	t.done()
+}
+
+type demoInfoDTO struct {
+	Workshops bool `json:"workshops"`
+}
+
+type demoParticipantDTO struct {
+	Name           string `json:"name"`
+	ParticipantURL string `json:"participant_url"`
+}
+
+type demoWorkshopDTO struct {
+	OwnerURL     string               `json:"owner_url"`
+	ShareURL     string               `json:"share_url"`
+	Participants []demoParticipantDTO `json:"participants"`
+}
+
+func (s *server) demoInfo(w http.ResponseWriter, _ *http.Request) error {
+	if !s.Cfg.DemoMode {
+		return errNotFound
+	}
+	writeJSON(w, http.StatusOK, demoInfoDTO{Workshops: true})
+	return nil
+}
+
+func (s *server) createDemoWorkshop(w http.ResponseWriter, r *http.Request) error {
+	if !s.Cfg.DemoMode {
+		return errNotFound
+	}
+	ticket, refused := s.demoQuota.start(clientAddr(r), s.Clock.Now())
+	if refused != nil {
+		w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(refused.wait.Seconds()))))
+		return refused.err
+	}
+	api := inproc.Client{Handler: s.self}
+	ctx := r.Context()
+	opts := demo.Options{Now: s.Clock.Now(), Timezone: demoTimezone, WindowMin: demoWindowMin, Demo: true}
+	res, err := demo.Create(ctx, api, demo.Maya, opts)
+	if err != nil {
+		ticket.refund()
+		return err
+	}
+	people, err := demo.Join(ctx, api, res, demo.Maya.People)
+	if err != nil {
+		ticket.refund()
+		return err
+	}
+	s.answerInBackground(ctx, api, people, ticket)
+	out := demoWorkshopDTO{OwnerURL: res.OwnerURL, ShareURL: res.ShareURL}
+	for _, p := range people {
+		out.Participants = append(out.Participants, demoParticipantDTO{Name: p.Name, ParticipantURL: p.URL})
+	}
+	writeJSON(w, http.StatusCreated, out)
+	return nil
+}
+
+func (s *server) answerInBackground(ctx context.Context, api inproc.Client, people []demo.Participant, ticket *demoTicket) {
+	bctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), demoAnswerTimeout)
+	pace := s.Cfg.DemoPace
+	s.Background.Add(1)
+	go func() {
+		defer s.Background.Done()
+		defer ticket.done()
+		defer cancel()
+		err := demo.Answer(bctx, api, people, func(ctx context.Context) error {
+			if pace <= 0 {
+				return nil
+			}
+			t := time.NewTimer(pace)
+			defer t.Stop()
+			select {
+			case <-t.C:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		})
+		if err != nil {
+			s.Log.Warn("demo: some answers did not arrive", "error", err)
+		}
+	}()
+}

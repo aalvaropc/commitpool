@@ -4,6 +4,7 @@ import { createWorkshop, expect, sendAvailability, test } from './helpers'
 test.describe('accessibility', () => {
   test('every page a person reaches has no serious accessibility problem', async ({ page, join }) => {
     await page.goto('/')
+    await expect(page.getByRole('button', { name: 'Try it as Maya' }).first()).toBeVisible()
     await expectAccessible(page, 'the landing page')
 
     await page.goto('/new')

@@ -20,6 +20,9 @@ export function EventHero({ view, compact = false }: { view: PublicView; compact
     >
       <Cover seed={heroSeed(view)} className="text-white" />
       <div className="relative flex min-w-0 flex-col gap-3">
+        {w.demo && (
+          <span className="w-fit rounded-full bg-white/15 px-3 py-1 text-xs font-semibold text-white">Demo workshop · prepared data</span>
+        )}
         <h1 className={`max-w-[18ch] leading-[1.02] font-extrabold [overflow-wrap:anywhere] hyphens-auto ${compact ? 'text-3xl sm:text-5xl' : 'text-[2.375rem] sm:text-6xl'}`}>
           {w.title}
         </h1>

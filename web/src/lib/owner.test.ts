@@ -273,3 +273,11 @@ describe('cancellationDetail', () => {
     expect(cancellationDetail(view({ enrollments: [e('REFUND_FAILED')] }))).toBe('0 holds released, 0 refunds completed, 0 in progress, 1 needs attention.')
   })
 })
+
+describe('ownerRefresh for a demo filling in', () => {
+  const base = { status: 'COLLECTING' as const, resolution: 'OPEN' as const, paymentsOpen: false, enrollments: [], explanationPending: false }
+  it('follows the answers as they arrive', () => {
+    expect(ownerRefresh({ ...base, demoFilling: true })).toBe(2000)
+    expect(ownerRefresh({ ...base, demoFilling: false })).toBe(8000)
+  })
+})

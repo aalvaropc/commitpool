@@ -42,18 +42,19 @@ const (
 )
 
 type env struct {
-	t         *testing.T
-	ctx       context.Context
-	st        *store.Store
-	fake      *paypaltest.Server
-	clock     *clock.Fake
-	runner    *worker.Runner
-	cfg       config.Config
-	h         http.Handler
-	mcp       *mcp.Server
-	logs      *logBuffer
-	mailer    *mail.Memory
-	explained chan struct{}
+	t          *testing.T
+	ctx        context.Context
+	background *sync.WaitGroup
+	st         *store.Store
+	fake       *paypaltest.Server
+	clock      *clock.Fake
+	runner     *worker.Runner
+	cfg        config.Config
+	h          http.Handler
+	mcp        *mcp.Server
+	logs       *logBuffer
+	mailer     *mail.Memory
+	explained  chan struct{}
 }
 
 type setup struct {
@@ -188,21 +189,24 @@ func newEnv(t *testing.T, opts ...option) *env {
 	mailer := &mail.Memory{}
 	runner := worker.New(worker.Deps{Store: st, PayPal: api, Clock: clk, Cfg: s.cfg, Log: log, Mailer: mailer})
 	assistant := mcpserver.New(mcpserver.Config{Secret: []byte("test-confirmation-secret"), Clock: clk, Log: log})
+	background := &sync.WaitGroup{}
+	t.Cleanup(background.Wait)
 	h := httpapi.New(httpapi.Deps{
-		MCP:    assistant,
-		Store:  st,
-		Worker: runner,
-		PayPal: api,
-		AI:     s.ai,
-		Clock:  clk,
-		Cfg:    s.cfg,
-		Log:    log,
+		Background: background,
+		MCP:        assistant,
+		Store:      st,
+		Worker:     runner,
+		PayPal:     api,
+		AI:         s.ai,
+		Clock:      clk,
+		Cfg:        s.cfg,
+		Log:        log,
 		Dist: fstest.MapFS{
 			"index.html":    {Data: []byte(indexHTML)},
 			"assets/app.js": {Data: []byte("console.log('commitpool')")},
 		},
 	})
-	return &env{t: t, ctx: ctx, st: st, fake: fake, clock: clk, runner: runner, cfg: s.cfg, h: h, mcp: assistant.MCP(), mailer: mailer, logs: logs, explained: explained}
+	return &env{t: t, ctx: ctx, background: background, st: st, fake: fake, clock: clk, runner: runner, cfg: s.cfg, h: h, mcp: assistant.MCP(), mailer: mailer, logs: logs, explained: explained}
 }
 
 func (e *env) request(method, path string, body any) *httptest.ResponseRecorder {

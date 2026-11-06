@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router'
 import { api } from '../api'
 import AvailabilityGrid from '../components/AvailabilityGrid'
+import AddToCalendar from '../components/AddToCalendar'
 import CancelWorkshop from '../components/CancelWorkshop'
 import ClaudeRead from '../components/ClaudeRead'
 import Deadline from '../components/Deadline'
@@ -106,6 +107,7 @@ export default function Owner() {
                 </span>
               </div>
               {chosen && <p className="font-display text-xl font-bold tabular-nums">{formatDateRange(chosen.starts_at, chosen.ends_at, w.timezone)}</p>}
+              {w.status !== 'CANCELLED' && <AddToCalendar path={d.proposal.calendar_path} />}
               <TermsList
                 items={lockedTerms({
                   timeZone: w.timezone,

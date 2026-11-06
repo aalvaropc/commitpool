@@ -38,7 +38,7 @@ var (
 
 const (
 	appBaseURL = "https://commitpool.example"
-	indexHTML  = "<!doctype html><title>CommitPool</title><div id=root></div>"
+	indexHTML  = `<!doctype html><html lang="en"><head><meta charset="UTF-8" /><meta name="description" content="The class happens, or nobody pays." /><title>CommitPool</title></head><body><div id="root"></div></body></html>`
 )
 
 type env struct {
@@ -507,6 +507,7 @@ type proposalJSON struct {
 	ClosesAt     time.Time `json:"closes_at"`
 	StartsAt     time.Time `json:"starts_at"`
 	PaymentsOpen bool      `json:"payments_open"`
+	CalendarPath string    `json:"calendar_path"`
 }
 
 type tallyJSON struct {

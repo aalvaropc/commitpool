@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dateRows, groupSummary } from './event'
+import { dateRows, groupSummary, offersCalendar } from './event'
 
 const dates = [
   { id: 'sat', starts_at: '2026-11-14T15:00:00Z', ends_at: '2026-11-14T17:00:00Z', label: '' },
@@ -33,5 +33,15 @@ describe('groupSummary', () => {
   it('counts the answers so far', () => {
     expect(groupSummary({ answered: 1, can_come: {} }, 3)).toEqual({ count: 1, text: 'person answered so far. 3 needed to happen.' })
     expect(groupSummary({ answered: 4, can_come: {} }, 3)).toEqual({ count: 4, text: 'people answered so far. 3 needed to happen.' })
+  })
+})
+
+describe('offersCalendar', () => {
+  it('offers the date to people still going, never once it is cancelled', () => {
+    expect(offersCalendar('FUNDING', null)).toBe(true)
+    expect(offersCalendar('CONFIRMED', { status: 'PAID' })).toBe(true)
+    expect(offersCalendar('FUNDING', { status: 'RELEASED' })).toBe(false)
+    expect(offersCalendar('FUNDING', { status: 'CAPTURE_FAILED' })).toBe(false)
+    expect(offersCalendar('CANCELLED', { status: 'PAID' })).toBe(false)
   })
 })

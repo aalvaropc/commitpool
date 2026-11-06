@@ -21,7 +21,18 @@ test.describe('funding journey', () => {
       participants.push(p)
     }
 
+    const invite = await owner.request.get(workshop.shareURL)
+    expect(await invite.text()).toContain('<meta property="og:title" content="Bread baking basics" />')
+    const preview = await owner.request.get(workshop.shareURL.replace('/w/', '/api/v1/w/') + '/og.png')
+    expect(preview.headers()['content-type']).toBe('image/png')
+
     await openPayments(owner, workshop, 3)
+    const calendar = participants[0].page.getByRole('link', { name: 'Add to calendar' })
+    await participants[0].page.reload()
+    await expect(calendar).toHaveAttribute('href', /^\/api\/v1\/p\/[\w-]+\/calendar\.ics$/)
+    const ics = await participants[0].page.request.get((await calendar.getAttribute('href')) ?? '')
+    expect(ics.headers()['content-type']).toBe('text/calendar; charset=utf-8')
+    expect(await ics.text()).toContain('SUMMARY:Bread baking basics')
     for (const p of participants) {
       await startCheckout(p)
       await approveCheckout(p)

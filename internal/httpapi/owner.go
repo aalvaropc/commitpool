@@ -93,7 +93,7 @@ func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
 		ShareURL:       shareURL,
 		Workshop:       ownerWorkshopView(ws),
 		Dates:          dateViews(st.dates, st.loc),
-		Proposal:       proposalView(st.proposal, ws, now),
+		Proposal:       ownerProposalView(st.proposal, ws, now),
 		Tally:          st.ownerTally(),
 		Participants:   participants,
 		Availabilities: availabilities,
@@ -211,7 +211,7 @@ func (s *server) openProposal(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	ws.Status = domain.WorkshopFunding
-	writeJSON(w, http.StatusCreated, map[string]*proposalDTO{"proposal": proposalView(&opened, ws, now)})
+	writeJSON(w, http.StatusCreated, map[string]*proposalDTO{"proposal": ownerProposalView(&opened, ws, now)})
 	return nil
 }
 
@@ -260,7 +260,7 @@ func (s *server) demoCloseNow(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	s.Log.Info("demo: payment window closed now", "workshop_id", ws.ID, "proposal_id", p.ID)
-	writeJSON(w, http.StatusAccepted, map[string]*proposalDTO{"proposal": proposalView(&closed, ws, now)})
+	writeJSON(w, http.StatusAccepted, map[string]*proposalDTO{"proposal": ownerProposalView(&closed, ws, now)})
 	return nil
 }
 

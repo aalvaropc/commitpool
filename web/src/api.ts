@@ -35,6 +35,10 @@ export interface Workshop {
   payment_window_min: number
   status: WorkshopStatus
   resolution: Resolution
+  host_name: string
+  location: string
+  venue_cost?: Money
+  break_even_seats?: number
 }
 
 export interface CandidateDate {
@@ -195,6 +199,9 @@ export interface CreateWorkshopRequest {
   price: string
   currency: string
   payment_window_min?: number
+  host_name?: string
+  location?: string
+  venue_cost?: string
   dates: { starts_at: string; ends_at: string }[]
 }
 

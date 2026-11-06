@@ -1,9 +1,16 @@
 package domain
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
+)
+
+var (
+	ErrCurrencyMismatch = errors.New("amounts are in different currencies")
+	ErrNonPositivePrice = errors.New("price must be greater than zero")
+	ErrNegativeAmount   = errors.New("amount must not be negative")
 )
 
 type Money struct {
@@ -21,6 +28,18 @@ func ParseMoney(value, currency string) (Money, error) {
 		return Money{}, err
 	}
 	return Money{Minor: minor, Currency: cur}, nil
+}
+
+func BreakEvenSeats(cost, price Money) (int, error) {
+	switch {
+	case cost.Currency != price.Currency:
+		return 0, ErrCurrencyMismatch
+	case price.Minor <= 0:
+		return 0, ErrNonPositivePrice
+	case cost.Minor < 0:
+		return 0, ErrNegativeAmount
+	}
+	return int((cost.Minor + price.Minor - 1) / price.Minor), nil
 }
 
 func (m Money) String() string {

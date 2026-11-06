@@ -77,18 +77,22 @@ func money(minor int64, currency string) moneyDTO {
 }
 
 type workshopDTO struct {
-	ID               string   `json:"id,omitempty"`
-	Title            string   `json:"title"`
-	Description      string   `json:"description"`
-	DurationMin      int      `json:"duration_min"`
-	Timezone         string   `json:"timezone"`
-	Minimum          int      `json:"minimum"`
-	Capacity         int      `json:"capacity"`
-	Price            moneyDTO `json:"price"`
-	Currency         string   `json:"currency"`
-	PaymentWindowMin int      `json:"payment_window_min"`
-	Status           string   `json:"status"`
-	Resolution       string   `json:"resolution"`
+	ID               string    `json:"id,omitempty"`
+	Title            string    `json:"title"`
+	Description      string    `json:"description"`
+	DurationMin      int       `json:"duration_min"`
+	Timezone         string    `json:"timezone"`
+	Minimum          int       `json:"minimum"`
+	Capacity         int       `json:"capacity"`
+	Price            moneyDTO  `json:"price"`
+	Currency         string    `json:"currency"`
+	PaymentWindowMin int       `json:"payment_window_min"`
+	Status           string    `json:"status"`
+	Resolution       string    `json:"resolution"`
+	HostName         string    `json:"host_name"`
+	Location         string    `json:"location"`
+	VenueCost        *moneyDTO `json:"venue_cost,omitempty"`
+	BreakEvenSeats   int       `json:"break_even_seats,omitempty"`
 }
 
 func publicWorkshopView(w store.WorkshopRow) workshopDTO {
@@ -104,12 +108,25 @@ func publicWorkshopView(w store.WorkshopRow) workshopDTO {
 		PaymentWindowMin: w.PaymentWindowMin,
 		Status:           string(w.Status),
 		Resolution:       string(w.Resolution),
+		HostName:         w.HostName,
+		Location:         w.Location,
 	}
 }
 
 func ownerWorkshopView(w store.WorkshopRow) workshopDTO {
 	d := publicWorkshopView(w)
 	d.ID = w.ID
+	if w.VenueCostMinor != nil {
+		cost := money(*w.VenueCostMinor, w.Currency)
+		d.VenueCost = &cost
+		seats, err := domain.BreakEvenSeats(
+			domain.Money{Minor: *w.VenueCostMinor, Currency: w.Currency},
+			domain.Money{Minor: w.PriceMinor, Currency: w.Currency},
+		)
+		if err == nil {
+			d.BreakEvenSeats = seats
+		}
+	}
 	return d
 }
 

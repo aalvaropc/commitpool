@@ -20,7 +20,7 @@ const confirmationTTL = 10 * time.Minute
 func (s *Server) addTools() {
 	readOnly := &mcp.ToolAnnotations{ReadOnlyHint: true}
 	mcp.AddTool(s.srv, &mcp.Tool{Name: "create_workshop", Annotations: &mcp.ToolAnnotations{},
-		Description: "Create a paid workshop with two or more candidate dates. Returns the private owner link (keep it secret: it controls the workshop) and the share link to send to participants."},
+		Description: "Create a paid workshop with one or more candidate dates, the organizer's name and the place. An optional studio cost stays private and lets get_status say how many paid seats cover it. Returns the private owner link (keep it secret: it controls the workshop) and the share link to send to participants."},
 		logged(s, "create_workshop", s.createWorkshop))
 	mcp.AddTool(s.srv, &mcp.Tool{Name: "get_workshop", Annotations: readOnly,
 		Description: "Read a workshop from its share link: terms, candidate dates, whether payments are open and how many committed."},
@@ -67,6 +67,10 @@ type workshopJSON struct {
 	PaymentWindowMin int    `json:"payment_window_min"`
 	Status           string `json:"status"`
 	Resolution       string `json:"resolution"`
+	HostName         string `json:"host_name"`
+	Location         string `json:"location"`
+	VenueCost        *money `json:"venue_cost"`
+	BreakEvenSeats   int    `json:"break_even_seats"`
 }
 
 type dateJSON struct {
@@ -175,6 +179,9 @@ type CreateWorkshopIn struct {
 	Currency         string   `json:"currency" jsonschema:"currency code; only USD is supported"`
 	PaymentWindowMin int      `json:"payment_window_min,omitempty" jsonschema:"minutes payments stay open once opened, at most 4320 (72 hours); default 1440"`
 	DateStarts       []string `json:"date_starts" jsonschema:"start of each candidate date in RFC 3339 with an offset, such as 2026-11-14T10:00:00-05:00"`
+	HostName         string   `json:"host_name,omitempty" jsonschema:"the organizer's name as participants will see it"`
+	Location         string   `json:"location,omitempty" jsonschema:"where the workshop takes place, such as a studio and neighbourhood"`
+	VenueCost        string   `json:"venue_cost,omitempty" jsonschema:"what the room or studio costs the organizer, in the price's currency, such as 120.00; private to the organizer"`
 }
 
 type CreateWorkshopOut struct {
@@ -200,6 +207,7 @@ func (s *Server) createWorkshop(ctx context.Context, _ *mcp.CallToolRequest, in 
 	body := map[string]any{
 		"title": in.Title, "description": in.Description, "duration_min": in.DurationMin, "timezone": in.Timezone,
 		"minimum": in.Minimum, "capacity": in.Capacity, "price": in.Price, "currency": in.Currency, "dates": dates,
+		"host_name": in.HostName, "location": in.Location, "venue_cost": in.VenueCost,
 	}
 	if in.PaymentWindowMin > 0 {
 		body["payment_window_min"] = in.PaymentWindowMin
@@ -236,6 +244,10 @@ type SeatStatus struct {
 
 type StatusOut struct {
 	Title              string       `json:"title"`
+	HostName           string       `json:"host_name,omitempty"`
+	Location           string       `json:"location,omitempty"`
+	VenueCost          string       `json:"venue_cost,omitempty"`
+	BreakEvenSeats     int          `json:"break_even_seats,omitempty"`
 	Status             string       `json:"status"`
 	Resolution         string       `json:"resolution"`
 	PaymentsOpen       bool         `json:"payments_open"`
@@ -275,10 +287,14 @@ func (s *Server) owner(ctx context.Context, tok string) (ownerView, error) {
 func statusOf(v ownerView) StatusOut {
 	out := StatusOut{
 		Title: v.Workshop.Title, Status: v.Workshop.Status, Resolution: v.Workshop.Resolution,
+		HostName: v.Workshop.HostName, Location: v.Workshop.Location, BreakEvenSeats: v.Workshop.BreakEvenSeats,
 		RecommendedDateID: v.Recommendation.DateID, MeetsMinimum: v.Recommendation.MeetsMinimum,
 		Explanation: v.Recommendation.Explanation,
 		Interested:  v.Tally.Interested, Authorized: v.Tally.Authorized, Paid: v.Tally.Paid,
 		Minimum: v.Workshop.Minimum, Capacity: v.Workshop.Capacity, Seats: []SeatStatus{},
+	}
+	if v.Workshop.VenueCost != nil {
+		out.VenueCost = v.Workshop.VenueCost.String()
 	}
 	if v.Recommendation.DateID != "" {
 		out.RecommendedDate = labelOf(v.Dates, v.Recommendation.DateID)
@@ -454,6 +470,8 @@ type ShareIn struct {
 type WorkshopOut struct {
 	Title        string     `json:"title"`
 	Description  string     `json:"description"`
+	HostName     string     `json:"host_name,omitempty"`
+	Location     string     `json:"location,omitempty"`
 	Price        string     `json:"price"`
 	Minimum      int        `json:"minimum"`
 	Capacity     int        `json:"capacity"`
@@ -480,6 +498,7 @@ func (s *Server) getWorkshop(ctx context.Context, _ *mcp.CallToolRequest, in Sha
 	}
 	out := WorkshopOut{
 		Title: v.Workshop.Title, Description: v.Workshop.Description, Price: v.Workshop.Price.String(),
+		HostName: v.Workshop.HostName, Location: v.Workshop.Location,
 		Minimum: v.Workshop.Minimum, Capacity: v.Workshop.Capacity, Dates: v.Dates,
 		Committed: v.Tally.Authorized + v.Tally.Paid, Paid: v.Tally.Paid,
 	}

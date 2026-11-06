@@ -99,7 +99,7 @@ export default function NewWorkshop() {
           <h1 ref={createdHeading} tabIndex={-1} className="text-3xl font-bold sm:text-4xl">
             {created.workshop.title} is ready
           </h1>
-          <Notice tone="hold" title="Save your organizer link now" role="alert">
+          <Notice tone="attention" title="Save your organizer link now" role="alert">
             It is the only way back to your organizer page and it will not be shown again. Anyone who has it can open payments.
           </Notice>
           <CopyField id="owner-url" label="Organizer link (keep it private)" value={created.owner_url} />

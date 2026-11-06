@@ -24,7 +24,7 @@ export default function AvailabilityList({ view }: { view: OwnerView }) {
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="mr-auto text-lg font-bold">{a.display_name}</h3>
                 {a.corrected && <Tag tone="neutral">Corrected by participant</Tag>}
-                {a.needs_clarification && <Tag tone="hold">Needs clarification</Tag>}
+                {a.needs_clarification && <Tag tone="attention">Needs clarification</Tag>}
               </div>
               <blockquote className="max-w-prose border-l-2 border-rule pl-3 text-ink-soft">“{a.message}”</blockquote>
               <ul className="flex flex-col gap-1">
@@ -43,7 +43,7 @@ export default function AvailabilityList({ view }: { view: OwnerView }) {
                 })}
               </ul>
               {reading.needs_clarification && reading.ambiguities.length > 0 && (
-                <p className="text-sm text-hold">Open question: {reading.ambiguities.map((q) => q.question).join(' ')}</p>
+                <p className="text-sm text-attention">Open question: {reading.ambiguities.map((q) => q.question).join(' ')}</p>
               )}
             </li>
           )

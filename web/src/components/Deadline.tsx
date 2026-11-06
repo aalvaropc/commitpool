@@ -17,7 +17,7 @@ export default function Deadline({ closesAt, timeZone, open, size = 'sm' }: Prop
       <time dateTime={closesAt} className={`tabular-nums ${size === 'lg' ? 'wide text-xl font-semibold' : 'font-semibold'}`}>
         {formatMoment(closesAt, timeZone)}
       </time>
-      {left && <span className={size === 'lg' ? 'font-medium text-hold' : 'text-ink-soft'}> {size === 'lg' ? `${left} left` : `(${left} left)`}</span>}
+      {left && <span className={size === 'lg' ? 'font-semibold text-brand' : 'text-ink-soft'}> {size === 'lg' ? `${left} left` : `(${left} left)`}</span>}
     </p>
   )
 }

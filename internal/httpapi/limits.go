@@ -80,7 +80,7 @@ func limited(r *http.Request) bool {
 	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
 		return true
 	}
-	return false
+	return strings.HasSuffix(r.URL.Path, "/og.png")
 }
 
 func clientAddr(r *http.Request) string {

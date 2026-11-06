@@ -1,4 +1,4 @@
-import type { CandidateDate, Group } from '../api'
+import type { CandidateDate, EnrollmentStatus, Group, WorkshopStatus } from '../api'
 import { formatClock, formatDateRange, formatDay, formatTimeRange } from './time'
 
 export interface DateRow {
@@ -34,4 +34,10 @@ export function groupSummary(group: Group, needed: number): { count: number | nu
 export function dateNames(dates: CandidateDate[], timeZone: string): Map<string, string> {
   const days = dates.map((d) => formatDay(d.starts_at, timeZone))
   return new Map(dates.map((d, i) => [d.id, days.filter((x) => x === days[i]).length > 1 ? `${days[i]} at ${formatClock(d.starts_at, timeZone)}` : days[i]]))
+}
+
+const GOING: EnrollmentStatus[] = ['SEAT_RESERVED', 'AUTHORIZED', 'CAPTURING', 'CAPTURE_PENDING', 'PAID']
+
+export function offersCalendar(status: WorkshopStatus, enrollment: { status: EnrollmentStatus } | null): boolean {
+  return status !== 'CANCELLED' && (enrollment === null || GOING.includes(enrollment.status))
 }

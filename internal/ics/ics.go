@@ -32,12 +32,12 @@ type Event struct {
 
 var textEscaper = strings.NewReplacer(`\`, `\\`, ";", `\;`, ",", `\,`, "\r\n", `\n`, "\n", `\n`, "\r", `\n`)
 
-func Calendar(name string, events ...Event) []byte {
+func Calendar(events ...Event) []byte {
 	var b bytes.Buffer
 	line := func(name, value string) { writeFolded(&b, name+":"+value) }
 	text := func(name, value string) {
 		if value != "" {
-			line(name, textEscaper.Replace(value))
+			line(name, textEscaper.Replace(strings.Map(dropControls, value)))
 		}
 	}
 	line("BEGIN", "VCALENDAR")
@@ -45,7 +45,6 @@ func Calendar(name string, events ...Event) []byte {
 	line("PRODID", "-//CommitPool//Workshops//EN")
 	line("CALSCALE", "GREGORIAN")
 	line("METHOD", "PUBLISH")
-	text("X-WR-CALNAME", name)
 	for _, e := range events {
 		line("BEGIN", "VEVENT")
 		line("UID", e.UID)
@@ -66,6 +65,16 @@ func Calendar(name string, events ...Event) []byte {
 	return b.Bytes()
 }
 
+func dropControls(r rune) rune {
+	if r == '\n' || r == '\r' || r == '\t' {
+		return r
+	}
+	if r < 0x20 || r == 0x7f {
+		return -1
+	}
+	return r
+}
+
 func utc(t time.Time) string {
 	return t.UTC().Format("20060102T150405Z")
 }
@@ -76,6 +85,9 @@ func writeFolded(b *bytes.Buffer, s string) {
 		cut := limit
 		for cut > 0 && !utf8.RuneStart(s[cut]) {
 			cut--
+		}
+		if cut == 0 {
+			cut = limit
 		}
 		b.WriteString(s[:cut])
 		b.WriteString("\r\n ")

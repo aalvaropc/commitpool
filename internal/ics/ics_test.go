@@ -37,7 +37,7 @@ func unfold(s string) string {
 }
 
 func TestCalendar_IsAValidPublishedEvent(t *testing.T) {
-	got := string(ics.Calendar("Wheel-throwing for beginners", event()))
+	got := string(ics.Calendar(event()))
 	if !strings.HasSuffix(got, "\r\n") || strings.Contains(strings.ReplaceAll(got, "\r\n", ""), "\n") {
 		t.Fatalf("every line must end in CRLF:\n%q", got)
 	}
@@ -48,7 +48,6 @@ func TestCalendar_IsAValidPublishedEvent(t *testing.T) {
 		"PRODID:-//CommitPool//Workshops//EN",
 		"CALSCALE:GREGORIAN",
 		"METHOD:PUBLISH",
-		"X-WR-CALNAME:Wheel-throwing for beginners",
 		"BEGIN:VEVENT",
 		"UID:8f2c@commitpool",
 		"SEQUENCE:2",
@@ -72,7 +71,7 @@ func TestCalendar_EscapesText(t *testing.T) {
 	e := event()
 	e.Summary = `Clay; glaze, fire \ repeat`
 	e.Description = "Line one\r\nLine two\nLine three"
-	got := unfold(string(ics.Calendar("x", e)))
+	got := unfold(string(ics.Calendar(e)))
 	if !strings.Contains(got, `SUMMARY:Clay\; glaze\, fire \\ repeat`+"\r\n") {
 		t.Errorf("summary not escaped:\n%s", got)
 	}
@@ -84,7 +83,7 @@ func TestCalendar_EscapesText(t *testing.T) {
 func TestCalendar_FoldsLongLinesWithoutSplittingCharacters(t *testing.T) {
 	e := event()
 	e.Description = strings.Repeat("Cerámica en el torno — ", 12)
-	raw := string(ics.Calendar("x", e))
+	raw := string(ics.Calendar(e))
 	for _, line := range strings.Split(strings.TrimSuffix(raw, "\r\n"), "\r\n") {
 		if len(line) > 75 {
 			t.Errorf("line of %d octets: %q", len(line), line)
@@ -101,7 +100,7 @@ func TestCalendar_FoldsLongLinesWithoutSplittingCharacters(t *testing.T) {
 func TestCalendar_LeavesOutEmptyFields(t *testing.T) {
 	e := event()
 	e.Location, e.URL, e.Description = "", "", ""
-	got := string(ics.Calendar("x", e))
+	got := string(ics.Calendar(e))
 	for _, field := range []string{"LOCATION:", "URL:", "DESCRIPTION:"} {
 		if strings.Contains(got, field) {
 			t.Errorf("empty %s written", field)
@@ -113,8 +112,27 @@ func TestCalendar_StatusFollowsTheWorkshop(t *testing.T) {
 	for _, s := range []ics.Status{ics.Tentative, ics.Confirmed, ics.Cancelled} {
 		e := event()
 		e.Status = s
-		if got := string(ics.Calendar("x", e)); !strings.Contains(got, "STATUS:"+string(s)+"\r\n") {
+		if got := string(ics.Calendar(e)); !strings.Contains(got, "STATUS:"+string(s)+"\r\n") {
 			t.Errorf("status %s missing", s)
+		}
+	}
+}
+
+func TestCalendar_DropsControlCharacters(t *testing.T) {
+	e := event()
+	e.Summary = "Clay\x00\x07 night\tout"
+	if got := unfold(string(ics.Calendar(e))); !strings.Contains(got, "SUMMARY:Clay night\tout\r\n") {
+		t.Errorf("summary:\n%s", got)
+	}
+}
+
+func TestCalendar_FoldsEvenBrokenText(t *testing.T) {
+	e := event()
+	e.Description = strings.Repeat("\x80", 300)
+	raw := string(ics.Calendar(e))
+	for _, line := range strings.Split(strings.TrimSuffix(raw, "\r\n"), "\r\n") {
+		if len(line) > 75 {
+			t.Fatalf("line of %d octets", len(line))
 		}
 	}
 }

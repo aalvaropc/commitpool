@@ -2,11 +2,13 @@ package ogimage_test
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/aalvaropc/commitpool/internal/ogimage"
@@ -90,6 +92,38 @@ func TestRender_SurvivesLongAndMissingText(t *testing.T) {
 		t.Fatal(err)
 	}
 	c.Capacity, c.Needed = 0, 0
+	if _, err := ogimage.Render(c); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRender_ManyAtOnce(t *testing.T) {
+	var wg sync.WaitGroup
+	results := make([][]byte, 6)
+	for i := range results {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c := maya()
+			c.Title = fmt.Sprintf("%s %d", c.Title, i%2)
+			raw, err := ogimage.Render(c)
+			if err != nil {
+				t.Error(err)
+			}
+			results[i] = raw
+		}()
+	}
+	wg.Wait()
+	for i := 2; i < len(results); i++ {
+		if !bytes.Equal(results[i], results[i%2]) {
+			t.Errorf("render %d differs from the same card rendered alongside it", i)
+		}
+	}
+}
+
+func TestRender_DrawsTitlesOutsideTheBrandFont(t *testing.T) {
+	c := maya()
+	c.Title = "🍞 Dvořák & Łódź bread — 面包"
 	if _, err := ogimage.Render(c); err != nil {
 		t.Fatal(err)
 	}

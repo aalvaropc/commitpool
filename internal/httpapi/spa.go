@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-type previewLookup func(ctx context.Context, shareToken string) (invitePreview, error)
+type previewLookup func(ctx context.Context, shareToken string) (invitePreview, bool)
 
 func spaHandler(dist fs.FS, preview previewLookup) http.Handler {
 	var files http.Handler
@@ -41,11 +41,11 @@ func spaHandler(dist fs.FS, preview previewLookup) http.Handler {
 			http.Error(w, "web app is not built: run `make web-build`", http.StatusNotFound)
 			return
 		}
-		if private(name) {
+		if unlisted(name) {
 			w.Header().Set("X-Robots-Tag", "noindex, nofollow")
 		}
 		if token, ok := strings.CutPrefix(name, "w/"); ok && preview != nil && validToken(token) {
-			if p, err := preview(r.Context(), token); err == nil {
+			if p, ok := preview(r.Context(), token); ok {
 				index = injectPreview(index, p)
 			}
 		}
@@ -55,8 +55,8 @@ func spaHandler(dist fs.FS, preview previewLookup) http.Handler {
 	})
 }
 
-func private(name string) bool {
-	return strings.HasPrefix(name, "p/") || strings.HasPrefix(name, "owner/")
+func unlisted(name string) bool {
+	return strings.HasPrefix(name, "p/") || strings.HasPrefix(name, "owner/") || strings.HasPrefix(name, "w/")
 }
 
 func hidden(name string) bool {

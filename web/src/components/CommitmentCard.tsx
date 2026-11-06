@@ -5,6 +5,7 @@ import { enrollErrorMessage, isSafeRedirect, REFRESH_AFTER } from '../lib/enroll
 import { formatMoney } from '../lib/money'
 import { authorizationPending, canStartCheckout, enrollmentTone, seatHeld } from '../lib/status'
 import { durationLabel, earlier, formatClock, formatDateRange, formatMoment, windowLabel, zoneName } from '../lib/time'
+import { offersCalendar } from '../lib/event'
 import AddToCalendar from './AddToCalendar'
 import Deadline from './Deadline'
 import { Button, ConfirmDialog, Icon, Notice, Pill, Tile, TileLabel } from './ui'
@@ -101,7 +102,7 @@ export default function CommitmentCard({ token, view, onChange }: Props) {
             {durationLabel(workshop.duration_min)} · times in {zoneName(tz)}
           </p>
           <div className="mt-2">
-            <AddToCalendar path={`/api/v1/p/${encodeURIComponent(token)}/calendar.ics`} />
+            {offersCalendar(workshop.status, enrollment) && <AddToCalendar path={`/api/v1/p/${encodeURIComponent(token)}/calendar.ics`} />}
           </div>
         </div>
         <div className="flex flex-col gap-1 sm:text-right">

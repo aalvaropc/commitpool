@@ -54,6 +54,7 @@ type server struct {
 	limiter      *rateLimiter
 	demoQuota    *demoQuota
 	images       imageCache
+	previews     previewCache
 	self         http.Handler
 	drafts       *draftQuota
 	aiSem        chan struct{}
@@ -120,7 +121,7 @@ func (s *server) routes(mux *http.ServeMux) {
 
 	api("/api/", func(http.ResponseWriter, *http.Request) error { return errNotFound })
 	mux.HandleFunc("GET /healthz", s.healthz)
-	mux.Handle("/", spaHandler(s.Dist, s.invitePreview))
+	mux.Handle("/", spaHandler(s.Dist, s.pagePreview))
 }
 
 type handlerFunc func(w http.ResponseWriter, r *http.Request) error

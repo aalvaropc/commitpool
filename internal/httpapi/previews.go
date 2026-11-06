@@ -3,6 +3,9 @@ package httpapi
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"html"
 	"net/http"
@@ -18,17 +21,28 @@ import (
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
-const previewImageCacheSize = 256
+const (
+	previewImageCacheSize = 256
+	previewCacheSize      = 512
+	previewTTL            = 15 * time.Second
+	immutableImage        = "public, max-age=31536000, immutable"
+)
 
 var errNoDateYet = newError(http.StatusNotFound, "no_date_yet", "The organizer has not picked the date yet; the calendar invite comes once they do.")
 
 type invitePreview struct {
+	WorkshopID  string
 	Title       string
 	Description string
 	URL         string
 	Image       string
 	ImageAlt    string
 	Card        ogimage.Card
+}
+
+func cardVersion(c ogimage.Card) string {
+	sum := sha256.Sum256(fmt.Appendf(nil, "%#v", c))
+	return hex.EncodeToString(sum[:6])
 }
 
 func previewOf(st workshopState, baseURL string, now time.Time) invitePreview {
@@ -59,16 +73,24 @@ func previewOf(st workshopState, baseURL string, now time.Time) invitePreview {
 		lead = append(lead, w.Location)
 	}
 	terms := fmt.Sprintf("%s a spot; it happens if %d reserve, and nobody pays otherwise.", card.Price, t.Minimum)
+	switch w.Status {
+	case domain.WorkshopConfirmed:
+		terms = fmt.Sprintf("It’s on: %d paid %s a spot.", c.Paid, card.Price)
+	case domain.WorkshopCancelled:
+		terms = "This class is cancelled; nobody pays for it."
+	}
+	terms += " Times in " + present.ZoneName(st.loc) + "."
 	description := terms
 	if len(lead) > 0 {
 		description = strings.Join(lead, " · ") + ". " + terms
 	}
 	share := baseURL + "/w/" + w.ShareToken
 	return invitePreview{
+		WorkshopID:  w.ID,
 		Title:       w.Title,
 		Description: description,
 		URL:         share,
-		Image:       baseURL + "/api/v1/w/" + w.ShareToken + "/og.png",
+		Image:       baseURL + "/api/v1/w/" + w.ShareToken + "/og.png?v=" + cardVersion(card),
 		ImageAlt:    fmt.Sprintf("%s, %s. %s", w.Title, card.When, terms),
 		Card:        card,
 	}
@@ -117,7 +139,24 @@ func sessionText(start, end time.Time, st workshopState) string {
 	return fmt.Sprintf("%s · %s–%s", present.Day(start, st.loc), present.Clock(start.In(st.loc)), present.Clock(end.In(st.loc)))
 }
 
-func (s *server) invitePreview(ctx context.Context, shareToken string) (invitePreview, error) {
+type cachedPreview struct {
+	p  invitePreview
+	at time.Time
+}
+
+type previewCache struct {
+	mu    sync.Mutex
+	items map[string]cachedPreview
+}
+
+func (s *server) lookupPreview(ctx context.Context, shareToken string) (invitePreview, error) {
+	now := s.Clock.Now()
+	s.previews.mu.Lock()
+	if c, ok := s.previews.items[shareToken]; ok && now.Sub(c.at) < previewTTL {
+		s.previews.mu.Unlock()
+		return c.p, nil
+	}
+	s.previews.mu.Unlock()
 	ws, err := s.Store.WorkshopByShareToken(ctx, shareToken)
 	if err != nil {
 		return invitePreview{}, err
@@ -126,21 +165,62 @@ func (s *server) invitePreview(ctx context.Context, shareToken string) (invitePr
 	if err != nil {
 		return invitePreview{}, err
 	}
-	return previewOf(st, s.Cfg.BaseURL, s.Clock.Now()), nil
+	p := previewOf(st, s.Cfg.BaseURL, now)
+	s.previews.mu.Lock()
+	defer s.previews.mu.Unlock()
+	if s.previews.items == nil {
+		s.previews.items = map[string]cachedPreview{}
+	}
+	if len(s.previews.items) >= previewCacheSize {
+		for k := range s.previews.items {
+			delete(s.previews.items, k)
+			break
+		}
+	}
+	s.previews.items[shareToken] = cachedPreview{p: p, at: now}
+	return p, nil
+}
+
+func (s *server) pagePreview(ctx context.Context, shareToken string) (invitePreview, bool) {
+	p, err := s.lookupPreview(ctx, shareToken)
+	if err != nil {
+		if !errors.Is(err, store.ErrNotFound) {
+			s.Log.Warn("invite preview: lookup failed; serving the plain page", "error", err)
+		}
+		return invitePreview{}, false
+	}
+	return p, true
+}
+
+type cachedImage struct {
+	card ogimage.Card
+	png  []byte
 }
 
 type imageCache struct {
-	mu    sync.Mutex
-	items map[ogimage.Card][]byte
+	mu     sync.Mutex
+	render sync.Mutex
+	items  map[string]cachedImage
 }
 
-func (c *imageCache) render(card ogimage.Card) ([]byte, error) {
+func (c *imageCache) cached(workshopID string, card ogimage.Card) ([]byte, bool) {
 	c.mu.Lock()
-	if raw, ok := c.items[card]; ok {
-		c.mu.Unlock()
+	defer c.mu.Unlock()
+	if it, ok := c.items[workshopID]; ok && it.card == card {
+		return it.png, true
+	}
+	return nil, false
+}
+
+func (c *imageCache) get(workshopID string, card ogimage.Card) ([]byte, error) {
+	if raw, ok := c.cached(workshopID, card); ok {
 		return raw, nil
 	}
-	c.mu.Unlock()
+	c.render.Lock()
+	defer c.render.Unlock()
+	if raw, ok := c.cached(workshopID, card); ok {
+		return raw, nil
+	}
 	raw, err := ogimage.Render(card)
 	if err != nil {
 		return nil, err
@@ -148,15 +228,15 @@ func (c *imageCache) render(card ogimage.Card) ([]byte, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.items == nil {
-		c.items = map[ogimage.Card][]byte{}
+		c.items = map[string]cachedImage{}
 	}
-	if len(c.items) >= previewImageCacheSize {
+	if _, ok := c.items[workshopID]; !ok && len(c.items) >= previewImageCacheSize {
 		for k := range c.items {
 			delete(c.items, k)
 			break
 		}
 	}
-	c.items[card] = raw
+	c.items[workshopID] = cachedImage{card: card, png: raw}
 	return raw, nil
 }
 
@@ -165,16 +245,20 @@ func (s *server) inviteImage(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	p, err := s.invitePreview(r.Context(), token)
+	p, err := s.lookupPreview(r.Context(), token)
 	if err != nil {
 		return notFoundIfMissing(err)
 	}
-	raw, err := s.images.render(p.Card)
+	raw, err := s.images.get(p.WorkshopID, p.Card)
 	if err != nil {
 		return err
 	}
+	cache := "public, max-age=300"
+	if r.URL.Query().Get("v") == cardVersion(p.Card) {
+		cache = immutableImage
+	}
 	w.Header().Set("Content-Type", "image/png")
-	w.Header().Set("Cache-Control", "public, max-age=300")
+	w.Header().Set("Cache-Control", cache)
 	_, _ = w.Write(raw)
 	return nil
 }
@@ -208,7 +292,7 @@ func (s *server) writeCalendar(w http.ResponseWriter, r *http.Request, ws store.
 	w.Header().Set("Content-Type", "text/calendar; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+fileSlug(ws.Title)+`.ics"`)
 	w.Header().Set("Cache-Control", "no-cache")
-	_, _ = w.Write(ics.Calendar(ws.Title, event))
+	_, _ = w.Write(ics.Calendar(event))
 	return nil
 }
 

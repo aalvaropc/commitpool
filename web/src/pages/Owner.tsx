@@ -107,7 +107,7 @@ export default function Owner() {
                 </span>
               </div>
               {chosen && <p className="font-display text-xl font-bold tabular-nums">{formatDateRange(chosen.starts_at, chosen.ends_at, w.timezone)}</p>}
-              <AddToCalendar path={d.proposal.calendar_path} />
+              {w.status !== 'CANCELLED' && <AddToCalendar path={d.proposal.calendar_path} />}
               <TermsList
                 items={lockedTerms({
                   timeZone: w.timezone,

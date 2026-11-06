@@ -29,9 +29,9 @@ func TestInvite_LinkPreviewNamesTheClassInTheHead(t *testing.T) {
 	for _, want := range []string{
 		`<title>Wheel-throwing &lt;for&gt; &#34;beginners&#34; – CommitPool</title>`,
 		`<meta property="og:title" content="Wheel-throwing &lt;for&gt; &#34;beginners&#34;" />`,
-		`<meta property="og:image" content="` + appBaseURL + `/api/v1/w/` + h.shareToken + `/og.png" />`,
+		`<meta property="og:image" content="` + appBaseURL + `/api/v1/w/` + h.shareToken + `/og.png?v=`,
 		`<meta property="og:url" content="` + appBaseURL + `/w/` + h.shareToken + `" />`,
-		`<meta property="og:description" content="With Maya Okafor · Maya&#39;s studio · Greenpoint, Brooklyn. $45 a spot; it happens if 3 reserve, and nobody pays otherwise." />`,
+		`<meta property="og:description" content="With Maya Okafor · Maya&#39;s studio · Greenpoint, Brooklyn. $45 a spot; it happens if 3 reserve, and nobody pays otherwise. Times in New York time." />`,
 		`<meta name="twitter:card" content="summary_large_image" />`,
 	} {
 		if !strings.Contains(page, want) {
@@ -41,8 +41,11 @@ func TestInvite_LinkPreviewNamesTheClassInTheHead(t *testing.T) {
 	if strings.Contains(page, h.ownerToken) || strings.Contains(page, "<for>") {
 		t.Errorf("page leaks the organizer token or raw markup:\n%s", page)
 	}
-	if rec.Header().Get("X-Robots-Tag") != "" {
-		t.Error("the invite is marked noindex")
+	if strings.Count(page, `name="description"`) != 1 || strings.Index(page, `property="og:title"`) > strings.Index(page, "</head>") {
+		t.Errorf("want one description and the Open Graph tags inside the head:\n%s", page)
+	}
+	if rec.Header().Get("X-Robots-Tag") != "noindex, nofollow" {
+		t.Error("the invite can be indexed by search engines")
 	}
 }
 
@@ -56,7 +59,7 @@ func TestInvite_UnknownTokensGetThePlainPage(t *testing.T) {
 
 func TestInvite_PrivatePagesAreNotIndexed(t *testing.T) {
 	e := newEnv(t)
-	for _, path := range []string{"/p/xyz", "/owner/abc"} {
+	for _, path := range []string{"/p/xyz", "/owner/abc", "/w/abc"} {
 		rec := e.request(http.MethodGet, path, nil)
 		if rec.Header().Get("X-Robots-Tag") != "noindex, nofollow" || rec.Body.String() != indexHTML {
 			t.Errorf("GET %s: X-Robots-Tag %q, body %q", path, rec.Header().Get("X-Robots-Tag"), rec.Body.String())
@@ -70,6 +73,12 @@ func TestInvite_ImageIsALinkPreviewPNG(t *testing.T) {
 	rec := e.request(http.MethodGet, h.sharePath+"/og.png", nil)
 	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "image/png" || rec.Header().Get("Cache-Control") != "public, max-age=300" {
 		t.Fatalf("og.png = %d %q %q", rec.Code, rec.Header().Get("Content-Type"), rec.Header().Get("Cache-Control"))
+	}
+	page := e.request(http.MethodGet, "/w/"+h.shareToken, nil).Body.String()
+	start := strings.Index(page, "/og.png?v=")
+	version := page[start+len("/og.png?v=") : start+len("/og.png?v=")+12]
+	if got := e.request(http.MethodGet, h.sharePath+"/og.png?v="+version, nil).Header().Get("Cache-Control"); got != "public, max-age=31536000, immutable" {
+		t.Errorf("versioned og.png Cache-Control = %q", got)
 	}
 	img, err := png.Decode(bytes.NewReader(rec.Body.Bytes()))
 	if err != nil || img.Bounds().Dx() != 1200 || img.Bounds().Dy() != 630 {
@@ -131,4 +140,13 @@ func TestInvite_CalendarOnceTheDateIsPicked(t *testing.T) {
 	if !strings.Contains(body, "STATUS:CANCELLED\r\n") || !strings.Contains(body, "SEQUENCE:12\r\n") {
 		t.Errorf("cancelled calendar:\n%s", body)
 	}
+}
+
+func TestInvite_ImageIsLimitedPerAddress(t *testing.T) {
+	e := newEnv(t, withRateLimit(4))
+	h := e.createWorkshop(mayaWorkshop)
+	if rec := e.request(http.MethodGet, h.sharePath+"/og.png", nil); rec.Code != http.StatusOK {
+		t.Fatalf("first og.png = %d", rec.Code)
+	}
+	e.wantError(http.MethodGet, h.sharePath+"/og.png", nil, http.StatusTooManyRequests, "rate_limited")
 }

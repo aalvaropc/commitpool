@@ -6,13 +6,16 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/aalvaropc/commitpool/internal/domain"
+	"github.com/aalvaropc/commitpool/internal/present"
 )
 
 type DateOption struct {
-	ID    string
-	Label string
+	ID       string
+	Label    string
+	StartsAt time.Time
 }
 
 type InterpretInput struct {
@@ -44,21 +47,42 @@ type Interpreter interface {
 }
 
 func PlainExplanation(in ExplainInput) string {
-	label := ""
+	date, ok := recommendedDate(in)
+	if !ok {
+		return "There is no date to recommend yet."
+	}
+	day := present.Day(date.StartsAt, date.StartsAt.Location())
+	names := attendees(in)
+	switch {
+	case len(names) == 0:
+		return day + " is the earliest date, but nobody can come yet."
+	case in.Recommendation.MeetsMinimum:
+		return fmt.Sprintf("%s works for %s: %s. You need %d.", day, people(len(names)), joinNames(names), in.Minimum)
+	}
+	return fmt.Sprintf("%s works for the most people so far: %s. You need %d.", day, joinNames(names), in.Minimum)
+}
+
+func recommendedDate(in ExplainInput) (DateOption, bool) {
 	for _, d := range in.Dates {
 		if d.ID == in.Recommendation.DateID {
-			label = d.Label
+			return d, true
 		}
 	}
-	if label == "" {
-		return "There is no candidate date to recommend yet."
+	return DateOption{}, false
+}
+
+func people(n int) string {
+	if n == 1 {
+		return "1 person"
 	}
-	names := attendees(in)
-	if len(names) == 0 {
-		return label + " is the earliest date, but nobody can attend it yet."
+	return fmt.Sprintf("%d people", n)
+}
+
+func joinNames(names []string) string {
+	if len(names) <= 1 {
+		return strings.Join(names, "")
 	}
-	return fmt.Sprintf("%s works for the most people (%d, minimum %d): %s.",
-		label, len(names), in.Minimum, strings.Join(names, ", "))
+	return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
 }
 
 func attendees(in ExplainInput) []string {
@@ -82,12 +106,8 @@ func displayName(names map[string]string, id string) string {
 }
 
 func ExplainFacts(in ExplainInput) string {
-	label := ""
-	for _, d := range in.Dates {
-		if d.ID == in.Recommendation.DateID {
-			label = d.Label
-		}
-	}
+	date, _ := recommendedDate(in)
+	label := date.Label
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "Workshop title: %s\n", jsonString(in.WorkshopTitle))
 	fmt.Fprintf(&sb, "Minimum participants to run it: %d\n", in.Minimum)

@@ -332,13 +332,13 @@ func statusOf(v ownerView) StatusOut {
 func ifClosedNow(v ownerView) string {
 	switch {
 	case v.Proposal == nil:
-		return "Payments are not open yet: nothing is held or charged."
+		return "Reservations are not open yet: nothing is held or charged."
 	case v.Workshop.Status == "CANCELLED":
-		return "The workshop is cancelled: holds are released and payments refunded."
+		return "The workshop is cancelled: every hold is released and every payment refunded."
 	case v.Tally.Paid >= v.Proposal.Minimum:
-		return fmt.Sprintf("The workshop happens: %d completed payments reach the minimum of %d. Holds not charged by then are released.", v.Tally.Paid, v.Proposal.Minimum)
+		return fmt.Sprintf("The workshop is on: %d payments reach the minimum of %d. Holds not charged by then are released.", v.Tally.Paid, v.Proposal.Minimum)
 	default:
-		return fmt.Sprintf("The workshop would be cancelled: %d completed payments are short of the minimum of %d, so %d holds would be released and %d payments refunded.",
+		return fmt.Sprintf("The workshop would be cancelled: %d payments are short of the minimum of %d, so %d holds would be released and %d payments refunded.",
 			v.Tally.Paid, v.Proposal.Minimum, v.Tally.Authorized, v.Tally.Paid)
 	}
 }
@@ -393,7 +393,7 @@ func (s *Server) previewOpenPayments(ctx context.Context, _ *mcp.CallToolRequest
 	}
 	out.ExpiresAt = s.cfg.Clock.Now().Add(confirmationTTL).UTC().Truncate(time.Second)
 	out.ConfirmationToken = s.sign(tok, terms(v, in.DateID), out.ExpiresAt)
-	out.Next = fmt.Sprintf("Read these terms to the organizer: once payments open, the date, the price of %s, the minimum of %d and the capacity of %d are locked and every participant who commits authorizes a PayPal hold. Call confirm_open_payments with the token only after they say yes.",
+	out.Next = fmt.Sprintf("Read these terms to the organizer: once reservations open, the date, the price of %s, the minimum of %d and the capacity of %d are locked and every participant who reserves places a PayPal hold. Call confirm_open_payments with the token only after they say yes.",
 		out.Price, out.Minimum, out.Capacity)
 	return nil, out, nil
 }
@@ -630,11 +630,11 @@ func (s *Server) getMyStatus(ctx context.Context, _ *mcp.CallToolRequest, in Par
 	}
 	switch {
 	case out.PaymentsOpen && v.Enrollment == nil:
-		out.Next = "Payments are open. Show the person the consent text; if they accept it, call get_checkout_link with consent_version and human_accepted_terms true."
+		out.Next = "Reservations are open. Show the person the consent text; if they accept it, call get_checkout_link with consent_version and human_accepted_terms true."
 	case out.PaymentsOpen:
 		out.Next = "The person's seat status is above; nothing to do unless it says the payment failed and they want to try again."
 	default:
-		out.Next = "Payments are not open yet. The organizer opens them once a date works for enough people."
+		out.Next = "Reservations are not open yet. The organizer opens them once a date works for enough people."
 	}
 	return nil, out, nil
 }

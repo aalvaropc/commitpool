@@ -136,7 +136,7 @@ func TestRun_SeedsTheDemoWorkshopWithItsCast(t *testing.T) {
 	if view.Proposal != nil {
 		t.Fatalf("payments were opened without -open-payments")
 	}
-	wantLabels := []string{"Sat 7 Nov 2026, 10:00–13:00 America/New_York", "Sun 8 Nov 2026, 10:00–13:00 America/New_York"}
+	wantLabels := []string{"Sat, Nov 7, 10 AM–1 PM (New York time)", "Sun, Nov 8, 10 AM–1 PM (New York time)"}
 	if len(view.Dates) != 2 || view.Dates[0].Label != wantLabels[0] || view.Dates[1].Label != wantLabels[1] {
 		t.Fatalf("dates = %+v, want %q", view.Dates, wantLabels)
 	}
@@ -197,7 +197,7 @@ func TestRun_OpenPaymentsFixesTheRecommendedDate(t *testing.T) {
 	if view.Workshop.Status != "FUNDING" || view.Proposal == nil || view.Proposal.DateID != view.Recommendation.DateID {
 		t.Fatalf("status %s, proposal %+v; want FUNDING on the recommended date %s", view.Workshop.Status, view.Proposal, view.Recommendation.DateID)
 	}
-	if !res.PaymentsOpened || !strings.Contains(out, "Payments are open") {
+	if !res.PaymentsOpened || !strings.Contains(out, "Reservations are open") {
 		t.Errorf("result/output do not say payments opened: %+v\n%s", res, out)
 	}
 }

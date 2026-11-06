@@ -31,7 +31,7 @@ const (
 	interpretMaxTokens = 2048
 	explainMaxTokens   = 2048
 
-	maxExplanationWords = 80
+	maxExplanationWords = 60
 )
 
 var (

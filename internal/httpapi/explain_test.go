@@ -24,6 +24,13 @@ func TestNamesAnotherDate(t *testing.T) {
 		want bool
 	}{
 		{"Sat 14 Nov 2026, 15:00–18:00 America/Lima works for Ana and Luis.", false},
+		{"Sat, Nov 14, 3 PM–6 PM (Lima time) works for Ana and Luis.", false},
+		{"Sat, Nov 14 works for everyone who replied.", false},
+		{"Sun, Nov 15 has fewer people.", true},
+		{"Nov 15th has fewer people.", true},
+		{"The 15th would be worse.", false},
+		{"Not Sun because Luis is away.", true},
+		{"A sunny Saturday morning for Ana and Luis.", false},
 		{"Saturday 14 November suits everyone who replied.", false},
 		{"Sun 15 Nov 2026 would be better.", true},
 		{"Everyone can make it except on Sunday.", true},

@@ -25,11 +25,11 @@ import (
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
-const consentText = "You authorize a temporary hold. We will attempt to charge it once enough people have authorized. " +
-	"The workshop is confirmed when the minimum number of completed payments is reached. " +
-	"If the minimum is not reached by the deadline, the workshop is cancelled and we request a refund of any charge already made. " +
-	"You can withdraw and have your hold released until you are charged; after that, payments are refunded only if the workshop is cancelled, also when the organizer cancels it. " +
-	"Refunds can take time and you will be able to follow their status."
+const consentText = "Reserving your spot places a temporary hold for the price on your PayPal account. Nothing is charged yet. " +
+	"Holds are charged once enough people have reserved, and the workshop is on when the minimum number of payments has gone through. " +
+	"If the minimum is not reached by the deadline, the workshop is cancelled: every hold is released and any charge already made is refunded. " +
+	"You can leave and have your hold released until you are charged; after that, your payment is refunded only if the workshop is cancelled, including when the organizer cancels it. " +
+	"Refunds can take a few days, and you can follow yours on your page."
 
 var tokenShape = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
 
@@ -259,7 +259,7 @@ func TestEnrollment_ReturnsApproveURLAndIsIdempotentPerParticipant(t *testing.T)
 	}
 	en, err := e.st.EnrollmentByID(e.ctx, first.EnrollmentID)
 	if err != nil || en.ConsentVersion != httpapi.ConsentVersion || !en.ConsentAt.Equal(t0) || !en.SeatExpiresAt.Equal(t0.Add(30*time.Minute)) {
-		t.Errorf("enrollment = %+v, %v; want consent-v2 at t0 and a 30-minute seat", en, err)
+		t.Errorf("enrollment = %+v, %v; want consent-v3 at t0 and a 30-minute seat", en, err)
 	}
 }
 
@@ -364,7 +364,7 @@ func TestEnrollment_AuthorizedHoldReturnsItsEnrollment(t *testing.T) {
 	e.authorize(h.created.Workshop.ID, first.EnrollmentID)
 
 	again := e.enroll(ps[0], p.ID, http.StatusOK)
-	if again.EnrollmentID != first.EnrollmentID || again.ApproveURL != "" || again.Status != "AUTHORIZED" || again.StatusLabel != "Hold authorized" {
+	if again.EnrollmentID != first.EnrollmentID || again.ApproveURL != "" || again.Status != "AUTHORIZED" || again.StatusLabel != "Spot reserved — not charged yet" {
 		t.Errorf("enrollment behind an authorization = %+v, want %s AUTHORIZED without a link", again, first.EnrollmentID)
 	}
 	if n := len(e.fake.Requests("create_order")); n != 1 {
@@ -408,15 +408,15 @@ func TestOwner_CountsInterestedAuthorizedPaidSeparately(t *testing.T) {
 	for _, en := range v.Enrollments {
 		byID[en.ID] = en
 	}
-	if got := byID[paid.EnrollmentID]; got.Status != "PAID" || got.StatusLabel != "Seat paid" || got.DisplayName != "Ana" ||
+	if got := byID[paid.EnrollmentID]; got.Status != "PAID" || got.StatusLabel != "Paid" || got.DisplayName != "Ana" ||
 		got.Payment == nil || got.Payment.CaptureID == nil || got.Payment.CaptureStatus == nil || *got.Payment.CaptureStatus != "COMPLETED" {
 		t.Errorf("paid enrollment = %+v (payment %+v)", got, got.Payment)
 	}
-	if got := byID[held.EnrollmentID]; got.Status != "AUTHORIZED" || got.StatusLabel != "Hold authorized" ||
+	if got := byID[held.EnrollmentID]; got.Status != "AUTHORIZED" || got.StatusLabel != "Spot reserved — not charged yet" ||
 		got.Payment == nil || got.Payment.AuthorizationID == nil || got.Payment.CaptureID != nil {
 		t.Errorf("authorized enrollment = %+v (payment %+v)", got, got.Payment)
 	}
-	if exp := v.Recommendation.Explanation; exp == nil || !strings.Contains(*exp, "Sat 14 Nov 2026") || !strings.Contains(*exp, "Marta") {
+	if exp := v.Recommendation.Explanation; exp == nil || !strings.Contains(*exp, "Sat, Nov 14") || !strings.Contains(*exp, "Marta") {
 		t.Errorf("recommendation explanation = %v, want the interpreter's words for Saturday and its people", exp)
 	}
 }
@@ -464,7 +464,7 @@ func TestParticipant_SeesOnlyOwnDataAndAggregate(t *testing.T) {
 
 	own := e.enroll(ana, p.ID, http.StatusCreated)
 	e.call(http.MethodGet, ana.path, nil, http.StatusOK, &v)
-	if v.Enrollment == nil || v.Enrollment.ID != own.EnrollmentID || v.Enrollment.Status != "SEAT_RESERVED" || v.Enrollment.StatusLabel != "Seat reserved" ||
+	if v.Enrollment == nil || v.Enrollment.ID != own.EnrollmentID || v.Enrollment.Status != "SEAT_RESERVED" || v.Enrollment.StatusLabel != "At checkout" ||
 		v.Enrollment.Payment == nil || v.Enrollment.Payment.OrderID == nil {
 		t.Errorf("own enrollment = %+v", v.Enrollment)
 	}
@@ -779,7 +779,7 @@ func TestJoin_PublicViewAndNameRules(t *testing.T) {
 	if v.Workshop.Title != "Go for operators" || v.Workshop.ID != "" || len(v.Dates) != 2 || v.Proposal != nil || v.Tally.Interested != 1 {
 		t.Errorf("public view = %+v", v)
 	}
-	if v.Dates[0].Label != "Sat 14 Nov 2026, 15:00–18:00 America/Lima" {
+	if v.Dates[0].Label != "Sat, Nov 14, 3 PM–6 PM (Lima time)" {
 		t.Errorf("date label = %q", v.Dates[0].Label)
 	}
 
@@ -867,7 +867,7 @@ func TestParticipant_ReservedSeatInAConfirmedWorkshopUntilClose(t *testing.T) {
 		}
 		return v.Enrollment.StatusLabel, v.Proposal.PaymentsOpen
 	}
-	if got, open := label(); got != "Seat reserved" || !open {
+	if got, open := label(); got != "At checkout" || !open {
 		t.Errorf("confirmed before close: label %q, payments_open %v; want Seat reserved and open", got, open)
 	}
 	e.authorize(wid, luis.EnrollmentID)
@@ -892,11 +892,11 @@ func TestParticipant_ReservedSeatExpiresWithTheSeatOrTheWindow(t *testing.T) {
 		return v
 	}
 	e.clock.Set(t0.Add(31 * time.Minute))
-	if v := view(); v.Enrollment == nil || v.Enrollment.ID != luis.EnrollmentID || v.Enrollment.StatusLabel != "Seat expired" || !v.Proposal.PaymentsOpen {
+	if v := view(); v.Enrollment == nil || v.Enrollment.ID != luis.EnrollmentID || v.Enrollment.StatusLabel != "Reservation expired" || !v.Proposal.PaymentsOpen {
 		t.Errorf("seat past its expiry: %+v, proposal %+v; want Seat expired with payments still open", v.Enrollment, v.Proposal)
 	}
 	e.clock.Set(p.ClosesAt)
-	if v := view(); v.Enrollment.StatusLabel != "Seat expired" || v.Proposal.PaymentsOpen {
+	if v := view(); v.Enrollment.StatusLabel != "Reservation expired" || v.Proposal.PaymentsOpen {
 		t.Errorf("after close: %+v, proposal %+v; want Seat expired, payments closed", v.Enrollment, v.Proposal)
 	}
 }
@@ -1152,7 +1152,7 @@ func TestEnrollment_LateJoinerInConfirmedWorkshopGetsApproveURL(t *testing.T) {
 	marta := e.join(h, "Marta")
 	e.say(marta, "Saturday works for me")
 	late := e.enroll(marta, p.ID, http.StatusCreated)
-	if late.ApproveURL == "" || late.Status != "SEAT_RESERVED" || late.StatusLabel != "Seat reserved" {
+	if late.ApproveURL == "" || late.Status != "SEAT_RESERVED" || late.StatusLabel != "At checkout" {
 		t.Fatalf("late enrollment = %+v, want a reserved seat with an approval link", late)
 	}
 

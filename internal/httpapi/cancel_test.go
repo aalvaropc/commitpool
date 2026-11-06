@@ -38,7 +38,7 @@ func TestParticipantWithdraw_ReleasesTheSeatOnce(t *testing.T) {
 	}
 	e.call(http.MethodPost, ps[0].path+"/withdraw", map[string]string{}, http.StatusOK, &out)
 
-	if out.Status != "RELEASED" || out.StatusLabel != "Withdrawn" {
+	if out.Status != "RELEASED" || out.StatusLabel != "Left the group" {
 		t.Fatalf("withdraw = %+v, want RELEASED labelled Withdrawn, not an expired seat", out)
 	}
 	e.wantError(http.MethodPost, ps[0].path+"/withdraw", map[string]string{}, http.StatusConflict, "nothing_to_withdraw")
@@ -56,7 +56,7 @@ func TestParticipantWithdraw_AuthorizedHoldReadsWithdrawn(t *testing.T) {
 	}
 	e.call(http.MethodPost, ps[0].path+"/withdraw", map[string]string{}, http.StatusOK, &out)
 
-	want := map[string]string{"VOIDING": "Withdrawn — releasing the hold", "VOIDED": "Withdrawn — hold released"}
+	want := map[string]string{"VOIDING": "Left — releasing the hold", "VOIDED": "Left — hold released"}
 	if label, ok := want[out.Status]; !ok || out.StatusLabel != label {
 		t.Fatalf("withdraw of an authorized hold = %+v, want VOIDING or VOIDED with the label for that status", out)
 	}
@@ -75,8 +75,8 @@ func TestParticipantWithdraw_HoldNotYetReleasedSaysSo(t *testing.T) {
 	}
 	e.call(http.MethodPost, ps[0].path+"/withdraw", map[string]string{}, http.StatusOK, &out)
 
-	if out.Status != "VOIDING" || out.StatusLabel != "Withdrawn — releasing the hold" {
-		t.Fatalf("withdraw while PayPal does not answer the void = %+v, want VOIDING, \"Withdrawn — releasing the hold\"", out)
+	if out.Status != "VOIDING" || out.StatusLabel != "Left — releasing the hold" {
+		t.Fatalf("withdraw while PayPal does not answer the void = %+v, want VOIDING, \"Left — releasing the hold\"", out)
 	}
 }
 

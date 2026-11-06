@@ -66,10 +66,10 @@ func TestBedrock_Live(t *testing.T) {
 		t.Fatalf("Explain: %v", err)
 	}
 	t.Logf("explain meta: %+v", meta)
-	if text == "" || len(strings.Fields(text)) > 80 {
-		t.Errorf("explanation %q, want 1 to 80 words", text)
+	if text == "" || len(strings.Fields(text)) > 60 {
+		t.Errorf("explanation %q, want 1 to 60 words", text)
 	}
-	if strings.Contains(text, "Sun 15 Nov") || strings.Contains(text, "Sunday") {
+	if strings.Contains(text, "Nov 15") || strings.Contains(text, "Sun") {
 		t.Errorf("explanation %q names a date the server did not recommend", text)
 	}
 	t.Logf("explanation: %s", text)

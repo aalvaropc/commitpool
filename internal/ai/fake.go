@@ -30,10 +30,7 @@ var (
 		"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
 		"seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "noon": 12,
 	}
-	weekdays = map[string]string{
-		"sun": "sunday", "mon": "monday", "tue": "tuesday", "wed": "wednesday",
-		"thu": "thursday", "fri": "friday", "sat": "saturday",
-	}
+	weekdays = []string{"sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"}
 )
 
 type reading struct {
@@ -173,10 +170,7 @@ func namedDates(lower string, dates []DateOption) []bool {
 	}
 	named := make([]bool, len(dates))
 	for i, d := range dates {
-		abbr, _, _ := strings.Cut(strings.ToLower(strings.TrimSpace(d.Label)), " ")
-		if day, ok := weekdays[abbr]; ok && strings.Contains(lower, day) {
-			named[i] = true
-		}
+		named[i] = strings.Contains(lower, strings.ToLower(d.StartsAt.Weekday().String()))
 	}
 	return named
 }

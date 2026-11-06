@@ -12,6 +12,7 @@ import (
 const (
 	defaultPayPalBaseURL = "https://api-m.sandbox.paypal.com"
 	defaultSeatTTLMin    = 30
+	defaultDemoPaceMS    = 1200
 
 	DefaultBedrockModel         = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
 	DefaultBedrockFallbackModel = ""
@@ -38,6 +39,7 @@ type Config struct {
 	Mailer, MailFrom     string
 	RateLimitPerMin      int
 	DemoMode             bool
+	DemoPace             time.Duration
 	SandboxMocks         bool
 	SeatTTL              time.Duration
 	FakePayPal           bool
@@ -112,6 +114,16 @@ func Load(getenv func(string) string) (Config, error) {
 		}
 	}
 	cfg.SeatTTL = time.Duration(ttl) * time.Minute
+	pace := defaultDemoPaceMS
+	if raw := strings.TrimSpace(getenv("COMMITPOOL_DEMO_PACE_MS")); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 0 {
+			problems = append(problems, "COMMITPOOL_DEMO_PACE_MS must be zero or a positive number of milliseconds")
+		} else {
+			pace = n
+		}
+	}
+	cfg.DemoPace = time.Duration(pace) * time.Millisecond
 	if strings.EqualFold(cfg.BedrockFallbackModel, "none") {
 		cfg.BedrockFallbackModel = ""
 	}

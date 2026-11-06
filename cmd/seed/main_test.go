@@ -18,6 +18,7 @@ import (
 	"github.com/aalvaropc/commitpool/internal/ai"
 	"github.com/aalvaropc/commitpool/internal/clock"
 	"github.com/aalvaropc/commitpool/internal/config"
+	"github.com/aalvaropc/commitpool/internal/demo"
 	"github.com/aalvaropc/commitpool/internal/httpapi"
 	"github.com/aalvaropc/commitpool/internal/paypal"
 	"github.com/aalvaropc/commitpool/internal/paypal/paypaltest"
@@ -96,7 +97,6 @@ func seed(t *testing.T, srv *httptest.Server, open bool) (result, string) {
 	var out bytes.Buffer
 	res, err := run(context.Background(), srv.Client(), options{
 		BaseURL:      srv.URL,
-		Price:        "10.00",
 		Timezone:     "America/New_York",
 		WindowMin:    1440,
 		OpenPayments: open,
@@ -130,30 +130,30 @@ func TestRun_SeedsTheDemoWorkshopWithItsCast(t *testing.T) {
 	res, out := seed(t, srv, false)
 	view := ownerViewOf(t, srv, res)
 
-	if got := view.Workshop; got.Status != "COLLECTING" || got.Minimum != 3 || got.Capacity != 6 || got.Price.Value != "10.00" || got.PaymentWindowMin != 1440 {
-		t.Fatalf("workshop = %+v, want COLLECTING, minimum 3 of 6 at 10.00 with a 1440 min window", got)
+	if got := view.Workshop; got.Status != "COLLECTING" || got.Minimum != 3 || got.Capacity != 6 || got.Price.Value != "45.00" || got.PaymentWindowMin != 1440 {
+		t.Fatalf("workshop = %+v, want COLLECTING, 3 needed of 6 at 45.00 with a 1440 min window", got)
 	}
 	if view.Proposal != nil {
 		t.Fatalf("payments were opened without -open-payments")
 	}
-	wantLabels := []string{"Sat, Nov 7, 10 AM–1 PM (New York time)", "Sun, Nov 8, 10 AM–1 PM (New York time)"}
+	wantLabels := []string{"Sat, Nov 7, 10 AM–12 PM (New York time)", "Sun, Nov 8, 10 AM–12 PM (New York time)"}
 	if len(view.Dates) != 2 || view.Dates[0].Label != wantLabels[0] || view.Dates[1].Label != wantLabels[1] {
 		t.Fatalf("dates = %+v, want %q", view.Dates, wantLabels)
 	}
 
-	if len(res.Participants) != len(cast) || len(view.Participants) != len(cast) || len(view.Availabilities) != len(cast) {
-		t.Fatalf("seeded %d participants, %d joined, %d availabilities; want %d of each", len(res.Participants), len(view.Participants), len(view.Availabilities), len(cast))
+	if len(res.Participants) != len(demo.Maya.People) || len(view.Participants) != len(demo.Maya.People) || len(view.Availabilities) != len(demo.Maya.People) {
+		t.Fatalf("seeded %d participants, %d joined, %d availabilities; want %d of each", len(res.Participants), len(view.Participants), len(view.Availabilities), len(demo.Maya.People))
 	}
 	for i, p := range res.Participants {
-		if p.Name != cast[i].Name || p.Message != cast[i].Message || !strings.HasPrefix(p.URL, srv.URL+"/p/") {
-			t.Errorf("participant %d = %+v, want %s with %q and a participant link", i, p, cast[i].Name, cast[i].Message)
+		if p.Name != demo.Maya.People[i].Name || p.Message != demo.Maya.People[i].Message || !strings.HasPrefix(p.URL, srv.URL+"/p/") {
+			t.Errorf("participant %d = %+v, want %s with %q and a participant link", i, p, demo.Maya.People[i].Name, demo.Maya.People[i].Message)
 		}
 	}
 	unclear := 0
 	for _, a := range view.Availabilities {
 		if a.NeedsClarification {
 			unclear++
-			if a.Message != cast[len(cast)-1].Message {
+			if a.Message != demo.Maya.People[len(demo.Maya.People)-1].Message {
 				t.Errorf("needs clarification: %q, want only the last cast message", a.Message)
 			}
 		}

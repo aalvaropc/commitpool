@@ -41,6 +41,7 @@ type createWorkshopRequest struct {
 	HostName         string `json:"host_name"`
 	Location         string `json:"location"`
 	VenueCost        string `json:"venue_cost"`
+	Demo             bool   `json:"demo"`
 	Dates            []struct {
 		StartsAt time.Time `json:"starts_at"`
 		EndsAt   time.Time `json:"ends_at"`
@@ -171,6 +172,7 @@ func (s *server) workshopParams(req createWorkshopRequest) (store.CreateWorkshop
 		HostName:         hostName,
 		Location:         location,
 		VenueCostMinor:   venueCost,
+		IsDemo:           req.Demo && s.Cfg.DemoMode,
 		Dates:            dates,
 	}, nil
 }

@@ -100,3 +100,31 @@ func TestMCP_WorkshopCarriesHostPlaceAndStudioCost(t *testing.T) {
 		t.Errorf("get_status = %+v, want Maya, 120.00 USD and 3 seats to break even", status)
 	}
 }
+
+type demoLabelJSON struct {
+	Workshop struct {
+		Demo bool `json:"demo"`
+	} `json:"workshop"`
+}
+
+func asDemo(body map[string]any) { body["demo"] = true }
+
+func TestWorkshops_DemoServerLabelsPreparedWorkshops(t *testing.T) {
+	e := newEnv(t, withDemoMode())
+	h := e.createWorkshop(asDemo)
+	var v demoLabelJSON
+	e.call(http.MethodGet, h.sharePath, nil, http.StatusOK, &v)
+	if !v.Workshop.Demo {
+		t.Error("a demo server did not label the prepared workshop as a demo")
+	}
+}
+
+func TestWorkshops_DemoLabelRefusedOutsideDemoMode(t *testing.T) {
+	e := newEnv(t)
+	h := e.createWorkshop(asDemo)
+	var v demoLabelJSON
+	e.call(http.MethodGet, h.sharePath, nil, http.StatusOK, &v)
+	if v.Workshop.Demo {
+		t.Error("a server outside demo mode accepted the demo label")
+	}
+}

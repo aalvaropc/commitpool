@@ -304,3 +304,19 @@ func TestLoad_Mailer(t *testing.T) {
 		t.Errorf("ses with a sender = %+v, %v", cfg.Mailer, err)
 	}
 }
+
+func TestLoad_DemoPace(t *testing.T) {
+	cfg, err := load(baseEnv())
+	if err != nil || cfg.DemoPace != 1200*time.Millisecond {
+		t.Fatalf("default demo pace = %v, %v; want 1.2s", cfg.DemoPace, err)
+	}
+	env := baseEnv()
+	env["COMMITPOOL_DEMO_PACE_MS"] = "0"
+	if cfg, err := load(env); err != nil || cfg.DemoPace != 0 {
+		t.Errorf("COMMITPOOL_DEMO_PACE_MS=0: pace %v, %v; want no pause", cfg.DemoPace, err)
+	}
+	env["COMMITPOOL_DEMO_PACE_MS"] = "-5"
+	if _, err := load(env); err == nil || !strings.Contains(err.Error(), "COMMITPOOL_DEMO_PACE_MS") {
+		t.Errorf("negative pace: err = %v, want an error naming COMMITPOOL_DEMO_PACE_MS", err)
+	}
+}

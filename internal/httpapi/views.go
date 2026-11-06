@@ -97,6 +97,7 @@ type workshopDTO struct {
 	Resolution       string    `json:"resolution"`
 	HostName         string    `json:"host_name"`
 	Location         string    `json:"location"`
+	Demo             bool      `json:"demo,omitempty"`
 	VenueCost        *moneyDTO `json:"venue_cost,omitempty"`
 	BreakEvenSeats   int       `json:"break_even_seats,omitempty"`
 }
@@ -116,6 +117,7 @@ func publicWorkshopView(w store.WorkshopRow) workshopDTO {
 		Resolution:       string(w.Resolution),
 		HostName:         w.HostName,
 		Location:         w.Location,
+		Demo:             w.IsDemo,
 	}
 }
 

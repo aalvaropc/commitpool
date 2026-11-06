@@ -269,7 +269,7 @@ already charged or released, or an "It's on" for a workshop cancelled since.
 |---|---|---|
 | `notify:joined:{participant}` | Participant | On joining. Carries the private link, since only its hash is kept. |
 | `notify:reserved:{enrollment}` | Participant | Their hold landed while reservations are open and the class is not on yet. |
-| `notify:confirmed:{enrollment}` | Participant | The workshop is confirmed (by a capture round or at the close), for each paid seat, and for a seat paid after. Carries the `.ics`; if SES refuses the attachment, the message goes again without it. |
+| `notify:confirmed:{enrollment}` | Participant | The workshop is confirmed (by a capture round or at the close), for each paid seat, and for a seat paid after. Carries the `.ics`; if SES refuses the message, it goes again once without the attachment. |
 | `notify:cancelled:{participant}` | Participant | The workshop is cancelled, at the close (not enough people by the deadline) or by the organizer (with the reason). |
 | `notify:payment_failed:{enrollment}` | Participant | A charge failed and the hold is released. |
 | `notify:refund_completed:{enrollment}` | Participant | A refund completed. |
@@ -277,9 +277,10 @@ already charged or released, or an "It's on" for a workshop cancelled since.
 | `notify:owner_confirmed:{workshop}` | Organizer | The workshop is confirmed: how many paid and the total. |
 | `notify:owner_cancelled:{workshop}` | Organizer | The workshop is cancelled, with what happened to the money. |
 
-The two messages carrying a private link (`joined`, `owner_created`) drop
-their body and HTML once sent, refused or skipped, and give up after five
-failed attempts so the link is not kept while a provider keeps failing.
+Every refused or skipped message drops its body and HTML. The two carrying a
+private link (`joined`, `owner_created`) also drop them once sent, and give
+up after five failed attempts so the link is not kept while a provider keeps
+failing.
 
 Delivery is at least once: a send that succeeded at the provider but was not
 recorded is sent again.
@@ -637,6 +638,7 @@ are here.
   however many views ask meanwhile.
 - The cache key is the workshop plus exactly the facts the model is told, so
   a change the model would not see does not ask for a new text.
-- A failed call, a panic or a text that names another candidate date falls
-  back to the plain explanation, which is served for a minute before the model
-  is asked again.
+- A failed call or a panic falls back to the plain explanation, which is
+  served for a minute before the model is asked again. A text that names
+  another candidate date is replaced by the plain explanation for good, until
+  the facts change.

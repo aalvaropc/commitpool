@@ -111,7 +111,8 @@ export AWS_REGION=us-east-1
 
 ## Email through Amazon SES
 
-The demo sends real email once a sender is verified:
+The demo sends real email once a sender is verified, stored as
+`/commitpool/mail_from` and deployed:
 
 1. Verify the sender (SES emails a link to click):
 
@@ -123,7 +124,7 @@ The demo sends real email once a sender is verified:
 
    ```sh
    aws ssm put-parameter --region us-east-1 --name /commitpool/mail_from --type String \
-     --value 'CommitPool <you@example.com>'
+     --overwrite --value 'CommitPool <you@example.com>'
    scripts/deploy-ec2.sh
    ```
 
@@ -138,8 +139,9 @@ The demo sends real email once a sender is verified:
    ```
 
 4. Check one message end to end: create a class with "Your email" filled in
-   and look for "Your organizer link for …". The logs show the masked
-   recipient and the subject, never the body.
+   and look for "Your organizer link for …" in that inbox. The logs show the
+   `notify:owner_created:…` job succeeding, or the masked recipient if SES
+   refuses it; never the body.
 
 A sender on a free mail domain (such as Gmail) is accepted by SES but its
 DMARC policy can send the mail to spam; a domain you control, verified with

@@ -9,8 +9,8 @@ against every date, CommitPool picks the date that works, and everyone
 reserves with PayPal. Nobody is charged unless enough people reserve for the
 class to run. If they don't, every hold is released and any charge refunded.
 
-Try it in one click: **[Try it as Maya](https://3-209-60-155.sslip.io)**.
-You become Maya Okafor, who teaches wheel-throwing in Greenpoint, Brooklyn,
+Try it: open the [demo](https://3-209-60-155.sslip.io) and press **Try it as
+Maya**. You become Maya Okafor, who teaches wheel-throwing in Greenpoint, Brooklyn,
 and you watch six people's answers arrive. Everything runs on the **PayPal
 Sandbox**; no real money moves.
 
@@ -30,11 +30,13 @@ Sandbox**; no real money moves.
    A vague answer gets a question, not a guess.
 4. **The date rises to the top.** CommitPool counts who can come, in the
    class's time zone, and recommends the date; Claude puts the reason into
-   words and drafts the nudges Maya can copy to whoever still needs to answer
-   or reserve. Maya opens reservations on the date with one tap.
+   words and drafts the nudges Maya can copy: to whoever needs to clarify,
+   has a condition the date misses, or can come but hasn't reserved yet. Maya
+   opens reservations on that date once she has checked the terms that lock.
 5. **People reserve with PayPal.** Each person approves a hold at PayPal.
    Nothing is charged. When enough have reserved, the holds are charged and
-   the class is **on**: everyone gets the calendar invite. If the deadline
+   the class is **on**: everyone can add it to their calendar, and paid
+   participants who left an email get the invite attached. If the deadline
    passes short, the class is cancelled, holds are released and charges are
    refunded, and everyone can watch their refund land.
 
@@ -95,7 +97,7 @@ claude mcp add --transport http commitpool https://3-209-60-155.sslip.io/mcp
 
 An organizer's assistant can create the workshop, read who can come and why
 a date is recommended, see who CommitPool suggests nudging with a message
-Claude drafted (nothing is sent), and open reservations after a preview whose
+Claude drafted (a plain template until Claude's is ready; nothing is sent), and open reservations after a preview whose
 terms the organizer approves (a token bound to those exact terms). A participant's
 assistant can join, pass on their availability in their own words and hand
 them the PayPal link once they accept the consent text. No tool moves money:
@@ -114,7 +116,7 @@ browser ── React SPA (embedded) ──► Go HTTP API ──► PostgreSQL
                  void, refund, close,   │          Orders v2 · Payments v2
                  reconcile, heal,       ▼
                  notify            Claude on Amazon Bedrock
-                                   (availability → verdicts, explanation)
+                                   (reads, drafts, explains, words nudges)
                                    Amazon SES (optional notifications)
 ```
 
@@ -129,16 +131,18 @@ browser ── React SPA (embedded) ──► Go HTTP API ──► PostgreSQL
   `PayPal-Mock-Response` header behind a flag. The state machines, the keys,
   the capture deadline, the close and the operator runbook are in
   [docs/payments.md](docs/payments.md).
-- **Claude on Amazon Bedrock** reads availability messages with strict
-  structured output (see [below](#availability-with-claude-on-amazon-bedrock)).
+- **Claude on Amazon Bedrock** reads availability, drafts classes, explains
+  the recommended date and words the nudges (see
+  [below](#claude-on-amazon-bedrock)).
 - **MCP server** (`internal/mcpserver`) at `/mcp`, in the same binary; each
   tool calls the JSON API in process ([docs/mcp.md](docs/mcp.md)).
 - **Notifications** go through an outbox table and a `notify` job, so an
   email never blocks or undoes a money movement. `internal/notice` renders
   each kind as HTML and text in the CommitPool identity; "It's on" carries
-  the calendar invite. Amazon SES sends them, or the log stands in. A message
-  that is no longer true when its turn comes is skipped, and one carrying a
-  private link is cleared from the database once sent.
+  the calendar invite. Amazon SES sends them, or the log stands in. A "spot
+  reserved" or "It's on" that is no longer true when its turn comes is
+  skipped, and a message carrying a private link is cleared from the
+  database once sent.
 - **Link previews and calendars.** Invite links unfurl with a 1200×630 card
   rendered in Go (`internal/ogimage`) and Open Graph tags; `/p/`, `/owner/`
   and `/w/` pages are `noindex`. `internal/ics` writes the calendar invite
@@ -161,17 +165,20 @@ The video follows this script against a local or hosted instance:
    Sunday 10 AM–12 PM New York time. Six participants answer one by one and
    the grid fills in: four can come on the Saturday, three on the Sunday, and
    Grace's "ideally in the afternoon" is too vague to place, so **Claude
-   suggests** asking her which hours work, with a message ready to copy.
+   suggests** asking her which hours work, with a message ready to copy (a
+   plain template until Claude's is ready).
 2. **Create a workshop** shows the other way in: Maya's description becomes a
    drafted form she checks, with the studio cost suggesting 3 people.
-3. On the organizer page, open reservations on the recommended date. The
-   invite link now unfurls with the class card in any chat.
+3. On the organizer page, open reservations on the recommended date after
+   checking the terms that lock. The invite's preview card now shows the
+   chosen date and "Reservations open".
 4. Three participants, in their own browser contexts, accept the consent and
-   reserve with Personal Sandbox accounts; each one with an email hears
-   "spot reserved, not charged yet". The third reservation starts the capture
-   round; with three completed payments the headline turns to **It's on**,
-   each seat reads **Paid**, and the confirmation email carries the calendar
-   invite.
+   reserve with Personal Sandbox accounts. (The prepared participants have
+   no email; someone who joins from the invite link with one, a verified
+   address while SES is in its sandbox, hears "spot reserved, not charged
+   yet".) The third reservation starts the capture round; with three
+   completed payments the headline turns to **It's on**, each seat reads
+   **Paid**, and paid participants with an email get the calendar invite.
 5. For the second run, with demo controls on, **Fail next charge** on one
    seat makes PayPal answer `AUTHORIZATION_EXPIRED` to that capture, and
    **Close reservations now** ends the window early: below the minimum the
@@ -269,9 +276,10 @@ Claude does four things in CommitPool, and decides none of them:
 | Suggest nudges | A short message per person CommitPool chose | Refuses links, contact details and long answers; falls back to a plain message |
 
 Every user-written text reaches Claude as a JSON string labelled as data,
-never instructions. Drafts and nudges never block a page: drafts answer 200
-with an empty draft when Claude is busy or fails, and explanations and nudges
-are written in the background and cached.
+never instructions. Drafts answer 200 with an empty draft (`drafted: false`)
+when Claude fails or every drafting slot is taken, and 429 with `Retry-After`
+past the per-visitor or hourly quota; explanations and nudges are written in
+the background and cached, so no page waits for them.
 
 Participants describe their availability in plain language. With
 `COMMITPOOL_AI_PROVIDER=bedrock`, Claude on Amazon Bedrock reads each message
@@ -283,8 +291,8 @@ it again before keeping it, so a reading with an extra field or an unknown
 date is refused. The message is data, never instructions, and the schema has
 no field for the price, the currency, the minimum or the capacity: those come
 from the workshop alone. The server, not the model, decides which date is
-compatible for whom and which date to recommend; the model only writes the
-owner's one-paragraph explanation of that recommendation (at most 60 words).
+compatible for whom and which date to recommend; the model then writes the
+owner's one-paragraph explanation of that recommendation (cut at 60 words).
 The owner view never waits for it: the explanation is written once per input
 in the background and kept in memory, and until it is ready the view answers
 with `explanation_pending: true`. With a fallback model configured, the
@@ -428,7 +436,8 @@ fake interpreter or a local stand-in for the Bedrock endpoint.
   no user accounts.
 - Sandbox only. Writes are rate-limited per client address, a workshop takes
   at most 200 participants, a participant at most 20 availability messages,
-  and at most 4 model calls run at once; there is no WAF or autoscaling.
+  and at most 7 model calls run at once (4 for readings and explanations, 2
+  for drafts, 1 for nudges); there is no WAF or autoscaling.
 - A paid seat cannot refund itself: only a cancellation refunds it, so the
   minimum the organizer relies on cannot drop after the fact.
 - Emails are delivered at least once: after a crash between sending and

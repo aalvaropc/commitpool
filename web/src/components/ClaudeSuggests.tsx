@@ -21,22 +21,16 @@ function SuggestionItem({ s }: { s: Suggestion }) {
         {s.name ? <Avatar name={s.name} size="sm" /> : <Icon name="users" className="text-brand" />}
         <span className="min-w-0 [overflow-wrap:anywhere]">{s.reason}</span>
       </p>
-      {s.pending ? (
-        <p className="text-sm text-ink-soft">Claude is writing a message…</p>
-      ) : (
-        <>
-          <p className="rounded-control bg-surface-muted px-4 py-3 whitespace-pre-line [overflow-wrap:anywhere]">{s.message}</p>
-          <div className="flex flex-wrap items-center gap-3">
-            <Button variant="secondary" size="sm" onClick={copy}>
-              <Icon name="copy" size={16} />
-              Copy message<span className="sr-only"> for {who}</span>
-            </Button>
-            <span role="status" className="text-sm text-ink-soft">
-              {copied === 'copied' ? 'Copied. Paste it in your chat.' : copied === 'failed' ? 'Copying is blocked here; select the message and copy it.' : ''}
-            </span>
-          </div>
-        </>
-      )}
+      <p className="rounded-control bg-surface-muted px-4 py-3 whitespace-pre-line [overflow-wrap:anywhere]">{s.message}</p>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button variant="secondary" size="sm" onClick={copy}>
+          <Icon name="copy" size={16} />
+          Copy message<span className="sr-only"> for {who}</span>
+        </Button>
+        <span role="status" className="text-sm text-ink-soft">
+          {copied === 'copied' ? 'Copied. Paste it where you talk to them.' : copied === 'failed' ? 'Copying is blocked here; select the message and copy it.' : s.pending ? 'Claude is rewording this message…' : ''}
+        </span>
+      </div>
     </li>
   )
 }

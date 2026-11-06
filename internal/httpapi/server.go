@@ -52,6 +52,7 @@ type server struct {
 	Deps
 	explanations *textCache
 	nudges       *textCache
+	nudgeSlots   chan struct{}
 	limiter      *rateLimiter
 	demoQuota    *demoQuota
 	images       imageCache
@@ -71,7 +72,7 @@ func New(d Deps) http.Handler {
 	if d.Background == nil {
 		d.Background = &sync.WaitGroup{}
 	}
-	s := &server{Deps: d, explanations: newTextCache(), nudges: newTextCache(), aiSem: make(chan struct{}, aiSlots)}
+	s := &server{Deps: d, explanations: newTextCache(), nudges: newTextCache(), nudgeSlots: make(chan struct{}, nudgeSlots), aiSem: make(chan struct{}, aiSlots)}
 	if d.Cfg.RateLimitPerMin > 0 {
 		s.limiter = newRateLimiter(d.Cfg.RateLimitPerMin)
 	}

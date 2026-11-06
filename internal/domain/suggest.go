@@ -34,6 +34,8 @@ type SuggestInput struct {
 	Now          time.Time
 	Minimum      int
 	Committed    int
+	Capacity     int
+	SeatsTaken   int
 	Date         DateSummary
 	Unclear      []string
 	Reserved     map[string]bool
@@ -52,13 +54,13 @@ func Suggestions(in SuggestInput) []Suggestion {
 				personal = append(personal, Suggestion{Kind: SuggestCondition, ParticipantID: id, Blocker: b})
 			}
 		}
-	case in.Status == WorkshopFunding && in.PaymentsOpen:
+	case in.Status == WorkshopFunding && in.PaymentsOpen && in.Committed < in.Minimum && (in.Capacity == 0 || in.SeatsTaken < in.Capacity):
 		for _, id := range in.Date.Compatible {
 			if !in.Reserved[id] {
 				personal = append(personal, Suggestion{Kind: SuggestReserve, ParticipantID: id})
 			}
 		}
-		share = in.Committed < in.Minimum && in.ClosesAt.Sub(in.Now) <= ShareWhenLeft
+		share = in.ClosesAt.Sub(in.Now) <= ShareWhenLeft
 	}
 	var out []Suggestion
 	if share {

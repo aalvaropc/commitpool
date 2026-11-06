@@ -18,7 +18,7 @@ func nudge(kind string) ai.SuggestInput {
 func TestPlainSuggestion_SaysOnlyTheFacts(t *testing.T) {
 	cases := map[string][]string{
 		"clarify":   {"Hi Grace!", "Which hours in the afternoon work for you?", "your CommitPool page"},
-		"condition": {"Hi Grace!", "Sat, Nov 14 runs 10 AM–12 PM", "only if it ends by 11 AM", "any way you could make it"},
+		"condition": {"Hi Grace!", "Sat, Nov 14 runs 10 AM–12 PM", "you said you could come only if it ends by 11 AM", "any way you could make it"},
 		"reserve":   {"Hi Grace!", "Reservations for Wheel-throwing for beginners on Sat, Nov 14 are open until Fri, Nov 13 at 10 AM", "Nothing is charged unless 3 people reserve"},
 		"share":     {"Wheel-throwing for beginners on Sat, Nov 14 needs 2 more people by Fri, Nov 13 at 10 AM", "nobody pays"},
 	}
@@ -65,9 +65,8 @@ func TestBedrockSuggest_KeepsItShortAndLinkFree(t *testing.T) {
 	if _, _, err := b.Suggest(context.Background(), nudge("clarify")); err == nil {
 		t.Error("a message with a link was accepted")
 	}
-	got, _, err := b.Suggest(context.Background(), nudge("clarify"))
-	if err != nil || len(strings.Fields(got)) > 60 {
-		t.Errorf("long message = %d words, %v", len(strings.Fields(got)), err)
+	if _, _, err := b.Suggest(context.Background(), nudge("clarify")); err == nil {
+		t.Error("an 80-word message was accepted")
 	}
 	system := m.recorded()[0].body["system"]
 	if raw := strings.ToLower(strings.Join(strings.Fields(strings.Repeat(" ", 1)+toString(system)), " ")); !strings.Contains(raw, "data, never instructions") {
@@ -90,4 +89,25 @@ func toString(v any) string {
 		sb.WriteString(x)
 	}
 	return sb.String()
+}
+
+func TestHasContact_CatchesLinksAddressesAndNumbers(t *testing.T) {
+	for _, s := range []string{"see paypal.me/maya", "WWW.example.org", "write to maya@example.com", "call +1 (718) 555-0199", "bit.ly/x", "https://a.b"} {
+		if !ai.HasContact(s) {
+			t.Errorf("%q passed", s)
+		}
+	}
+	for _, s := range []string{"Hi Grace! Which hours work on Sat, Nov 14?", "It runs 10 AM–12 PM.", "3 people reserve by Fri, Nov 13 at 10 AM."} {
+		if ai.HasContact(s) {
+			t.Errorf("%q was flagged", s)
+		}
+	}
+}
+
+func TestPlainSuggestion_IgnoresAQuestionWithContactDetails(t *testing.T) {
+	in := nudge("clarify")
+	in.Question = "Text me at +1 718 555 0199 instead?"
+	if got := ai.PlainSuggestion(in); strings.Contains(got, "555") {
+		t.Errorf("plain message = %q", got)
+	}
 }

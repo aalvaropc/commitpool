@@ -13,6 +13,11 @@ import (
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
+const (
+	nudgeSlots     = 1
+	nudgeBusyRetry = 30 * time.Second
+)
+
 type suggestionDTO struct {
 	Kind          string `json:"kind"`
 	ParticipantID string `json:"participant_id,omitempty"`
@@ -52,15 +57,20 @@ func (s *server) suggestions(ctx context.Context, st workshopState, rec domain.R
 	}
 	reserved := map[string]bool{}
 	for _, en := range st.enrollments {
-		if en.Status.Occupies() {
+		if en.Status.Occupies() || en.WithdrawnAt != nil {
 			reserved[en.ParticipantID] = true
 		}
 	}
 	c := st.counts()
 	committed := c.Paid + c.Authorized + c.Capturing + c.Pending
+	capacity := st.w.Capacity
+	if st.proposal != nil {
+		capacity = st.proposal.Capacity
+	}
 	list := domain.Suggestions(domain.SuggestInput{
 		Status: st.w.Status, PaymentsOpen: paymentsOpen(st.w, st.proposal, now), ClosesAt: closes, Now: now,
-		Minimum: minimum, Committed: committed, Date: summary, Unclear: unclear, Reserved: reserved,
+		Minimum: minimum, Committed: committed, Capacity: capacity, SeatsTaken: c.Occupying,
+		Date: summary, Unclear: unclear, Reserved: reserved,
 	})
 	day := present.Day(date.StartsAt, st.loc)
 	hours := present.Clock(date.StartsAt.In(st.loc)) + "–" + present.Clock(date.EndsAt.In(st.loc))
@@ -71,10 +81,8 @@ func (s *server) suggestions(ctx context.Context, st workshopState, rec domain.R
 	out := make([]suggestionDTO, 0, len(list))
 	for _, sg := range list {
 		name := names[sg.ParticipantID]
-		in := ai.SuggestInput{
-			WorkshopTitle: st.w.Title, Kind: string(sg.Kind), Name: name, Date: day, Hours: hours,
-			Deadline: deadline, Needed: minimum, Missing: max(minimum-committed, 0),
-		}
+		missing := max(minimum-committed, 0)
+		in := ai.SuggestInput{WorkshopTitle: st.w.Title, Kind: string(sg.Kind), Name: name, Date: day, Hours: hours}
 		var reason string
 		switch sg.Kind {
 		case domain.SuggestClarify:
@@ -86,11 +94,13 @@ func (s *server) suggestions(ctx context.Context, st workshopState, rec domain.R
 			in.Condition = conditionText(sg.Blocker)
 			reason = fmt.Sprintf("%s said %s; %s runs %s.", name, in.Condition, day, hours)
 		case domain.SuggestReserve:
+			in.Deadline, in.Needed = deadline, minimum
 			reason = fmt.Sprintf("%s can come %s and hasn’t reserved yet.", name, day)
 		case domain.SuggestShare:
-			reason = fmt.Sprintf("Reservations close %s, and %s more %s needed.", deadline, fmt.Sprint(in.Missing), plural(in.Missing, "is", "are"))
+			in.Deadline, in.Missing = deadline, missing
+			reason = fmt.Sprintf("Reservations close %s, and %d more %s needed.", deadline, missing, plural(missing, "is", "are"))
 		}
-		message, pending := s.nudgeMessage(ctx, st, in)
+		message, pending := s.nudgeMessage(ctx, st, in, closes)
 		if sg.Kind == domain.SuggestShare && shareURL != "" && message != "" {
 			message += "\n" + shareURL
 		}
@@ -124,7 +134,7 @@ func clockOf(hhmm string) string {
 	return present.Clock(t)
 }
 
-func (s *server) nudgeMessage(ctx context.Context, st workshopState, in ai.SuggestInput) (string, bool) {
+func (s *server) nudgeMessage(ctx context.Context, st workshopState, in ai.SuggestInput, closes time.Time) (string, bool) {
 	key := sha256.Sum256([]byte(st.w.ID + "\nnudge\n" + ai.SuggestFacts(in)))
 	text, fresh, start := s.nudges.claim(key, s.Clock.Now())
 	if fresh {
@@ -134,17 +144,20 @@ func (s *server) nudgeMessage(ctx context.Context, st workshopState, in ai.Sugge
 		bctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), explainTimeout)
 		go func() {
 			defer cancel()
-			text, retryAt := s.writeNudge(bctx, st, in)
+			text, retryAt := s.writeNudge(bctx, st, in, closes)
 			s.nudges.finish(key, text, retryAt)
 			if f := afterExplanation.Load(); f != nil {
 				(*f)()
 			}
 		}()
 	}
+	if text == "" {
+		text = ai.PlainSuggestion(in)
+	}
 	return text, true
 }
 
-func (s *server) writeNudge(ctx context.Context, st workshopState, in ai.SuggestInput) (text string, retryAt time.Time) {
+func (s *server) writeNudge(ctx context.Context, st workshopState, in ai.SuggestInput, closes time.Time) (text string, retryAt time.Time) {
 	plain := ai.PlainSuggestion(in)
 	defer func() {
 		if p := recover(); p != nil {
@@ -152,9 +165,9 @@ func (s *server) writeNudge(ctx context.Context, st workshopState, in ai.Suggest
 			text, retryAt = plain, s.Clock.Now().Add(explanationRetryAfter)
 		}
 	}()
-	release, err := s.acquireAI(ctx)
-	if err != nil {
-		return plain, s.Clock.Now().Add(explanationRetryAfter)
+	release, ok := tryAcquire(s.nudgeSlots)
+	if !ok {
+		return plain, s.Clock.Now().Add(nudgeBusyRetry)
 	}
 	defer release()
 	text, meta, err := s.AI.Suggest(ctx, in)
@@ -162,12 +175,16 @@ func (s *server) writeNudge(ctx context.Context, st workshopState, in ai.Suggest
 		s.Log.Warn("suggest a nudge; using the plain message", "workshop_id", st.w.ID, "error", err)
 		return plain, s.Clock.Now().Add(explanationRetryAfter)
 	}
+	others := make([]store.CandidateDateRow, 0, len(st.dates))
 	for _, d := range st.dates {
-		if present.Day(d.StartsAt, st.loc) == in.Date {
-			if namesAnotherDate(text, d.ID, st.dates, st.loc) {
-				s.Log.Warn("nudge named another date; using the plain message", "workshop_id", st.w.ID, "model", meta.Model)
-				return plain, time.Time{}
-			}
+		if closes.IsZero() || present.Day(d.StartsAt, st.loc) != present.Day(closes, st.loc) {
+			others = append(others, d)
+		}
+	}
+	for _, d := range others {
+		if present.Day(d.StartsAt, st.loc) == in.Date && namesAnotherDate(text, d.ID, others, st.loc) {
+			s.Log.Warn("nudge named another date; using the plain message", "workshop_id", st.w.ID, "model", meta.Model)
+			return plain, time.Time{}
 		}
 	}
 	return text, time.Time{}

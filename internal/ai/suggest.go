@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go/v2"
@@ -17,6 +18,12 @@ const (
 
 //go:embed prompts/suggest_system.txt
 var suggestSystemPrompt string
+
+var contactLike = regexp.MustCompile(`(?i)https?://|www\.|\b[a-z0-9-]+\.(?:com|net|org|io|me|ly|co|app|link|gg|xyz|info|biz|us|uk|es|pe|mx|ar|de|fr)\b|[a-z0-9._%+-]+@[a-z0-9-]+\.|\+?\d[\d\s().-]{7,}\d`)
+
+func HasContact(s string) bool {
+	return contactLike.MatchString(s)
+}
 
 type SuggestInput struct {
 	WorkshopTitle string
@@ -43,12 +50,12 @@ func PlainSuggestion(in SuggestInput) string {
 	switch in.Kind {
 	case "clarify":
 		q := in.Question
-		if q == "" {
+		if q == "" || HasContact(q) || len([]rune(q)) > 160 {
 			q = "Which of the dates and times work for you?"
 		}
 		return hi + q + " Answer on your CommitPool page and it updates the plan."
 	case "condition":
-		return fmt.Sprintf("%s%s runs %s, which doesn’t fit your “%s”. Is there any way you could make it?", hi, in.Date, in.Hours, in.Condition)
+		return fmt.Sprintf("%s%s runs %s, and you said you could come %s. Is there any way you could make it?", hi, in.Date, in.Hours, in.Condition)
 	case "reserve":
 		return fmt.Sprintf("%sReservations for %s on %s are open until %s, and you can make it. Reserve your spot from the link you got when you joined. Nothing is charged unless %d people reserve.", hi, in.WorkshopTitle, in.Date, in.Deadline, in.Needed)
 	case "share":
@@ -105,12 +112,14 @@ func (b *Bedrock) Suggest(ctx context.Context, in SuggestInput) (string, Meta, e
 	if err != nil {
 		return "", meta, err
 	}
-	text := limitWords(answerText(msg), maxSuggestionWords)
+	text := strings.Join(strings.Fields(answerText(msg)), " ")
 	switch {
 	case text == "":
 		return "", meta, errors.New("ai: suggest: the answer was empty")
-	case strings.Contains(strings.ToLower(text), "http") || strings.Contains(text, "www."):
-		return "", meta, errors.New("ai: suggest: the answer carried a link")
+	case len(strings.Fields(text)) > maxSuggestionWords:
+		return "", meta, errors.New("ai: suggest: the answer was too long")
+	case HasContact(text):
+		return "", meta, errors.New("ai: suggest: the answer carried a link or contact")
 	}
 	return text, meta, nil
 }

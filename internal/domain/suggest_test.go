@@ -48,8 +48,12 @@ func TestSuggestions_WhileReservationsAreOpen(t *testing.T) {
 		t.Errorf("near the deadline = %+v, want sharing again first", got)
 	}
 	in.Committed = 3
-	if got := domain.Suggestions(in); len(got) != 3 || got[0].Kind != domain.SuggestReserve {
-		t.Errorf("minimum met = %+v, want no share", got)
+	if got := domain.Suggestions(in); len(got) != 0 {
+		t.Errorf("minimum met = %+v, want nobody nudged: holds are being charged", got)
+	}
+	in.Committed, in.Capacity, in.SeatsTaken = 1, 4, 4
+	if got := domain.Suggestions(in); len(got) != 0 {
+		t.Errorf("every spot taken = %+v, want nobody sent to reserve", got)
 	}
 }
 

@@ -88,3 +88,37 @@ func TestSuggestions_ReachTheAssistantThroughGetStatus(t *testing.T) {
 		t.Errorf("get_status suggestions = %+v", status.Suggestions)
 	}
 }
+
+func TestSuggestions_LeaveAloneWhoGaveUpTheirSpot(t *testing.T) {
+	e := newEnv(t)
+	h, p, ps := e.fundingWorkshop()
+	e.enroll(ps[1], p.ID, http.StatusCreated)
+	e.call(http.MethodPost, ps[1].path+"/withdraw", map[string]string{}, http.StatusOK, nil)
+	v := e.settledOwner(h)
+	enrolled := map[string]bool{}
+	for _, en := range v.Enrollments {
+		enrolled[en.DisplayName] = true
+	}
+	for _, sg := range v.Suggestions {
+		if sg.Kind == "reserve" && enrolled[sg.Name] {
+			t.Errorf("nudged %s, who reserved and gave the spot up", sg.Name)
+		}
+	}
+}
+
+func TestSuggestions_AlwaysCarryAMessage(t *testing.T) {
+	e := newEnv(t, withAI(slowNudgeAI{}))
+	h := e.createWorkshop()
+	e.joinAndSay(h, "Grace Liu", "I can make it either day, ideally in the afternoon.")
+	v := e.owner(h)
+	if len(v.Suggestions) != 1 || v.Suggestions[0].Message == "" {
+		t.Errorf("suggestions on the first look = %+v, want the plain message while Claude writes", v.Suggestions)
+	}
+}
+
+type slowNudgeAI struct{ ai.Fake }
+
+func (slowNudgeAI) Suggest(ctx context.Context, _ ai.SuggestInput) (string, ai.Meta, error) {
+	<-ctx.Done()
+	return "", ai.Meta{}, ctx.Err()
+}

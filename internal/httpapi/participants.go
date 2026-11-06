@@ -14,7 +14,6 @@ import (
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
-// interpretTimeout bounds one call to the interpreter.
 const interpretTimeout = 30 * time.Second
 
 type participantViewDTO struct {
@@ -28,9 +27,6 @@ type participantViewDTO struct {
 	Consent      consentDTO       `json:"consent"`
 }
 
-// participantView shows a participant only their own data: their latest
-// availability and their enrollment, next to the workshop's public terms,
-// the proposal, the aggregate tally and the consent they would accept.
 func (s *server) participantView(w http.ResponseWriter, r *http.Request) error {
 	p, ws, err := s.participant(r)
 	if err != nil {
@@ -74,8 +70,6 @@ func (s *server) participantView(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// ownEnrollment is the participant's active enrollment or, when every one is
-// finished, the most recent, so the outcome of a payment stays visible.
 func ownEnrollment(es []store.EnrollmentRow, participantID string) *store.EnrollmentRow {
 	var last *store.EnrollmentRow
 	for i := range es {
@@ -90,9 +84,6 @@ func ownEnrollment(es []store.EnrollmentRow, participantID string) *store.Enroll
 	return last
 }
 
-// submitAvailability interprets the participant's message about when they
-// can come and stores both. The interpreter's reading is checked against the
-// workshop's dates before it is kept: the server, not the model, decides.
 func (s *server) submitAvailability(w http.ResponseWriter, r *http.Request) error {
 	p, ws, err := s.participant(r)
 	if err != nil {
@@ -163,8 +154,6 @@ func (s *server) submitAvailability(w http.ResponseWriter, r *http.Request) erro
 	return nil
 }
 
-// correctAvailability stores the participant's own correction of a reading
-// of one of their availabilities; from then on it is the reading in force.
 func (s *server) correctAvailability(w http.ResponseWriter, r *http.Request) error {
 	p, ws, err := s.participant(r)
 	if err != nil {
@@ -205,10 +194,6 @@ func (s *server) correctAvailability(w http.ResponseWriter, r *http.Request) err
 	return nil
 }
 
-// cleanInterpretation fits a reading to the workshop's dates: one verdict per
-// candidate date in date order, a date without one as unknown, a condition
-// only on a conditional verdict and every list non-nil. problems lists what
-// had to be dropped or could not be read; a correction with any is refused.
 func cleanInterpretation(in domain.Interpretation, dates []store.CandidateDateRow) (domain.Interpretation, []string) {
 	var problems []string
 	known := make(map[string]bool, len(dates))

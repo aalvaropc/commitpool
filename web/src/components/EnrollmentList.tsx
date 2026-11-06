@@ -23,7 +23,6 @@ function paymentLine(e: Enrollment): string | null {
   return parts.length ? parts.join(', ') : null
 }
 
-/** Each seat's financial state: the participant-facing label and the PayPal detail. */
 export default function EnrollmentList({ token, view, onChange }: Props) {
   const [busy, setBusy] = useState<string | null>(null)
   const [result, setResult] = useState<{ tone: 'paid' | 'attention'; text: string; enrollment: string; status: string } | null>(null)

@@ -18,16 +18,11 @@ type EnrollmentRow struct {
 	ConsentVersion                            string
 	SeatReservedAt, SeatExpiresAt             time.Time
 	ApprovalCancelledAt, ReleasedAt           *time.Time
-	// NeedsAttentionAt is when the enrollment was flagged for an operator,
-	// and AttentionReason why; both nil when it is not flagged.
-	NeedsAttentionAt *time.Time
-	AttentionReason  *string
-	// WithdrawnAt is when the participant gave the seat up; such an
-	// enrollment never takes a seat again.
-	WithdrawnAt *time.Time
+	NeedsAttentionAt                          *time.Time
+	AttentionReason                           *string
+	WithdrawnAt                               *time.Time
 }
 
-// Domain is the enrollment as the domain rules see it.
 func (e EnrollmentRow) Domain() domain.Enrollment {
 	return domain.Enrollment{ID: e.ID, ParticipantID: e.ParticipantID, Status: e.Status, SeatExpiresAt: e.SeatExpiresAt, NeedsAttention: e.NeedsAttentionAt != nil}
 }
@@ -40,15 +35,6 @@ type ReserveParams struct {
 
 const enrollmentCols = `id, workshop_id, participant_id, proposal_id, status, consent_at, consent_version, seat_reserved_at, seat_expires_at, approval_cancelled_at, released_at, needs_attention_at, attention_reason, withdrawn_at`
 
-// ReserveSeatAndCreateEnrollment reserves a seat for the participant under the
-// workshop's row lock, so concurrent requests can never exceed the capacity of
-// the active proposal.
-//
-// A participant who already has an active enrollment gets it back with
-// created=false and nothing is inserted. Otherwise payments must be open
-// (domain.PaymentsOpen: FUNDING, or CONFIRMED and still selling seats, with
-// p.Now before the proposal closes; else ErrProposalNotOpen) and a seat must
-// be free (domain.ErrCapacityFull).
 func (s *Store) ReserveSeatAndCreateEnrollment(ctx context.Context, p ReserveParams) (EnrollmentRow, bool, error) {
 	var (
 		enrollment EnrollmentRow
@@ -78,7 +64,6 @@ func (s *Store) ReserveSeatAndCreateEnrollment(ctx context.Context, p ReservePar
 			return ErrProposalNotOpen
 		}
 
-		// A lapsed seat no release job has freed yet does not count.
 		if _, err := tx.Exec(ctx,
 			`update enrollments e set status = 'RELEASED', released_at = $2, updated_at = now()
 			 where e.workshop_id = $1 and `+releasable("$2"), p.WorkshopID, p.Now); err != nil {
@@ -105,13 +90,6 @@ func (s *Store) ReserveSeatAndCreateEnrollment(ctx context.Context, p ReservePar
 	return enrollment, created, nil
 }
 
-// ReReserveSeat gives a RELEASED enrollment a fresh seat when payments are
-// still open (domain.PaymentsOpen: FUNDING, or CONFIRMED before the proposal
-// closes) and a seat is free, under the same workshop lock and the same rule
-// as ReserveSeatAndCreateEnrollment. It reports false, without error,
-// whenever the seat cannot be given back: no capacity, payments closed, the
-// enrollment is not RELEASED, or the participant already holds a newer
-// active enrollment.
 func (s *Store) ReReserveSeat(ctx context.Context, enrollmentID string, now time.Time, ttl time.Duration) (bool, error) {
 	reserved := false
 	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
@@ -169,8 +147,6 @@ func (s *Store) ReReserveSeat(ctx context.Context, enrollmentID string, now time
 	return reserved, nil
 }
 
-// checkCapacity applies the domain seat rule to the workshop's enrollments. The
-// caller must hold the workshop lock.
 func checkCapacity(ctx context.Context, tx pgx.Tx, workshopID string, capacity int) error {
 	rows, err := tx.Query(ctx,
 		`select id, participant_id, status, seat_expires_at from enrollments where workshop_id = $1`, workshopID)
@@ -188,10 +164,6 @@ func checkCapacity(ctx context.Context, tx pgx.Tx, workshopID string, capacity i
 	return domain.ReserveSeat(domain.Counts(enrollments), capacity)
 }
 
-// activeEnrollment returns the participant's one active enrollment, or nil:
-// non-terminal, or flagged for an operator whatever its status, since a
-// flagged enrollment's money state is uncertain and must not get a second
-// hold beside it.
 func activeEnrollment(ctx context.Context, q querier, participantID string) (*EnrollmentRow, error) {
 	all, err := many[EnrollmentRow](ctx, q, "enrollments by participant",
 		`select `+enrollmentCols+` from enrollments where participant_id = $1 order by created_at desc, id`, participantID)
@@ -214,14 +186,11 @@ func (s *Store) EnrollmentByID(ctx context.Context, id string) (EnrollmentRow, e
 	return e, nil
 }
 
-// EnrollmentsByWorkshop returns every enrollment of the workshop in creation order.
 func (s *Store) EnrollmentsByWorkshop(ctx context.Context, workshopID string) ([]EnrollmentRow, error) {
 	return many[EnrollmentRow](ctx, s.Pool, "enrollments by workshop",
 		`select `+enrollmentCols+` from enrollments where workshop_id = $1 order by created_at, id`, workshopID)
 }
 
-// ActiveEnrollmentByParticipant returns the participant's non-terminal
-// enrollment, or nil when they have none.
 func (s *Store) ActiveEnrollmentByParticipant(ctx context.Context, participantID string) (*EnrollmentRow, error) {
 	e, err := activeEnrollment(ctx, s.Pool, participantID)
 	if isMissing(err) {
@@ -230,8 +199,6 @@ func (s *Store) ActiveEnrollmentByParticipant(ctx context.Context, participantID
 	return e, err
 }
 
-// TransitionEnrollment is a compare-and-set: the enrollment moves to `to` only
-// if its current status is one of `from`. It reports whether a row changed.
 func (s *Store) TransitionEnrollment(ctx context.Context, id string, from []domain.EnrollmentStatus, to domain.EnrollmentStatus) (bool, error) {
 	allowed := make([]string, len(from))
 	for i, status := range from {
@@ -253,14 +220,6 @@ func (s *Store) TransitionEnrollment(ctx context.Context, id string, from []doma
 	return tag.RowsAffected() == 1, nil
 }
 
-// Withdraw gives the participant's seat up under the enrollment's row lock:
-// a reserved seat is RELEASED and a hold not yet charged goes to VOIDING, so
-// a queued capture finds it gone and the caller enqueues its void. It refuses
-// a seat kept while PayPal reviews the hold (domain.ErrHoldUnderReview), a
-// charge in flight (ErrCaptureInProgress), a paid seat, refunded only if the
-// workshop is cancelled (ErrPaidNoSelfRefund), a flagged enrollment
-// (ErrNeedsOperator) and anything finished (ErrNothingToWithdraw). It
-// returns the new status.
 func (s *Store) Withdraw(ctx context.Context, enrollmentID string, now time.Time) (domain.EnrollmentStatus, error) {
 	var to domain.EnrollmentStatus
 	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
@@ -306,9 +265,6 @@ func (s *Store) Withdraw(ctx context.Context, enrollmentID string, now time.Time
 	return to, nil
 }
 
-// FlagEnrollment marks the enrollment for an operator without moving it, so
-// its seat and its hold stay accounted for. The first reason stays; it
-// reports whether this call set the flag.
 func (s *Store) FlagEnrollment(ctx context.Context, id, reason string) (bool, error) {
 	tag, err := s.Pool.Exec(ctx,
 		`update enrollments set needs_attention_at = now(), attention_reason = $2, updated_at = now()
@@ -322,7 +278,6 @@ func (s *Store) FlagEnrollment(ctx context.Context, id, reason string) (bool, er
 	return tag.RowsAffected() == 1, nil
 }
 
-// ClearEnrollmentFlag removes the operator flag; it reports whether there was one.
 func (s *Store) ClearEnrollmentFlag(ctx context.Context, id string) (bool, error) {
 	tag, err := s.Pool.Exec(ctx,
 		`update enrollments set needs_attention_at = null, attention_reason = null, updated_at = now()
@@ -336,19 +291,12 @@ func (s *Store) ClearEnrollmentFlag(ctx context.Context, id string) (bool, error
 	return tag.RowsAffected() == 1, nil
 }
 
-// releasable is the condition, on enrollment e, of a seat ReleaseExpiredSeats
-// releases at the time in parameter now (such as "$2"): SEAT_RESERVED,
-// expired before it (domain.SeatExpired), not flagged for an operator, and
-// not kept for an authorization PayPal holds PENDING.
 func releasable(now string) string {
 	return `e.status = 'SEAT_RESERVED' and e.seat_expires_at < ` + now + ` and e.needs_attention_at is null
 		and coalesce((select a.authorization_status from payment_attempts a
 		              where a.enrollment_id = e.id order by a.attempt_no desc limit 1), '') <> 'PENDING'`
 }
 
-// WorkshopIDsWithExpiredSeats returns, once each and in order, the
-// workshops with a seat ReleaseExpiredSeats would release at now. It is an
-// empty list when there are none.
 func (s *Store) WorkshopIDsWithExpiredSeats(ctx context.Context, now time.Time) ([]string, error) {
 	rows, err := s.Pool.Query(ctx,
 		`select e.workshop_id::text from enrollments e where `+releasable("$1")+`
@@ -366,10 +314,6 @@ func (s *Store) WorkshopIDsWithExpiredSeats(ctx context.Context, now time.Time) 
 	return ids, nil
 }
 
-// ReleaseReservedSeats moves every SEAT_RESERVED enrollment of the workshop
-// to RELEASED, expired or not, except a seat kept for an authorization
-// PayPal holds PENDING, and returns how many it released: for a workshop
-// that will take no payment any more.
 func (s *Store) ReleaseReservedSeats(ctx context.Context, workshopID string, now time.Time) (int, error) {
 	tag, err := s.Pool.Exec(ctx,
 		`update enrollments e set status = 'RELEASED', released_at = $2, updated_at = now()
@@ -380,11 +324,6 @@ func (s *Store) ReleaseReservedSeats(ctx context.Context, workshopID string, now
 	return int(tag.RowsAffected()), nil
 }
 
-// ReleaseExpiredSeats moves the workshop's SEAT_RESERVED enrollments whose seat
-// expired before now to RELEASED and returns how many it released. A seat
-// whose latest attempt holds an authorization PayPal reports PENDING (held
-// for review) is kept past its expiry: the buyer approved, and the periodic
-// reconcile moves it once PayPal decides.
 func (s *Store) ReleaseExpiredSeats(ctx context.Context, workshopID string, now time.Time) (int, error) {
 	tag, err := s.Pool.Exec(ctx,
 		`update enrollments e
@@ -397,13 +336,6 @@ func (s *Store) ReleaseExpiredSeats(ctx context.Context, workshopID string, now 
 	return int(tag.RowsAffected()), nil
 }
 
-// MarkApprovalCancelled records that the buyer cancelled the enrollment's
-// checkout at PayPal, setting approval_cancelled_at to now (a later cancel
-// moves it forward). Only a SEAT_RESERVED enrollment is marked, and nothing
-// else changes: the seat stays reserved until it expires on its own, so the
-// buyer can still approve the same checkout. It reports whether a row was
-// marked; a missing or malformed ID, or an enrollment past checkout, is false
-// without error.
 func (s *Store) MarkApprovalCancelled(ctx context.Context, enrollmentID string, now time.Time) (bool, error) {
 	tag, err := s.Pool.Exec(ctx,
 		`update enrollments set approval_cancelled_at = $2, updated_at = now()

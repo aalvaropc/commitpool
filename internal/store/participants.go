@@ -21,8 +21,6 @@ const (
 	availabilityCols = `id, participant_id, raw_message, interpretation, corrected, needs_clarification, model_meta, created_at`
 )
 
-// CreateParticipant joins a workshop and returns the participant's access
-// token in plaintext; only its hash is stored.
 func (s *Store) CreateParticipant(ctx context.Context, workshopID, displayName string) (ParticipantRow, string, error) {
 	token, hash, err := NewToken()
 	if err != nil {
@@ -46,14 +44,11 @@ func (s *Store) ParticipantByToken(ctx context.Context, token string) (Participa
 	return p, nil
 }
 
-// ParticipantsByWorkshop returns the workshop's participants in join order.
 func (s *Store) ParticipantsByWorkshop(ctx context.Context, workshopID string) ([]ParticipantRow, error) {
 	return many[ParticipantRow](ctx, s.Pool, "participants",
 		`select `+participantCols+` from participants where workshop_id = $1 order by created_at, id`, workshopID)
 }
 
-// SaveAvailability stores one availability message and its interpretation. An
-// empty ModelMeta is stored as {}.
 func (s *Store) SaveAvailability(ctx context.Context, a AvailabilityRow) (AvailabilityRow, error) {
 	saved, err := one[AvailabilityRow](ctx, s.Pool,
 		`insert into availabilities (participant_id, raw_message, interpretation, corrected, needs_clarification, model_meta)
@@ -66,9 +61,6 @@ func (s *Store) SaveAvailability(ctx context.Context, a AvailabilityRow) (Availa
 	return saved, nil
 }
 
-// CorrectAvailability stores the participant's own correction of an
-// interpretation. It fails with ErrNotFound unless the availability belongs to
-// that participant.
 func (s *Store) CorrectAvailability(ctx context.Context, id, participantID string, corrected json.RawMessage) error {
 	tag, err := s.Pool.Exec(ctx,
 		`update availabilities set corrected = $3 where id = $1 and participant_id = $2`,
@@ -82,16 +74,12 @@ func (s *Store) CorrectAvailability(ctx context.Context, id, participantID strin
 	return nil
 }
 
-// LatestAvailabilityByParticipant returns the participant's most recent
-// availability, or nil when they have not sent one.
 func (s *Store) LatestAvailabilityByParticipant(ctx context.Context, participantID string) (*AvailabilityRow, error) {
 	return oneOrNil[AvailabilityRow](ctx, s.Pool, "latest availability",
 		`select `+availabilityCols+` from availabilities where participant_id = $1 order by created_at desc, id desc limit 1`,
 		participantID)
 }
 
-// AvailabilitiesByWorkshop returns the most recent availability of each
-// participant of the workshop, oldest first.
 func (s *Store) AvailabilitiesByWorkshop(ctx context.Context, workshopID string) ([]AvailabilityRow, error) {
 	return many[AvailabilityRow](ctx, s.Pool, "availabilities by workshop",
 		`select `+availabilityCols+` from (
@@ -102,7 +90,6 @@ func (s *Store) AvailabilitiesByWorkshop(ctx context.Context, workshopID string)
 		) latest order by created_at, id`, workshopID)
 }
 
-// CountParticipants returns how many participants joined the workshop.
 func (s *Store) CountParticipants(ctx context.Context, workshopID string) (int, error) {
 	var n int
 	if err := s.Pool.QueryRow(ctx, `select count(*) from participants where workshop_id = $1`, workshopID).Scan(&n); err != nil {
@@ -111,8 +98,6 @@ func (s *Store) CountParticipants(ctx context.Context, workshopID string) (int, 
 	return n, nil
 }
 
-// CountAvailabilities returns how many availability messages the
-// participant sent.
 func (s *Store) CountAvailabilities(ctx context.Context, participantID string) (int, error) {
 	var n int
 	if err := s.Pool.QueryRow(ctx, `select count(*) from availabilities where participant_id = $1`, participantID).Scan(&n); err != nil {

@@ -43,8 +43,6 @@ func newWorkshop(t *testing.T, s *store.Store, minimum, capacity int) (w store.W
 	return w, ownerToken, shareToken
 }
 
-// openFunding opens payments on the workshop's earliest candidate date, with
-// the window opening at opensAt and closing 24 hours later.
 func openFunding(t *testing.T, s *store.Store, w store.WorkshopRow, opensAt time.Time) store.ProposalRow {
 	t.Helper()
 	ctx := context.Background()

@@ -13,13 +13,9 @@ const (
 	defaultPayPalBaseURL = "https://api-m.sandbox.paypal.com"
 	defaultSeatTTLMin    = 30
 
-	// DefaultBedrockModel is the Bedrock model that reads availability and
-	// explains recommendations; DefaultBedrockFallbackModel answers when it
-	// declines a request.
 	DefaultBedrockModel         = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
 	DefaultBedrockFallbackModel = ""
-	// defaultBedrockEffort sends no effort: Claude Sonnet 4.5 does not take one.
-	defaultBedrockEffort = "none"
+	defaultBedrockEffort        = "none"
 
 	AIProviderBedrock = "bedrock"
 	AIProviderFake    = "fake"
@@ -37,22 +33,14 @@ type Config struct {
 	AIProvider           string
 	BedrockModel         string
 	BedrockFallbackModel string
-	// BedrockEffort is the output_config.effort sent to Bedrock; "" sends
-	// none and leaves the model's default.
-	BedrockEffort string
-	// MCPSecret signs the MCP server's confirmation tokens; nil uses a random
-	// key per process.
-	MCPSecret []byte
-	// Mailer is how notifications go out: "log" (logged, not sent) or "ses";
-	// MailFrom is the SES sender, a verified identity.
-	Mailer, MailFrom string
-	// RateLimitPerMin is how many writes a minute one client address may
-	// send; 0 turns the limit off.
-	RateLimitPerMin int
-	DemoMode        bool
-	SandboxMocks    bool
-	SeatTTL         time.Duration
-	FakePayPal      bool
+	BedrockEffort        string
+	MCPSecret            []byte
+	Mailer, MailFrom     string
+	RateLimitPerMin      int
+	DemoMode             bool
+	SandboxMocks         bool
+	SeatTTL              time.Duration
+	FakePayPal           bool
 }
 
 func Load(getenv func(string) string) (Config, error) {
@@ -124,7 +112,6 @@ func Load(getenv func(string) string) (Config, error) {
 		}
 	}
 	cfg.SeatTTL = time.Duration(ttl) * time.Minute
-	// "none" turns the refusal fallback off.
 	if strings.EqualFold(cfg.BedrockFallbackModel, "none") {
 		cfg.BedrockFallbackModel = ""
 	}
@@ -183,12 +170,8 @@ func Load(getenv func(string) string) (Config, error) {
 	return cfg, nil
 }
 
-// redactedValue stands in for a secret in logs and printouts.
 const redactedValue = "[REDACTED]"
 
-// LogValue is the configuration as it may be logged: the PayPal client
-// secret is replaced and the database URL's password masked, so logging the
-// configuration, or anything holding it, never writes a secret.
 func (c Config) LogValue() slog.Value {
 	return slog.GroupValue(
 		slog.String("port", c.Port),
@@ -210,11 +193,8 @@ func (c Config) LogValue() slog.Value {
 	)
 }
 
-// String renders the configuration with LogValue's redactions, so printing
-// it with any verb never shows a secret.
 func (c Config) String() string { return c.LogValue().String() }
 
-// GoString is String, for the %#v verb.
 func (c Config) GoString() string { return c.String() }
 
 func redact(secret string) string {
@@ -224,10 +204,6 @@ func redact(secret string) string {
 	return redactedValue
 }
 
-// redactURL masks the password of a postgres:// or postgresql:// URL, in its
-// user info and in a password query parameter. Anything else, such as a
-// keyword/value DSN ("host=... password=..."), which url.Parse accepts
-// without finding its password, is replaced whole.
 func redactURL(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil || u.Scheme != "postgres" && u.Scheme != "postgresql" {
@@ -240,7 +216,6 @@ func redactURL(raw string) string {
 	return u.Redacted()
 }
 
-// localURL reports whether raw is an http(s) URL on this machine.
 func localURL(raw string) bool {
 	u, err := url.Parse(raw)
 	if err != nil {

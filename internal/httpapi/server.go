@@ -1,8 +1,3 @@
-// Package httpapi serves the JSON API under /api/v1, the health check and
-// the embedded web app. A token in a URL is opaque and only its SHA-256 is
-// stored: handlers find the workshop or participant by hashing it, never
-// trust an ID from the request for what the token already decides, and
-// answer an unknown token with a plain 404.
 package httpapi
 
 import (
@@ -28,13 +23,8 @@ import (
 )
 
 const (
-	// maxBodyBytes caps every request body but a webhook's (maxWebhookBytes).
-	maxBodyBytes = 64 << 10
-	// healthTimeout bounds a health check's database ping, so a database
-	// that does not answer fails the check instead of hanging it.
-	healthTimeout = 2 * time.Second
-	// requestIDHeader carries the request's id back to the caller; the
-	// request's log lines carry the same id.
+	maxBodyBytes    = 64 << 10
+	healthTimeout   = 2 * time.Second
 	requestIDHeader = "X-Request-Id"
 )
 
@@ -46,13 +36,10 @@ type Deps struct {
 	Clock  clock.Clock
 	Cfg    config.Config
 	Log    *slog.Logger
-	// Dist is the built web app, with index.html at its root.
-	Dist fs.FS
-	// MCP, when set, is served at /mcp and calls this API in process.
-	MCP MCPServer
+	Dist   fs.FS
+	MCP    MCPServer
 }
 
-// MCPServer is an MCP server that calls the JSON API it is attached to.
 type MCPServer interface {
 	Attach(api http.Handler)
 	HTTPHandler() http.Handler
@@ -65,8 +52,6 @@ type server struct {
 	aiSem        chan struct{}
 }
 
-// New returns the service's handler. A nil Log uses slog.Default and a nil
-// Clock the real clock.
 func New(d Deps) http.Handler {
 	if d.Log == nil {
 		d.Log = slog.Default()
@@ -119,8 +104,6 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.Handle("/", spaHandler(s.Dist))
 }
 
-// handlerFunc is an API handler. An *apiError it returns is the answer; any
-// other error is logged and answered as a 500 without its details.
 type handlerFunc func(w http.ResponseWriter, r *http.Request) error
 
 func (s *server) handle(h handlerFunc) http.Handler {
@@ -164,12 +147,6 @@ func (s *server) healthz(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, body)
 }
 
-// observe gives the request an id, caps its body, turns a panic into a
-// logged 500 and logs one line per request with its id, route, status and
-// duration. The id goes back in the X-Request-Id header and on the request's
-// error lines. The line names the route pattern, never the path or the
-// query, so no token in a URL reaches the log; headers and bodies are never
-// logged.
 func (s *server) observe(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -217,14 +194,12 @@ func (s *server) observe(next http.Handler) http.Handler {
 
 type requestIDKey struct{}
 
-// newRequestID returns eight random bytes in hex.
 func newRequestID() string {
 	b := make([]byte, 8)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
 }
 
-// requestID is the id observe gave the request, or "".
 func requestID(ctx context.Context) string {
 	id, _ := ctx.Value(requestIDKey{}).(string)
 	return id
@@ -266,12 +241,8 @@ func (w *statusWriter) code() int {
 	return w.status
 }
 
-// tokenLength is the length of a token in a URL: 32 random bytes in
-// unpadded base64url.
 const tokenLength = 43
 
-// pathToken returns the URL's token, or errNotFound when it cannot be one of
-// ours, which spares the database a lookup that would miss anyway.
 func pathToken(r *http.Request) (string, error) {
 	t := r.PathValue("token")
 	if len(t) != tokenLength {
@@ -293,7 +264,6 @@ func notFoundIfMissing(err error) error {
 	return err
 }
 
-// ownerWorkshop is the workshop the owner token in the URL belongs to.
 func (s *server) ownerWorkshop(r *http.Request) (store.WorkshopRow, error) {
 	token, err := pathToken(r)
 	if err != nil {
@@ -303,7 +273,6 @@ func (s *server) ownerWorkshop(r *http.Request) (store.WorkshopRow, error) {
 	return w, notFoundIfMissing(err)
 }
 
-// sharedWorkshop is the workshop the share token in the URL belongs to.
 func (s *server) sharedWorkshop(r *http.Request) (store.WorkshopRow, error) {
 	token, err := pathToken(r)
 	if err != nil {
@@ -313,8 +282,6 @@ func (s *server) sharedWorkshop(r *http.Request) (store.WorkshopRow, error) {
 	return w, notFoundIfMissing(err)
 }
 
-// participant is the participant the token in the URL belongs to, with the
-// workshop taken from that participant's row.
 func (s *server) participant(r *http.Request) (store.ParticipantRow, store.WorkshopRow, error) {
 	token, err := pathToken(r)
 	if err != nil {

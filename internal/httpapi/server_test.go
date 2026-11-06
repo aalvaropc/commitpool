@@ -33,8 +33,6 @@ const consentText = "You authorize a temporary hold. We will attempt to charge i
 
 var tokenShape = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
 
-// fundingWorkshop creates the default workshop (minimum 2, capacity 3), adds
-// two participants who can both make Saturday and opens payments on it.
 func (e *env) fundingWorkshop(edit ...func(map[string]any)) (workshopHandle, proposalJSON, []participantHandle) {
 	e.t.Helper()
 	h := e.createWorkshop(edit...)
@@ -144,7 +142,6 @@ func TestProposal_OpenLocksTermsAndSchedulesClose(t *testing.T) {
 
 	e.wantError(http.MethodPost, h.ownerPath+"/proposal", map[string]string{"date_id": h.sunID}, http.StatusConflict, "proposal_already_open")
 
-	// Terms are locked by design: nothing edits a workshop after creation.
 	for _, method := range []string{http.MethodPut, http.MethodPatch, http.MethodPost} {
 		e.wantError(method, h.ownerPath, withField("price", "1.00"), http.StatusNotFound, "not_found")
 	}
@@ -274,7 +271,6 @@ func TestEnrollment_CapacityFullIs409(t *testing.T) {
 	if n := len(e.fake.Requests("create_order")); n != 2 {
 		t.Errorf("create_order requests = %d, want 2", n)
 	}
-	// A participant who already holds a seat still gets it back.
 	e.enroll(ps[0], p.ID, http.StatusOK)
 }
 
@@ -290,7 +286,6 @@ func TestEnrollment_PayPalFailureIs502AndTheRetryKeepsTheKey(t *testing.T) {
 	}
 	a := e.latestAttempt(rows[0].ID)
 
-	// The retry is not due yet: the same attempt waits for its backoff.
 	e.wantError(http.MethodPost, ps[0].path+"/enrollment", enrollBody(p.ID), http.StatusBadGateway, "paypal_unavailable")
 	e.clock.Set(t0.Add(5 * time.Second))
 	got := e.enroll(ps[0], p.ID, http.StatusOK)
@@ -314,7 +309,6 @@ func TestEnrollment_PayPalFailureIs502AndTheRetryKeepsTheKey(t *testing.T) {
 func TestEnrollment_StoreFailureRunningTheCheckoutIs500(t *testing.T) {
 	e := newEnv(t)
 	_, p, ps := e.fundingWorkshop()
-	// The database refuses to claim the create_order job the request runs.
 	for _, stmt := range []string{
 		`create or replace function test_refuse_claim() returns trigger language plpgsql as $$
 		 begin raise exception 'claim refused by the test'; end $$`,
@@ -344,8 +338,6 @@ func TestEnrollment_ExpiredOrderGetsANewCheckout(t *testing.T) {
 	first := e.enroll(ps[0], p.ID, http.StatusCreated)
 	a := e.latestAttempt(first.EnrollmentID)
 
-	// The buyer never approved and PayPal dropped the order; the return's
-	// authorize finds it gone and the worker records it EXPIRED.
 	e.fake.ExpireOrder(*a.OrderID)
 	e.runPayment("authorize", h.created.Workshop.ID, a)
 	if got := e.latestAttempt(first.EnrollmentID); got.OrderStatus == nil || *got.OrderStatus != paypal.StatusExpired {
@@ -644,7 +636,6 @@ func TestHealthz_FailsWithinItsTimeoutWhenTheDatabaseHangs(t *testing.T) {
 		t.Fatalf("GET /healthz = %d %s, want 200 with ok true", rec.Code, rec.Body.String())
 	}
 
-	// A database that accepts connections and never answers.
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -820,7 +811,6 @@ func TestRequests_PanicIs500JSONAndLogged(t *testing.T) {
 	if logs := e.logs.String(); !strings.Contains(logs, "interpreter exploded") || strings.Contains(logs, ana.token) {
 		t.Errorf("panic log = %s", logs)
 	}
-	// The server keeps serving.
 	e.owner(h)
 }
 
@@ -876,12 +866,10 @@ func TestParticipant_ReservedSeatInAConfirmedWorkshopUntilClose(t *testing.T) {
 	if got, open := label(); got != "Seat reserved" || !open {
 		t.Errorf("confirmed before close: label %q, payments_open %v; want Seat reserved and open", got, open)
 	}
-	// The confirmed workshop still charges a hold authorized before close.
 	e.authorize(wid, luis.EnrollmentID)
 	e.runPayment("capture", wid, e.latestAttempt(luis.EnrollmentID))
 	e.wantStatus(luis.EnrollmentID, domain.EnrollmentPaid)
 
-	// A confirmed workshop keeps selling seats until payments close.
 	e.enroll(marta, p.ID, http.StatusCreated)
 }
 
@@ -1030,8 +1018,6 @@ func TestDemoFailNextCapture_RefusedWhenTheCaptureStartsMeanwhile(t *testing.T) 
 	h, p, ps := e.fundingWorkshop()
 	en := e.enroll(ps[0], p.ID, http.StatusCreated)
 	e.authorize(h.created.Workshop.ID, en.EnrollmentID)
-	// A capture is moving the enrollment to CAPTURING and holds its row; the
-	// attempt has no capture yet.
 	tx, err := e.st.Pool.Begin(e.ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -1077,8 +1063,6 @@ func TestDemoFailNextCapture_RefusedOnceTheAttemptHoldsACapture(t *testing.T) {
 	h, p, ps := e.fundingWorkshop()
 	en := e.enroll(ps[0], p.ID, http.StatusCreated)
 	a := e.authorize(h.created.Workshop.ID, en.EnrollmentID)
-	// The capture is recorded on the attempt while the enrollment has not
-	// moved yet, as when the request lands in the middle of a capture.
 	if _, err := e.st.UpdateAttemptFunc(e.ctx, a.ID, func(row *store.AttemptRow) error {
 		id := "CAPTURE-IN-FLIGHT"
 		row.CaptureID = &id
@@ -1129,8 +1113,6 @@ func TestDemoCloseNow_RevivesAStuckCloseJob(t *testing.T) {
 func TestEnrollment_DatabaseFailureIs500NotPayPal(t *testing.T) {
 	e := newEnv(t)
 	h, p, ps := e.fundingWorkshop()
-	// Only this workshop's create_order inserts fail, as a database fault
-	// right where the checkout enqueues its order.
 	for _, stmt := range []string{
 		`create or replace function test_refuse_create_order() returns trigger language plpgsql as $$
 		 begin raise exception 'create_order insert refused by the test'; end $$`,
@@ -1171,7 +1153,6 @@ func TestEnrollment_LateJoinerInConfirmedWorkshopGetsApproveURL(t *testing.T) {
 	}
 
 	a := e.authorize(wid, late.EnrollmentID)
-	// The confirmed workshop's round enqueues this capture by itself.
 	key := store.JobKey(store.KindCapture, a.ID)
 	if j := e.job(key); j.Status != "pending" {
 		t.Fatalf("capture job of the late joiner = %s, want pending", j.Status)

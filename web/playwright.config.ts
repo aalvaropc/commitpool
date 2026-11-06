@@ -1,8 +1,5 @@
 import { defineConfig, devices } from '@playwright/test'
 
-// The journeys drive a running server built with the in-process fake PayPal;
-// scripts/e2e.sh builds and starts it and sets E2E_BASE_URL. The default is
-// the port that script uses, for running one spec against a server left up.
 const baseURL = process.env.E2E_BASE_URL ?? 'http://localhost:18080'
 
 export default defineConfig({

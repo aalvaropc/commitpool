@@ -11,30 +11,21 @@ import (
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
-// ConsentVersion names the consent text a participant accepts before paying;
-// an enrollment must quote it.
 const ConsentVersion = "consent-v2"
 
-// ConsentText is the fixed meaning of ConsentVersion. Changing a word of it
-// needs a new version.
 const ConsentText = "You authorize a temporary hold. We will attempt to charge it once enough people have authorized. " +
 	"The workshop is confirmed when the minimum number of completed payments is reached. " +
 	"If the minimum is not reached by the deadline, the workshop is cancelled and we request a refund of any charge already made. " +
 	"You can withdraw and have your hold released until you are charged; after that, payments are refunded only if the workshop is cancelled, also when the organizer cancels it. " +
 	"Refunds can take time and you will be able to follow their status."
 
-// labelState is what an enrollment's label depends on besides its status.
 type labelState struct {
 	workshop     domain.WorkshopStatus
-	paymentsOpen bool // domain.PaymentsOpen when the label is shown
-	seatLive     bool // the enrollment's seat has not expired
-	authPending  bool // PayPal holds the latest attempt's authorization PENDING (review); the seat is kept
+	paymentsOpen bool
+	seatLive     bool
+	authPending  bool
 }
 
-// statusLabel is the participant-facing copy for an enrollment status. A
-// reserved seat counts only while payments are open and the seat has not
-// expired, unless PayPal is reviewing its authorization; a failed capture can be retried, with a new enrollment, only while
-// payments are open; a payment kept in a cancelled workshop is being refunded.
 func statusLabel(s domain.EnrollmentStatus, st labelState) string {
 	switch s {
 	case domain.EnrollmentSeatReserved:
@@ -85,7 +76,6 @@ func money(minor int64, currency string) moneyDTO {
 	return moneyDTO{Minor: minor, Currency: currency, Value: domain.Money{Minor: minor, Currency: currency}.String()}
 }
 
-// workshopDTO is the workshop's public face; only the owner sees its ID.
 type workshopDTO struct {
 	ID               string   `json:"id,omitempty"`
 	Title            string   `json:"title"`
@@ -138,8 +128,6 @@ func dateViews(ds []store.CandidateDateRow, loc *time.Location) []dateDTO {
 	return out
 }
 
-// dateLabel reads a candidate date on the workshop's clock, as in
-// "Sat 14 Nov 2026, 15:00–18:00 America/Lima".
 func dateLabel(d store.CandidateDateRow, loc *time.Location) string {
 	start, end := d.StartsAt.In(loc), d.EndsAt.In(loc)
 	sy, sm, sd := start.Date()
@@ -163,14 +151,10 @@ type proposalDTO struct {
 	PaymentsOpen bool      `json:"payments_open"`
 }
 
-// paymentsOpen is domain.PaymentsOpen for the stored rows; false while there
-// is no proposal.
 func paymentsOpen(ws store.WorkshopRow, p *store.ProposalRow, now time.Time) bool {
 	return p != nil && domain.PaymentsOpen(domain.Workshop{Status: ws.Status}, domain.Proposal{ClosesAt: p.ClosesAt}, now)
 }
 
-// enrollmentLabel is statusLabel for a stored enrollment at now; latest is
-// the enrollment's latest payment attempt, or nil.
 func enrollmentLabel(en store.EnrollmentRow, ws store.WorkshopRow, p *store.ProposalRow, latest *store.AttemptRow, now time.Time) string {
 	if en.NeedsAttentionAt != nil {
 		return statusLabel(domain.EnrollmentNeedsAttention, labelState{})
@@ -193,13 +177,10 @@ func enrollmentLabel(en store.EnrollmentRow, ws store.WorkshopRow, p *store.Prop
 	})
 }
 
-// authorizationPending reports whether PayPal holds the attempt's
-// authorization PENDING (under review).
 func authorizationPending(a *store.AttemptRow) bool {
 	return a != nil && a.AuthorizationStatus != nil && *a.AuthorizationStatus == store.AuthorizationPending
 }
 
-// proposalView is nil while payments have not been opened.
 func proposalView(p *store.ProposalRow, w store.WorkshopRow, now time.Time) *proposalDTO {
 	if p == nil {
 		return nil
@@ -218,9 +199,6 @@ func proposalView(p *store.ProposalRow, w store.WorkshopRow, now time.Time) *pro
 	}
 }
 
-// tallyDTO is what anyone with a link sees: how many people are interested
-// (joined), how many holds are authorized and how many payments completed,
-// against the minimum and the capacity.
 type tallyDTO struct {
 	Interested int `json:"interested"`
 	Authorized int `json:"authorized"`
@@ -229,8 +207,6 @@ type tallyDTO struct {
 	Capacity   int `json:"capacity"`
 }
 
-// ownerTallyDTO adds the owner's detail: seats reserved without a hold yet,
-// captures in flight, failed captures and the seats taken in all.
 type ownerTallyDTO struct {
 	tallyDTO
 	Reserved   int `json:"reserved"`
@@ -273,10 +249,6 @@ func paymentView(a *store.AttemptRow) *paymentDTO {
 	}
 }
 
-// enrollmentDTO's approval_cancelled_at is when the buyer last cancelled the
-// checkout at PayPal, or null; the seat stays reserved until it expires. A
-// flagged enrollment shows status NEEDS_ATTENTION; money_status always says
-// where the money is.
 type enrollmentDTO struct {
 	ID                  string      `json:"id"`
 	ParticipantID       string      `json:"participant_id,omitempty"`
@@ -323,8 +295,6 @@ type availabilityDTO struct {
 	CreatedAt          time.Time       `json:"created_at"`
 }
 
-// availabilityView shows the raw message, the interpreter's reading and the
-// participant's correction; needs_clarification follows the reading in force.
 func availabilityView(a store.AvailabilityRow, effective domain.Interpretation) availabilityDTO {
 	return availabilityDTO{
 		ID:                 a.ID,
@@ -342,13 +312,11 @@ type consentDTO struct {
 }
 
 type recommendationDTO struct {
-	DateID       string           `json:"date_id"`
-	MeetsMinimum bool             `json:"meets_minimum"`
-	PerDate      []dateSummaryDTO `json:"per_date"`
-	Explanation  string           `json:"explanation"`
-	// ExplanationPending is true while the explanation is being written; the
-	// web app reads the view again until it is false.
-	ExplanationPending bool `json:"explanation_pending"`
+	DateID             string           `json:"date_id"`
+	MeetsMinimum       bool             `json:"meets_minimum"`
+	PerDate            []dateSummaryDTO `json:"per_date"`
+	Explanation        string           `json:"explanation"`
+	ExplanationPending bool             `json:"explanation_pending"`
 }
 
 type dateSummaryDTO struct {
@@ -365,7 +333,6 @@ func recommendationView(rec domain.Recommendation) recommendationDTO {
 	return out
 }
 
-// workshopState is what every view of a workshop starts from.
 type workshopState struct {
 	w            store.WorkshopRow
 	loc          *time.Location
@@ -404,8 +371,6 @@ func (st workshopState) counts() domain.Tally {
 	return domain.Counts(es)
 }
 
-// tally counts against the proposal's terms once payments are open; they
-// are the workshop's own, frozen.
 func (st workshopState) tally() tallyDTO {
 	t := st.counts()
 	out := tallyDTO{Interested: len(st.participants), Authorized: t.Authorized, Paid: t.Paid, Minimum: st.w.Minimum, Capacity: st.w.Capacity}
@@ -427,7 +392,6 @@ func (st workshopState) ownerTally() ownerTallyDTO {
 	}
 }
 
-// domainWorkshop is the workshop as the domain rules see it.
 func domainWorkshop(w store.WorkshopRow) domain.Workshop {
 	return domain.Workshop{
 		ID: w.ID, Title: w.Title, Timezone: w.Timezone,
@@ -447,8 +411,6 @@ func domainDates(ds []store.CandidateDateRow) []domain.CandidateDate {
 	return out
 }
 
-// inForce is the reading of an availability the server decides with: the
-// participant's correction when there is one, the interpreter's otherwise.
 func inForce(a store.AvailabilityRow) (domain.Interpretation, error) {
 	raw := a.Interpretation
 	if len(a.Corrected) > 0 && string(a.Corrected) != "null" {
@@ -461,8 +423,6 @@ func inForce(a store.AvailabilityRow) (domain.Interpretation, error) {
 	return in, nil
 }
 
-// dateOptions are the candidate dates as the interpreter sees them, labelled
-// on the workshop's clock.
 func (st workshopState) dateOptions() []ai.DateOption {
 	out := make([]ai.DateOption, len(st.dates))
 	for i, d := range st.dates {
@@ -471,8 +431,6 @@ func (st workshopState) dateOptions() []ai.DateOption {
 	return out
 }
 
-// recommend runs domain.Recommend over the latest availability of each
-// participant, corrected or as interpreted.
 func (st workshopState) recommend(avails []store.AvailabilityRow) (domain.Recommendation, error) {
 	ins := make(map[string]domain.Interpretation, len(avails))
 	for _, a := range avails {

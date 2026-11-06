@@ -10,8 +10,6 @@ import (
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
-// FuzzCleanInterpretation feeds cleanInterpretation whatever a model might
-// answer: it never panics and keeps only verdicts for the workshop's dates.
 func FuzzCleanInterpretation(f *testing.F) {
 	f.Add([]byte(`{"per_date":[{"candidate_date_id":"sat","verdict":"available","condition":{"type":"none"}}]}`))
 	f.Add([]byte(`{"per_date":[{"candidate_date_id":"mon","verdict":"maybe","condition":{"type":"end_before","time":"25:99"}}],"needs_clarification":true}`))

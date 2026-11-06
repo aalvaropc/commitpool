@@ -63,7 +63,6 @@ export function ButtonLink({ variant = 'primary', className = '', ...rest }: Lin
   return <Link className={`${buttonBase} ${variants[variant]} no-underline ${className}`} {...rest} />
 }
 
-/** "Demo only", inside every control that exists only on demo servers. */
 export function DemoTag() {
   return <span className="rounded-sm bg-hold-wash px-1.5 py-0.5 text-xs font-semibold text-hold">Demo only</span>
 }
@@ -79,7 +78,6 @@ interface FieldProps {
   children: ReactNode
 }
 
-/** A label, the control and its hint or error; the control sets aria-describedby itself. */
 export function Field({ id, label, hint, error, children }: FieldProps) {
   return (
     <div className="flex flex-col gap-1.5">
@@ -109,7 +107,6 @@ export function describedBy(id: string, hint: boolean, error?: string): string |
 interface NoticeProps {
   tone?: Tone
   title?: string
-  /** alert interrupts (errors); status waits its turn (progress, confirmations). */
   role?: 'alert' | 'status'
   children: ReactNode
   className?: string
@@ -126,7 +123,6 @@ export function Notice({ tone = 'neutral', title, role = 'status', children, cla
   )
 }
 
-/** A small state chip led by the seat-cell square used across the app. */
 export function Tag({ tone, children }: { tone: Tone; children: ReactNode }) {
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-sm px-2 py-0.5 text-sm font-semibold ${toneWash[tone]} ${toneText[tone]}`}>

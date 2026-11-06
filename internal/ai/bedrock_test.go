@@ -38,9 +38,6 @@ type recorded struct {
 	raw          string
 }
 
-// fakeBedrock stands in for the Bedrock runtime endpoint (InvokeModel): it records
-// each request, with the model taken from the /model/{id}/invoke path, and
-// answers with the next canned reply.
 type fakeBedrock struct {
 	t        *testing.T
 	srv      *httptest.Server
@@ -85,7 +82,6 @@ func (m *fakeBedrock) recorded() []recorded {
 	return slices.Clone(m.requests)
 }
 
-// message is a Messages API answer from model carrying text.
 func message(model, text, stopReason string) reply {
 	raw, _ := json.Marshal(map[string]any{
 		"id":            "msg_test",
@@ -247,8 +243,6 @@ func TestBedrock_RequestShape(t *testing.T) {
 	}
 }
 
-// TestBedrock_MessageCannotBreakOutOfTheData checks that the message travels
-// as an escaped JSON string, so it cannot close the data it is wrapped in.
 func TestBedrock_MessageCannotBreakOutOfTheData(t *testing.T) {
 	m := newFakeBedrock(t, message(testModel, validReading(), "end_turn"))
 	b := newTestBedrock(t, m, nil)

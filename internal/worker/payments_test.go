@@ -806,10 +806,6 @@ func TestCreateOrder_OlderAttemptRevivedIsNotSent(t *testing.T) {
 	}
 }
 
-// pendingAuthorization plays a buyer whose approved order PayPal authorizes
-// as PENDING (held for review), lets the seat's window pass and runs the
-// seat release and the periodic tick. It wants the seat kept and the
-// attempt's hourly reconcile enqueued, and returns the authorization id.
 func (e *env) pendingAuthorization(en store.EnrollmentRow, a store.AttemptRow) string {
 	e.t.Helper()
 	e.fake.Approve(*a.OrderID)
@@ -850,7 +846,6 @@ func TestAuthorize_PendingAuthorizationKeepsTheSeatAndIsReconciled(t *testing.T)
 		t.Errorf("authorize requests = %d, want 1", n)
 	}
 
-	// Once authorized it is no longer read back every hour.
 	e.clock.Set(e.clock.Now().Truncate(time.Hour).Add(time.Hour))
 	e.runPeriodic()
 	e.wantNoJob(e.pendingKey(a))

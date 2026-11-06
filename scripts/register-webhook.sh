@@ -1,13 +1,4 @@
 #!/usr/bin/env bash
-# Registers the PayPal webhook of a deployment and prints its id, the value of
-# PAYPAL_WEBHOOK_ID, on stdout. Usage: scripts/register-webhook.sh <base-url>,
-# where <base-url> is the public HTTPS origin (COMMITPOOL_BASE_URL). A webhook
-# already registered for <base-url>/paypal/webhook is reused, not duplicated.
-#
-# PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET come from the environment and are
-# never printed; PAYPAL_BASE_URL defaults to the Sandbox. Credentials and the
-# access token reach curl on stdin, never in its arguments. Diagnostics go to
-# stderr. Needs curl and jq.
 set -euo pipefail
 
 events=(
@@ -49,15 +40,11 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 body="$tmp/body"
 
-# quote escapes a value for a double-quoted curl config string.
 quote() {
   local v="${1//\\/\\\\}"
   printf '"%s"' "${v//\"/\\\"}"
 }
 
-# call METHOD PATH AUTH [DATA CONTENT_TYPE]: sends the request with AUTH, a
-# curl config line, on stdin, leaves the response body in $body and prints
-# the HTTP status.
 call() {
   local method="$1" path="$2" auth="$3" data="${4:-}" type="${5:-}"
   local args=(--silent --show-error --request "$method" --output "$body" --write-out '%{http_code}'
@@ -68,8 +55,6 @@ call() {
   printf '%s\n' "$auth" | curl "${args[@]}" "${paypal}${path}"
 }
 
-# fail WHAT STATUS: reports a failed call with PayPal's error name and
-# debug_id, never the body, and exits.
 fail() {
   local name debug_id
   name="$(jq -r '.name // .error // "unknown"' "$body" 2>/dev/null || echo unknown)"

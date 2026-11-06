@@ -10,8 +10,6 @@ import (
 	"github.com/aalvaropc/commitpool/internal/domain"
 )
 
-// DefaultPaymentWindowMin is the payment window applied when a workshop is
-// created without one.
 const DefaultPaymentWindowMin = 1440
 
 type WorkshopRow struct {
@@ -25,13 +23,9 @@ type WorkshopRow struct {
 	Status                 domain.WorkshopStatus
 	Resolution             domain.Resolution
 	CreatedAt              time.Time
-	// ShareToken is the plaintext share token, kept so the owner can show
-	// the share link again; empty for workshops created before it was kept.
-	ShareToken string
-	// CancelledAt and CancelReason say when and why the organizer cancelled
-	// the workshop; nil otherwise, also for one cancelled by its close.
-	CancelledAt  *time.Time
-	CancelReason *string
+	ShareToken             string
+	CancelledAt            *time.Time
+	CancelReason           *string
 }
 
 type CandidateDateRow struct {
@@ -66,11 +60,6 @@ const (
 	proposalCols      = `id, workshop_id, version, chosen_date_id, price_minor, currency, minimum, capacity, opens_at, closes_at, starts_at`
 )
 
-// CreateWorkshop stores the workshop and its candidate dates in one
-// transaction and returns the owner and share tokens in plaintext. The owner
-// token exists nowhere else: only its hash is stored. The share token, meant
-// to be passed around, is also kept in plaintext so the owner can show the
-// share link again.
 func (s *Store) CreateWorkshop(ctx context.Context, p CreateWorkshopParams) (w WorkshopRow, ownerToken, shareToken string, err error) {
 	ownerToken, ownerHash, err := NewToken()
 	if err != nil {
@@ -132,19 +121,11 @@ func (s *Store) workshopWhere(ctx context.Context, op, where string, arg any) (W
 	return w, nil
 }
 
-// CandidateDates returns the workshop's candidate dates, earliest first.
 func (s *Store) CandidateDates(ctx context.Context, workshopID string) ([]CandidateDateRow, error) {
 	return many[CandidateDateRow](ctx, s.Pool, "candidate dates",
 		`select `+candidateDateCols+` from candidate_dates where workshop_id = $1 order by starts_at, id`, workshopID)
 }
 
-// OpenProposal stores the workshop's first proposal as version 1, moves the
-// workshop from COLLECTING to FUNDING, by the same compare-and-set as
-// TransitionWorkshop, and enqueues the proposal's close:{proposal} job, due
-// when payments close, all in one transaction: a FUNDING workshop never lacks
-// its close. The ID and Version of p are ignored. It fails with ErrProposalExists when the workshop is no longer
-// COLLECTING, because payments were already opened, and with ErrNotFound for
-// an unknown workshop.
 func (s *Store) OpenProposal(ctx context.Context, p ProposalRow) (ProposalRow, error) {
 	var opened ProposalRow
 	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
@@ -182,9 +163,6 @@ func (s *Store) OpenProposal(ctx context.Context, p ProposalRow) (ProposalRow, e
 	return opened, nil
 }
 
-// ShortenPaymentWindow moves the proposal's close to closesAt when that is
-// earlier, under the workshop's row lock, and returns the proposal as stored.
-// It never extends the window. An unknown proposal is ErrNotFound.
 func (s *Store) ShortenPaymentWindow(ctx context.Context, proposalID string, closesAt time.Time) (ProposalRow, error) {
 	var shortened ProposalRow
 	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
@@ -210,13 +188,10 @@ func (s *Store) ShortenPaymentWindow(ctx context.Context, proposalID string, clo
 	return shortened, nil
 }
 
-// ActiveProposal returns the workshop's current proposal, or nil when payments
-// have not been opened.
 func (s *Store) ActiveProposal(ctx context.Context, workshopID string) (*ProposalRow, error) {
 	return latestProposal(ctx, s.Pool, workshopID)
 }
 
-// ProposalByID returns the proposal, or nil when there is none.
 func (s *Store) ProposalByID(ctx context.Context, id string) (*ProposalRow, error) {
 	return oneOrNil[ProposalRow](ctx, s.Pool, "proposal by id",
 		`select `+proposalCols+` from proposals where id = $1`, id)
@@ -227,9 +202,6 @@ func latestProposal(ctx context.Context, q querier, workshopID string) (*Proposa
 		`select `+proposalCols+` from proposals where workshop_id = $1 order by version desc limit 1`, workshopID)
 }
 
-// lockWorkshop takes the workshop's row lock for the rest of the transaction
-// and returns its status. Every operation that decides based on how many seats
-// are taken goes through this lock.
 func lockWorkshop(ctx context.Context, tx pgx.Tx, workshopID string) (domain.WorkshopStatus, error) {
 	var status domain.WorkshopStatus
 	if err := tx.QueryRow(ctx, `select status from workshops where id = $1 for update`, workshopID).Scan(&status); err != nil {
@@ -238,10 +210,6 @@ func lockWorkshop(ctx context.Context, tx pgx.Tx, workshopID string) (domain.Wor
 	return status, nil
 }
 
-// TransitionWorkshop is a compare-and-set on the workshop's status and
-// resolution: they become to and resolution only while the status is one of
-// fromStatus and the resolution one of fromResolution, a nil list meaning
-// any. It reports whether the row changed; a missing workshop is false.
 func (s *Store) TransitionWorkshop(ctx context.Context, id string, fromStatus []domain.WorkshopStatus, fromResolution []domain.Resolution, to domain.WorkshopStatus, resolution domain.Resolution) (bool, error) {
 	return transitionWorkshop(ctx, s.Pool, id, fromStatus, fromResolution, to, resolution)
 }
@@ -266,10 +234,6 @@ func transitionWorkshop(ctx context.Context, q execer, id string, fromStatus []d
 	return tag.RowsAffected() == 1, nil
 }
 
-// CancelWorkshop is the organizer's cancel, a compare-and-set: the workshop
-// becomes CANCELLED with resolution, and records now and reason (empty is no
-// reason), only while it is still in from and fromResolution. It reports
-// whether the row changed.
 func (s *Store) CancelWorkshop(ctx context.Context, id string, from domain.WorkshopStatus, fromResolution, resolution domain.Resolution, reason string, now time.Time) (bool, error) {
 	tag, err := s.Pool.Exec(ctx,
 		`update workshops set status = $5, resolution = $4, cancelled_at = $6, cancel_reason = nullif($7, ''), updated_at = now()
@@ -284,11 +248,6 @@ func (s *Store) CancelWorkshop(ctx context.Context, id string, from domain.Works
 	return tag.RowsAffected() == 1, nil
 }
 
-// WorkshopIDsFundingOrUnsettled returns, in order, the workshops still
-// taking payments (FUNDING) and the ones whose money is not settled: a
-// resolution of RESOLVING, or a cancelled workshop not SETTLED, which
-// includes one flagged NEEDS_ATTENTION while its voids and refunds still
-// run. It is an empty list when there are none.
 func (s *Store) WorkshopIDsFundingOrUnsettled(ctx context.Context) ([]string, error) {
 	rows, err := s.Pool.Query(ctx,
 		`select id::text from workshops
@@ -309,15 +268,10 @@ func (s *Store) WorkshopIDsFundingOrUnsettled(ctx context.Context) ([]string, er
 	return ids, nil
 }
 
-// OverdueClose names a funding workshop whose payments closed before some
-// time without its close having run.
 type OverdueClose struct {
 	WorkshopID, ProposalID string
 }
 
-// OverdueCloses returns the FUNDING workshops whose proposal closed before
-// before, oldest first: their close job was lost or parked, since a close
-// that runs takes the workshop out of FUNDING.
 func (s *Store) OverdueCloses(ctx context.Context, before time.Time) ([]OverdueClose, error) {
 	return many[OverdueClose](ctx, s.Pool, "overdue closes",
 		`select w.id::text, p.id::text from workshops w join proposals p on p.workshop_id = w.id
@@ -325,8 +279,6 @@ func (s *Store) OverdueCloses(ctx context.Context, before time.Time) ([]OverdueC
 		 order by p.closes_at, w.id`, string(domain.WorkshopFunding), before)
 }
 
-// texts turns a list of string-like values into a text array; nil stays nil,
-// which is sent as NULL.
 func texts[T ~string](vs []T) []string {
 	if vs == nil {
 		return nil
@@ -338,8 +290,6 @@ func texts[T ~string](vs []T) []string {
 	return out
 }
 
-// SetWorkshopStatus writes the status and resolution unconditionally; the
-// worker uses TransitionWorkshop instead.
 func (s *Store) SetWorkshopStatus(ctx context.Context, id string, status domain.WorkshopStatus, resolution domain.Resolution) error {
 	tag, err := s.Pool.Exec(ctx,
 		`update workshops set status = $2, resolution = $3, updated_at = now() where id = $1`,

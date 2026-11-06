@@ -47,8 +47,6 @@ export default function Owner() {
     : false
   usePolling(view.reload, 5000, polling)
 
-  // The explanation is written in the background; read the view again a few
-  // times while it is pending.
   const tries = useRef(0)
   const pending = d?.recommendation.explanation_pending ?? false
   const reload = view.reload

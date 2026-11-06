@@ -65,7 +65,6 @@ describe('operatorActions', () => {
   })
   it('offers a refund retry for a failed refund, flagged or not', () => {
     expect(operatorActions({ status: 'REFUND_FAILED', money_status: 'REFUND_FAILED', needs_attention: false })).toEqual(['retry_refund'])
-    // A flagged seat comes as status NEEDS_ATTENTION; money_status says where the money is.
     expect(operatorActions({ status: 'NEEDS_ATTENTION', money_status: 'REFUND_FAILED', needs_attention: true })).toEqual([
       'reconcile',
       'retry_refund',

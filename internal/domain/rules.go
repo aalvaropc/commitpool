@@ -28,12 +28,8 @@ var (
 
 const minLeadAfterClose = 24 * time.Hour
 
-// MaxPaymentWindow is the longest payment window: PayPal honours an
-// authorization for three days, and a hold captured after that may fail.
 const MaxPaymentWindow = 72 * time.Hour
 
-// Counts tallies enrollments by status. Occupying counts every enrollment that
-// holds a seat, including captures still pending.
 func Counts(es []Enrollment) Tally {
 	var t Tally
 	for _, e := range es {
@@ -58,7 +54,6 @@ func Counts(es []Enrollment) Tally {
 	return t
 }
 
-// ReserveSeat refuses a new seat once every seat is occupied.
 func ReserveSeat(t Tally, capacity int) error {
 	if t.Occupying >= capacity {
 		return ErrCapacityFull
@@ -66,8 +61,6 @@ func ReserveSeat(t Tally, capacity int) error {
 	return nil
 }
 
-// ValidateProposal checks that opening payments for date is allowed. The
-// returned error wraps one sentinel per violated rule, the first one found.
 func ValidateProposal(w Workshop, p Proposal, date CandidateDate, compatible int) error {
 	if w.Status != WorkshopCollecting {
 		return fmt.Errorf("%w: status is %s", ErrWorkshopNotCollecting, w.Status)
@@ -93,9 +86,6 @@ func ValidateProposal(w Workshop, p Proposal, date CandidateDate, compatible int
 	return nil
 }
 
-// CanCancel reports whether the organizer may cancel a workshop in status
-// that starts at startsAt (nil before payments open): any time before it
-// starts, once.
 func CanCancel(status WorkshopStatus, startsAt *time.Time, now time.Time) error {
 	if status == WorkshopCancelled {
 		return ErrAlreadyCancelled
@@ -106,15 +96,10 @@ func CanCancel(status WorkshopStatus, startsAt *time.Time, now time.Time) error 
 	return nil
 }
 
-// PaymentsOpen reports whether the workshop still takes authorizations and
-// charges them: it is funding, or confirmed and still capturing holds
-// authorized in time, and its payment window has not closed.
 func PaymentsOpen(w Workshop, p Proposal, now time.Time) bool {
 	return (w.Status == WorkshopFunding || w.Status == WorkshopConfirmed) && now.Before(p.ClosesAt)
 }
 
-// ShouldStartCaptureRound reports whether enough authorizations exist, on top
-// of what is already paid, to try reaching the minimum before payments close.
 func ShouldStartCaptureRound(w Workshop, p Proposal, t Tally, now time.Time) bool {
 	return w.Status == WorkshopFunding &&
 		now.Before(p.ClosesAt) &&
@@ -122,8 +107,6 @@ func ShouldStartCaptureRound(w Workshop, p Proposal, t Tally, now time.Time) boo
 		t.Paid+t.Authorized >= p.Minimum
 }
 
-// AfterCaptureResult confirms a funding workshop once the minimum number of
-// payments is completed; in every other case the workshop does not change.
 func AfterCaptureResult(w Workshop, p Proposal, t Tally) (WorkshopStatus, Resolution) {
 	if w.Status == WorkshopFunding && t.Paid >= p.Minimum {
 		return WorkshopConfirmed, ResolutionOpen
@@ -131,19 +114,12 @@ func AfterCaptureResult(w Workshop, p Proposal, t Tally) (WorkshopStatus, Resolu
 	return w.Status, w.Resolution
 }
 
-// Close is the outcome of closing payments: the workshop's new state and the
-// enrollment IDs that need a void, a refund or a reconciliation, in input order.
 type Close struct {
 	NewStatus                  WorkshopStatus
 	Resolution                 Resolution
 	Voids, Refunds, Reconciles []string
 }
 
-// CloseDecision decides what happens when payments close. A confirmed
-// workshop is never cancelled; late authorizations are voided unless their
-// capture has already started. A funding workshop below its minimum is
-// cancelled, voiding open authorizations and refunding completed payments.
-// Captures still in flight are reconciled and never counted as paid.
 func CloseDecision(w Workshop, p Proposal, es []Enrollment) Close {
 	c := Close{NewStatus: w.Status, Resolution: w.Resolution, Voids: []string{}, Refunds: []string{}, Reconciles: []string{}}
 	switch {
@@ -179,7 +155,6 @@ func inFlight(e Enrollment) bool {
 	return e.Status == EnrollmentCapturing || e.Status == EnrollmentCapturePending
 }
 
-// Action is what to do with a payment whose capture completed late.
 type Action string
 
 const (
@@ -188,7 +163,6 @@ const (
 	ActionKeepSeat Action = "keep_seat"
 )
 
-// LateCaptureAfterCancel refunds any payment completed after cancellation.
 func LateCaptureAfterCancel(e Enrollment) Action {
 	if e.Status == EnrollmentPaid {
 		return ActionRefund
@@ -196,8 +170,6 @@ func LateCaptureAfterCancel(e Enrollment) Action {
 	return ActionNone
 }
 
-// LateCaptureAfterConfirm keeps the seat of a payment completed after
-// confirmation while the workshop has not started, and refunds it otherwise.
 func LateCaptureAfterConfirm(e Enrollment, startsAt, now time.Time) Action {
 	if e.Status != EnrollmentPaid {
 		return ActionNone
@@ -208,8 +180,6 @@ func LateCaptureAfterConfirm(e Enrollment, startsAt, now time.Time) Action {
 	return ActionRefund
 }
 
-// CaptureDeadline is the earlier of the payment close and the authorization
-// expiry; a zero expiry means the expiry is unknown and the close applies.
 func CaptureDeadline(closesAt, authExpiresAt time.Time) time.Time {
 	if authExpiresAt.IsZero() || closesAt.Before(authExpiresAt) {
 		return closesAt

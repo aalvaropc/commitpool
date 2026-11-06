@@ -1,11 +1,3 @@
-// Command seed creates the demo workshop through the HTTP API of a running
-// CommitPool: a photography walk with two weekend dates, a minimum of three
-// paid seats out of six at US$10, and six participants whose availability
-// messages are already sent, one of them deliberately ambiguous. It prints
-// the organizer link, the invite link and one link per participant.
-//
-// It needs no credentials and never touches the database directly, so it
-// works the same against a local server and a deployment.
 package main
 
 import (
@@ -24,10 +16,6 @@ import (
 	_ "time/tzdata"
 )
 
-// cast is the demo's participants with the message each one sends. With the
-// candidate dates on a Saturday and a Sunday, four people can come on the
-// Saturday and three on the Sunday; the last message names no time and asks
-// for clarification.
 var cast = []struct{ Name, Message string }{
 	{"Ana", "Saturday works for me, Sunday I can't."},
 	{"Ben", "Either day is fine, but on Saturday only if we finish before six."},
@@ -45,10 +33,7 @@ const (
 	capacity            = 6
 	currency            = "USD"
 	startHour           = 10
-	// leadDays keeps the first candidate date at least this many days after
-	// the payment window ends, so the organizer can open payments later and
-	// the date still starts a day after the window closes.
-	leadDays = 3
+	leadDays            = 3
 )
 
 type options struct {
@@ -99,7 +84,6 @@ func envOr(name, fallback string) string {
 	return fallback
 }
 
-// run seeds the workshop and writes the links to out.
 func run(ctx context.Context, client *http.Client, opts options, out io.Writer) (result, error) {
 	var res result
 	loc, err := time.LoadLocation(opts.Timezone)
@@ -215,9 +199,6 @@ func run(ctx context.Context, client *http.Client, opts options, out io.Writer) 
 	return res, nil
 }
 
-// firstSaturday is the first Saturday at startHour on the workshop's clock
-// that starts at least leadDays after the payment window would end if it
-// opened now.
 func firstSaturday(now time.Time, windowMin int, loc *time.Location) time.Time {
 	earliest := now.Add(time.Duration(windowMin)*time.Minute + leadDays*24*time.Hour).In(loc)
 	day := time.Date(earliest.Year(), earliest.Month(), earliest.Day(), startHour, 0, 0, 0, loc)
@@ -242,8 +223,6 @@ type apiClient struct {
 	base   string
 }
 
-// call sends body as JSON and decodes a 2xx response into out when out is
-// not nil; any other status is an error carrying the start of the body.
 func (a apiClient) call(ctx context.Context, method, route string, body any, out any) error {
 	var payload io.Reader
 	if body != nil {

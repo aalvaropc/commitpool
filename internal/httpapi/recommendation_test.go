@@ -46,8 +46,6 @@ func TestInterpret_MessageCannotChangePriceOrRules(t *testing.T) {
 	}
 }
 
-// misleadingAI explains the recommendation by naming the date the server did
-// not pick.
 type misleadingAI struct{ ai.Fake }
 
 func (misleadingAI) Explain(_ context.Context, in ai.ExplainInput) (string, ai.Meta, error) {
@@ -97,14 +95,12 @@ func TestRecommendation_UsesServerCompatibilityNotModelText(t *testing.T) {
 		t.Errorf("log should note the replaced explanation without repeating it:\n%s", logs)
 	}
 
-	// The text cannot open payments on the date it named either.
 	got := e.wantError(http.MethodPost, h.ownerPath+"/proposal", map[string]string{"date_id": h.sunID}, http.StatusConflict, "proposal_invalid")
 	if got.Reason != "not_enough_compatible" {
 		t.Errorf("proposal on the named date: reason = %q, want not_enough_compatible", got.Reason)
 	}
 }
 
-// countingAI counts Explain calls and can be told to fail them.
 type countingAI struct {
 	ai.Fake
 	explains atomic.Int32
@@ -119,8 +115,6 @@ func (c *countingAI) Explain(ctx context.Context, in ai.ExplainInput) (string, a
 	return c.Fake.Explain(ctx, in)
 }
 
-// blockingAI holds every Explain until release is closed, after telling
-// entered that one arrived.
 type blockingAI struct {
 	ai.Fake
 	calls   atomic.Int32
@@ -262,8 +256,6 @@ func TestOwner_ExplanationIsCachedByItsInputs(t *testing.T) {
 		t.Errorf("Explain calls after another view = %d, want 2", n)
 	}
 
-	// Marta's reason for missing Sunday changes, but not what the model is
-	// told: Saturday's people and Sunday's count stay the same.
 	marta := e.join(h, "Marta")
 	saved := e.say(marta, "I can't do Sunday, but Saturday is fine")
 	e.settledOwner(h)

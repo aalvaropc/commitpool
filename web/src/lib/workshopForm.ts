@@ -1,6 +1,5 @@
 import { zonedPlusMinutes, zonedToRFC3339 } from './time'
 
-/** The workshop form's fields, as typed. */
 export interface WorkshopForm {
   title: string
   description: string
@@ -18,13 +17,11 @@ export interface WorkshopForm {
 
 export type FormErrors = Partial<Record<keyof WorkshopForm | 'form', string>>
 
-/** The rule the server applies when payments open, shown before anyone hits it. */
 export const DATES_RULE = 'Each date must start at least 24 h after the payment window closes.'
 
 const PRICE = /^\d{1,7}(\.\d{1,2})?$/
 const DAY_MS = 86400000
 
-// The fields in page order, for focusing the first one that needs a fix.
 const ORDER: (keyof WorkshopForm)[] = ['title', 'description', 'duration', 'price', 'minimum', 'capacity', 'window', 'timezone', 'date1', 'time1', 'date2', 'time2']
 
 export function firstInvalid(errors: FormErrors): keyof WorkshopForm | null {
@@ -45,16 +42,10 @@ const SERVER_FIELDS: Record<string, keyof WorkshopForm> = {
   invalid_dates: 'date1',
 }
 
-/** The field a refusal from POST /api/v1/workshops is about, or null for a form-wide error. */
 export function serverField(code: string): keyof WorkshopForm | null {
   return SERVER_FIELDS[code] ?? null
 }
 
-/**
- * Checks the form as the server would and builds the candidate dates in the
- * chosen zone; a date must start at least a day after a window opened now
- * would close (the rule payments open under).
- */
 export function validateWorkshop(f: WorkshopForm, now: number): { errors: FormErrors; dates?: { starts_at: string; ends_at: string }[] } {
   const errors: FormErrors = {}
   if (!f.title.trim()) errors.title = 'Give the workshop a title.'

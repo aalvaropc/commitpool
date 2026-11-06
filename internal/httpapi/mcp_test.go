@@ -13,7 +13,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// mcpSession connects an in-memory MCP client to the env's /mcp server.
 func (e *env) mcpSession() *mcp.ClientSession {
 	e.t.Helper()
 	serverSide, clientSide := mcp.NewInMemoryTransports()
@@ -28,8 +27,6 @@ func (e *env) mcpSession() *mcp.ClientSession {
 	return cs
 }
 
-// tool calls the tool and decodes its structured result into out (when not
-// nil). It returns the result so a test can check IsError and the text.
 func (e *env) tool(cs *mcp.ClientSession, name string, args map[string]any, out any) *mcp.CallToolResult {
 	e.t.Helper()
 	res, err := cs.CallTool(e.ctx, &mcp.CallToolParams{Name: name, Arguments: args})
@@ -111,8 +108,6 @@ type mcpCheckout struct {
 	Next       string `json:"next"`
 }
 
-// mcpWorkshop has the assistant create the default workshop and two
-// participants answer, so Saturday reaches the minimum of two.
 func (e *env) mcpWorkshop(cs *mcp.ClientSession) (mcpCreated, []mcpJoined) {
 	e.t.Helper()
 	var created mcpCreated
@@ -296,7 +291,6 @@ func TestMCP_StreamableHTTPMount(t *testing.T) {
 	}
 }
 
-// ownerByLink reads the owner view for an owner link.
 func (e *env) ownerByLink(link string) ownerViewJSON {
 	e.t.Helper()
 	var v ownerViewJSON

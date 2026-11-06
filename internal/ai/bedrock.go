@@ -24,8 +24,6 @@ import (
 const (
 	bedrockProvider = "bedrock"
 
-	// bedrockAPIVersion is the anthropic_version InvokeModel accepts; it
-	// rejects the first-party API versions the SDK sends by default.
 	bedrockAPIVersion = "bedrock-2023-05-31"
 
 	credentialTimeout = 10 * time.Second
@@ -33,7 +31,6 @@ const (
 	interpretMaxTokens = 2048
 	explainMaxTokens   = 2048
 
-	// maxExplanationWords caps an explanation, whatever the model writes.
 	maxExplanationWords = 80
 )
 
@@ -44,12 +41,6 @@ var (
 	explainSystemPrompt string
 )
 
-// BedrockConfig selects Claude on Amazon Bedrock. Model and FallbackModel are
-// Bedrock model or inference profile IDs such as
-// "us.anthropic.claude-sonnet-4-5-20250929-v1:0"; FallbackModel
-// answers a request Model declines, and an empty one disables the fallback.
-// Effort is the output_config.effort of every call (low, medium, high, xhigh
-// or max); an empty one sends none. A nil Log uses slog.Default.
 type BedrockConfig struct {
 	Region        string
 	Model         string
@@ -58,11 +49,6 @@ type BedrockConfig struct {
 	Log           *slog.Logger
 }
 
-// Bedrock is the Interpreter backed by Claude on Amazon Bedrock, through the
-// Bedrock runtime (InvokeModel with a Messages API body, signed with SigV4).
-// Readings come back as strict
-// structured output and are checked again against InterpretationSchema; the
-// server, not the model, computes compatibility and the recommendation.
 type Bedrock struct {
 	messages anthropic.BetaMessageService
 	model    string
@@ -72,10 +58,6 @@ type Bedrock struct {
 
 var _ Interpreter = (*Bedrock)(nil)
 
-// NewBedrock builds the client for cfg.Region. AWS credentials come from the
-// default chain (environment, shared config, instance role) and are resolved
-// here, so a missing credential fails at startup rather than on the first
-// message.
 func NewBedrock(ctx context.Context, cfg BedrockConfig) (*Bedrock, error) {
 	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(cfg.Region))
 	if err != nil {
@@ -107,9 +89,6 @@ func newBedrock(cfg BedrockConfig, awsCfg aws.Config, opts ...option.RequestOpti
 	if cfg.FallbackModel != "" && cfg.FallbackModel != cfg.Model {
 		fallbacks = []anthropic.BetaFallbackParam{{Model: cfg.FallbackModel}}
 	}
-	// The refusal fallback must be the first middleware: it needs the request
-	// as the Messages API shapes it, before the Bedrock middleware rewrites it
-	// for InvokeModel and signs it.
 	opts = append([]option.RequestOption{
 		option.WithMiddleware(betafallback.BetaRefusalFallbackMiddleware(fallbacks)),
 		bedrock.WithConfig(awsCfg),
@@ -119,11 +98,6 @@ func newBedrock(cfg BedrockConfig, awsCfg aws.Config, opts ...option.RequestOpti
 	return &Bedrock{messages: client.Beta.Messages, model: cfg.Model, effort: anthropic.BetaOutputConfigEffort(cfg.Effort), log: cfg.Log}, nil
 }
 
-// Interpret asks the model for a reading of in.Message held to
-// InterpretationSchema for the workshop's dates. The system prompt carries
-// the rules, the dates and the time zone; the message travels in the user
-// turn as a JSON string, so it is read as data and cannot close what wraps
-// it.
 func (b *Bedrock) Interpret(ctx context.Context, in InterpretInput) (domain.Interpretation, Meta, error) {
 	ids := make([]string, len(in.Dates))
 	for i, d := range in.Dates {
@@ -164,10 +138,6 @@ func interpretSystem(in InterpretInput) string {
 	return sb.String()
 }
 
-// Explain asks the model to put the server's recommendation into at most 80
-// words. The model sees the recommended date's label and the server's
-// compatibility table, and only counts for the other dates, so it has no
-// other date to name.
 func (b *Bedrock) Explain(ctx context.Context, in ExplainInput) (string, Meta, error) {
 	label := ""
 	for _, d := range in.Dates {
@@ -197,12 +167,9 @@ func (b *Bedrock) Explain(ctx context.Context, in ExplainInput) (string, Meta, e
 	return text, meta, nil
 }
 
-// send makes one Messages call and logs its model, latency and token counts,
-// never its content. A refused or truncated answer is an error.
 func (b *Bedrock) send(ctx context.Context, op string, params anthropic.BetaMessageNewParams) (*anthropic.BetaMessage, Meta, error) {
 	meta := Meta{Provider: bedrockProvider, Model: b.model}
 	start := time.Now()
-	// Each call is its own conversation, so each gets its own fallback state.
 	msg, err := b.messages.New(ctx, params, betafallback.WithBetaFallbackState(&betafallback.BetaFallbackState{}))
 	latency := time.Since(start).Milliseconds()
 	if err != nil {
@@ -231,8 +198,6 @@ func (b *Bedrock) send(ctx context.Context, op string, params anthropic.BetaMess
 	return msg, meta, nil
 }
 
-// answerText joins the answer's text blocks; thinking and fallback boundary
-// blocks are not part of it.
 func answerText(msg *anthropic.BetaMessage) string {
 	var sb strings.Builder
 	for _, block := range msg.Content {
@@ -243,9 +208,6 @@ func answerText(msg *anthropic.BetaMessage) string {
 	return strings.TrimSpace(sb.String())
 }
 
-// ProviderError is an error answer from Bedrock, reduced to what is safe to
-// log: the operation, the HTTP status, the error type and the request ID.
-// The answer's body is left out because it can quote the request.
 type ProviderError struct {
 	Op         string
 	StatusCode int
@@ -264,9 +226,6 @@ func (e *ProviderError) Error() string {
 	return msg
 }
 
-// callError names the operation and keeps only the SDK's status and type, or
-// the context's error; the SDK's own message is dropped, since it can carry
-// the request or the answer.
 func callError(op string, err error) error {
 	var apiErr *anthropic.Error
 	switch {
@@ -277,7 +236,6 @@ func callError(op string, err error) error {
 	case errors.Is(err, context.Canceled):
 		return fmt.Errorf("ai: %s: %w", op, context.Canceled)
 	}
-	// A network error names addresses only.
 	var netErr net.Error
 	switch {
 	case errors.As(err, &netErr):
@@ -287,7 +245,6 @@ func callError(op string, err error) error {
 	}
 }
 
-// limitWords keeps at most n words of s, on one line.
 func limitWords(s string, n int) string {
 	words := strings.Fields(s)
 	if len(words) <= n {

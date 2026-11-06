@@ -10,10 +10,6 @@ import (
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
-// confirmed brings the env workshop to CONFIRMED through a real capture round:
-// three participants authorize, the third authorization starts the round and
-// the three captures complete. Payments stay open, but a confirmed workshop
-// takes no new reservations, so anyone else must have enrolled before.
 func (e *env) confirmed() []store.AttemptRow {
 	e.t.Helper()
 	var attempts []store.AttemptRow
@@ -314,7 +310,6 @@ func TestRound_ReevaluatedAfterRefusalAndLateAuthorization(t *testing.T) {
 	e.setMockCode(anaAttempt, "TRANSACTION_REFUSED")
 	e.runKey("capture:" + anaAttempt.ID)
 	e.wantStatus(ana.ID, domain.EnrollmentCaptureFailed)
-	// Ben's capture request is in flight: its handler has moved him to CAPTURING.
 	e.transition(ben.ID, domain.EnrollmentAuthorized, domain.EnrollmentCapturing)
 	danAttempt = e.authorize(dan, danAttempt)
 	e.wantNoJob("capture:" + danAttempt.ID)
@@ -366,8 +361,6 @@ func TestRound_ConfirmationLosesToAConcurrentCancellation(t *testing.T) {
 	cleo, a3 := e.authorized("Cleo")
 	e.wantJob("capture:"+a3.ID, "pending")
 
-	// A close cancels the workshop in a transaction still open while Cleo's
-	// capture completes and would confirm it.
 	tx, err := e.st.Pool.Begin(e.ctx)
 	if err != nil {
 		t.Fatal(err)

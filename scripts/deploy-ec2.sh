@@ -1,10 +1,4 @@
 #!/usr/bin/env bash
-# Builds the app image for the demo VM (linux/arm64), pushes it to the ECR
-# repository of deploy/ec2, installs this checkout's deploy/ec2/deploy.sh on
-# the VM and runs it through SSM Run Command. Usage: scripts/deploy-ec2.sh [tag]; the tag defaults to the short
-# commit id, with -dirty when the tree has uncommitted changes. Needs the AWS
-# CLI with credentials for the stack's account, Docker with Buildx, and a
-# terraform state for deploy/ec2.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."

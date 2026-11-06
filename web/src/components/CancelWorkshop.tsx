@@ -11,10 +11,6 @@ interface Props {
 
 const MAX_REASON = 280
 
-/**
- * The organizer calls the workshop off. A first press shows what happens to
- * the money (holds released, payments refunded) and asks for a yes.
- */
 export default function CancelWorkshop({ token, view, onChange }: Props) {
   const [asking, setAsking] = useState(false)
   const [reason, setReason] = useState('')

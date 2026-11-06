@@ -13,7 +13,6 @@ import (
 
 var dateIDs = []string{"sat", "sun"}
 
-// privateNote is evidence only the participant wrote; no error may repeat it.
 const privateNote = "Ana's private note about a hospital visit"
 
 func validReading() string {
@@ -103,9 +102,6 @@ func TestInterpret_SchemaRejectsExtraFields(t *testing.T) {
 	}
 }
 
-// TestInterpretationSchema_StrictEverywhere checks the schema the model is
-// held to: every object closed and fully required, dates restricted to the
-// workshop's, and no field for anything the server decides.
 func TestInterpretationSchema_StrictEverywhere(t *testing.T) {
 	schema := ai.InterpretationSchema(dateIDs)
 	raw, err := json.Marshal(schema)
@@ -176,7 +172,6 @@ func TestInterpret_AmbiguousMessageSetsNeedsClarification(t *testing.T) {
 	if v := verdictFor(t, in, "sat"); v.Verdict != domain.VerdictUnknown {
 		t.Errorf("Saturday = %+v, want unknown until clarified", v)
 	}
-	// The fake's readings follow the same schema the model is held to.
 	raw, err := json.Marshal(in)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)

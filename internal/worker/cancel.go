@@ -7,14 +7,6 @@ import (
 	"github.com/aalvaropc/commitpool/internal/domain"
 )
 
-// CancelWorkshop is the organizer's cancel (domain.CanCancel: any time before
-// the workshop starts, once). It moves the workshop to CANCELLED by
-// compare-and-set: SETTLED at once when payments never opened, RESOLVING
-// otherwise, and still NEEDS_ATTENTION when it was flagged. A workshop with
-// payments then releases its reserved seats and is healed, which voids every
-// hold under void:{attempt} and refunds every payment under refund:{attempt},
-// the keys a later close derives too, so the close adds nothing; a capture
-// still in flight is refunded when it lands (domain.LateCaptureAfterCancel).
 func (r *Runner) CancelWorkshop(ctx context.Context, workshopID, reason string) error {
 	for range casRetries {
 		now := r.clock.Now()

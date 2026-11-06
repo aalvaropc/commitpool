@@ -1,4 +1,3 @@
-// Package storetest opens the test database for tests in other packages.
 package storetest
 
 import (
@@ -16,11 +15,6 @@ import (
 
 const testDBLockKey int64 = 7412530002
 
-// New returns a migrated Store on TEST_DATABASE_URL with every table
-// emptied. It holds a database-wide advisory lock until the test ends so test
-// packages running in parallel (go test ./...) never truncate each other's data.
-//
-// Without TEST_DATABASE_URL the test fails, unless COMMITPOOL_SKIP_DB_TESTS=1.
 func New(t testing.TB) *store.Store {
 	t.Helper()
 
@@ -87,8 +81,6 @@ func New(t testing.TB) *store.Store {
 	return s
 }
 
-// checkTestDatabaseName refuses a database whose name does not end in _test:
-// New truncates every table of the database it is pointed at.
 func checkTestDatabaseName(databaseURL string) error {
 	u, err := url.Parse(databaseURL)
 	if err != nil {

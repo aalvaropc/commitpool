@@ -10,7 +10,6 @@ test:
 	export TEST_DATABASE_URL='postgres://commitpool:commitpool@localhost:55432/commitpool_test?sslmode=disable'; \
 	go test -race ./...
 
-# gofmt, vet, staticcheck and govulncheck, the last two at pinned versions.
 check:
 	gofmt -l . | (! grep .)
 	go vet ./...
@@ -18,6 +17,8 @@ check:
 	go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 	! go list -deps ./cmd/commitpool ./cmd/seed | grep -xE 'testing|.*/(paypaltest|storetest)'
 	go vet -tags e2e ./cmd/commitpool
+	go test ./internal/codestyle
+	pnpm -C web lint
 
 web-build:
 	pnpm -C web install --frozen-lockfile

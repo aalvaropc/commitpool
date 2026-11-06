@@ -25,9 +25,6 @@ var t0 = time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
 
 const appBaseURL = "https://commitpool.example"
 
-// env is a runner over a fresh test database and a fake PayPal, with a fake
-// clock at t0 and a FUNDING workshop whose payment window closes 24 hours
-// later (minimum 3, capacity 6, US$10).
 type env struct {
 	t        *testing.T
 	ctx      context.Context
@@ -111,8 +108,6 @@ func newEnv(t *testing.T, edit ...func(*paypal.Config)) *env {
 	return e
 }
 
-// withClientTimeout makes the PayPal client give up after d, so a request the
-// fake holds with FailNext(op, 0, "") ends in a timeout.
 func withClientTimeout(d time.Duration) func(*paypal.Config) {
 	return func(c *paypal.Config) { c.HTTPClient = &http.Client{Timeout: d} }
 }
@@ -122,8 +117,6 @@ func (e *env) openWorkshop() {
 	e.workshop, e.proposal = e.fundingWorkshop()
 }
 
-// fundingWorkshop creates a workshop like the env's own, with payments open
-// from t0 for 24 hours and the workshop starting 48 hours after t0.
 func (e *env) fundingWorkshop() (store.WorkshopRow, store.ProposalRow) {
 	e.t.Helper()
 	starts := t0.Add(48 * time.Hour)
@@ -163,8 +156,6 @@ func (e *env) fundingWorkshop() (store.WorkshopRow, store.ProposalRow) {
 	return w, p
 }
 
-// enroll reserves a seat for a new participant and opens its first payment
-// attempt for the proposal's price.
 func (e *env) enroll(name string) (store.EnrollmentRow, store.AttemptRow) {
 	e.t.Helper()
 	en, err := e.reserve(e.workshop, e.proposal, name)
@@ -178,8 +169,6 @@ func (e *env) enroll(name string) (store.EnrollmentRow, store.AttemptRow) {
 	return en, a
 }
 
-// reserve creates a participant of the workshop and reserves a seat for it
-// now, with a 30-minute seat window. An error means no enrollment was created.
 func (e *env) reserve(w store.WorkshopRow, p store.ProposalRow, name string) (store.EnrollmentRow, error) {
 	e.t.Helper()
 	pt, _, err := e.st.CreateParticipant(e.ctx, w.ID, name)
@@ -200,7 +189,6 @@ func (e *env) reserve(w store.WorkshopRow, p store.ProposalRow, name string) (st
 	return en, err
 }
 
-// enqueue adds the attempt's job of this kind, due now, under its contract key.
 func (e *env) enqueue(kind string, a store.AttemptRow) string {
 	e.t.Helper()
 	key := kind + ":" + a.ID
@@ -237,8 +225,6 @@ func (e *env) wantIdle() {
 	}
 }
 
-// runUntilIdle runs due jobs one at a time until none is left, without
-// moving the clock.
 func (e *env) runUntilIdle() {
 	e.t.Helper()
 	for range 200 {
@@ -255,12 +241,8 @@ func (e *env) runUntilIdle() {
 
 func (e *env) advance(d time.Duration) { e.clock.Set(e.clock.Now().Add(d)) }
 
-// closeKey is the key of the env proposal's close job.
 func (e *env) closeKey() string { return "close:" + e.proposal.ID }
 
-// enqueueClose adds the env proposal's close job, due when payments close,
-// and reports whether it was created; opening the proposal already scheduled
-// it, so this is false unless the test removed it.
 func (e *env) enqueueClose() bool {
 	e.t.Helper()
 	created, err := e.runner.EnqueueOrRevive(e.ctx, "close", e.closeKey(), &e.workshop.ID, nil, nil, e.proposal.ClosesAt)
@@ -292,7 +274,6 @@ func (e *env) wantNoJob(key string) {
 	}
 }
 
-// jobKeys lists the keys of every job of the attempt, oldest first.
 func (e *env) jobKeys(a store.AttemptRow) []string {
 	e.t.Helper()
 	jobs, err := e.st.JobsByAttempt(e.ctx, a.ID)
@@ -306,8 +287,6 @@ func (e *env) jobKeys(a store.AttemptRow) []string {
 	return keys
 }
 
-// requestsWithID counts the requests of op the fake received under this
-// PayPal-Request-Id.
 func (e *env) requestsWithID(op, requestID string) int {
 	n := 0
 	for _, r := range e.fake.Requests(op) {
@@ -318,8 +297,6 @@ func (e *env) requestsWithID(op, requestID string) int {
 	return n
 }
 
-// setMockCode stores a PayPal-Mock-Response code on the attempt, which the
-// capture and refund handlers send because the env enables sandbox mocks.
 func (e *env) setMockCode(a store.AttemptRow, code string) {
 	e.t.Helper()
 	if _, err := e.st.UpdateAttemptFunc(e.ctx, a.ID, func(row *store.AttemptRow) error {
@@ -330,10 +307,6 @@ func (e *env) setMockCode(a store.AttemptRow, code string) {
 	}
 }
 
-// capturePending drives the authorized attempt's capture to CAPTURE_PENDING:
-// the capture request times out while the fake still captures, the fake then
-// reports the capture PENDING, and the reconcile the timeout scheduled reads
-// that back. It needs an env built withClientTimeout. It returns the capture id.
 func (e *env) capturePending(en store.EnrollmentRow, a store.AttemptRow) string {
 	e.t.Helper()
 	e.fake.FailNext("capture", 0, "")
@@ -351,9 +324,6 @@ func (e *env) capturePending(en store.EnrollmentRow, a store.AttemptRow) string 
 	return captures[0].ID
 }
 
-// refundPending drives the paid attempt's refund job, already enqueued, to
-// REFUND_PENDING the same way capturePending does for a capture. It returns
-// the refund id.
 func (e *env) refundPending(en store.EnrollmentRow, a store.AttemptRow) string {
 	e.t.Helper()
 	e.fake.FailNext("refund", 0, "")
@@ -371,19 +341,14 @@ func (e *env) refundPending(en store.EnrollmentRow, a store.AttemptRow) string {
 	return refunds[0].ID
 }
 
-// periodicKey is the key RunPeriodic gives the attempt's reconcile at now.
 func (e *env) periodicKey(a store.AttemptRow) string {
 	return "reconcile:" + a.ID + ":periodic:" + e.clock.Now().UTC().Format("2006-01-02T15:04")
 }
 
-// pendingKey is the key RunPeriodic gives the reconcile of an attempt whose
-// capture or refund is pending, in now's hour.
 func (e *env) pendingKey(a store.AttemptRow) string {
 	return "reconcile:" + a.ID + ":periodic:" + e.clock.Now().UTC().Format("2006-01-02T15")
 }
 
-// reconcileNow enqueues a periodic reconcile of the attempt due now and
-// returns its key.
 func (e *env) reconcileNow(a store.AttemptRow) string {
 	e.t.Helper()
 	key := e.periodicKey(a)
@@ -429,7 +394,6 @@ func (e *env) wantStatus(enrollmentID string, want domain.EnrollmentStatus) {
 	}
 }
 
-// wantFlagged asserts the enrollment kept status and carries the operator flag.
 func (e *env) wantFlagged(enrollmentID string, status domain.EnrollmentStatus) {
 	e.t.Helper()
 	en, err := e.st.EnrollmentByID(e.ctx, enrollmentID)
@@ -441,7 +405,6 @@ func (e *env) wantFlagged(enrollmentID string, status domain.EnrollmentStatus) {
 	}
 }
 
-// flag marks the enrollment for an operator without moving it.
 func (e *env) flag(enrollmentID string) {
 	e.t.Helper()
 	if _, err := e.st.FlagEnrollment(e.ctx, enrollmentID, "test"); err != nil {
@@ -457,7 +420,6 @@ func (e *env) transition(enrollmentID string, from, to domain.EnrollmentStatus) 
 	}
 }
 
-// order reads the order straight from the fake, as PayPal sees it.
 func (e *env) order(id string) paypal.Order {
 	e.t.Helper()
 	o, err := e.api.GetOrder(e.ctx, id)
@@ -467,7 +429,6 @@ func (e *env) order(id string) paypal.Order {
 	return o
 }
 
-// withOrder enrolls a participant and runs create_order for its attempt.
 func (e *env) withOrder(name string) (store.EnrollmentRow, store.AttemptRow) {
 	e.t.Helper()
 	en, a := e.enroll(name)
@@ -479,15 +440,12 @@ func (e *env) withOrder(name string) (store.EnrollmentRow, store.AttemptRow) {
 	return en, a
 }
 
-// authorized enrolls a participant whose order is approved and authorized.
 func (e *env) authorized(name string) (store.EnrollmentRow, store.AttemptRow) {
 	e.t.Helper()
 	en, a := e.withOrder(name)
 	return en, e.authorize(en, a)
 }
 
-// authorize plays the buyer approving the attempt's order and runs its
-// authorize job.
 func (e *env) authorize(en store.EnrollmentRow, a store.AttemptRow) store.AttemptRow {
 	e.t.Helper()
 	e.fake.Approve(*a.OrderID)
@@ -496,7 +454,6 @@ func (e *env) authorize(en store.EnrollmentRow, a store.AttemptRow) store.Attemp
 	return e.attempt(a.ID)
 }
 
-// paid enrolls a participant whose authorization has been captured.
 func (e *env) paid(name string) (store.EnrollmentRow, store.AttemptRow) {
 	e.t.Helper()
 	en, a := e.authorized(name)
@@ -505,8 +462,6 @@ func (e *env) paid(name string) (store.EnrollmentRow, store.AttemptRow) {
 	return en, e.attempt(a.ID)
 }
 
-// assertLogsClean checks the worker never logged a credential, a token or
-// a buyer approval link.
 func (e *env) assertLogsClean() {
 	e.t.Helper()
 	logs := e.logs.String()

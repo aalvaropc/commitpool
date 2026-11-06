@@ -1,11 +1,4 @@
 #!/usr/bin/env bash
-# Runs the Playwright journeys in web/e2e against a freshly built server that
-# uses the in-process fake PayPal and the fake interpreter. Arguments go to
-# `playwright test`, e.g. `scripts/e2e.sh e2e/journey.spec.ts`.
-#
-# E2E_DATABASE_URL points at an existing database (CI's service container);
-# without it the local compose database is started and used. E2E_PORT picks
-# the server's port (default 18080, away from a dev server on 8080).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."

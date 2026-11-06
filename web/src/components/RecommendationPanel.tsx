@@ -11,7 +11,6 @@ interface Props {
   onChange: () => Promise<unknown>
 }
 
-/** Which date fits the most people, why, and the button to open payments on it. */
 export default function RecommendationPanel({ token, view, explanationStalled, onChange }: Props) {
   const { recommendation: rec, workshop, dates } = view
   const names = new Map(view.participants.map((p) => [p.id, p.display_name]))

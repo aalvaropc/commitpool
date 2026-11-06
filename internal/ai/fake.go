@@ -10,8 +10,6 @@ import (
 	"github.com/aalvaropc/commitpool/internal/domain"
 )
 
-// Fake is a deterministic keyword interpreter for tests and end-to-end runs.
-// It never calls a model.
 type Fake struct{}
 
 var _ Interpreter = Fake{}
@@ -38,7 +36,6 @@ var (
 	}
 )
 
-// reading is what one clause of the message says about the dates it covers.
 type reading struct {
 	verdict   domain.Verdict
 	condition domain.Condition
@@ -46,8 +43,6 @@ type reading struct {
 	ambiguity *domain.Ambiguity
 }
 
-// rank orders readings from the least to the most restrictive; when several
-// clauses cover a date, the most restrictive one wins.
 func (r reading) rank() int {
 	switch r.verdict {
 	case domain.VerdictUnavailable:
@@ -60,17 +55,6 @@ func (r reading) rank() int {
 	return 0
 }
 
-// Interpret reads the message clause by clause, splitting at punctuation and
-// at "but". In each clause:
-//   - "can't", "cannot" or "no" makes the dates it covers unavailable;
-//   - "before N" or "by N" makes them conditional on ending by N:00, and
-//     "after N" on starting after N:00 (1 to 7 without am/pm read as pm);
-//   - "afternoon" or "evening" without an hour leaves them unknown and the
-//     reading needs clarification;
-//   - anything else makes them available.
-//
-// A clause naming a weekday covers the dates on that weekday, any other
-// clause covers every date, and a date no clause covers is available.
 func (Fake) Interpret(_ context.Context, in InterpretInput) (domain.Interpretation, Meta, error) {
 	meta := Meta{Provider: fakeProvider, Model: fakeModel}
 	out := domain.Interpretation{
@@ -143,8 +127,6 @@ func readClause(clause string) reading {
 	return r
 }
 
-// clockTime turns "six", "6", "6:30" or "18" plus an optional am/pm into
-// "HH:MM".
 func clockTime(value, meridiem string) (string, bool) {
 	hour, minute := 0, 0
 	if h, ok := hourWords[value]; ok {
@@ -178,10 +160,6 @@ func clockTime(value, meridiem string) (string, bool) {
 	return fmt.Sprintf("%02d:%02d", hour, minute), true
 }
 
-// namedDates marks the dates whose weekday the clause names, or returns nil
-// when the clause names no weekday at all; a clause naming only weekdays no
-// date falls on covers no date. A date's weekday is the first word of its
-// label.
 func namedDates(lower string, dates []DateOption) []bool {
 	names := false
 	for _, day := range weekdays {
@@ -203,7 +181,6 @@ func namedDates(lower string, dates []DateOption) []bool {
 	return named
 }
 
-// Explain returns PlainExplanation.
 func (Fake) Explain(_ context.Context, in ExplainInput) (string, Meta, error) {
 	return PlainExplanation(in), Meta{Provider: fakeProvider, Model: fakeModel}, nil
 }

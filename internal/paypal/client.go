@@ -1,5 +1,3 @@
-// Package paypal is a thin typed client over PayPal Orders v2 and Payments v2.
-// Package paypaltest holds an in-memory stand-in for the sandbox.
 package paypal
 
 import (
@@ -25,7 +23,6 @@ const (
 	defaultTimeout    = 20 * time.Second
 )
 
-// API is what the worker and the HTTP layer consume; *Client implements it.
 type API interface {
 	CreateOrder(ctx context.Context, p CreateOrderParams) (Order, error)
 	GetOrder(ctx context.Context, id string) (Order, error)
@@ -52,9 +49,6 @@ type Client struct {
 	expiry time.Time
 }
 
-// New validates the configuration. The base URL is never defaulted here: it is
-// https://api-m.sandbox.paypal.com for the sandbox, and the fake server's URL
-// in tests.
 func New(cfg Config) (*Client, error) {
 	cfg.BaseURL = strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
 	if cfg.BaseURL == "" {
@@ -165,7 +159,6 @@ func (c *Client) CaptureAuthorization(ctx context.Context, p CaptureParams) (Cap
 	return cp, nil
 }
 
-// VoidAuthorization expects the 204 PayPal answers with; any 2xx is accepted.
 func (c *Client) VoidAuthorization(ctx context.Context, id, requestID string) error {
 	path, err := resource("/v2/payments/authorizations/", id, "/void")
 	if err != nil {
@@ -205,8 +198,6 @@ func (c *Client) GetRefund(ctx context.Context, id string) (Refund, error) {
 	return r, nil
 }
 
-// VerifyWebhookSignature asks PayPal whether a webhook delivery is authentic.
-// The event is embedded byte for byte: the signature covers the raw body.
 func (c *Client) VerifyWebhookSignature(ctx context.Context, h http.Header, body []byte) (bool, error) {
 	if !json.Valid(body) {
 		return false, errors.New("paypal: webhook body is not valid JSON")
@@ -245,10 +236,6 @@ func (c *Client) VerifyWebhookSignature(ctx context.Context, h http.Header, body
 	return out.VerificationStatus == "SUCCESS", nil
 }
 
-// unidentified is the error for a 2xx answer to a money POST that does not
-// identify the resource it created. PayPal may well have created it, so the
-// outcome is unconfirmed and the caller must reconcile, never persist an
-// empty PayPal id.
 func unidentified(op, what string) error {
 	return &unconfirmedError{fmt.Errorf("paypal: %s response carries no %s", op, what)}
 }
@@ -268,9 +255,6 @@ func (c *Client) get(ctx context.Context, prefix, id string, out any) error {
 	return c.do(ctx, request{method: http.MethodGet, path: path}, out)
 }
 
-// post sends a request that creates or changes money: it always carries the
-// idempotency key, and it refuses to leave the process without one. A mock
-// code is only ever sent by a client configured for the sandbox.
 func (c *Client) post(ctx context.Context, path, requestID, mockCode string, body, out any) error {
 	if requestID == "" {
 		return errors.New("paypal: a PayPal-Request-Id is required")
@@ -301,9 +285,6 @@ type request struct {
 	mock      string
 }
 
-// do authenticates and sends r. A 401 means the cached token was rejected:
-// it is replaced once and the same request, with the same PayPal-Request-Id,
-// is sent again.
 func (c *Client) do(ctx context.Context, r request, out any) error {
 	token, err := c.accessToken(ctx, "")
 	if err != nil {
@@ -370,8 +351,6 @@ func (c *Client) roundTrip(req *http.Request) (int, []byte, error) {
 	return resp.StatusCode, body, nil
 }
 
-// accessToken returns the cached OAuth token, or fetches a new one when there
-// is none, it is about to expire, or it is the one the caller just saw rejected.
 func (c *Client) accessToken(ctx context.Context, rejected string) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

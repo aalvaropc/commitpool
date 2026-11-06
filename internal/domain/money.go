@@ -6,15 +6,11 @@ import (
 	"strings"
 )
 
-// Money is an amount in minor units (cents for USD) plus an ISO 4217 code.
-// Minor is expected to be non-negative; ParseMoney never produces a negative amount.
 type Money struct {
 	Minor    int64
 	Currency string
 }
 
-// ParseMoney reads a decimal amount with at most two decimals ("10", "10.5",
-// "10.00") and a three-letter currency code, which is stored upper-cased.
 func ParseMoney(value, currency string) (Money, error) {
 	cur, err := parseCurrency(currency)
 	if err != nil {
@@ -27,7 +23,6 @@ func ParseMoney(value, currency string) (Money, error) {
 	return Money{Minor: minor, Currency: cur}, nil
 }
 
-// String prints the amount with exactly two decimals, without the currency.
 func (m Money) String() string {
 	return fmt.Sprintf("%d.%02d", m.Minor/100, m.Minor%100)
 }

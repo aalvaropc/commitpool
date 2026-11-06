@@ -14,7 +14,6 @@ type Config struct {
 	HTTPClient   *http.Client
 }
 
-// Money carries the amount as PayPal does: a decimal string, never a float.
 type Money struct {
 	CurrencyCode string `json:"currency_code"`
 	Value        string `json:"value"`
@@ -70,8 +69,6 @@ type Order struct {
 	PurchaseUnits []PurchaseUnit `json:"purchase_units,omitempty"`
 }
 
-// ApproveURL is where the buyer approves the order: the payer-action link,
-// or the legacy approve link, or "" when the order carries neither.
 func (o Order) ApproveURL() string {
 	for _, rel := range []string{"payer-action", "approve"} {
 		for _, l := range o.Links {

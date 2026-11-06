@@ -10,9 +10,6 @@ import (
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
-// holdOnReleasedSeat plays a buyer whose seat was released before PayPal
-// authorized the order, and the reconcile that finds that hold and enqueues
-// its void.
 func (e *env) holdOnReleasedSeat(name string) (store.EnrollmentRow, store.AttemptRow) {
 	e.t.Helper()
 	en, a := e.withOrder(name)
@@ -26,8 +23,6 @@ func (e *env) holdOnReleasedSeat(name string) (store.EnrollmentRow, store.Attemp
 	return en, e.attempt(a.ID)
 }
 
-// refuseVoid has PayPal refuse the attempt's void for good, with an issue
-// that does not mean the hold is gone.
 func (e *env) refuseVoid(a store.AttemptRow) {
 	e.t.Helper()
 	e.fake.FailNext("void", 422, "PREVIOUSLY_CAPTURED")
@@ -95,8 +90,6 @@ func TestReconcile_LastGenerationOnAReleasedSeatFlagsTheWorkshop(t *testing.T) {
 		e.runKey(reconcileKey)
 		e.wantJob(key, "pending")
 	}
-	// The seat lapses and the workshop is cancelled before the last
-	// reconcile, which still finds no authorization at PayPal.
 	e.advance(31 * time.Minute)
 	e.runKey(e.releaseSeatsNow())
 	e.wantStatus(en.ID, domain.EnrollmentReleased)
@@ -123,7 +116,6 @@ func TestSettle_WaitsForARunningAuthorizeOnAReleasedSeat(t *testing.T) {
 		t.Fatalf("SettleIfResolved: %v", err)
 	}
 
-	// The authorize another worker is running may still place a hold.
 	e.wantWorkshop(domain.WorkshopCancelled, domain.ResolutionResolving)
 }
 
@@ -146,7 +138,6 @@ func TestConfirmed_EnrollmentNeedingAttentionFlagsTheWorkshop(t *testing.T) {
 			t.Fatalf("ApplyOrder: %v", err)
 		}
 		e.wantFlagged(dan.ID, domain.EnrollmentSeatReserved)
-		// A funding workshop is not flagged for it: participants still pay.
 		e.wantWorkshop(domain.WorkshopFunding, domain.ResolutionOpen)
 
 		for _, name := range []string{"Ana", "Ben", "Cleo"} {
@@ -165,7 +156,6 @@ func TestHeal_ConfirmedWorkshopWithAnEnrollmentNeedingAttentionIsFlagged(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Ana was flagged, but the hook that flags the workshop never ran.
 	e.flag(ana.ID)
 	e.wantWorkshop(domain.WorkshopConfirmed, domain.ResolutionOpen)
 
@@ -193,10 +183,6 @@ func TestHeal_CancelledWorkshopRefundsAFlaggedPayment(t *testing.T) {
 	e.wantWorkshop(domain.WorkshopCancelled, domain.ResolutionNeedsAttention)
 }
 
-// An abandoned capture (no trace at PayPal after the last reconcile) keeps
-// its seat and its flag until the close, whose reconcile sends it once more:
-// at the close instant it still counts, so the buyer is charged and refunded
-// at once, and no money is kept.
 func TestReconcile_AbandonedCaptureKeepsNoMoneyAfterTheClose(t *testing.T) {
 	e := newEnv(t)
 	en, a := e.authorized("Ana")
@@ -214,8 +200,6 @@ func TestReconcile_AbandonedCaptureKeepsNoMoneyAfterTheClose(t *testing.T) {
 	e.enqueueClose()
 	e.runUntilIdle()
 
-	// PayPal never captured, and the cancelled workshop does not send the
-	// capture again: the hold is voided and the seat stays flagged.
 	if n := e.fake.Captures(); n != 0 {
 		t.Fatalf("captures at PayPal = %d, want 0", n)
 	}

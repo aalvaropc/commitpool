@@ -1,7 +1,3 @@
-// Typed client for the CommitPool JSON API under /api/v1. The shapes mirror
-// internal/httpapi (views.go, owner.go, participants.go, workshops.go,
-// enrollment.go). Tokens only ever travel in the request path.
-
 export type WorkshopStatus = 'COLLECTING' | 'FUNDING' | 'CONFIRMED' | 'CANCELLED'
 export type Resolution = 'OPEN' | 'RESOLVING' | 'SETTLED' | 'NEEDS_ATTENTION'
 export type EnrollmentStatus =
@@ -99,9 +95,7 @@ export interface Enrollment {
   status_label: string
   seat_expires_at: string
   approval_cancelled_at: string | null
-  /** Where the money is: the same as status, except for a flagged seat, whose status reads NEEDS_ATTENTION. */
   money_status?: EnrollmentStatus
-  /** The seat waits on the organizer's check (operator actions); it keeps its money_status meanwhile. */
   needs_attention?: boolean
   payment: Payment | null
 }
@@ -218,7 +212,6 @@ export interface EnrollResponse {
   status_label: string
 }
 
-/** An answer other than 2xx: the server's snake_case code and English message. */
 export class ApiError extends Error {
   readonly status: number
   readonly code: string

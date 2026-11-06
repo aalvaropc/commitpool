@@ -151,8 +151,6 @@ func TestRetry_FiveCaptureFailuresFlagAndKeepTheHold(t *testing.T) {
 	}
 
 	e.wantJob(key, "needs_attention")
-	// The hold stays where it is and keeps its seat: only the flag says an
-	// operator must look.
 	e.wantFlagged(en.ID, domain.EnrollmentCapturing)
 	reqs := e.fake.Requests("capture")
 	if len(reqs) != 5 {
@@ -462,7 +460,6 @@ func TestRetry_ReconcileKeepsRetryingAndNeverFlagsPaidEnrollment(t *testing.T) {
 		}
 	}
 
-	// A reconcile only reads: it keeps retrying under its key instead of parking.
 	e.wantJob(key, "pending")
 	e.wantStatus(en.ID, domain.EnrollmentPaid)
 	if got, _ := e.st.EnrollmentByID(e.ctx, en.ID); got.NeedsAttentionAt != nil {
@@ -584,7 +581,7 @@ func TestRunKey_CallerCancellationDoesNotCancelTheJob(t *testing.T) {
 	_, a := e.enroll("Ana")
 	key := e.enqueue("create_order", a)
 	gone, cancel := context.WithCancel(e.ctx)
-	cancel() // the buyer closed the tab before the handler ran the job
+	cancel()
 
 	if err := e.runner.RunKey(gone, key); err != nil {
 		t.Fatalf("RunKey with a cancelled caller: %v", err)

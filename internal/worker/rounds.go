@@ -10,16 +10,10 @@ import (
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
-// casRetries bounds how often a decision is taken again when the workshop
-// changed between reading it and writing the outcome.
 const casRetries = 3
 
 var errWorkshopMoving = errors.New("worker: the workshop kept changing while a decision about it was being recorded")
 
-// view is a workshop as the domain rules see it, with what the worker needs
-// beside each enrollment: its row, its latest attempt (nil when it has none)
-// and that attempt's jobs by key. The slices share one order, the
-// enrollments' creation order.
 type view struct {
 	w    domain.Workshop
 	p    domain.Proposal
@@ -29,7 +23,6 @@ type view struct {
 	jobs []map[string]store.Job
 }
 
-// job returns the job of this kind for enrollment i's latest attempt.
 func (v view) job(i int, kind string) (store.Job, bool) {
 	if v.att[i] == nil {
 		return store.Job{}, false
@@ -43,11 +36,6 @@ func (v view) has(i int, kind string) bool {
 	return ok
 }
 
-// workshopView loads the workshop, its active proposal and its enrollments,
-// with a fixed number of queries whatever the number of enrollments.
-// An enrollment's CaptureStartedAt is set, to when the job was due, once a
-// capture:{attempt} job exists for its latest attempt, whatever that job's
-// status; an enrollment without an attempt carries only its status.
 func (r *Runner) workshopView(ctx context.Context, workshopID string) (view, error) {
 	wr, err := r.st.WorkshopByID(ctx, workshopID)
 	if err != nil {
@@ -117,15 +105,6 @@ func (r *Runner) workshopView(ctx context.Context, workshopID string) (view, err
 	return v, nil
 }
 
-// StartCaptureRoundIfReady enqueues, due now, the captures the workshop is
-// ready for. In a FUNDING workshop that is once the authorized and the paid
-// enrollments together reach the minimum before payments close
-// (domain.ShouldStartCaptureRound): one capture:{attempt} for every AUTHORIZED
-// enrollment. In a CONFIRMED workshop, until payments close, every AUTHORIZED
-// enrollment is captured; the others already have their capture job, so in
-// practice that is the one just authorized. Nothing is enqueued for a
-// cancelled workshop or once payments have closed. Captures are keyed by
-// their attempt, so calling it again enqueues nothing twice.
 func (r *Runner) StartCaptureRoundIfReady(ctx context.Context, workshopID string) error {
 	v, err := r.workshopView(ctx, workshopID)
 	if err != nil {
@@ -155,9 +134,6 @@ func (r *Runner) StartCaptureRoundIfReady(ctx context.Context, workshopID string
 	return nil
 }
 
-// enqueueLatest enqueues, or revives, the job of this kind for the
-// enrollment's latest attempt, the one the enrollment follows, due now under
-// the key {kind}:{attempt}{suffix}.
 func (r *Runner) enqueueLatest(ctx context.Context, kind string, en store.EnrollmentRow, suffix string) (bool, error) {
 	a, err := r.st.LatestAttempt(ctx, en.ID)
 	if err != nil {
@@ -169,13 +145,6 @@ func (r *Runner) enqueueLatest(ctx context.Context, kind string, en store.Enroll
 	return r.EnqueueOrRevive(ctx, kind, store.JobKey(kind, a.ID)+suffix, &en.WorkshopID, &a.ID, nil, r.clock.Now())
 }
 
-// afterMove runs what an enrollment's move sets off: a new authorization is
-// captured or, once payments are closed, voided; a completed payment may
-// confirm the workshop or have to be refunded; a failed capture may leave the
-// round short of the minimum; an enrollment that needs an operator flags a
-// confirmed workshop; a finished enrollment may settle the workshop.
-// It only runs for a move that happened, so applying the same PayPal answer
-// again sets off nothing.
 func (r *Runner) afterMove(ctx context.Context, enrollmentID string, to domain.EnrollmentStatus) error {
 	if to != domain.EnrollmentAuthorized && to != domain.EnrollmentPaid && !to.Terminal() {
 		return nil
@@ -206,10 +175,6 @@ func (r *Runner) afterMove(ctx context.Context, enrollmentID string, to domain.E
 	}
 }
 
-// afterAuthorized starts the captures a new authorization makes ready. An
-// authorization that lands once the workshop is cancelled or payments have
-// closed is a hold nobody will capture, so it is voided under the same
-// void:{attempt} key close would use.
 func (r *Runner) afterAuthorized(ctx context.Context, en store.EnrollmentRow) error {
 	open, status, err := r.paymentsOpen(ctx, en, r.clock.Now())
 	if err != nil {
@@ -224,15 +189,6 @@ func (r *Runner) afterAuthorized(ctx context.Context, en store.EnrollmentRow) er
 	return err
 }
 
-// afterPaid acts on a payment that has just completed. In a FUNDING
-// workshop it applies domain.AfterCaptureResult (confirmIfFunded). A payment
-// completed after the workshop was cancelled is refunded
-// (domain.LateCaptureAfterCancel), and one completed after it was confirmed
-// keeps its seat until the workshop starts and is refunded after that
-// (domain.LateCaptureAfterConfirm). That refund is decided from the
-// workshop, its proposal and this enrollment alone, since nothing marks a
-// payment as late once this hook has passed. When the workshop leaves
-// FUNDING while this decides, it decides again from the new state.
 func (r *Runner) afterPaid(ctx context.Context, en store.EnrollmentRow) error {
 	paid := en.Domain()
 	for range casRetries {
@@ -264,13 +220,6 @@ func (r *Runner) afterPaid(ctx context.Context, en store.EnrollmentRow) error {
 	return errWorkshopMoving
 }
 
-// confirmIfFunded applies domain.AfterCaptureResult to a FUNDING workshop:
-// it is confirmed, with the resolution fundingResolution gives, by
-// compare-and-set from the status and resolution it read, once enough
-// payments have completed; short of that the capture round is evaluated
-// again, since authorizations that arrived while a capture was in flight may
-// now reach the minimum. done is false when the workshop was no longer
-// FUNDING or changed meanwhile.
 func (r *Runner) confirmIfFunded(ctx context.Context, workshopID string) (done bool, err error) {
 	v, err := r.workshopView(ctx, workshopID)
 	if err != nil || v.w.Status != domain.WorkshopFunding {

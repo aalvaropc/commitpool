@@ -32,7 +32,6 @@ describe('validateWorkshop', () => {
   })
 
   it('refuses a date that starts less than 24 h after the window would close', () => {
-    // A 24 h window opened now closes at 2026-10-28 12:00Z; 24 h later is 2026-10-29 12:00Z (07:00 in Lima).
     expect(validateWorkshop({ ...form, date1: '2026-10-29', time1: '06:59' }, now).errors.date1).toBe(DATES_RULE)
     expect(validateWorkshop({ ...form, date1: '2026-10-29', time1: '07:00' }, now).errors.date1).toBeUndefined()
     expect(validateWorkshop({ ...form, window: '15', date1: '2026-10-28', time1: '07:30' }, now).errors.date1).toBeUndefined()

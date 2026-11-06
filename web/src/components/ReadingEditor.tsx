@@ -20,7 +20,6 @@ const VERDICTS: { value: Verdict; label: string }[] = [
 
 const selectClass = `${inputClass} w-auto py-2`
 
-/** The reading of a participant's message, one verdict per date, correctable by hand. */
 export default function ReadingEditor({ token, availability, dates, editable, onSaved }: Props) {
   const reading = availability.corrected ?? availability.interpretation
   const [draft, setDraft] = useState<DateVerdict[]>(reading.per_date)

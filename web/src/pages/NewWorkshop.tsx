@@ -16,7 +16,6 @@ function isoDay(offsetDays: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-/** Moves focus to the first field that needs a fix, or to the form-wide error. */
 function focusFirstError(errors: Errors) {
   const key = firstInvalid(errors)
   const target = key ? document.getElementById(`f-${key}`) : document.getElementById('f-form-error')
@@ -52,7 +51,6 @@ export default function NewWorkshop() {
 
   useEffect(() => {
     if (focusErrors) focusFirstError(errors)
-    // Runs after a submit only, with the errors that submit found.
   }, [focusErrors])
 
   const set = (key: keyof Form) => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [key]: e.target.value }))

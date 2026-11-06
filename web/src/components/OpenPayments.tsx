@@ -11,10 +11,6 @@ interface Props {
   onOpened: () => Promise<unknown>
 }
 
-/**
- * "Open payments for this date" discloses the terms that lock with it and a
- * second, explicit confirmation; focus follows the panel in and back out.
- */
 export default function OpenPayments({ token, date, workshop, onOpened }: Props) {
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)

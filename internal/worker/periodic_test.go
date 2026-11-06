@@ -12,8 +12,6 @@ import (
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
-// unknownAuthorize runs the attempt's authorize into an ambiguous 503 after
-// the buyer approved, which leaves the job unknown and the seat reserved.
 func (e *env) unknownAuthorize(a store.AttemptRow) string {
 	e.t.Helper()
 	e.fake.Approve(*a.OrderID)
@@ -24,8 +22,6 @@ func (e *env) unknownAuthorize(a store.AttemptRow) string {
 	return key
 }
 
-// ageJob makes the job look last touched d ago by the database clock, which
-// is the clock RunPeriodic ages unknown jobs by.
 func (e *env) ageJob(key string, d time.Duration) {
 	e.t.Helper()
 	tag, err := e.st.Pool.Exec(e.ctx, `update jobs set updated_at = now() - make_interval(secs => $2) where idempotency_key = $1`, key, d.Seconds())
@@ -54,8 +50,6 @@ func TestPeriodicReconcile_EnqueuesPendingAttempts(t *testing.T) {
 	e.ageJob(e.unknownAuthorize(danAttempt), 4*time.Minute)
 	_, eveAttempt := e.withOrder("Eve")
 	e.ageJob(e.unknownAuthorize(eveAttempt), time.Hour)
-	// Eve's last reconcile generation already ran and left the job to an
-	// operator: no periodic reconcile may send it again.
 	e.enqueueKey("reconcile", "reconcile:"+eveAttempt.ID+":5", eveAttempt, e.clock.Now().Add(-time.Hour))
 	if _, err := e.st.Pool.Exec(e.ctx, `update jobs set status = 'succeeded' where idempotency_key = $1`, "reconcile:"+eveAttempt.ID+":5"); err != nil {
 		t.Fatal(err)
@@ -85,8 +79,6 @@ func TestPeriodicReconcile_EnqueuesPendingAttempts(t *testing.T) {
 	e.runPeriodic()
 	wantJobs("again within the minute", before+3)
 
-	// Later in the same hour only the unknown job is reconciled again: a
-	// pending capture or refund gets one periodic reconcile per hour.
 	e.advance(10 * time.Minute)
 	e.runPeriodic()
 	wantJobs("later in the hour", before+4)
@@ -113,9 +105,6 @@ func TestPeriodic_HealsACancelledWorkshopThatNeedsAttention(t *testing.T) {
 		t.Fatalf("authorize at PayPal: %v", err)
 	}
 	auth := o.PurchaseUnits[0].Payments.Authorizations[0]
-	// The hold landed on the released seat, but the void it calls for was
-	// never enqueued, and the workshop was cancelled straight into
-	// NEEDS_ATTENTION.
 	if _, err := e.st.UpdateAttemptFunc(e.ctx, a.ID, func(row *store.AttemptRow) error {
 		row.AuthorizationID, row.AuthorizationStatus = &auth.ID, &auth.Status
 		return nil
@@ -132,7 +121,6 @@ func TestPeriodic_HealsACancelledWorkshopThatNeedsAttention(t *testing.T) {
 func TestPeriodic_HealsFundingAndResolvingWorkshops(t *testing.T) {
 	e := newEnv(t)
 	e.confirmed()
-	// The confirmation after the third payment was lost.
 	e.moveWorkshop(domain.WorkshopConfirmed, domain.WorkshopFunding, domain.ResolutionOpen)
 	cancelled, cancelledProposal := e.fundingWorkshop()
 	pt, _, err := e.st.CreateParticipant(e.ctx, cancelled.ID, "Gus")
@@ -146,8 +134,6 @@ func TestPeriodic_HealsFundingAndResolvingWorkshops(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The workshop was cancelled and Gus's seat released, but the settlement
-	// that should have followed never ran.
 	if ok, err := e.st.TransitionEnrollment(e.ctx, gus.ID, []domain.EnrollmentStatus{domain.EnrollmentSeatReserved}, domain.EnrollmentReleased); err != nil || !ok {
 		t.Fatalf("release Gus = %v, %v", ok, err)
 	}

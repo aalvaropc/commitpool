@@ -8,7 +8,6 @@ interface Props {
   hint?: string
 }
 
-/** A link to pass on, shown whole, with a button that copies it. */
 export default function CopyField({ id, label, value, hint }: Props) {
   const input = useRef<HTMLInputElement>(null)
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')

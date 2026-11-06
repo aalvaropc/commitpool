@@ -170,9 +170,6 @@ resource "aws_instance" "app" {
 
   tags = { Name = "${var.project}-vm" }
 
-  # The boot template only matters at first boot; scripts/deploy-ec2.sh ships
-  # deploy.sh on every deploy, so a change to it must not replace the VM and
-  # lose the database.
   lifecycle {
     ignore_changes = [ami, user_data]
   }

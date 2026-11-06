@@ -2,7 +2,6 @@ import type { OwnerView } from '../api'
 import { verdictText } from '../lib/reading'
 import { Tag } from './ui'
 
-/** Every participant's own words, how they were read and what they corrected. */
 export default function AvailabilityList({ view }: { view: OwnerView }) {
   const label = new Map(view.dates.map((d) => [d.id, d.label]))
   const answered = new Set(view.availabilities.map((a) => a.participant_id))

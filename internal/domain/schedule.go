@@ -21,8 +21,6 @@ const (
 	ConditionStartAfter = "start_after"
 )
 
-// Condition qualifies a conditional verdict. Time is "HH:MM" on the
-// workshop's local clock.
 type Condition struct {
 	Type string `json:"type"`
 	Time string `json:"time"`
@@ -40,8 +38,6 @@ type Ambiguity struct {
 	Why      string `json:"why"`
 }
 
-// Interpretation is the structured reading of a participant's free-text
-// availability, one verdict per candidate date.
 type Interpretation struct {
 	PerDate            []DateVerdict `json:"per_date"`
 	HardConstraints    []string      `json:"hard_constraints"`
@@ -50,9 +46,6 @@ type Interpretation struct {
 	NeedsClarification bool          `json:"needs_clarification"`
 }
 
-// Compatible reports whether a participant can attend date. Conditions are
-// evaluated on the wall clock of loc, the workshop's time zone; a missing
-// verdict counts as unknown. When the answer is no, blocker says why.
 func Compatible(in Interpretation, d CandidateDate, loc *time.Location) (ok bool, blocker string) {
 	if in.NeedsClarification {
 		return false, "needs clarification"
@@ -76,8 +69,6 @@ func Compatible(in Interpretation, d CandidateDate, loc *time.Location) (ok bool
 	}
 }
 
-// conditionHolds anchors the "HH:MM" limit on the local day the date starts,
-// so a date running past local midnight cannot satisfy end_before the next day.
 func conditionHolds(c Condition, d CandidateDate, loc *time.Location) (bool, string) {
 	if c.Type != ConditionEndBefore && c.Type != ConditionStartAfter {
 		return false, "invalid condition"
@@ -100,8 +91,6 @@ func conditionHolds(c Condition, d CandidateDate, loc *time.Location) (bool, str
 	return true, ""
 }
 
-// DateSummary lists, for one candidate date, the compatible participant IDs
-// (sorted) and why each of the others cannot attend.
 type DateSummary struct {
 	DateID     string
 	Compatible []string
@@ -114,9 +103,6 @@ type Recommendation struct {
 	PerDate      []DateSummary
 }
 
-// Recommend picks the date with the most compatible participants, the
-// earliest one on a tie. When no date reaches the workshop minimum it still
-// returns the best date with MeetsMinimum false. PerDate follows start order.
 func Recommend(w Workshop, dates []CandidateDate, ins map[string]Interpretation, loc *time.Location) Recommendation {
 	sorted := slices.Clone(dates)
 	slices.SortStableFunc(sorted, func(a, b CandidateDate) int { return a.StartsAt.Compare(b.StartsAt) })

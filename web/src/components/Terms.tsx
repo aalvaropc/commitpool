@@ -6,7 +6,6 @@ const valueClass: Record<NonNullable<TermItem['kind']>, string> = {
   text: 'font-semibold',
 }
 
-/** A workshop's terms at a glance, in a row of four. */
 export default function Terms({ items }: { items: TermItem[] }) {
   return (
     <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
@@ -20,7 +19,6 @@ export default function Terms({ items }: { items: TermItem[] }) {
   )
 }
 
-/** The terms that lock when payments open, two to a row. */
 export function TermsList({ items, className = '' }: { items: TermItem[]; className?: string }) {
   return (
     <dl className={`grid gap-x-6 gap-y-3 sm:grid-cols-2 ${className}`}>

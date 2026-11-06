@@ -12,12 +12,10 @@ test.describe('withdraw and cancel', () => {
     const [ada, ben, cleo] = participants
     await openPayments(owner, workshop, 3)
 
-    // Ada and Ben place holds; two of three stay below the minimum, so nothing is charged.
     for (const p of [ada, ben]) {
       await startCheckout(p)
       await approveCheckout(p)
     }
-    // Cleo reserves a seat, leaves PayPal without approving and gives the seat up.
     await startCheckout(cleo)
     await cleo.page.goBack()
     await cleo.page.getByRole('button', { name: 'Give up my seat…' }).click()
@@ -25,7 +23,6 @@ test.describe('withdraw and cancel', () => {
     await cleo.page.getByRole('button', { name: 'Yes, withdraw' }).click()
     await expect(cleo.page.getByText('You gave up your seat. Nothing was held at PayPal.')).toBeVisible()
 
-    // Ben withdraws after authorizing: PayPal releases the hold.
     await ben.page.getByRole('button', { name: 'Withdraw and release my hold…' }).click()
     await ben.page.getByRole('button', { name: 'Yes, withdraw' }).click()
     await expect(ben.page.getByText('You withdrew. PayPal releases your hold; you are not charged.')).toBeVisible()
@@ -34,7 +31,6 @@ test.describe('withdraw and cancel', () => {
     await expect(enrollmentRow(owner, cleo.name)).toContainText('Withdrawn')
     await expect(enrollmentRow(owner, ben.name)).toContainText('Withdrawn — hold released', { timeout: 30_000 })
 
-    // The organizer cancels: the confirmation names what happens to Ada's hold.
     await owner.getByRole('button', { name: 'Cancel workshop…' }).click()
     await expect(owner.getByText('PayPal releases 1 hold.')).toBeVisible()
     await owner.getByLabel('Reason (optional)').fill('The studio is closed that week.')

@@ -253,7 +253,9 @@ machine and never commit it. `.gitignore` excludes `deploy/aws/.terraform/`,
 `deploy/aws/crash.log`; `.terraform.lock.hcl` and
 `terraform.tfvars.example` are committed. The PayPal secrets never pass
 through Terraform: they are put with the AWS CLI and Terraform ignores their
-values.
+values. Terraform creates each of them with a single space as a placeholder;
+the app trims every variable, so it reads the value as unset until the real
+one is put by hand.
 
 ## Not included
 

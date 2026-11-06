@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b --noEmit",
+    "lint": "node scripts/check-comments.mjs",
     "test": "vitest run --passWithNoTests",
     "preview": "vite preview"
   },

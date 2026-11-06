@@ -8,7 +8,6 @@ interface Props {
   onChange: () => Promise<unknown>
 }
 
-/** Controls that exist only on demo servers, each marked as such. */
 export default function DemoControls({ token, view, onChange }: Props) {
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)

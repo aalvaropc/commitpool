@@ -12,18 +12,6 @@ import (
 	"github.com/aalvaropc/commitpool/internal/config"
 )
 
-// TestBedrock_Live calls Claude on Amazon Bedrock for real. It runs only with
-// COMMITPOOL_LIVE_AI=1 and needs:
-//   - AWS_REGION, a region where the model is offered (e.g. us-east-1);
-//   - AWS credentials the default chain can find (aws configure, AWS_PROFILE,
-//     AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY) or a Bedrock API key in
-//     AWS_BEARER_TOKEN_BEDROCK;
-//   - access to the model enabled in the Bedrock console.
-//
-// COMMITPOOL_BEDROCK_MODEL, COMMITPOOL_BEDROCK_FALLBACK_MODEL and
-// COMMITPOOL_BEDROCK_EFFORT override the defaults. Run it with:
-//
-//	COMMITPOOL_LIVE_AI=1 go test ./internal/ai/ -run Live -count=1 -v
 func TestBedrock_Live(t *testing.T) {
 	if os.Getenv("COMMITPOOL_LIVE_AI") != "1" {
 		t.Skip("set COMMITPOOL_LIVE_AI=1, AWS_REGION and AWS credentials to call Bedrock for real")

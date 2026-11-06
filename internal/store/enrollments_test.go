@@ -800,7 +800,6 @@ func TestWorkshopIDsWithExpiredSeats_ListsEachWorkshopOnce(t *testing.T) {
 
 	reserve(t, s, two, twoP, newParticipant(t, s, two, "Expired").ID, baseTime)
 	reserve(t, s, two, twoP, newParticipant(t, s, two, "Also expired").ID, baseTime)
-	// Live first: reserving later would free the lapsed seat on the way.
 	reserve(t, s, one, oneP, newParticipant(t, s, one, "Live").ID, baseTime.Add(2*time.Hour))
 	reserve(t, s, one, oneP, newParticipant(t, s, one, "Expired").ID, baseTime)
 	held := reserve(t, s, authorized, authorizedP, newParticipant(t, s, authorized, "Authorized").ID, baseTime)
@@ -1011,7 +1010,6 @@ func TestReserveSeat_ReleasesExpiredSeatsBeforeCountingCapacity(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Ana's seat lapsed and no release job has run yet.
 	ben, err := reserveAt("Ben", ana.SeatExpiresAt.Add(time.Minute))
 	if err != nil {
 		t.Fatalf("reserve after the only seat lapsed = %v; want it to free that seat first", err)

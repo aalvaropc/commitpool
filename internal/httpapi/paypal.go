@@ -17,7 +17,6 @@ import (
 	"github.com/aalvaropc/commitpool/internal/worker"
 )
 
-// The outcomes the web app's /paypal/returned page receives as result.
 const (
 	resultAuthorized  = "authorized"
 	resultPending     = "pending"
@@ -31,15 +30,11 @@ const (
 )
 
 const (
-	// returnedPath is the web app's page for a buyer back from PayPal.
 	returnedPath = "/paypal/returned"
 	webhookPath  = "/paypal/webhook"
 
-	// maxWebhookBytes caps a webhook body instead of maxBodyBytes.
 	maxWebhookBytes = 256 << 10
 
-	// returnReconcileDelay is how long a return PayPal did not answer waits
-	// for the reconcile that reads the checkout back.
 	returnReconcileDelay = 30 * time.Second
 )
 
@@ -54,22 +49,12 @@ var (
 	errSeatExpired = conflict("seat_expired", "Your seat reservation expired and could not be renewed.")
 )
 
-// checkout is the enrollment a buyer comes back for, with the latest
-// attempt, whose order PayPal named.
 type checkout struct {
 	enrollment store.EnrollmentRow
 	attempt    store.AttemptRow
 	log        *slog.Logger
 }
 
-// paypalReturn is where PayPal sends the buyer after approving a checkout:
-// /paypal/return?e={enrollment}&token={order}. The query only finds the
-// checkout. The order must be the enrollment's latest attempt's, and PayPal
-// must report it for this enrollment, this attempt and the proposal's price
-// and currency, before the worker is asked to authorize it under
-// authorize:{attempt}; then the buyer is redirected to the web app's
-// /paypal/returned page with the outcome. The redirect carries the
-// enrollment and the outcome only, never a token or a PayPal issue.
 func (s *server) paypalReturn(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	q := r.URL.Query()
@@ -81,12 +66,6 @@ func (s *server) paypalReturn(w http.ResponseWriter, r *http.Request) {
 	redirectReturned(w, r, c.enrollment.ID, result)
 }
 
-// paypalCancel is where PayPal sends a buyer who cancelled the checkout:
-// /paypal/cancel?e={enrollment}&token={order}. The cancel is recorded on the
-// enrollment for the participant's view; the seat is kept until it expires
-// on its own, so the buyer can still approve the same checkout. PayPal's
-// token must be the latest attempt's order: without it, or with another
-// order, nothing is marked (mismatch).
 func (s *server) paypalCancel(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	q := r.URL.Query()
@@ -97,9 +76,6 @@ func (s *server) paypalCancel(w http.ResponseWriter, r *http.Request) {
 	redirectReturned(w, r, c.enrollment.ID, result)
 }
 
-// cancelCheckout records the cancel on a SEAT_RESERVED enrollment. One past
-// checkout, its hold authorized from another tab say, keeps what it has and
-// the result says what that is.
 func (s *server) cancelCheckout(ctx context.Context, c *checkout) string {
 	marked, err := s.Store.MarkApprovalCancelled(ctx, c.enrollment.ID, s.Clock.Now())
 	if err != nil {
@@ -119,8 +95,6 @@ func (s *server) cancelCheckout(ctx context.Context, c *checkout) string {
 	return settledResult(en.Status)
 }
 
-// findEnrollment loads the enrollment a PayPal redirect names. An unknown or
-// malformed ID is a mismatch, with an empty enrollment in the checkout.
 func (s *server) findEnrollment(ctx context.Context, op, enrollmentID string) (*checkout, string) {
 	c := &checkout{log: s.Log}
 	en, err := s.Store.EnrollmentByID(ctx, enrollmentID)
@@ -136,8 +110,6 @@ func (s *server) findEnrollment(ctx context.Context, op, enrollmentID string) (*
 	return c, ""
 }
 
-// findCheckout is findEnrollment plus the latest attempt, which must hold
-// the order PayPal named; any other order is a mismatch.
 func (s *server) findCheckout(ctx context.Context, op, enrollmentID, orderID string) (*checkout, string) {
 	c, result := s.findEnrollment(ctx, op, enrollmentID)
 	if result != "" {
@@ -156,14 +128,9 @@ func (s *server) findCheckout(ctx context.Context, op, enrollmentID, orderID str
 	return c, ""
 }
 
-// completeReturn decides and does what the return of a known checkout calls
-// for. A checkout whose hold is already recorded, or whose enrollment is past
-// checkout, is answered from the stored state without asking PayPal, so a
-// repeated return sends nothing twice.
 func (s *server) completeReturn(ctx context.Context, c *checkout) string {
 	key := store.JobKey(store.KindAuthorize, c.attempt.ID)
 	if c.enrollment.NeedsAttentionAt != nil {
-		// Its money state is uncertain: no hold is added until an operator looks.
 		c.log.Warn("paypal return: the enrollment is flagged for an operator; not authorizing")
 		return resultError
 	}
@@ -198,9 +165,6 @@ func (s *server) completeReturn(ctx context.Context, c *checkout) string {
 	switch o.Status {
 	case paypal.StatusApproved:
 	case paypal.StatusCompleted:
-		// Authorized at PayPal, not recorded here yet: a job is finishing it.
-		// Once payments have closed, or on a released seat, that hold is
-		// voided when it is recorded.
 		c.log.Info("paypal return: PayPal already shows the order authorized", "status", c.enrollment.Status)
 		switch {
 		case !paymentsOpen(ws, p, now):
@@ -238,11 +202,6 @@ func (s *server) completeReturn(ctx context.Context, c *checkout) string {
 	return s.returnOutcome(ctx, c, key)
 }
 
-// authorizeNow has the worker authorize the attempt under key, enqueued or
-// revived and run inline: a job skipped earlier is revived automatically,
-// and one PayPal refused as ORDER_NOT_APPROVED is revived because the buyer
-// is back with the order approved. Any other refusal, or a job running,
-// unknown or waiting for its retry, is left alone.
 func (s *server) authorizeNow(ctx context.Context, c *checkout, key string, now time.Time) error {
 	created, err := s.Worker.EnqueueOrRevive(ctx, store.KindAuthorize, key, &c.enrollment.WorkshopID, &c.attempt.ID, nil, now)
 	if err != nil {
@@ -263,28 +222,16 @@ func (s *server) authorizeNow(ctx context.Context, c *checkout, key string, now 
 	return s.Worker.RunKey(ctx, key)
 }
 
-// seatState is what holdSeat found.
 type seatState int
 
 const (
-	seatHeld   seatState = iota // the enrollment holds a live seat, or its hold is placed
-	seatGone                    // expired, and no seat could be given back
-	seatClosed                  // expired, and payments closed before it could be renewed
+	seatHeld seatState = iota
+	seatGone
+	seatClosed
 )
 
-// beforeSeatRenewal runs as holdSeat starts renewing an expired seat. It does
-// nothing; tests replace it to let another request act first.
 var beforeSeatRenewal = func(context.Context, string) {}
 
-// holdSeat makes sure the enrollment holds a live seat at now. A seat past
-// its expiry, released by the seat tick or not yet, is released and taken
-// again under the capacity rule (store.ReReserveSeat) for the configured
-// seat TTL, as a new enrollment gets. When that is refused the enrollment is
-// read again: another request or a reconcile may have renewed the seat
-// first, or placed the hold, and then the seat is held; so is a seat the
-// release kept because its authorization is pending at PayPal. Only an
-// enrollment still RELEASED has lost it: seatClosed when payments have
-// closed since, seatGone otherwise.
 func (s *server) holdSeat(ctx context.Context, en store.EnrollmentRow, now time.Time) (seatState, error) {
 	if !seatLive(en, now) && (en.Status == domain.EnrollmentSeatReserved || en.Status == domain.EnrollmentReleased) {
 		beforeSeatRenewal(ctx, en.ID)
@@ -303,7 +250,6 @@ func (s *server) holdSeat(ctx context.Context, en store.EnrollmentRow, now time.
 	case seatLive(en, now):
 		return seatHeld, nil
 	case en.Status == domain.EnrollmentSeatReserved:
-		// The release kept the seat: its authorization is pending at PayPal.
 		return seatHeld, nil
 	case en.Status != domain.EnrollmentReleased:
 		return seatGone, nil
@@ -322,8 +268,6 @@ func (s *server) holdSeat(ctx context.Context, en store.EnrollmentRow, now time.
 	return seatGone, nil
 }
 
-// seatLive reports whether the enrollment occupies a seat at now: reserved
-// and not expired, or past checkout with its hold placed or charged.
 func seatLive(en store.EnrollmentRow, now time.Time) bool {
 	if en.Status == domain.EnrollmentSeatReserved {
 		return !domain.SeatExpired(en.SeatExpiresAt, now)
@@ -331,12 +275,6 @@ func seatLive(en store.EnrollmentRow, now time.Time) bool {
 	return en.Status.Occupies()
 }
 
-// orderUnreadable answers a return whose order PayPal would not show. An
-// order PayPal no longer knows expired unapproved: the attempt records it
-// and the participant's next checkout opens a new one. A refusal that is
-// final is an error. Otherwise PayPal may answer later, so a reconcile reads
-// the checkout back shortly (reconcile:{attempt}:return:{minute}) and
-// authorizes it if the buyer approved, and the buyer is told it is pending.
 func (s *server) orderUnreadable(ctx context.Context, c *checkout, err error) string {
 	var pe *paypal.Error
 	if errors.As(err, &pe) {
@@ -364,8 +302,6 @@ func (s *server) orderUnreadable(ctx context.Context, c *checkout, err error) st
 	return resultPending
 }
 
-// returnOutcome is the result for the checkout as it stands now, read back
-// from the store after the worker had its turn.
 func (s *server) returnOutcome(ctx context.Context, c *checkout, key string) string {
 	en, err := s.Store.EnrollmentByID(ctx, c.enrollment.ID)
 	if err != nil {
@@ -378,7 +314,6 @@ func (s *server) returnOutcome(ctx context.Context, c *checkout, key string) str
 	switch en.Status {
 	case domain.EnrollmentSeatReserved:
 	case domain.EnrollmentAuthorized:
-		// A hold still uncharged once payments have closed is voided.
 		return s.byWindow(ctx, c, en, resultAuthorized)
 	default:
 		return settledResult(en.Status)
@@ -408,8 +343,6 @@ func (s *server) returnOutcome(ctx context.Context, c *checkout, key string) str
 	case issue == paypal.IssueInvalidResourceID:
 		return resultExpired
 	case issue == "" && j.HTTPStatus == nil:
-		// The worker skipped it: payments closed, or the seat or the
-		// checkout changed under the return.
 		return s.byWindow(ctx, c, en, resultPending)
 	}
 	debugID := ""
@@ -420,10 +353,6 @@ func (s *server) returnOutcome(ctx context.Context, c *checkout, key string) str
 	return resultDeclined
 }
 
-// settledResult is the result an enrollment past SEAT_RESERVED stands for: a
-// hold placed (or charged since) is authorized, a released seat expired, a
-// denied hold or failed charge declined, a hold released at close closed. A
-// seat still reserved is pending.
 func settledResult(status domain.EnrollmentStatus) string {
 	switch status {
 	case domain.EnrollmentSeatReserved:
@@ -440,8 +369,6 @@ func settledResult(status domain.EnrollmentStatus) string {
 	return resultAuthorized
 }
 
-// byWindow is open while the enrollment's payments are open, and closed once
-// they have closed.
 func (s *server) byWindow(ctx context.Context, c *checkout, en store.EnrollmentRow, open string) string {
 	ws, err := s.Store.WorkshopByID(ctx, en.WorkshopID)
 	if err != nil {
@@ -469,14 +396,10 @@ func redirectReturned(w http.ResponseWriter, r *http.Request, enrollmentID, resu
 	http.Redirect(w, r, returnedPath+"?"+q.Encode(), http.StatusFound)
 }
 
-// webhookSignatureHeaders are the transmission headers PayPal signs a
-// delivery with; verify-webhook-signature needs every one of them.
 var webhookSignatureHeaders = []string{
 	"PAYPAL-TRANSMISSION-ID", "PAYPAL-TRANSMISSION-TIME", "PAYPAL-TRANSMISSION-SIG", "PAYPAL-CERT-URL", "PAYPAL-AUTH-ALGO",
 }
 
-// webhookEvent is what the webhook reads from a PayPal event; the body is
-// stored whole.
 type webhookEvent struct {
 	ID           string `json:"id"`
 	EventType    string `json:"event_type"`
@@ -493,23 +416,6 @@ type webhookEvent struct {
 	} `json:"resource"`
 }
 
-// paypalWebhook takes PayPal's event deliveries. A delivery is verified with
-// PayPal (verify-webhook-signature, with its transmission headers and the
-// body byte for byte) before anything is stored, and an event is stored
-// once by its id. The webhook never applies a payment state: when the
-// event's resource belongs to a payment attempt it enqueues
-// reconcile:{attempt}:webhook:{event_id}, due now, and the reconcile reads
-// PayPal and applies what it finds, so an early or repeated event cannot
-// count a payment twice. It answers 200 {"inserted"} for every verified
-// event, a repeat included. The log names a verified event and its attempt,
-// never the body, and nothing of a delivery PayPal did not verify.
-//
-// Errors: 503 webhook_not_configured without a webhook ID; 413
-// body_too_large; 400 invalid_json or invalid_event for a body that is not a
-// PayPal event; 400 invalid_signature when one of the five PAYPAL-*
-// transmission headers is missing or empty, without asking PayPal, or when
-// PayPal does not verify the delivery; 502 paypal_unavailable when PayPal
-// could not be asked.
 func (s *server) paypalWebhook(w http.ResponseWriter, r *http.Request) error {
 	if s.Cfg.PayPalWebhookID == "" {
 		return errWebhookNotConfigured
@@ -548,7 +454,6 @@ func (s *server) paypalWebhook(w http.ResponseWriter, r *http.Request) error {
 		s.Log.Warn("webhook: the signature did not verify; event dropped")
 		return errInvalidSignature
 	}
-	// Only a delivery PayPal verified names its event in the log.
 	log := s.Log.With("event_id", ev.ID, "event_type", ev.EventType)
 
 	inserted, err := s.Store.InsertProviderEvent(ctx, ev.ID, ev.EventType, ev.ResourceType, ev.Resource.ID, true, body)
@@ -578,11 +483,6 @@ func (s *server) paypalWebhook(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// eventAttempt is the payment attempt the event's resource belongs to: the
-// first of the resource itself and its related capture, authorization and
-// order that an attempt holds, or nil. The related IDs find the attempt when
-// PayPal tells of a resource before the worker recorded it, such as a
-// capture whose answer was lost.
 func (s *server) eventAttempt(ctx context.Context, ev webhookEvent) (*store.AttemptRow, error) {
 	related := ev.Resource.SupplementaryData.RelatedIDs
 	for _, id := range []string{ev.Resource.ID, related.CaptureID, related.AuthorizationID, related.OrderID} {
@@ -597,10 +497,6 @@ func (s *server) eventAttempt(ctx context.Context, ev webhookEvent) (*store.Atte
 	return nil, nil
 }
 
-// implausibleDelivery is why a webhook delivery cannot be PayPal's, checked
-// before PayPal is asked to verify it (which costs a call against the same
-// rate limit as the money calls): a certificate outside https PayPal, or a
-// transmission time more than five minutes ahead. It is "" for a plausible one.
 func implausibleDelivery(h http.Header, now time.Time) string {
 	cert, err := url.Parse(h.Get("PAYPAL-CERT-URL"))
 	if err != nil || cert.Scheme != "https" || (cert.Hostname() != "paypal.com" && !strings.HasSuffix(cert.Hostname(), ".paypal.com")) {

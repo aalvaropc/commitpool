@@ -11,8 +11,6 @@ import (
 	"github.com/aalvaropc/commitpool/internal/paypal"
 )
 
-// Every opFunc below runs with the state lock held.
-
 func (f *Server) token(r *http.Request, body []byte) fakeResponse {
 	if _, _, ok := r.BasicAuth(); !ok {
 		return jsonResponse(http.StatusUnauthorized, map[string]string{
@@ -82,7 +80,6 @@ func (f *Server) getOrder(r *http.Request, body []byte) fakeResponse {
 func (f *Server) authorize(r *http.Request, body []byte) fakeResponse {
 	o, ok := f.liveOrder(r.PathValue("id"))
 	if !ok || o.status == orderCompleted {
-		// PayPal answers a completed order like a missing one.
 		return notFound()
 	}
 	if o.status != orderApproved {
@@ -194,7 +191,6 @@ func (f *Server) getRefund(r *http.Request, body []byte) fakeResponse {
 	return jsonResponse(http.StatusOK, rf.Refund)
 }
 
-// liveOrder finds an order that exists and has not been expired.
 func (f *Server) liveOrder(id string) (*fakeOrder, bool) {
 	o, ok := f.orders[id]
 	if !ok || o.expired {
@@ -203,8 +199,6 @@ func (f *Server) liveOrder(id string) (*fakeOrder, bool) {
 	return o, true
 }
 
-// orderView renders an order. forGet shows the amount SetOrderAmount
-// overrides; the creation and authorization answers always carry the real one.
 func (f *Server) orderView(o *fakeOrder, forGet bool) paypal.Order {
 	unit := paypal.PurchaseUnit{ReferenceID: o.referenceID, CustomID: o.customID, Amount: o.amount}
 	if forGet && o.reported != nil {
@@ -226,8 +220,6 @@ func (f *Server) orderView(o *fakeOrder, forGet bool) paypal.Order {
 	return paypal.Order{ID: o.id, Status: o.status, Links: links, PurchaseUnits: []paypal.PurchaseUnit{unit}}
 }
 
-// mockCode reads the code out of PayPal-Mock-Response; an absent or
-// unreadable header carries none.
 func mockCode(r *http.Request) string {
 	var m struct {
 		Code string `json:"mock_application_codes"`
@@ -300,8 +292,6 @@ func (f *Server) cancelPage(w http.ResponseWriter, r *http.Request) {
 	redirectWithToken(w, cancelURL, "token="+id)
 }
 
-// redirectWithToken sends the buyer back to the merchant, appending the query
-// PayPal adds with ? or & depending on what the URL already carries.
 func redirectWithToken(w http.ResponseWriter, target, query string) {
 	if target == "" {
 		http.Error(w, "the order has no return URL", http.StatusBadRequest)

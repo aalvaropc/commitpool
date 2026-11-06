@@ -15,11 +15,6 @@ const LABELS: Record<OperatorAction, { idle: string; busy: string }> = {
   clear: { idle: 'Mark resolved', busy: 'Clearing…' },
 }
 
-/**
- * Shown only when something waits on the organizer: a seat PayPal did not
- * settle on its own, a refund PayPal refused, or the workshop itself. Each
- * action is what the payments runbook does, scoped to this workshop.
- */
 export default function OperatorPanel({ token, view, onChange }: Props) {
   const [busy, setBusy] = useState<string | null>(null)
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)

@@ -20,11 +20,6 @@ interface Props {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-/**
- * The terms a participant commits to once the organizer fixes a date: when,
- * how much, the minimum and the deadline, the exact consent text and the
- * button that places the hold at PayPal.
- */
 export default function CommitmentCard({ token, view, onChange }: Props) {
   const { proposal, workshop, enrollment, consent, tally } = view
   const [busy, setBusy] = useState(false)

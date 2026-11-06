@@ -13,14 +13,6 @@ import (
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
-// closePayments runs close:{proposal_id} when the payment window closes. It
-// first heals what missed hooks left undone, then records the outcome of
-// domain.CloseDecision on the workshop (decideClose) and only after that
-// enqueues what the outcome owes, each for the enrollment's latest attempt:
-// void:{attempt} for each authorization to release, refund:{attempt} for each
-// completed payment to give back and reconcile:{attempt}:close for each
-// capture still in flight. Every key is fixed by its attempt, so running the
-// job again enqueues nothing new.
 func (r *Runner) closePayments(ctx context.Context, job *store.Job) (*int, error) {
 	if job.WorkshopID == nil {
 		return nil, errors.New("close job has no workshop")
@@ -57,18 +49,6 @@ func (r *Runner) closePayments(ctx context.Context, job *store.Job) (*int, error
 	return nil, r.SettleIfResolved(ctx, workshopID)
 }
 
-// decideClose records the close's outcome and returns it with the view it
-// was taken from. A FUNDING workshop moves to domain.CloseDecision's status,
-// with the resolution fundingResolution gives, by compare-and-set from the
-// status and resolution it read; when that loses, because a capture
-// confirmed the workshop, another close cancelled it or it was flagged
-// meanwhile, the decision is taken again from the new state. Once the
-// cancellation is written, what it owes is re-derived from a fresh view, so a
-// payment that completed between the first read and the write is refunded
-// by this close. For a workshop that is already cancelled it re-derives what
-// the cancellation owes, so a close cut short after writing it enqueues the
-// same keys when it runs again. A confirmed workshop gets CloseDecision's
-// voids and reconciles and never a refund.
 func (r *Runner) decideClose(ctx context.Context, workshopID string) (view, domain.Close, error) {
 	now := r.clock.Now()
 	for range casRetries {
@@ -105,10 +85,6 @@ func (r *Runner) decideClose(ctx context.Context, workshopID string) (view, doma
 	return view{}, domain.Close{}, errWorkshopMoving
 }
 
-// cancellationOwed is what cancelling the workshop owes as things stand: the
-// lists domain.CloseDecision gives for a FUNDING workshop that misses its
-// minimum, whatever the payments now add up to, with the cancelled
-// workshop's own status and resolution.
 func cancellationOwed(v view, now time.Time) domain.Close {
 	w, p := v.w, v.p
 	w.Status = domain.WorkshopFunding
@@ -118,11 +94,6 @@ func cancellationOwed(v view, now time.Time) domain.Close {
 	return c
 }
 
-// fundingResolution is the resolution a FUNDING workshop takes as it moves to
-// status, where the domain rule decided resolution: a workshop already
-// flagged for an operator stays flagged, and one confirmed while an
-// enrollment needs an operator is flagged, since a confirmed workshop is
-// never settled and nothing else would show it.
 func fundingResolution(v view, status domain.WorkshopStatus, resolution domain.Resolution) domain.Resolution {
 	if v.w.Resolution == domain.ResolutionNeedsAttention ||
 		status == domain.WorkshopConfirmed && slices.ContainsFunc(v.es, domain.Enrollment.NeedsOperator) {
@@ -131,14 +102,6 @@ func fundingResolution(v view, status domain.WorkshopStatus, resolution domain.R
 	return resolution
 }
 
-// SettleIfResolved records how a resolving workshop ended: SETTLED once every
-// enrollment is finished (or paid, in a confirmed workshop) and no failed
-// capture or released seat may still hold the buyer's money (mayHold),
-// NEEDS_ATTENTION as
-// soon as a refund failed or an enrollment needs an operator, which also
-// reopens a SETTLED workshop. Otherwise it changes nothing, so it can be
-// called any number of times. Each write is a compare-and-set from the state
-// it was decided on.
 func (r *Runner) SettleIfResolved(ctx context.Context, workshopID string) error {
 	for range casRetries {
 		wr, err := r.st.WorkshopByID(ctx, workshopID)
@@ -188,40 +151,16 @@ func settlement(v view) domain.Resolution {
 	return domain.ResolutionResolving
 }
 
-// mayHold reports whether enrollment i's latest attempt may still hold the
-// buyer's money: an authorization not yet released, or an authorize that is
-// running or whose outcome is unknown, which a seat release does not stop.
 func (v view) mayHold(i int) bool {
 	j, ok := v.job(i, store.KindAuthorize)
 	return holdsAuthorization(v.att[i]) || ok && (j.Status == store.JobRunning || j.Status == store.JobUnknown)
 }
 
-// holdsAuthorization reports whether the attempt has an authorization PayPal
-// has not shown voided, denied or expired: a hold that may still block the
-// buyer's money.
 func holdsAuthorization(a *store.AttemptRow) bool {
 	return a != nil && a.AuthorizationID != nil &&
 		!is(a.AuthorizationStatus, paypal.StatusVoided) && !is(a.AuthorizationStatus, paypal.StatusDenied) && !is(a.AuthorizationStatus, paypal.StatusExpired)
 }
 
-// HealWorkshop redoes, idempotently by key, the follow-ups a hook that failed
-// after its move would have left undone, from a fresh view of the workshop:
-//   - a failed capture or a released seat whose authorization still holds is
-//     voided: void:{attempt} is enqueued, or revived when it was skipped
-//     (EnqueueOrRevive never sends again a void PayPal refused);
-//   - a FUNDING workshop whose payments reach the minimum is confirmed, and
-//     one whose authorized and paid enrollments reach it while payments are
-//     open gets its capture round (StartCaptureRoundIfReady), which the
-//     hook of the authorization that reached it may have missed;
-//   - in a cancelled workshop a payment with no refund job is refunded, and an
-//     authorization with no void job is voided;
-//   - in a confirmed workshop an authorization with neither a capture nor a
-//     void job is captured while payments are open and voided after, and an
-//     enrollment that needs an operator flags the workshop (flagIfConfirmed);
-//   - a resolving or settled workshop is settled again.
-//
-// A payment kept in a confirmed workshop past its start is left alone:
-// nothing tells a late payment from one that confirmed the workshop.
 func (r *Runner) HealWorkshop(ctx context.Context, workshopID string) error {
 	v, err := r.workshopView(ctx, workshopID)
 	if err != nil {
@@ -239,7 +178,6 @@ func (r *Runner) HealWorkshop(ctx context.Context, workshopID string) error {
 		confirmed, err := r.confirmIfFunded(ctx, workshopID)
 		errs = append(errs, err)
 		if confirmed {
-			// The rest of the healing decides from the confirmed workshop.
 			if v, err = r.workshopView(ctx, workshopID); err != nil {
 				return errors.Join(append(errs, err)...)
 			}
@@ -257,10 +195,6 @@ func (r *Runner) HealWorkshop(ctx context.Context, workshopID string) error {
 		case v.w.Status == domain.WorkshopCancelled && en.Status == domain.EnrollmentAuthorized && !v.has(i, store.KindVoid):
 			heal(store.KindVoid, en, "authorization kept in a cancelled workshop")
 		case en.Status == domain.EnrollmentCapturing && (v.w.Status == domain.WorkshopCancelled || !open):
-			// A capture that ran out of retries is sent again only past its
-			// deadline or in a cancelled workshop, where the handler reads
-			// PayPal and, finding no capture, fails it and voids the hold
-			// instead of capturing.
 			if j, ok := v.job(i, store.KindCapture); ok && j.Status == store.JobNeedsAttention {
 				revived, err := r.st.ReviveJob(ctx, j.IdempotencyKey, now, true)
 				if revived {
@@ -287,11 +221,6 @@ func (r *Runner) HealWorkshop(ctx context.Context, workshopID string) error {
 	return errors.Join(errs...)
 }
 
-// flagIfConfirmed flags a CONFIRMED workshop for an operator. A confirmed
-// workshop keeps resolution OPEN and is never settled, so nothing else would
-// show an enrollment there that needs one; a cancelled workshop is flagged
-// by its settlement, and a funding one when it is confirmed
-// (fundingResolution).
 func (r *Runner) flagIfConfirmed(ctx context.Context, workshopID string) error {
 	w, err := r.st.WorkshopByID(ctx, workshopID)
 	if err != nil || w.Status != domain.WorkshopConfirmed {
@@ -300,8 +229,6 @@ func (r *Runner) flagIfConfirmed(ctx context.Context, workshopID string) error {
 	return r.flagWorkshop(ctx, r.log, workshopID)
 }
 
-// flagWorkshop marks the workshop's resolution NEEDS_ATTENTION and keeps its
-// status, by compare-and-set from the state it read.
 func (r *Runner) flagWorkshop(ctx context.Context, log *slog.Logger, workshopID string) error {
 	for range casRetries {
 		w, err := r.st.WorkshopByID(ctx, workshopID)
@@ -321,9 +248,6 @@ func (r *Runner) flagWorkshop(ctx context.Context, log *slog.Logger, workshopID 
 	return errWorkshopMoving
 }
 
-// releaseSeats runs release_seats:{workshop}:{minute}: the workshop's
-// reserved seats whose window has passed are released, which may be what a
-// resolving workshop was waiting for.
 func (r *Runner) releaseSeats(ctx context.Context, job *store.Job) (*int, error) {
 	if job.WorkshopID == nil {
 		return nil, errors.New("release_seats job has no workshop")
@@ -338,10 +262,6 @@ func (r *Runner) releaseSeats(ctx context.Context, job *store.Job) (*int, error)
 	return nil, r.SettleIfResolved(ctx, *job.WorkshopID)
 }
 
-// EnqueueSeatReleases enqueues release_seats:{workshop}:{minute}, due now,
-// for every workshop with an expired seat; minute is now's minute in UTC, so
-// a second call within the same minute adds nothing. Run calls it once a
-// minute.
 func (r *Runner) EnqueueSeatReleases(ctx context.Context) error {
 	now := r.clock.Now()
 	ids, err := r.st.WorkshopIDsWithExpiredSeats(ctx, now)

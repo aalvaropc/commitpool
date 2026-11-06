@@ -12,14 +12,11 @@ import (
 	"github.com/aws/smithy-go"
 )
 
-// SES sends through Amazon SES v2 with the default AWS credential chain (the
-// VM's instance role in the hosted demo) from a verified sender identity.
 type SES struct {
 	client *sesv2.Client
 	from   string
 }
 
-// NewSES builds the SES mailer for region, sending as from.
 func NewSES(ctx context.Context, region, from string) (*SES, error) {
 	cfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(region))
 	if err != nil {

@@ -17,28 +17,13 @@ import (
 )
 
 const (
-	// explainTimeout bounds one call to the interpreter for an explanation.
-	explainTimeout = 15 * time.Second
-	// explanationCacheSize bounds the explanations kept in memory.
-	explanationCacheSize = 256
-	// explanationRetryAfter is how long a plain explanation stands in for a
-	// failed call before a view asks the interpreter again.
+	explainTimeout        = 15 * time.Second
+	explanationCacheSize  = 256
 	explanationRetryAfter = time.Minute
 )
 
-// afterExplanation, when set, runs each time a background explanation has
-// been stored; tests wait on it.
 var afterExplanation atomic.Pointer[func()]
 
-// explanation puts the recommendation into words for the owner view and
-// reports whether a better text is still being written. The recommendation
-// itself, and so its date, always comes from domain.Recommend; the
-// interpreter only phrases it. The view never waits for the interpreter: on a
-// cache miss it answers with no text and pending true, and the explanation is
-// written once in the background (explainInBackground), however many views
-// ask meanwhile. An entry past its retry time is served while it is written
-// again, also as pending. Without any availability there is nothing to
-// explain.
 func (s *server) explanation(ctx context.Context, st workshopState, rec domain.Recommendation, names map[string]string, availabilities int) (text string, pending bool) {
 	if availabilities == 0 || rec.DateID == "" {
 		return "", false
@@ -61,12 +46,6 @@ func (s *server) explanation(ctx context.Context, st workshopState, rec domain.R
 	return text, true
 }
 
-// explainInBackground asks the interpreter for one explanation on its own
-// goroutine, bounded by explainTimeout but not by the request that started
-// it, and stores the result for later views. A failed call, a panic or a
-// text that names a date the server did not recommend leaves
-// ai.PlainExplanation instead; after a failure it is served for
-// explanationRetryAfter before the interpreter is asked again.
 func (s *server) explainInBackground(ctx context.Context, key [sha256.Size]byte, st workshopState, in ai.ExplainInput) {
 	bctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), explainTimeout)
 	go func() {
@@ -105,17 +84,10 @@ func (s *server) writeExplanation(ctx context.Context, st workshopState, in ai.E
 	return text, time.Time{}
 }
 
-// explanationKey is a SHA-256 of the workshop and of exactly what the model
-// is told, ai.ExplainFacts, so a change the model would not see (another
-// date's blockers, the name of someone who only matters elsewhere) does not
-// ask for a new explanation.
 func explanationKey(workshopID string, in ai.ExplainInput) [sha256.Size]byte {
 	return sha256.Sum256([]byte(workshopID + "\n" + ai.ExplainFacts(in)))
 }
 
-// namesAnotherDate reports whether text names a candidate date other than
-// the recommended one, by its day of the month ("15 Nov", "Nov 15") or, when
-// it falls on another weekday, by its weekday ("Sunday").
 func namesAnotherDate(text, recommendedID string, dates []store.CandidateDateRow, loc *time.Location) bool {
 	var rec time.Time
 	found := false
@@ -149,8 +121,6 @@ func namesAnotherDate(text, recommendedID string, dates []store.CandidateDateRow
 	return false
 }
 
-// containsWord reports whether phrase occurs in text as whole words, with no
-// letter or digit right before or after it. Both are already lower case.
 func containsWord(text, phrase string) bool {
 	if phrase == "" {
 		return false
@@ -172,15 +142,10 @@ func containsWord(text, phrase string) bool {
 	return false
 }
 
-// isWordRune is true for a letter or a digit; utf8.RuneError, which marks
-// the start or end of the text, is neither.
 func isWordRune(r rune) bool {
 	return r != utf8.RuneError && (unicode.IsLetter(r) || unicode.IsDigit(r))
 }
 
-// explanationCache keeps up to explanationCacheSize explanations and evicts
-// the oldest first. An entry with a retry time is fresh until then. inFlight
-// marks the keys being written, so each is written once at a time.
 type explanationCache struct {
 	mu       sync.Mutex
 	entries  map[[sha256.Size]byte]cachedExplanation
@@ -190,7 +155,7 @@ type explanationCache struct {
 
 type cachedExplanation struct {
 	text    string
-	retryAt time.Time // zero: kept until evicted
+	retryAt time.Time
 }
 
 func newExplanationCache() *explanationCache {
@@ -200,9 +165,6 @@ func newExplanationCache() *explanationCache {
 	}
 }
 
-// claim returns the entry for key. A fresh one is the answer. Otherwise text
-// is whatever stale text there is, and start is true for the one caller that
-// must write the explanation: the key is marked in flight until finish.
 func (c *explanationCache) claim(key [sha256.Size]byte, now time.Time) (text string, fresh, start bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -217,7 +179,6 @@ func (c *explanationCache) claim(key [sha256.Size]byte, now time.Time) (text str
 	return e.text, false, true
 }
 
-// finish stores the written explanation and clears the key's in-flight mark.
 func (c *explanationCache) finish(key [sha256.Size]byte, text string, retryAt time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

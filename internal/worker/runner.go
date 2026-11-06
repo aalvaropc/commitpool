@@ -1,8 +1,3 @@
-// Package worker runs the payment jobs in process. It claims due jobs from the
-// store, calls PayPal with each job's idempotency key as the PayPal-Request-Id
-// and maps PayPal's answers onto the payment attempt and its enrollment. An
-// ambiguous answer parks the job as unknown until a reconcile job has read
-// the outcome back from PayPal; no path ever retries under a new key.
 package worker
 
 import (
@@ -32,22 +27,13 @@ const (
 	tickInterval = time.Minute
 	staleAfter   = 5 * time.Minute
 
-	settleTimeout = 10 * time.Second
-	// shutdownGrace is how long a job Run is running may go on once Run's
-	// context is done.
-	shutdownGrace = 10 * time.Second
-	// inlineJobTimeout bounds a job RunKey runs for a caller that waits on it.
+	settleTimeout    = 10 * time.Second
+	shutdownGrace    = 10 * time.Second
 	inlineJobTimeout = 60 * time.Second
 )
 
-// reconcileGaps is how long after an ambiguous result each reconcile
-// generation runs, by generation: they spread over seven hours, so a PayPal
-// outage of a few minutes never uses them up.
 var reconcileGaps = [...]time.Duration{30 * time.Second, 2 * time.Minute, 10 * time.Minute, time.Hour, 6 * time.Hour}
 
-// maxReconcileGenerations is how many reconciles an ambiguous action gets: the
-// one with this generation no longer sends the action again when PayPal still
-// shows no trace of it, and flags the enrollment for an operator instead.
 const maxReconcileGenerations = 5
 
 var errUnknownKind = errors.New("unknown kind")
@@ -58,18 +44,9 @@ type Deps struct {
 	Clock  clock.Clock
 	Cfg    config.Config
 	Log    *slog.Logger
-	// Mailer sends the notifications; nil logs them instead (mail.Log).
 	Mailer mail.Mailer
 }
 
-// Handler runs one job. A nil error completes the job. Otherwise the error
-// decides what happens next: an ambiguous PayPal error parks the job as
-// unknown and schedules a reconcile; a refusal the handler has already
-// recorded (see refusal) fails the job, which keeps its key: a skip is
-// revived by EnqueueOrRevive once the action applies again, and a PayPal
-// refusal only through Revive; anything else, a 429, a store failure or a
-// panic included, retries it later under the same key. httpStatus is PayPal's
-// HTTP status when the handler knows it.
 type Handler func(ctx context.Context, job *store.Job) (httpStatus *int, err error)
 
 type Runner struct {
@@ -85,8 +62,6 @@ type Runner struct {
 	inline   sync.WaitGroup
 }
 
-// New returns a runner with the payment handlers, close and release_seats
-// registered. A nil Log uses slog.Default and a nil Clock the real clock.
 func New(d Deps) *Runner {
 	log := d.Log
 	if log == nil {
@@ -115,20 +90,10 @@ func New(d Deps) *Runner {
 	return r
 }
 
-// Register adds or replaces the handler for a job kind. Call it before Run.
 func (r *Runner) Register(kind string, h Handler) {
 	r.handlers[kind] = h
 }
 
-// Run works until ctx is done, then returns ctx.Err(). Three loops run side
-// by side, each recovering from a panic and recording a heartbeat (Health):
-// one claims and runs due jobs (looking again every two seconds when none
-// is due), one every minute takes back jobs claimed more than five minutes
-// ago and never finished and enqueues the seat releases, and one every two
-// minutes reconciles what PayPal may still change and heals the workshops
-// still funding or resolving (RunPeriodic). Once ctx is done no new job is
-// claimed and Run returns when the job in flight has finished, which RunOnce
-// lets go on for up to shutdownGrace.
 func (r *Runner) Run(ctx context.Context) error {
 	var wg sync.WaitGroup
 	for _, l := range []struct {
@@ -160,8 +125,6 @@ func (r *Runner) Run(ctx context.Context) error {
 	return ctx.Err()
 }
 
-// loop calls fn now and then every interval until ctx is done. A panic in
-// fn is logged and the loop goes on; each completed call records beat.
 func (r *Runner) loop(ctx context.Context, name string, interval time.Duration, beat *atomic.Int64, fn func(context.Context)) {
 	t := time.NewTicker(interval)
 	defer t.Stop()
@@ -183,7 +146,6 @@ func (r *Runner) loop(ctx context.Context, name string, interval time.Duration, 
 	}
 }
 
-// Health is when each loop of Run last completed; zero before its first.
 type Health struct {
 	Drain, Tick, Periodic time.Time
 }
@@ -198,8 +160,6 @@ func (r *Runner) Health() Health {
 	return Health{Drain: at(&r.beats.drain), Tick: at(&r.beats.tick), Periodic: at(&r.beats.periodic)}
 }
 
-// WaitInline waits for the jobs RunKey is running for callers, or for ctx;
-// a shutdown calls it before closing the database.
 func (r *Runner) WaitInline(ctx context.Context) error {
 	done := make(chan struct{})
 	go func() {
@@ -241,11 +201,6 @@ func (r *Runner) requeueStale(ctx context.Context) {
 	}
 }
 
-// RunOnce claims the next due job, runs it and records its outcome. It
-// reports whether a job ran; the error is a failure to claim or to record.
-// A job claimed before ctx is done runs on for up to shutdownGrace after
-// that, so a shutdown lets a PayPal call already sent finish instead of
-// turning its answer into an unknown result.
 func (r *Runner) RunOnce(ctx context.Context) (bool, error) {
 	job, err := r.st.ClaimJob(ctx, r.workerID, r.clock.Now())
 	if err != nil || job == nil {
@@ -256,8 +211,6 @@ func (r *Runner) RunOnce(ctx context.Context) (bool, error) {
 	return true, r.run(jobCtx, job)
 }
 
-// withShutdownGrace returns a context with ctx's values that is done
-// shutdownGrace after ctx is, or as soon as cancel is called.
 func withShutdownGrace(ctx context.Context) (context.Context, context.CancelFunc) {
 	jobCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	stop := context.AfterFunc(ctx, func() {
@@ -275,15 +228,7 @@ func withShutdownGrace(ctx context.Context) (context.Context, context.CancelFunc
 	}
 }
 
-// RunKey runs the job with this key now, for a caller that needs its outcome
-// before answering, such as an HTTP handler. It returns nil once the outcome
-// is recorded on the job, whatever it was: read it back with store.JobByKey.
-// A job that exists but cannot be claimed (another worker is running it, it
-// is finished or it is not due yet) is left alone and RunKey returns nil; when
-// no job has the key it returns store.ErrNotFound.
 func (r *Runner) RunKey(ctx context.Context, key string) error {
-	// The caller's request may end (a buyer closing the tab) while PayPal is
-	// answering: the job runs on, so its answer is recorded, not lost.
 	r.inline.Add(1)
 	defer r.inline.Done()
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), inlineJobTimeout)
@@ -305,20 +250,11 @@ func (r *Runner) RunKey(ctx context.Context, key string) error {
 	return nil
 }
 
-// Enqueue adds a pending job due at runAt. A job with the same key that
-// already exists is left as it is.
 func (r *Runner) Enqueue(ctx context.Context, kind, key string, workshopID, attemptID *string, payload any, runAt time.Time) error {
 	_, err := r.st.EnqueueJob(ctx, kind, key, workshopID, attemptID, payload, runAt)
 	return err
 }
 
-// EnqueueOrRevive adds a pending job due at runAt or, when a job with the key
-// already exists and failed without a provider answer (a skip), sends that
-// job back to pending at runAt under its own key, keeping its payload. A job
-// PayPal refused, one that gave up, and one that is pending, running, unknown
-// or succeeded are left as they are, so an automatic path never re-sends an
-// action PayPal already refused. created reports whether a new job was
-// written. Callers with new information about a refused job use Revive.
 func (r *Runner) EnqueueOrRevive(ctx context.Context, kind, key string, workshopID, attemptID *string, payload any, runAt time.Time) (created bool, err error) {
 	created, err = r.st.EnqueueJob(ctx, kind, key, workshopID, attemptID, payload, runAt)
 	if err != nil || created {
@@ -331,11 +267,6 @@ func (r *Runner) EnqueueOrRevive(ctx context.Context, kind, key string, workshop
 	return false, err
 }
 
-// Revive sends the job with this key back to pending now, under its own key,
-// when it failed or gave up, whatever the reason: it is for callers that know
-// something changed since, such as the HTTP layer once the buyer is back from
-// PayPal with an approved order, or an operator. It reports whether a job was
-// revived.
 func (r *Runner) Revive(ctx context.Context, key string) (bool, error) {
 	revived, err := r.st.ReviveJob(ctx, key, r.clock.Now(), true)
 	if revived {
@@ -344,8 +275,6 @@ func (r *Runner) Revive(ctx context.Context, key string) (bool, error) {
 	return revived, err
 }
 
-// ReturnURLs are where PayPal sends the buyer back after approving or
-// cancelling the enrollment's checkout.
 func (r *Runner) ReturnURLs(enrollmentID string) (returnURL, cancelURL string) {
 	return r.cfg.BaseURL + "/paypal/return?e=" + enrollmentID, r.cfg.BaseURL + "/paypal/cancel?e=" + enrollmentID
 }
@@ -359,8 +288,6 @@ func (r *Runner) run(ctx context.Context, job *store.Job) error {
 	return r.settle(ctx, job, status, err)
 }
 
-// call runs the handler and turns a panic into an error, so the job is retried
-// like any other failure instead of taking the process down with it.
 func (r *Runner) call(ctx context.Context, h Handler, job *store.Job) (status *int, err error) {
 	defer func() {
 		if p := recover(); p != nil {
@@ -371,8 +298,6 @@ func (r *Runner) call(ctx context.Context, h Handler, job *store.Job) (status *i
 	return h(ctx, job)
 }
 
-// settle records the outcome of a run on the job, in a context that outlives
-// a shutdown so a result PayPal already produced is not lost.
 func (r *Runner) settle(ctx context.Context, job *store.Job, status *int, err error) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), settleTimeout)
 	defer cancel()
@@ -419,8 +344,6 @@ func (r *Runner) settle(ctx context.Context, job *store.Job, status *int, err er
 	}
 }
 
-// tolerate drops ErrJobNotActive: the job was taken back or settled elsewhere
-// while this run was in flight, and this late result must not overwrite that.
 func (r *Runner) tolerate(log *slog.Logger, err error) error {
 	if errors.Is(err, store.ErrJobNotActive) {
 		log.Warn("job changed hands while it ran; this run's result is dropped")
@@ -429,11 +352,6 @@ func (r *Runner) tolerate(log *slog.Logger, err error) error {
 	return err
 }
 
-// scheduleReconcile enqueues the attempt's next reconcile generation,
-// reconcile:{attempt}:{n} with n one above the highest generation the attempt
-// has, reconcileGaps after now. A reconcile of the attempt that is pending and
-// not due yet is enough instead: it has not started, so it will resolve this
-// job together with every other unknown job of the attempt.
 func (r *Runner) scheduleReconcile(ctx context.Context, job *store.Job) error {
 	now := r.clock.Now()
 	jobs, err := r.st.JobsByAttempt(ctx, *job.AttemptID)
@@ -458,8 +376,6 @@ func (r *Runner) scheduleReconcile(ctx context.Context, job *store.Job) error {
 	return err
 }
 
-// reconcilable reports whether a reconcile can resolve an ambiguous result of
-// a job of this kind; any other kind, a reconcile included, is retried.
 func reconcilable(kind string) bool {
 	switch kind {
 	case store.KindCreateOrder, store.KindAuthorize, store.KindCapture, store.KindVoid, store.KindRefund:
@@ -472,8 +388,6 @@ func reconcilePrefix(attemptID string) string {
 	return store.JobKey(store.KindReconcile, attemptID) + ":"
 }
 
-// generation is n in a reconcile job's key reconcile:{attempt}:{n}; ok is
-// false for a key of another shape.
 func generation(j store.Job) (n int, ok bool) {
 	if j.AttemptID == nil {
 		return 0, false
@@ -486,9 +400,6 @@ func generation(j store.Job) (n int, ok bool) {
 	return n, err == nil && n > 0
 }
 
-// escalate flags the enrollment behind a job whose retries are used up,
-// unless it is paid or finished. A close or release_seats job that gives up
-// flags its workshop's resolution instead, whatever its status.
 func (r *Runner) escalate(ctx context.Context, log *slog.Logger, job *store.Job) error {
 	if job.AttemptID == nil {
 		if job.WorkshopID != nil && (job.Kind == store.KindClose || job.Kind == store.KindReleaseSeats) {
@@ -507,9 +418,6 @@ func (r *Runner) escalate(ctx context.Context, log *slog.Logger, job *store.Job)
 	if job.Kind != store.KindVoid && job.Kind != store.KindRefund {
 		return nil
 	}
-	// A void or refund that keeps failing for an enrollment that cannot
-	// carry the flag (a failed capture, a released seat, an older attempt)
-	// flags its workshop, so the stuck money shows.
 	en, err := r.st.EnrollmentByID(ctx, a.EnrollmentID)
 	if err != nil || en.NeedsAttentionAt != nil {
 		return err
@@ -521,13 +429,6 @@ func (r *Runner) jobLog(job *store.Job) *slog.Logger {
 	return r.log.With("job_id", job.ID, "kind", job.Kind, "key", job.IdempotencyKey, "attempt_id", deref(job.AttemptID))
 }
 
-// refusal ends a run whose action did not happen and would not happen by
-// retrying it as is: PayPal refused it for good (pe), the worker refused it
-// itself (issue, such as a passed capture deadline), or the enrollment was not
-// in a state the action applies to. The handler has already recorded any
-// outcome on the attempt and the enrollment. The job is failed with the
-// reason and keeps its key: EnqueueOrRevive sends a skip again once the
-// action applies, and only Revive sends again an action PayPal refused.
 type refusal struct {
 	reason string
 	issue  string
@@ -590,8 +491,6 @@ func deref(s *string) string {
 	return *s
 }
 
-// newWorkerID names this process in the jobs it locks: host, pid and four
-// random bytes, so two runners in one process are told apart.
 func newWorkerID() string {
 	host, err := os.Hostname()
 	if err != nil || host == "" {

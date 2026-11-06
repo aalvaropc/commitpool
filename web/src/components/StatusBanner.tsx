@@ -8,7 +8,6 @@ interface Props {
   children?: ReactNode
 }
 
-/** The workshop's state in one line; the headline is announced when it changes. */
 export default function StatusBanner({ headline, tone, children }: Props) {
   return (
     <section aria-label="Workshop status" className={`rounded-sm px-4 py-4 sm:px-5 ${toneWash[tone]}`}>

@@ -12,9 +12,6 @@ import (
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
-// move is the enrollment transition a PayPal status implies: to `to`, but only
-// from one of `from`, so an enrollment that is already there or past it, or
-// finished, is never moved back.
 type move struct {
 	from []domain.EnrollmentStatus
 	to   domain.EnrollmentStatus
@@ -23,21 +20,13 @@ type move struct {
 func statuses(s ...domain.EnrollmentStatus) []domain.EnrollmentStatus { return s }
 
 var (
-	// activeStatuses are the enrollment statuses that are not terminal.
 	activeStatuses = statuses(domain.EnrollmentSeatReserved, domain.EnrollmentAuthorized, domain.EnrollmentCapturing,
 		domain.EnrollmentCapturePending, domain.EnrollmentPaid, domain.EnrollmentVoiding, domain.EnrollmentRefunding,
 		domain.EnrollmentRefundPending)
 
-	// unpaidActiveStatuses are the active statuses a stuck job may flag: a
-	// completed payment is never taken out of PAID because a job gave up.
 	unpaidActiveStatuses = statuses(domain.EnrollmentSeatReserved, domain.EnrollmentAuthorized, domain.EnrollmentCapturing,
 		domain.EnrollmentCapturePending, domain.EnrollmentVoiding, domain.EnrollmentRefunding, domain.EnrollmentRefundPending)
 
-	// A status missing from a table leaves the enrollment as it is. A capture
-	// REFUNDED moves nothing on its own: the refund's status decides. An
-	// authorization PENDING (held for review) leaves the enrollment
-	// SEAT_RESERVED: the seat release keeps that seat and the periodic
-	// reconcile reads the authorization back until PayPal decides.
 	authorizationMoves = map[string]move{
 		paypal.StatusCreated: {statuses(domain.EnrollmentSeatReserved), domain.EnrollmentAuthorized},
 		paypal.StatusVoided:  {statuses(domain.EnrollmentAuthorized, domain.EnrollmentVoiding), domain.EnrollmentVoided},
@@ -48,8 +37,6 @@ var (
 		paypal.StatusPending:   {statuses(domain.EnrollmentAuthorized, domain.EnrollmentCapturing), domain.EnrollmentCapturePending},
 		paypal.StatusDeclined:  {statuses(domain.EnrollmentCapturing, domain.EnrollmentCapturePending), domain.EnrollmentCaptureFailed},
 		paypal.StatusFailed:    {statuses(domain.EnrollmentCapturing, domain.EnrollmentCapturePending), domain.EnrollmentCaptureFailed},
-		// A partial refund nobody asked for: the enrollment keeps its status
-		// and is flagged for an operator (see transition).
 		paypal.StatusPartiallyRefunded: {statuses(domain.EnrollmentCapturing, domain.EnrollmentCapturePending, domain.EnrollmentPaid,
 			domain.EnrollmentRefunding, domain.EnrollmentRefundPending), domain.EnrollmentNeedsAttention},
 	}
@@ -69,29 +56,16 @@ func lookup(table map[string]move, status string) *move {
 }
 
 var (
-	// errIDConflict stops an update that would replace a PayPal id the
-	// attempt already holds with a different one.
 	errIDConflict = errors.New("worker: PayPal reports a different resource than the attempt holds")
 
-	// errCaptureRecorded stops a capture failure from being recorded on an
-	// attempt that already holds a capture.
 	errCaptureRecorded = errors.New("worker: the attempt already holds a capture; no capture failure recorded")
 )
 
-// ApplyOrder records what PayPal reports about the attempt's order, its id
-// and status, and then applies every authorization, capture and refund the
-// order lists, in that order. Like every Apply function it can be called any
-// number of times with the same answer, fills an id only when the attempt has
-// none or the same one, never moves an enrollment back from a later or
-// terminal status, and moves an enrollment only for its latest attempt: an
-// enrollment follows the checkout it opened last.
 func (r *Runner) ApplyOrder(ctx context.Context, attemptID string, o paypal.Order) error {
 	_, err := r.applyOrder(ctx, attemptID, o)
 	return err
 }
 
-// applyOrder is ApplyOrder reporting whether the order was recorded; it is
-// false when PayPal named a different order than the attempt holds.
 func (r *Runner) applyOrder(ctx context.Context, attemptID string, o paypal.Order) (bool, error) {
 	res, err := r.record(ctx, attemptID, func(a *store.AttemptRow) error {
 		if err := setID(&a.OrderID, o.ID); err != nil {
@@ -122,11 +96,6 @@ func (r *Runner) applyOrder(ctx context.Context, attemptID string, o paypal.Orde
 	return true, nil
 }
 
-// ApplyAuthorization records the authorization's id, status and expiry and
-// moves the enrollment: CREATED → AUTHORIZED, VOIDED → VOIDED, DENIED →
-// CAPTURE_FAILED; PENDING moves nothing. A CREATED authorization the enrollment cannot use, because
-// the attempt is not its latest or its seat was released, is a hold nobody
-// will capture, so it enqueues the attempt's void.
 func (r *Runner) ApplyAuthorization(ctx context.Context, attemptID string, au paypal.Authorization) error {
 	res, err := r.record(ctx, attemptID, func(a *store.AttemptRow) error {
 		if err := setID(&a.AuthorizationID, au.ID); err != nil {
@@ -158,11 +127,6 @@ func (r *Runner) ApplyAuthorization(ctx context.Context, attemptID string, au pa
 	return r.enqueueVoid(ctx, res.attempt)
 }
 
-// ApplyCapture records the capture's id, status and reason and moves the
-// enrollment: COMPLETED → PAID, PENDING → CAPTURE_PENDING, DECLINED or FAILED
-// → CAPTURE_FAILED, PARTIALLY_REFUNDED → NEEDS_ATTENTION. A declined or
-// failed capture leaves the authorization open, so it also enqueues the
-// attempt's void, even when what the move set off failed.
 func (r *Runner) ApplyCapture(ctx context.Context, attemptID string, c paypal.Capture) error {
 	res, err := r.record(ctx, attemptID, func(a *store.AttemptRow) error {
 		if err := setID(&a.CaptureID, c.ID); err != nil {
@@ -181,10 +145,6 @@ func (r *Runner) ApplyCapture(ctx context.Context, attemptID string, c paypal.Ca
 	return err
 }
 
-// ApplyRefund records the refund's id, status and reason and moves the
-// enrollment: COMPLETED → REFUNDED, PENDING → REFUND_PENDING, FAILED or
-// CANCELLED → REFUND_FAILED. A refund an operator retry set aside
-// (failed_refund_ids), which PayPal keeps listing on the order, is ignored.
 func (r *Runner) ApplyRefund(ctx context.Context, attemptID string, rf paypal.Refund) error {
 	_, err := r.record(ctx, attemptID, func(a *store.AttemptRow) error {
 		if slices.Contains(a.FailedRefundIDs, rf.ID) {
@@ -204,16 +164,8 @@ func (r *Runner) ApplyRefund(ctx context.Context, attemptID string, rf paypal.Re
 	return err
 }
 
-// errSetAside stops ApplyRefund from recording a refund PayPal refused that
-// an operator retry has already replaced.
 var errSetAside = errors.New("refund set aside by an operator retry")
 
-// ApplyCaptureFailure records a capture PayPal refused for good: its issue and
-// debug id, capture status FAILED and the enrollment CAPTURING →
-// CAPTURE_FAILED. The authorization is still open, so it also enqueues (or
-// revives) void:{attempt} to release the buyer's hold, even when what the
-// move set off failed. An attempt that already holds a capture is left alone
-// and errCaptureRecorded is returned.
 func (r *Runner) ApplyCaptureFailure(ctx context.Context, attemptID string, e *paypal.Error) error {
 	issue := e.Issue
 	if issue == "" {
@@ -239,7 +191,6 @@ func (r *Runner) failCapture(ctx context.Context, attemptID, issue, debugID stri
 	return errors.Join(err, r.enqueueVoid(ctx, res.attempt))
 }
 
-// enqueueVoid enqueues, or revives, void:{attempt} due now.
 func (r *Runner) enqueueVoid(ctx context.Context, a store.AttemptRow) error {
 	en, err := r.st.EnrollmentByID(ctx, a.EnrollmentID)
 	if err != nil {
@@ -249,22 +200,13 @@ func (r *Runner) enqueueVoid(ctx context.Context, a store.AttemptRow) error {
 	return err
 }
 
-// recorded is what record did.
 type recorded struct {
 	attempt store.AttemptRow
-	ok      bool // false: a conflicting PayPal id; nothing was recorded and the enrollment was flagged
-	driving bool // the attempt is its enrollment's latest, the one the enrollment follows
+	ok      bool
+	driving bool
 	moved   bool
 }
 
-// record updates the attempt under its row lock with fn and then, when the
-// attempt is its enrollment's latest, moves the enrollment as m says (nil: no
-// move). money marks money that moved (a completed or pending capture, any
-// refund): recorded on an older attempt it should not exist, since a new
-// attempt opens only while SEAT_RESERVED, so the enrollment is flagged
-// NEEDS_ATTENTION instead (unless it is paid or finished). When fn finds a
-// conflicting PayPal id the attempt is left untouched and the enrollment is
-// flagged too.
 func (r *Runner) record(ctx context.Context, attemptID string, fn func(a *store.AttemptRow) error, m *move, money bool) (recorded, error) {
 	log := r.log.With("attempt_id", attemptID)
 	saved, err := r.st.UpdateAttemptFunc(ctx, attemptID, fn)
@@ -278,7 +220,6 @@ func (r *Runner) record(ctx context.Context, attemptID string, fn func(a *store.
 		}
 		log = log.With("enrollment_id", a.EnrollmentID)
 		log.Error("PayPal reports a second resource for one payment attempt; flagging the enrollment")
-		// A second resource may be a second charge, so PAID is flagged too; a job that gave up never is (unpaidActiveStatuses).
 		return recorded{attempt: *a}, r.flag(ctx, log, a.EnrollmentID, activeStatuses, "PayPal reports a second resource for one payment attempt")
 	}
 	if err != nil {
@@ -307,7 +248,6 @@ func (r *Runner) record(ctx context.Context, attemptID string, fn func(a *store.
 	return res, err
 }
 
-// driving reports whether the attempt is its enrollment's latest attempt.
 func (r *Runner) driving(ctx context.Context, a store.AttemptRow) (bool, error) {
 	latest, err := r.st.LatestAttempt(ctx, a.EnrollmentID)
 	if err != nil {
@@ -316,14 +256,6 @@ func (r *Runner) driving(ctx context.Context, a store.AttemptRow) (bool, error) 
 	return latest != nil && latest.ID == a.ID, nil
 }
 
-// transition moves the enrollment as m says; log already names it. Not moving
-// is not an error: the enrollment is already there, past it or finished. A
-// move then runs what it sets off (afterMove), so it must never be called
-// inside an UpdateAttemptFunc fn. Every move the worker makes on one
-// enrollment goes through here; only seat releases, done by the store for a
-// whole workshop, do not, and their callers settle the workshop themselves.
-// A move to the legacy NEEDS_ATTENTION status flags the enrollment instead
-// and reports no move: the status keeps saying where the money is.
 func (r *Runner) transition(ctx context.Context, log *slog.Logger, enrollmentID string, m move) (bool, error) {
 	if m.to == domain.EnrollmentNeedsAttention {
 		return false, r.flag(ctx, log, enrollmentID, m.from, "PayPal refused or reported something only an operator can finish")
@@ -340,11 +272,6 @@ func (r *Runner) transition(ctx context.Context, log *slog.Logger, enrollmentID 
 	return true, r.afterMove(ctx, enrollmentID, m.to)
 }
 
-// flag marks the enrollment for an operator when its status is one of from,
-// and keeps the status: the seat and the hold stay accounted for, the
-// one-active-enrollment index still refuses a second hold, and healing
-// still voids or refunds by status. A new flag flags a confirmed workshop
-// and settles a resolving one, as a failed refund does.
 func (r *Runner) flag(ctx context.Context, log *slog.Logger, enrollmentID string, from []domain.EnrollmentStatus, reason string) error {
 	en, err := r.st.EnrollmentByID(ctx, enrollmentID)
 	if err != nil {
@@ -362,8 +289,6 @@ func (r *Runner) flag(ctx context.Context, log *slog.Logger, enrollmentID string
 	return errors.Join(r.flagIfConfirmed(ctx, en.WorkshopID), r.SettleIfResolved(ctx, en.WorkshopID))
 }
 
-// setID fills an id column. An empty id (PayPal did not say which resource)
-// and the id already stored are accepted; a different id is a conflict.
 func setID(dst **string, id string) error {
 	switch {
 	case id == "":

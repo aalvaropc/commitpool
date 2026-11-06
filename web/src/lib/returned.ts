@@ -83,11 +83,6 @@ export function returnedMessage(result: string | null): ReturnedMessage {
   return isReturnResult(result) ? MESSAGES[result] : UNKNOWN
 }
 
-/**
- * The way back to the participant page, from the token this tab stored; it
- * asks the page to check the payment when a hold may have been placed. Null
- * when this tab has no token.
- */
 export function returnPath(result: string | null): string | null {
   const token = storedParticipant()
   if (!token) return null

@@ -14,7 +14,6 @@ import (
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
-// PayPal issues the handlers branch on, plus the one the worker records itself.
 const (
 	issueInvalidResourceID    = paypal.IssueInvalidResourceID
 	issueOrderNotApproved     = paypal.IssueOrderNotApproved
@@ -26,7 +25,6 @@ const (
 	issueWorkshopCancelled    = "WORKSHOP_CANCELLED"
 )
 
-// subject is what a payment job acts on, as it stood when the job started.
 type subject struct {
 	attempt    store.AttemptRow
 	enrollment store.EnrollmentRow
@@ -51,9 +49,6 @@ func (r *Runner) load(ctx context.Context, job *store.Job) (subject, error) {
 	return subject{attempt: *a, enrollment: en, log: r.jobLog(job).With("enrollment_id", en.ID)}, nil
 }
 
-// skip refuses a job whose action does not apply to the enrollment as it
-// stands. The job is failed, not completed, so it can be revived once the
-// action applies again.
 func (s subject) skip() (*int, error) {
 	return s.refuse("skipped: enrollment " + string(s.enrollment.Status))
 }
@@ -67,7 +62,6 @@ func (s subject) refuse(reason string) (*int, error) {
 	return nil, &refusal{reason: reason}
 }
 
-// failed returns a PayPal error that is not a final answer to settle as is.
 func failed(err error) (*int, error) {
 	return statusOf(err), err
 }
@@ -84,8 +78,6 @@ type orderPayload struct {
 	OrderID    string `json:"order_id"`
 }
 
-// ApproveURL is the PayPal approval link a create_order job stored in its
-// payload once PayPal created the order; empty before that.
 func ApproveURL(j store.Job) string {
 	var p orderPayload
 	if len(j.Payload) == 0 || json.Unmarshal(j.Payload, &p) != nil {
@@ -94,13 +86,6 @@ func ApproveURL(j store.Job) string {
 	return p.ApproveURL
 }
 
-// createOrder creates the attempt's PayPal order for the attempt's amount,
-// stores the order id and status on the attempt and {approve_url, order_id}
-// in the job's own payload, where the HTTP layer reads the approval link. The
-// enrollment stays SEAT_RESERVED. An order other than the one the attempt
-// holds is flagged and its link is not stored. A job of an attempt the
-// enrollment no longer follows, revived after a newer checkout opened, is
-// skipped, so one enrollment never has two live orders.
 func (r *Runner) createOrder(ctx context.Context, job *store.Job) (*int, error) {
 	s, err := r.load(ctx, job)
 	if err != nil {
@@ -141,15 +126,6 @@ func (r *Runner) createOrder(ctx context.Context, job *store.Job) (*int, error) 
 	return nil, r.st.UpdateJobPayload(ctx, job.ID, orderPayload{ApproveURL: o.ApproveURL(), OrderID: o.ID})
 }
 
-// authorize authorizes the approved order of the enrollment's latest attempt
-// while the enrollment holds its seat and payments are open, recording the
-// authorization and its expiry and moving the enrollment SEAT_RESERVED →
-// AUTHORIZED. Once payments have closed, or the workshop was cancelled, the
-// job is skipped without asking PayPal and the seat waits for its expiry.
-// PayPal answers an order the buyer has not approved with 422
-// ORDER_NOT_APPROVED, and one that expired unapproved with 404
-// INVALID_RESOURCE_ID, recorded as order status EXPIRED. Both refusals leave
-// the enrollment SEAT_RESERVED.
 func (r *Runner) authorize(ctx context.Context, job *store.Job) (*int, error) {
 	s, err := r.load(ctx, job)
 	if err != nil {
@@ -191,26 +167,6 @@ func (r *Runner) authorize(ctx context.Context, job *store.Job) (*int, error) {
 	return refused(pe)
 }
 
-// capture captures the authorization of the enrollment's latest attempt once,
-// in full and as the final capture. The enrollment moves AUTHORIZED →
-// CAPTURING before the request leaves. A CAPTURING enrollment is resumed,
-// sending again under the same key: a new attempt can only be opened while
-// SEAT_RESERVED, so CAPTURING belongs to the latest attempt, whose only
-// capture job is this one, and an earlier run of it may have reached PayPal.
-//
-// Past the capture deadline (the earlier of the payment close and the
-// authorization's expiry) the capture is failed without sending it, with
-// issue AUTHORIZATION_EXPIRED_LOCAL when the expiry came first and
-// CAPTURE_DEADLINE_PASSED otherwise. A resumed run first reads the attempt
-// back from PayPal and fails only when no capture exists. A failed capture
-// leaves the authorization open, so both that and a final refusal from PayPal
-// mark the enrollment CAPTURE_FAILED, which runs the same hooks, and enqueue
-// its void.
-//
-// Nothing is captured in a cancelled workshop, whenever it was cancelled: an
-// AUTHORIZED enrollment is skipped (the cancel voids its hold), and one already
-// CAPTURING, or that a cancel overtook after it moved, is failed as past its
-// deadline with issue WORKSHOP_CANCELLED.
 func (r *Runner) capture(ctx context.Context, job *store.Job) (*int, error) {
 	s, err := r.load(ctx, job)
 	if err != nil {
@@ -288,11 +244,6 @@ func (r *Runner) capture(ctx context.Context, job *store.Job) (*int, error) {
 	return refused(pe)
 }
 
-// captureDeadline is domain.CaptureDeadline for the attempt's authorization
-// and the issue a capture past it fails with: AUTHORIZATION_EXPIRED_LOCAL
-// when the authorization expires before payments close, and
-// CAPTURE_DEADLINE_PASSED otherwise. A nil expiry is unknown and the close
-// applies.
 func captureDeadline(closesAt time.Time, authExpiresAt *time.Time) (deadline time.Time, issue string) {
 	var expires time.Time
 	if authExpiresAt != nil {
@@ -305,9 +256,6 @@ func captureDeadline(closesAt time.Time, authExpiresAt *time.Time) (deadline tim
 	return deadline, issueDeadlinePassed
 }
 
-// captureTooLate fails a capture past its deadline without sending it, with
-// issue as the reason. A resumed run may already have captured, so it reads
-// the attempt back from PayPal first and keeps a capture it finds.
 func (r *Runner) captureTooLate(ctx context.Context, s subject, resumed bool, issue string) (*int, error) {
 	if resumed {
 		if _, status, err := r.refresh(ctx, s); err != nil {
@@ -343,16 +291,6 @@ func (r *Runner) captureTooLate(ctx context.Context, s subject, resumed bool, is
 	return nil, &refusal{reason: reason, issue: issue}
 }
 
-// void releases the attempt's authorization. For the enrollment's latest
-// attempt, AUTHORIZED goes VOIDING and then VOIDED; after a failed capture the
-// enrollment stays CAPTURE_FAILED and only the authorization is recorded as
-// VOIDED. An authorization the enrollment does not use, on an older attempt or
-// a released seat, is voided without touching the enrollment.
-// PREVIOUSLY_VOIDED and AUTHORIZATION_EXPIRED mean the hold is already gone
-// and count as voided; any other final refusal flags the enrollment
-// for an operator when the authorization was its own, and the workshop when it
-// was not: a finished enrollment cannot carry the flag, and only an operator
-// can release that hold.
 func (r *Runner) void(ctx context.Context, job *store.Job) (*int, error) {
 	s, err := r.load(ctx, job)
 	if err != nil {
@@ -413,9 +351,6 @@ func (r *Runner) void(ctx context.Context, job *store.Job) (*int, error) {
 	return refused(pe)
 }
 
-// recordVoided records the authorization as voided and then settles the
-// workshop: releasing the hold of a failed capture or a released seat moves no
-// enrollment, so no move sets that off.
 func (r *Runner) recordVoided(ctx context.Context, s subject, voided paypal.Authorization) error {
 	if err := r.ApplyAuthorization(ctx, s.attempt.ID, voided); err != nil {
 		return err
@@ -423,12 +358,6 @@ func (r *Runner) recordVoided(ctx context.Context, s subject, voided paypal.Auth
 	return r.SettleIfResolved(ctx, s.enrollment.WorkshopID)
 }
 
-// refund refunds the capture of the enrollment's latest attempt in full. The
-// enrollment goes PAID → REFUNDING before the request leaves and then follows
-// the refund's status; a job of an older attempt is skipped.
-// CAPTURE_FULLY_REFUNDED means the money is already back and counts as
-// refunded, the refund id being filled in by a later reconcile; any other
-// final refusal ends REFUND_FAILED and flags the enrollment for an operator.
 func (r *Runner) refund(ctx context.Context, job *store.Job) (*int, error) {
 	s, err := r.load(ctx, job)
 	if err != nil {
@@ -487,8 +416,6 @@ func (r *Runner) refund(ctx context.Context, job *store.Job) (*int, error) {
 	return refused(pe)
 }
 
-// workshopCancelled reports whether the workshop has been cancelled, by the
-// organizer or at the close.
 func (r *Runner) workshopCancelled(ctx context.Context, workshopID string) (bool, error) {
 	w, err := r.st.WorkshopByID(ctx, workshopID)
 	if err != nil {

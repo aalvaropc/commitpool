@@ -10,7 +10,6 @@ const MESSAGES: Record<string, string> = {
   paypal_unavailable: 'PayPal is not answering — try again in a moment',
 }
 
-/** Codes after which the page should read its view again: the terms or the seat changed. */
 export const REFRESH_AFTER = new Set(['proposal_not_open', 'consent_version_mismatch', 'seat_expired', 'workshop_closed', 'capacity_full'])
 
 export function enrollErrorMessage(e: unknown): string {
@@ -18,7 +17,6 @@ export function enrollErrorMessage(e: unknown): string {
   return 'Something went wrong. Please try again.'
 }
 
-/** Only an http(s) address is followed to PayPal. */
 export function isSafeRedirect(url: string): boolean {
   try {
     const u = new URL(url)

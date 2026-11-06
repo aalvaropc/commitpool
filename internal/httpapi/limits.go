@@ -12,26 +12,17 @@ import (
 )
 
 var (
-	// maxParticipantsPerWorkshop caps who can join one workshop.
-	maxParticipantsPerWorkshop = 200
-	// maxSubmissionsPerParticipant caps the availability messages one
-	// participant sends, each of which costs a model call.
+	maxParticipantsPerWorkshop   = 200
 	maxSubmissionsPerParticipant = 20
-	// aiSlots is how many interpreter calls run at once, and aiWait how
-	// long a request waits for a slot before answering ai_busy.
-	aiSlots = 4
-	aiWait  = 10 * time.Second
+	aiSlots                      = 4
+	aiWait                       = 10 * time.Second
 )
 
-// sweepEvery is how often the rate limiter forgets addresses idle for
-// longer than idleAfter.
 const (
 	sweepEvery = 5 * time.Minute
 	idleAfter  = 10 * time.Minute
 )
 
-// rateLimiter allows each client address perMin writes a minute, in bursts
-// of up to half that.
 type rateLimiter struct {
 	mu        sync.Mutex
 	perMin    int
@@ -68,8 +59,6 @@ func (l *rateLimiter) allow(addr string, now time.Time) bool {
 	return b.lim.AllowN(now, 1)
 }
 
-// limited reports whether the request counts against the per-address limit:
-// a write from outside the process.
 func limited(r *http.Request) bool {
 	switch r.Method {
 	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
@@ -78,9 +67,6 @@ func limited(r *http.Request) bool {
 	return false
 }
 
-// clientAddr is the address a request came from. Behind the reverse proxy on
-// this host (a private or loopback peer) it is the last X-Forwarded-For hop,
-// the one the proxy appended; the proxy discards a client's own header.
 func clientAddr(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
@@ -95,8 +81,6 @@ func clientAddr(r *http.Request) string {
 	return host
 }
 
-// acquireAI takes an interpreter slot, waiting up to aiWait; the caller must
-// call the returned release.
 func (s *server) acquireAI(ctx context.Context) (release func(), err error) {
 	t := time.NewTimer(aiWait)
 	defer t.Stop()

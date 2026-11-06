@@ -1201,8 +1201,6 @@ func TestPurgeSucceededJobs_DropsOldReadsAndSeatReleasesOnly(t *testing.T) {
 		add(kind, key, attempt, status, age)
 		kept[key] = true
 	}
-	// Payment actions, the close and numbered reconcile generations are what
-	// the worker decides from, so they stay whatever their age.
 	for _, kind := range []string{"create_order", "authorize", "capture", "void", "refund"} {
 		keep(kind, kind+":"+a.ID, true, store.JobSucceeded, old)
 	}

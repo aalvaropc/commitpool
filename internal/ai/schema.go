@@ -16,13 +16,6 @@ import (
 	"github.com/aalvaropc/commitpool/internal/domain"
 )
 
-// InterpretationSchema is the JSON schema a reading must match: the shape of
-// domain.Interpretation with every object closed (additionalProperties false)
-// and every field required, and candidate_date_id limited to the workshop's
-// dateIDs. It has no field for the price, the currency, the minimum, the
-// capacity or any state: the model has no way to state them, and the server
-// takes them from the workshop alone. The model is held to it through
-// structured output and the server checks it again in ParseInterpretation.
 func InterpretationSchema(dateIDs []string) map[string]any {
 	str := map[string]any{"type": "string"}
 	texts := map[string]any{"type": "array", "items": str}
@@ -61,11 +54,6 @@ func InterpretationSchema(dateIDs []string) map[string]any {
 	})
 }
 
-// ParseInterpretation reads a model's answer: exactly one JSON object that
-// matches InterpretationSchema(dateIDs). Anything else, an extra field or a
-// date the workshop does not have included, is refused. Errors name only the
-// failing location and rule, never the text of the answer. The clarification
-// fields are then made to agree (see genericAmbiguity).
 func ParseInterpretation(raw []byte, dateIDs []string) (domain.Interpretation, error) {
 	if len(dateIDs) == 0 {
 		return domain.Interpretation{}, errors.New("interpretation: the workshop has no candidate dates")
@@ -93,8 +81,6 @@ func ParseInterpretation(raw []byte, dateIDs []string) (domain.Interpretation, e
 	if err := strict.Decode(&out); err != nil {
 		return domain.Interpretation{}, errors.New("interpretation: the answer does not decode into a reading")
 	}
-	// The two clarification fields must agree: a reading that needs
-	// clarification asks at least one question, and a question means it does.
 	switch {
 	case out.NeedsClarification && len(out.Ambiguities) == 0:
 		out.Ambiguities = []domain.Ambiguity{genericAmbiguity}
@@ -104,14 +90,11 @@ func ParseInterpretation(raw []byte, dateIDs []string) (domain.Interpretation, e
 	return out, nil
 }
 
-// genericAmbiguity stands in when a reading needs clarification but asks
-// nothing.
 var genericAmbiguity = domain.Ambiguity{
 	Question: "Which of the dates and times work for you?",
 	Why:      "The message did not make the availability clear.",
 }
 
-// schemaCacheSize bounds the compiled schemas kept, one per set of dates.
 const schemaCacheSize = 256
 
 var schemas = struct {
@@ -119,9 +102,6 @@ var schemas = struct {
 	byDates map[string]*jsonschema.Schema
 }{byDates: make(map[string]*jsonschema.Schema)}
 
-// compiledSchema is InterpretationSchema compiled for a set of dates, cached
-// by the set (order does not matter to validation). A compiled schema is
-// read-only, so callers may validate with it concurrently.
 func compiledSchema(dateIDs []string) (*jsonschema.Schema, error) {
 	ids := slices.Sorted(slices.Values(dateIDs))
 	key := strings.Join(ids, "\x00")
@@ -148,8 +128,6 @@ func compiledSchema(dateIDs []string) (*jsonschema.Schema, error) {
 }
 
 func compileSchema(dateIDs []string) (*jsonschema.Schema, error) {
-	// The compiler takes decoded JSON ([]any, not []string), so the schema
-	// goes through a JSON round trip first.
 	raw, err := json.Marshal(InterpretationSchema(dateIDs))
 	if err != nil {
 		return nil, fmt.Errorf("interpretation schema: %w", err)
@@ -166,17 +144,12 @@ func compileSchema(dateIDs []string) (*jsonschema.Schema, error) {
 	return c.Compile(url)
 }
 
-// schemaFields are the property names of InterpretationSchema; a location in
-// an error shows only these and array indexes.
 var schemaFields = map[string]bool{
 	"per_date": true, "hard_constraints": true, "preferences": true, "ambiguities": true, "needs_clarification": true,
 	"candidate_date_id": true, "verdict": true, "condition": true, "evidence": true,
 	"type": true, "time": true, "question": true, "why": true,
 }
 
-// schemaViolation reports where the answer broke the schema and which rule
-// it broke, without the library's message, which can quote the answer; a
-// key the schema does not know shows as "?".
 func schemaViolation(err error) error {
 	var ve *jsonschema.ValidationError
 	if !errors.As(err, &ve) {

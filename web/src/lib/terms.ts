@@ -5,13 +5,10 @@ import { durationLabel, formatInZone, windowLabel } from './time'
 export interface TermItem {
   label: string
   value: string
-  /** money and numbers are set wide; text stays at body width. */
   kind?: 'money' | 'number' | 'text'
-  /** Takes a full row in a two-column list. */
   span?: boolean
 }
 
-/** A workshop's terms at a glance: price, minimum, capacity, duration. */
 export function workshopTerms(w: Pick<Workshop, 'price' | 'minimum' | 'capacity' | 'duration_min'>): TermItem[] {
   return [
     { label: 'Price per seat', value: formatMoney(w.price), kind: 'money' },
@@ -31,13 +28,10 @@ export interface LockedTermsInput {
   capacity: number
   opensAt?: string
   closesAt?: string
-  /** With closesAt: names the close "Closes" while open and "Closed" after. */
   paymentsOpen?: boolean
-  /** Before payments open: when they would close if opened now. */
   closesAbout?: string
 }
 
-/** The terms that lock when payments open, in one order wherever they are shown. */
 export function lockedTerms(t: LockedTermsInput): TermItem[] {
   const items: TermItem[] = []
   if (t.dateLabel) items.push({ label: 'Date', value: t.dateLabel, kind: 'text', span: true })

@@ -10,7 +10,6 @@ test:
 	export TEST_DATABASE_URL='postgres://commitpool:commitpool@localhost:55432/commitpool_test?sslmode=disable'; \
 	go test -race ./...
 
-# gofmt, vet, staticcheck and govulncheck, the last two at pinned versions.
 check:
 	gofmt -l . | (! grep .)
 	go vet ./...

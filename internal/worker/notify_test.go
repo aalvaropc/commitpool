@@ -35,7 +35,7 @@ func TestNotify_ConfirmedOncePerParticipantWithEmail(t *testing.T) {
 	e.setEmail(ana, "ana@example.com")
 	e.setEmail(ben, "ben@example.com")
 
-	e.paid("Cleo") // no email; the third payment confirms the workshop
+	e.paid("Cleo")
 	e.runUntilIdle()
 	if err := e.runner.HealWorkshop(e.ctx, e.workshop.ID); err != nil {
 		t.Fatal(err)

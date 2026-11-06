@@ -12,10 +12,6 @@ import (
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
-// RetryRefund sends a refund PayPal failed again, under a new key
-// (store.RetryRefund), and reopens the workshop's settlement when nothing
-// else needs an operator. It returns the refund job's key, for a caller that
-// runs it inline.
 func (r *Runner) RetryRefund(ctx context.Context, enrollmentID string) (string, error) {
 	key, err := r.st.RetryRefund(ctx, enrollmentID, r.clock.Now())
 	if err != nil {
@@ -32,10 +28,6 @@ func (r *Runner) RetryRefund(ctx context.Context, enrollmentID string) (string, 
 	return key, nil
 }
 
-// OperatorReconcile enqueues a read of the enrollment's latest attempt back
-// from PayPal, due now, under reconcile:{attempt}:operator:{minute}: it only
-// reads and applies what PayPal shows, so it is safe at any time. It returns
-// the key.
 func (r *Runner) OperatorReconcile(ctx context.Context, enrollmentID string) (string, error) {
 	en, err := r.st.EnrollmentByID(ctx, enrollmentID)
 	if err != nil {
@@ -56,9 +48,6 @@ func (r *Runner) OperatorReconcile(ctx context.Context, enrollmentID string) (st
 	return key, nil
 }
 
-// ClearEnrollmentFlag removes an enrollment's operator flag once its money
-// is settled (domain.ErrStillUnresolved otherwise, see unresolved), and
-// settles its workshop again.
 func (r *Runner) ClearEnrollmentFlag(ctx context.Context, enrollmentID string) error {
 	en, err := r.st.EnrollmentByID(ctx, enrollmentID)
 	if err != nil {
@@ -84,11 +73,6 @@ func (r *Runner) ClearEnrollmentFlag(ctx context.Context, enrollmentID string) e
 	return r.SettleIfResolved(ctx, en.WorkshopID)
 }
 
-// ClearWorkshopFlag takes a workshop out of NEEDS_ATTENTION once no
-// enrollment needs an operator and every enrollment's money is settled
-// (domain.ErrStillUnresolved otherwise): a cancelled workshop goes back to
-// RESOLVING and is settled again, any other to OPEN. A workshop not flagged
-// is left alone.
 func (r *Runner) ClearWorkshopFlag(ctx context.Context, workshopID string) error {
 	for range casRetries {
 		w, err := r.st.WorkshopByID(ctx, workshopID)
@@ -124,11 +108,6 @@ func (r *Runner) ClearWorkshopFlag(ctx context.Context, workshopID string) error
 	return errWorkshopMoving
 }
 
-// unresolved reports an enrollment whose money an operator must not stop
-// watching: a job of its latest attempt whose outcome is unknown, that is
-// running or parked, or that keeps failing after it flagged the enrollment;
-// or a hold PayPal still keeps on a seat that should hold none (a failed
-// capture, a released or withdrawn seat, a void that has not gone through).
 func unresolved(status domain.EnrollmentStatus, a *store.AttemptRow, jobs []store.Job) bool {
 	if slices.ContainsFunc(jobs, func(j store.Job) bool {
 		return j.Status == store.JobUnknown || j.Status == store.JobRunning || j.Status == store.JobNeedsAttention || j.StillFailing()

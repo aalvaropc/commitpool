@@ -11,7 +11,6 @@ function asApiError(e: unknown): ApiError {
   return e instanceof ApiError ? e : new ApiError(0, 'unexpected', 'Something went wrong. Please try again.')
 }
 
-/** Loads a view and keeps the last good copy while later reads fail. */
 export function useResource<T>(load: () => Promise<T>, key: string): Resource<T> {
   const [state, setState] = useState<{ data?: T; error?: ApiError }>({})
   const loadRef = useRef(load)
@@ -38,7 +37,6 @@ export function useResource<T>(load: () => Promise<T>, key: string): Resource<T>
   return { ...state, reload }
 }
 
-/** Calls fn every ms while active, waiting for each call to finish first. */
 export function usePolling(fn: () => Promise<unknown>, ms: number, active: boolean): void {
   const fnRef = useRef(fn)
   fnRef.current = fn
@@ -58,7 +56,6 @@ export function usePolling(fn: () => Promise<unknown>, ms: number, active: boole
   }, [active, ms])
 }
 
-/** The current time, refreshed every ms; for countdowns. */
 export function useNow(ms: number): number {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {

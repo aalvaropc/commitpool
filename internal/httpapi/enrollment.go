@@ -23,16 +23,12 @@ var (
 		"Your checkout is still being prepared in another window. Please try again in a moment.")
 )
 
-// A request that finds its checkout's create_order running in another
-// request waits for it, looking every checkoutPoll for up to checkoutWait;
-// checkoutPause is how it waits between looks.
 var (
 	checkoutWait  = 3 * time.Second
 	checkoutPoll  = 100 * time.Millisecond
 	checkoutPause = pause
 )
 
-// pause waits d or until ctx is done.
 func pause(ctx context.Context, d time.Duration) error {
 	t := time.NewTimer(d)
 	defer t.Stop()
@@ -51,18 +47,6 @@ type enrollResponse struct {
 	StatusLabel  string `json:"status_label"`
 }
 
-// enroll takes the participant's consent to the open proposal, reserves a
-// seat and returns where to approve the hold at PayPal. The workshop comes
-// from the participant's row and the amount from the proposal, never from
-// the request.
-//
-// It is idempotent per participant: while a checkout can still be approved
-// a second request, from another tab say, gets the same enrollment and the
-// same approval link (201 the first time, 200 after), and PayPal is asked
-// for one order only. A seat that expired before the seat tick released it
-// is renewed first, or the answer is seat_expired. An enrollment past
-// checkout, with its hold authorized or being charged, answers 200 with its
-// enrollment and status, no link.
 func (s *server) enroll(w http.ResponseWriter, r *http.Request) error {
 	p, ws, err := s.participant(r)
 	if err != nil {
@@ -135,13 +119,6 @@ func (s *server) enroll(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// renewLapsedSeat gives a participant who asks again for a checkout whose
-// seat has expired, before the seat tick released it, the seat back under
-// the capacity rule (holdSeat) and returns the enrollment as it is then; a
-// seat another request or a reconcile renewed first counts as renewed. When
-// it cannot be renewed the enrollment is left RELEASED and the answer has no
-// link: proposal_not_open once payments have closed, seat_expired otherwise.
-// Any other enrollment is returned as is.
 func (s *server) renewLapsedSeat(ctx context.Context, en store.EnrollmentRow, now time.Time) (store.EnrollmentRow, error) {
 	if en.Status != domain.EnrollmentSeatReserved || !en.SeatExpiresAt.Before(now) {
 		return en, nil
@@ -161,10 +138,6 @@ func (s *server) renewLapsedSeat(ctx context.Context, en store.EnrollmentRow, no
 	return s.Store.EnrollmentByID(ctx, en.ID)
 }
 
-// pastCheckout answers for an enrollment that can no longer open a checkout,
-// with its current status; the approval link of its latest attempt comes
-// with it only while the enrollment is SEAT_RESERVED, as when its
-// authorization is being recorded.
 func (s *server) pastCheckout(ctx context.Context, w http.ResponseWriter, ws store.WorkshopRow, p *store.ProposalRow, enrollmentID string) error {
 	en, err := s.Store.EnrollmentByID(ctx, enrollmentID)
 	if err != nil {
@@ -189,8 +162,6 @@ func (s *server) pastCheckout(ctx context.Context, w http.ResponseWriter, ws sto
 	return nil
 }
 
-// attemptApprovalLink is the approval link create_order stored for the
-// attempt, or "" when there is no attempt or no link.
 func (s *server) attemptApprovalLink(ctx context.Context, a *store.AttemptRow) (string, error) {
 	if a == nil {
 		return "", nil
@@ -202,14 +173,6 @@ func (s *server) attemptApprovalLink(ctx context.Context, a *store.AttemptRow) (
 	return worker.ApproveURL(*job), nil
 }
 
-// approvalLink returns the attempt's PayPal approval link, creating the
-// order now when it does not exist yet: create_order:{attempt} is enqueued
-// (a no-op when it already is) and run inline, and the link is read from the
-// job's payload. When another request is running that job, as on a double
-// click, it waits for the link (checkoutWait) and then answers
-// checkout_in_progress. A PayPal failure, which leaves the job to retry under
-// the same key, is paypal_unavailable; a database failure, also one that
-// stops the job from running, is returned as is and answered as a 500.
 func (s *server) approvalLink(ctx context.Context, workshopID string, a store.AttemptRow) (string, error) {
 	key := store.JobKey(store.KindCreateOrder, a.ID)
 	if err := s.Worker.Enqueue(ctx, store.KindCreateOrder, key, &workshopID, &a.ID, nil, s.Clock.Now()); err != nil {
@@ -243,10 +206,6 @@ func (s *server) approvalLink(ctx context.Context, workshopID string, a store.At
 	}
 }
 
-// compatibleWithProposal refuses a participant whose availability in force
-// rules out the proposal's date (domain.Compatible), such as one who joined
-// late saying they cannot come then; a participant who never said is let
-// through, since the consent names the date.
 func (s *server) compatibleWithProposal(ctx context.Context, participantID string, ws store.WorkshopRow, proposal store.ProposalRow) error {
 	a, err := s.Store.LatestAvailabilityByParticipant(ctx, participantID)
 	if err != nil || a == nil {
@@ -275,9 +234,6 @@ func (s *server) compatibleWithProposal(ctx context.Context, participantID strin
 	return nil
 }
 
-// withdraw gives the participant's seat up before they are charged
-// (worker.Withdraw): a reserved seat is released at once and a hold is
-// voided inline. The answer is the enrollment's new status.
 func (s *server) withdraw(w http.ResponseWriter, r *http.Request) error {
 	p, ws, err := s.participant(r)
 	if err != nil {

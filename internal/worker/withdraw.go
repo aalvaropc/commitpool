@@ -8,10 +8,6 @@ import (
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
-// Withdraw gives a participant's seat up (store.Withdraw): a reserved seat is
-// released, and a hold not yet charged goes to VOIDING with void:{attempt}
-// enqueued due now; voidKey names that job, for a caller that runs it inline,
-// and is empty otherwise.
 func (r *Runner) Withdraw(ctx context.Context, enrollmentID string) (status domain.EnrollmentStatus, voidKey string, err error) {
 	status, err = r.st.Withdraw(ctx, enrollmentID, r.clock.Now())
 	if err != nil {

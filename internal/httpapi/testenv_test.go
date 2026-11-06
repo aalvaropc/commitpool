@@ -30,8 +30,6 @@ import (
 	"github.com/aalvaropc/commitpool/internal/worker"
 )
 
-// t0 is a Monday morning; the candidate dates fall on the weekend after next,
-// on the workshop's clock in Lima (UTC-5).
 var (
 	t0       = time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
 	satStart = time.Date(2026, 11, 14, 20, 0, 0, 0, time.UTC)
@@ -43,22 +41,18 @@ const (
 	indexHTML  = "<!doctype html><title>CommitPool</title><div id=root></div>"
 )
 
-// env is the HTTP API over a fresh test database, a fake PayPal, the fake
-// interpreter and a fake clock at t0, with the worker it drives inline.
 type env struct {
-	t      *testing.T
-	ctx    context.Context
-	st     *store.Store
-	fake   *paypaltest.Server
-	clock  *clock.Fake
-	runner *worker.Runner
-	cfg    config.Config
-	h      http.Handler
-	mcp    *mcp.Server
-	logs   *logBuffer
-	mailer *mail.Memory
-	// explained receives a value each time a background explanation is
-	// stored.
+	t         *testing.T
+	ctx       context.Context
+	st        *store.Store
+	fake      *paypaltest.Server
+	clock     *clock.Fake
+	runner    *worker.Runner
+	cfg       config.Config
+	h         http.Handler
+	mcp       *mcp.Server
+	logs      *logBuffer
+	mailer    *mail.Memory
 	explained chan struct{}
 }
 
@@ -73,7 +67,6 @@ type option func(*setup)
 func withDemoMode() option     { return func(s *setup) { s.cfg.DemoMode = true } }
 func withSandboxMocks() option { return func(s *setup) { s.cfg.SandboxMocks = true } }
 
-// testWebhookID is the PAYPAL_WEBHOOK_ID withWebhookID configures.
 const testWebhookID = "WH-ID-COMMITPOOL-TEST"
 
 func withWebhookID() option { return func(s *setup) { s.cfg.PayPalWebhookID = testWebhookID } }
@@ -84,14 +77,10 @@ func withAI(i ai.Interpreter) option {
 	return func(s *setup) { s.ai = i }
 }
 
-// withPayPal wraps the PayPal client the worker and the API use.
 func withPayPal(wrap func(paypal.API) paypal.API) option {
 	return func(s *setup) { s.paypal = wrap }
 }
 
-// gatedPayPal holds every CreateOrder until open is called, after telling
-// entered that one arrived, so a test can act while a create_order job is
-// running.
 type gatedPayPal struct {
 	paypal.API
 	entered chan struct{}
@@ -216,8 +205,6 @@ func newEnv(t *testing.T, opts ...option) *env {
 	return &env{t: t, ctx: ctx, st: st, fake: fake, clock: clk, runner: runner, cfg: s.cfg, h: h, mcp: assistant.MCP(), mailer: mailer, logs: logs, explained: explained}
 }
 
-// request sends body as JSON (a string or []byte is sent as is) and returns
-// the recorded response.
 func (e *env) request(method, path string, body any) *httptest.ResponseRecorder {
 	e.t.Helper()
 	var reader io.Reader
@@ -243,8 +230,6 @@ func (e *env) request(method, path string, body any) *httptest.ResponseRecorder 
 	return rec
 }
 
-// call sends the request, checks the status and decodes the JSON answer into
-// out when out is not nil.
 func (e *env) call(method, path string, body any, want int, out any) {
 	e.t.Helper()
 	rec := e.request(method, path, body)
@@ -258,7 +243,6 @@ func (e *env) call(method, path string, body any, want int, out any) {
 	}
 }
 
-// wantError checks a JSON error answer and returns it.
 func (e *env) wantError(method, path string, body any, status int, code string) errorJSON {
 	e.t.Helper()
 	rec := e.request(method, path, body)
@@ -305,8 +289,6 @@ type workshopHandle struct {
 	sunID      string
 }
 
-// createWorkshop posts workshopRequest with edit applied and returns its
-// tokens and candidate date IDs.
 func (e *env) createWorkshop(edit ...func(map[string]any)) workshopHandle {
 	e.t.Helper()
 	body := workshopRequest()
@@ -338,16 +320,12 @@ func (e *env) owner(h workshopHandle) ownerViewJSON {
 	return v
 }
 
-// ownerRequest reads the owner view without touching e.t, so other
-// goroutines can call it.
 func (e *env) ownerRequest(h workshopHandle) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
 	e.h.ServeHTTP(rec, httptest.NewRequestWithContext(e.ctx, http.MethodGet, h.ownerPath, nil))
 	return rec
 }
 
-// settledOwner reads the owner view until its explanation is no longer
-// pending, waiting for a background explanation to be stored between reads.
 func (e *env) settledOwner(h workshopHandle) ownerViewJSON {
 	e.t.Helper()
 	for {
@@ -382,7 +360,6 @@ func (e *env) join(h workshopHandle, name string) participantHandle {
 	return participantHandle{token: token, path: "/api/v1/p/" + token}
 }
 
-// say posts an availability message and returns the stored availability.
 func (e *env) say(p participantHandle, message string) availabilityJSON {
 	e.t.Helper()
 	var out struct {
@@ -392,7 +369,6 @@ func (e *env) say(p participantHandle, message string) availabilityJSON {
 	return out.Availability
 }
 
-// joinAndSay adds a participant with an availability message.
 func (e *env) joinAndSay(h workshopHandle, name, message string) participantHandle {
 	e.t.Helper()
 	p := e.join(h, name)
@@ -413,8 +389,6 @@ func enrollBody(proposalID string) map[string]string {
 	return map[string]string{"consent_version": httpapi.ConsentVersion, "proposal_id": proposalID}
 }
 
-// enroll posts the participant's enrollment with the current consent and
-// checks the status.
 func (e *env) enroll(p participantHandle, proposalID string, want int) enrollJSON {
 	e.t.Helper()
 	var out enrollJSON
@@ -431,7 +405,6 @@ func (e *env) latestAttempt(enrollmentID string) store.AttemptRow {
 	return *a
 }
 
-// runPayment enqueues the attempt's job of this kind, due now, and runs it.
 func (e *env) runPayment(kind, workshopID string, a store.AttemptRow) {
 	e.t.Helper()
 	key := kind + ":" + a.ID
@@ -443,8 +416,6 @@ func (e *env) runPayment(kind, workshopID string, a store.AttemptRow) {
 	}
 }
 
-// authorize plays the buyer approving the enrollment's order and runs its
-// authorize job, as the PayPal return will.
 func (e *env) authorize(workshopID, enrollmentID string) store.AttemptRow {
 	e.t.Helper()
 	a := e.latestAttempt(enrollmentID)
@@ -476,8 +447,6 @@ func (e *env) job(key string) store.Job {
 	}
 	return *j
 }
-
-// Answer shapes, as a client reads them.
 
 type errorJSON struct {
 	Error   string `json:"error"`

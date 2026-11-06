@@ -40,9 +40,6 @@ export default function Participant() {
     : false
   usePolling(view.reload, 3000, polling)
 
-  // The return from PayPal asks for a check; it ends once PayPal holds the
-  // authorization for review (the card explains that), the payment moved past
-  // the checkout, or nothing more will change on its own.
   useEffect(() => {
     if (!checking || !d) return
     if (returnCheckSettled({ enrollment: own, polling, authPending: pending })) {

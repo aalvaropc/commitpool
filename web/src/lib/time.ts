@@ -1,6 +1,3 @@
-// Times are stored as UTC instants and shown on the workshop's clock, always
-// with the zone named.
-
 const partsFormats = new Map<string, Intl.DateTimeFormat>()
 
 function zoneFormat(timeZone: string): Intl.DateTimeFormat {
@@ -51,7 +48,6 @@ function wallClock(instant: number, timeZone: string): Wall {
   }
 }
 
-/** Milliseconds the zone is ahead of UTC at the instant. */
 function offsetAt(instant: number, timeZone: string): number {
   const w = wallClock(instant, timeZone)
   const asUTC = Date.UTC(w.year, w.month - 1, w.day, w.hour, w.minute, w.second)
@@ -60,7 +56,6 @@ function offsetAt(instant: number, timeZone: string): number {
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
-/** RFC 3339 for the instant on the zone's clock, with its offset ("Z" for UTC). */
 export function rfc3339InZone(instant: number, timeZone: string): string {
   const offset = offsetAt(instant, timeZone)
   const w = wallClock(instant, timeZone)
@@ -71,14 +66,6 @@ export function rfc3339InZone(instant: number, timeZone: string): string {
   return `${local}${sign}${pad(Math.floor(total / 60))}:${pad(total % 60)}`
 }
 
-/**
- * Reads a date ("2026-11-14") and a time ("15:00") on the zone's wall clock
- * and returns the instant in RFC 3339 with the zone's offset. A time skipped
- * by a daylight saving change does not exist and moves one hour, backwards
- * in zones west of UTC (02:30 on 2026-03-08 in America/New_York becomes
- * 01:30-05:00) and forwards east of it (02:30 on 2026-03-29 in
- * Europe/Madrid becomes 03:30+02:00).
- */
 export function zonedToRFC3339(date: string, time: string, timeZone: string): string {
   const d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date)
   const t = /^(\d{2}):(\d{2})$/.exec(time)
@@ -95,29 +82,24 @@ export function zonedToRFC3339(date: string, time: string, timeZone: string): st
   return rfc3339InZone(instant, timeZone)
 }
 
-/** The instant `minutes` after `start` (RFC 3339), written on the zone's clock. */
 export function zonedPlusMinutes(start: string, minutes: number, timeZone: string): string {
   return rfc3339InZone(Date.parse(start) + minutes * 60000, timeZone)
 }
 
-/** "Sat 14 Nov 2026, 15:00 America/Lima" */
 export function formatInZone(iso: string, timeZone: string): string {
   const w = wallClock(Date.parse(iso), timeZone)
   return `${w.weekday} ${w.day} ${w.monthName} ${w.year}, ${pad(w.hour)}:${pad(w.minute)} ${timeZone}`
 }
 
-/** "15:00 America/Lima" */
 export function formatTimeInZone(iso: string, timeZone: string): string {
   const w = wallClock(Date.parse(iso), timeZone)
   return `${pad(w.hour)}:${pad(w.minute)} ${timeZone}`
 }
 
-/** The earlier of two instants (RFC 3339): a seat is never held past the payment window. */
 export function earlier(a: string, b: string): string {
   return Date.parse(a) <= Date.parse(b) ? a : b
 }
 
-/** What is left until the deadline, coarsely; null once it has passed. */
 export function timeLeft(deadline: string, now: number): string | null {
   const ms = Date.parse(deadline) - now
   if (ms <= 0) return null
@@ -130,7 +112,6 @@ export function timeLeft(deadline: string, now: number): string | null {
   return hours % 24 === 0 ? `${days} d` : `${days} d ${hours % 24} h`
 }
 
-/** The payment window as the UI names it; a window under a day is a demo window. */
 export function windowLabel(minutes: number): string {
   if (minutes < 1440) return `Demo window: ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`
   const hours = minutes / 60
@@ -152,7 +133,6 @@ export function browserTimeZone(): string {
   }
 }
 
-/** A short list of IANA zones for the workshop form, west to east. */
 export const TIME_ZONES = [
   'Pacific/Honolulu',
   'America/Anchorage',

@@ -16,7 +16,7 @@ func TestNamesAnotherDate(t *testing.T) {
 	dates := []store.CandidateDateRow{
 		{ID: "sat", StartsAt: time.Date(2026, 11, 14, 20, 0, 0, 0, time.UTC)},
 		{ID: "sun", StartsAt: time.Date(2026, 11, 15, 15, 0, 0, 0, time.UTC)},
-		{ID: "sat-late", StartsAt: time.Date(2026, 11, 15, 2, 0, 0, 0, time.UTC)}, // Sat 14 Nov 21:00 in Lima
+		{ID: "sat-late", StartsAt: time.Date(2026, 11, 15, 2, 0, 0, 0, time.UTC)},
 		{ID: "next-sat", StartsAt: time.Date(2026, 11, 21, 20, 0, 0, 0, time.UTC)},
 	}
 	cases := []struct {

@@ -298,9 +298,6 @@ func TestUpdateAttemptFunc_ConcurrentUpdatesBothPersist(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The pause inside each callback makes the interleaving a lost update
-	// would need (both read, then both write) the normal outcome unless the
-	// row is locked for the whole read-modify-write.
 	edits := []func(*store.AttemptRow){
 		func(a *store.AttemptRow) { a.CaptureID, a.CaptureStatus = ptr("CAPTURE-1"), ptr("COMPLETED") },
 		func(a *store.AttemptRow) { a.RefundStatus = ptr("PENDING") },
@@ -577,8 +574,6 @@ func TestCheckoutAttempt_ReplacesAnAttemptWhoseOrderPayPalRefused(t *testing.T) 
 		}
 		return a, created
 	}
-	// runCreateOrder enqueues and claims the attempt's create_order job and
-	// leaves it as finish says.
 	runCreateOrder := func(a store.AttemptRow, finish func(id string) error) {
 		t.Helper()
 		key := store.JobKey(store.KindCreateOrder, a.ID)

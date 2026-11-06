@@ -1,11 +1,3 @@
-// Package mcpserver lets a person's AI assistant use CommitPool through the
-// Model Context Protocol. Every tool calls the same JSON API the web app
-// uses, in process, so validation, limits and capability checks are shared
-// and nothing is duplicated. No tool moves money: an assistant can prepare a
-// workshop, answer for a participant and hand over a PayPal approval link,
-// but a hold is placed only when the person approves it at PayPal, and
-// captures, voids and refunds stay with the payment worker. Capability links
-// travel as tool arguments and are never logged.
 package mcpserver
 
 import (
@@ -29,28 +21,19 @@ import (
 	"github.com/aalvaropc/commitpool/internal/inproc"
 )
 
-// Config sets the server up. A nil Secret uses a random key per process (a
-// confirmation token then dies with a restart); a nil Clock the real clock;
-// a nil Log slog.Default.
 type Config struct {
-	// Secret signs the confirmation tokens preview_open_payments issues.
-	Secret []byte
-	Clock  clock.Clock
-	Log    *slog.Logger
-	// Version is reported to clients.
+	Secret  []byte
+	Clock   clock.Clock
+	Log     *slog.Logger
 	Version string
 }
 
-// Server is CommitPool's MCP server. Attach gives it the JSON API before
-// its first tool call.
 type Server struct {
 	cfg Config
 	api http.Handler
 	srv *mcp.Server
 }
 
-// New registers every tool. The API comes later through Attach, so the
-// HTTP server can mount this one and hand itself over.
 func New(cfg Config) *Server {
 	if cfg.Secret == nil {
 		cfg.Secret = make([]byte, 32)
@@ -73,19 +56,12 @@ func New(cfg Config) *Server {
 	return s
 }
 
-// Attach sets the JSON API the tools call.
 func (s *Server) Attach(api http.Handler) { s.api = api }
 
-// MCP is the underlying protocol server, for a transport other than HTTP.
 func (s *Server) MCP() *mcp.Server { return s.srv }
 
-// maxBody caps one request to /mcp.
 const maxBody = 64 << 10
 
-// HTTPHandler serves the server over streamable HTTP, statelessly and with
-// plain JSON answers, so any request can reach any instance. JSON-RPC
-// batches are refused: the rate limit counts requests, and one batch would
-// run many tool calls under one.
 func (s *Server) HTTPHandler() http.Handler {
 	h := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return s.srv },
 		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true, MaxRequestBodyBytes: maxBody})
@@ -117,7 +93,6 @@ link is a person's seat, so keep both private. You can prepare everything, but m
 the person approves at PayPal, and you must show terms to the person and get their yes before
 confirm_open_payments or get_checkout_link.`
 
-// apiError is an error answer of the JSON API, worded for the assistant.
 type apiError struct {
 	Status  int
 	Code    string `json:"error"`
@@ -132,8 +107,6 @@ func (e *apiError) Error() string {
 	return fmt.Sprintf("%s (%s)", e.Message, e.Code)
 }
 
-// call sends one request to the JSON API in process and decodes a 2xx answer
-// into out; an error answer comes back as an *apiError.
 func (s *Server) call(ctx context.Context, method, path string, body, out any) error {
 	if s.api == nil {
 		return errors.New("mcpserver: no API attached")
@@ -168,7 +141,6 @@ func (s *Server) call(ctx context.Context, method, path string, body, out any) e
 	return json.Unmarshal(rec.body.Bytes(), out)
 }
 
-// recorder is the in-process response.
 type recorder struct {
 	header http.Header
 	status int
@@ -191,11 +163,8 @@ func (r *recorder) Write(p []byte) (int, error) {
 
 var tokenPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{16,128}$`)
 
-// linkKinds maps a link kind to the path segment that precedes its token.
 var linkKinds = map[string]string{"owner": "owner", "participant": "p", "share": "w"}
 
-// token reads the capability token from a link of the given kind (a full
-// URL such as https://host/owner/TOKEN, or the bare token).
 func token(link, kind string) (string, error) {
 	link = strings.TrimSpace(link)
 	segment := linkKinds[kind]
@@ -212,8 +181,6 @@ func token(link, kind string) (string, error) {
 	return "", fmt.Errorf("that is not a CommitPool %s link (it looks like …/%s/<token>)", kind, segment)
 }
 
-// logged wraps a tool handler with one log line per call naming the tool and
-// its outcome; arguments, links and answers are never logged.
 func logged[In, Out any](s *Server, name string, h mcp.ToolHandlerFor[In, Out]) mcp.ToolHandlerFor[In, Out] {
 	return func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, Out, error) {
 		start := time.Now()

@@ -9,8 +9,6 @@ import (
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
-// parkCapture has PayPal rate-limit the attempt's capture five times, so the
-// capture job parks as needs_attention with the enrollment CAPTURING, flagged.
 func (e *env) parkCapture(a store.AttemptRow) string {
 	e.t.Helper()
 	key := e.enqueue("capture", a)
@@ -74,7 +72,6 @@ func TestReconcile_PeriodicKeepsResendingWhileTheLastGenerationWaits(t *testing.
 	e.runKey(key)
 	e.wantJob("reconcile:"+a.ID+":5", "pending")
 
-	// PayPal recovers ten minutes later, long before the last generation.
 	e.advance(10 * time.Minute)
 	e.ageJob(key, 10*time.Minute)
 	e.runPeriodic()
@@ -114,8 +111,6 @@ func TestEnroll_FlaggedEnrollmentStaysTheParticipantsActiveOne(t *testing.T) {
 	})
 }
 
-// wantSameEnrollment checks that reserving again gives the flagged
-// enrollment back instead of a new one.
 func (e *env) wantSameEnrollment(en store.EnrollmentRow) {
 	e.t.Helper()
 	again, created, err := e.st.ReserveSeatAndCreateEnrollment(e.ctx, store.ReserveParams{

@@ -12,7 +12,6 @@ import (
 	"runtime/debug"
 	"syscall"
 	"time"
-	// The workshop time zone must load in a minimal container image too.
 	_ "time/tzdata"
 
 	"github.com/aalvaropc/commitpool/internal/ai"
@@ -89,18 +88,10 @@ func run(log *slog.Logger) error {
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
-		// The longest handler is /paypal/return: an OAuth token fetch, GET
-		// order and the authorize, each bounded by the PayPal client's 20 s
-		// timeout, about 60 s at worst; an interpretation waits up to 30 s.
-		WriteTimeout: 90 * time.Second,
-		IdleTimeout:  2 * time.Minute,
+		WriteTimeout:      90 * time.Second,
+		IdleTimeout:       2 * time.Minute,
 	}
 
-	// The worker runs on its own context. On shutdown it stops claiming jobs
-	// while the HTTP server drains (requests run their jobs inline through
-	// RunKey, not through Run), and the process waits for the job it is
-	// running, which Run bounds. Run also enqueues the seat releases once a
-	// minute and reconciles and heals every two.
 	workerCtx, stopWorker := context.WithCancel(context.Background())
 	workerDone := make(chan struct{})
 	go func() {
@@ -130,7 +121,6 @@ func run(log *slog.Logger) error {
 	if err := srv.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Warn("shutdown: requests still running at the deadline were cut", "error", err)
 	}
-	// Jobs requests ran inline finish before the database closes.
 	if err := runner.WaitInline(shutdownCtx); err != nil {
 		log.Warn("shutdown: inline jobs still running at the deadline; their results reconcile at the next start", "error", err)
 	}
@@ -138,9 +128,6 @@ func run(log *slog.Logger) error {
 	return nil
 }
 
-// newPayPal returns the PayPal client. With E2E_FAKE_PAYPAL=1 it first starts
-// the in-process fake and points the configuration at it; the returned func
-// stops the fake. Only a binary built with -tags e2e carries the fake.
 func newPayPal(cfg *config.Config, log *slog.Logger) (paypal.API, func(), error) {
 	ppCfg := paypal.Config{
 		BaseURL:      cfg.PayPalBaseURL,
@@ -174,8 +161,6 @@ func newPayPal(cfg *config.Config, log *slog.Logger) (paypal.API, func(), error)
 	return client, closeFake, nil
 }
 
-// newInterpreter returns the configured interpreter: Claude on Amazon Bedrock
-// or the deterministic fake. Any other provider fails at startup.
 func newInterpreter(ctx context.Context, cfg config.Config, log *slog.Logger) (ai.Interpreter, error) {
 	switch cfg.AIProvider {
 	case config.AIProviderBedrock:
@@ -199,7 +184,6 @@ func newInterpreter(ctx context.Context, cfg config.Config, log *slog.Logger) (a
 	}
 }
 
-// version is the build's VCS revision, or "dev".
 func version() string {
 	if info, ok := debug.ReadBuildInfo(); ok {
 		for _, setting := range info.Settings {

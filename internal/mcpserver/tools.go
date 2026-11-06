@@ -15,7 +15,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// confirmationTTL is how long a preview's confirmation token stays valid.
 const confirmationTTL = 10 * time.Minute
 
 func (s *Server) addTools() {
@@ -48,8 +47,6 @@ func (s *Server) addTools() {
 		Description: "Open payments with the confirmation token from preview_open_payments, only after the organizer has seen those terms and said yes. Refused when the token expired or the terms changed."},
 		logged(s, "confirm_open_payments", s.confirmOpenPayments))
 }
-
-// --- API shapes, as the tools read them ---
 
 type money struct {
 	Minor    int64  `json:"minor"`
@@ -166,8 +163,6 @@ func labelOf(dates []dateJSON, id string) string {
 	}
 	return id
 }
-
-// --- organizer tools ---
 
 type CreateWorkshopIn struct {
 	Title            string   `json:"title" jsonschema:"workshop title, at most 120 characters"`
@@ -318,7 +313,6 @@ func statusOf(v ownerView) StatusOut {
 	return out
 }
 
-// ifClosedNow says, in words, what closing payments now would do.
 func ifClosedNow(v ownerView) string {
 	switch {
 	case v.Proposal == nil:
@@ -415,16 +409,12 @@ func (s *Server) confirmOpenPayments(ctx context.Context, _ *mcp.CallToolRequest
 	return nil, statusOf(v), nil
 }
 
-// terms are what opening payments on dateID locks, as the owner view shows
-// them now; a confirmation token signs them.
 func terms(v ownerView, dateID string) string {
 	w := v.Workshop
 	return strings.Join([]string{dateID, strconv.FormatInt(w.Price.Minor, 10), w.Price.Currency,
 		strconv.Itoa(w.Minimum), strconv.Itoa(w.Capacity), strconv.Itoa(w.PaymentWindowMin)}, "|")
 }
 
-// sign returns dateID.expiry.mac, the mac binding the owner token, the terms
-// and the expiry.
 func (s *Server) sign(ownerToken, terms string, expires time.Time) string {
 	exp := strconv.FormatInt(expires.Unix(), 10)
 	dateID := strings.SplitN(terms, "|", 2)[0]
@@ -437,8 +427,6 @@ func (s *Server) mac(ownerToken, terms, exp string) string {
 	return base64.RawURLEncoding.EncodeToString(m.Sum(nil))
 }
 
-// verify checks a confirmation token against the workshop as it is now and
-// returns the date it confirms.
 func (s *Server) verify(ownerToken, confirmation string, v ownerView) (string, error) {
 	mismatch := errors.New("the confirmation token does not match this workshop's current terms; call preview_open_payments again and show the organizer the terms")
 	parts := strings.Split(strings.TrimSpace(confirmation), ".")
@@ -458,8 +446,6 @@ func (s *Server) verify(ownerToken, confirmation string, v ownerView) (string, e
 	}
 	return dateID, nil
 }
-
-// --- participant tools ---
 
 type ShareIn struct {
 	ShareLink string `json:"share_link" jsonschema:"the workshop's share link"`

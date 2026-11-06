@@ -5,7 +5,6 @@ interface Props {
   minimum: number
   paid: number
   authorized: number
-  /** Seats held at checkout without a hold yet; only the owner sees them. */
   reserved?: number
   label?: string
   size?: 'md' | 'lg'
@@ -23,10 +22,6 @@ const cellClass: Record<Cell, string> = {
 const MAX_CELLS = 40
 const GAP = 4
 
-/**
- * One cell per seat: paid seats solid, authorized holds hatched, and a bar at
- * the minimum. The workshop is confirmed when the solid cells reach the bar.
- */
 export default function SeatMeter({ capacity, minimum, paid, authorized, reserved = 0, label = 'Seats', size = 'md' }: Props) {
   const cell = size === 'lg' ? 52 : 30
   const total = Math.max(capacity, 1)

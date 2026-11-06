@@ -25,8 +25,6 @@ import (
 	"github.com/aalvaropc/commitpool/internal/worker"
 )
 
-// t0 is a Monday morning, so the first Saturday at least three days after
-// the payment window is the one that same week.
 var t0 = time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
 
 type ownerView struct {
@@ -61,9 +59,6 @@ type ownerView struct {
 	} `json:"recommendation"`
 }
 
-// newApp serves the HTTP API over a fresh test database with the fake
-// PayPal, the fake interpreter and a clock stopped at t0; its public URL is
-// the test server's.
 func newApp(t *testing.T) *httptest.Server {
 	t.Helper()
 	st := storetest.New(t)

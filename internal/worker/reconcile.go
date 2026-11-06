@@ -13,18 +13,6 @@ import (
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
-// reconcile reads the attempt's resources back from PayPal and records what
-// they say, then resolves the attempt's unknown jobs: one whose resource now
-// exists is completed, and one whose resource does not is sent back to pending
-// under its own key, so PayPal either replays its earlier answer or performs
-// the action once. The reconcile of generation maxReconcileGenerations stops
-// sending: it leaves such a job unknown for an operator and flags the
-// enrollment, or the workshop when the enrollment is finished or paid. An
-// order the buyer approved without coming back from PayPal is authorized from
-// here (authorizeApproved). Last, the workshop gets the captures it is ready
-// for and is healed (HealWorkshop), which also settles it. Reads are safe to
-// repeat, so a failed or ambiguous one retries this job like any other
-// failure.
 func (r *Runner) reconcile(ctx context.Context, job *store.Job) (*int, error) {
 	s, err := r.load(ctx, job)
 	if err != nil {
@@ -52,16 +40,6 @@ func (r *Runner) reconcile(ctx context.Context, job *store.Job) (*int, error) {
 	return nil, errors.Join(r.StartCaptureRoundIfReady(ctx, workshopID), r.HealWorkshop(ctx, workshopID))
 }
 
-// authorizeApproved authorizes an order the buyer approved at PayPal without
-// coming back to the return page. It acts when PayPal shows the latest
-// attempt's order APPROVED with no authorization, the order is the checkout
-// the attempt opened (OrderMismatch, as on the return page), payments are
-// still open and the enrollment is SEAT_RESERVED or RELEASED. o is the order
-// as the reconcile just read it. Expired seats are released first; a released
-// enrollment takes a seat again when one is free and otherwise stays
-// RELEASED, with nothing authorized. With a seat held it enqueues
-// authorize:{attempt}, or revives it: a skipped one automatically, and one
-// PayPal refused as ORDER_NOT_APPROVED because the order is approved now.
 func (r *Runner) authorizeApproved(ctx context.Context, log *slog.Logger, a store.AttemptRow, o *paypal.Order) error {
 	if !is(a.OrderStatus, paypal.StatusApproved) || a.AuthorizationID != nil || o == nil {
 		return nil
@@ -133,12 +111,6 @@ func (r *Runner) authorizeApproved(ctx context.Context, log *slog.Logger, a stor
 	return err
 }
 
-// OrderMismatch names the first thing in which PayPal's order differs from
-// the checkout the attempt opened, or "" when it is that checkout: the
-// attempt's order, one purchase unit, the enrollment as custom_id, the
-// attempt as reference_id and the proposal's price and currency. An approved
-// order is authorized only when it matches, from the return page and from a
-// reconcile alike.
 func OrderMismatch(o paypal.Order, a store.AttemptRow, enrollmentID string, p store.ProposalRow) string {
 	if a.OrderID == nil || o.ID != *a.OrderID {
 		return "order_id"
@@ -160,8 +132,6 @@ func OrderMismatch(o paypal.Order, a store.AttemptRow, enrollmentID string, p st
 	return ""
 }
 
-// paymentsOpen reports whether the enrollment's workshop still takes
-// authorizations (domain.PaymentsOpen). status is the workshop's status.
 func (r *Runner) paymentsOpen(ctx context.Context, en store.EnrollmentRow, now time.Time) (open bool, status domain.WorkshopStatus, err error) {
 	w, err := r.st.WorkshopByID(ctx, en.WorkshopID)
 	if err != nil {
@@ -177,11 +147,6 @@ func (r *Runner) paymentsOpen(ctx context.Context, en store.EnrollmentRow, now t
 	return domain.PaymentsOpen(domain.Workshop{Status: w.Status}, domain.Proposal{ClosesAt: p.ClosesAt}, now), w.Status, nil
 }
 
-// refresh applies the order, with every payment it lists, and then the
-// authorization, capture and refund the attempt knows of. A 404 on the order
-// of an attempt that was never authorized means PayPal dropped the order
-// unapproved: EXPIRED. It returns the order as PayPal showed it, or nil when
-// the attempt has none or PayPal no longer has it.
 func (r *Runner) refresh(ctx context.Context, s subject) (*paypal.Order, *int, error) {
 	id := s.attempt.ID
 	var order *paypal.Order
@@ -275,9 +240,6 @@ func (r *Runner) resolveUnknown(ctx context.Context, log *slog.Logger, a store.A
 	return nil
 }
 
-// flagForOperator flags the enrollment or, when it is finished or paid and so
-// is not flagged, such as a released seat whose authorize may still have
-// placed a hold, its workshop.
 func (r *Runner) flagForOperator(ctx context.Context, log *slog.Logger, enrollmentID string) error {
 	if err := r.flag(ctx, log, enrollmentID, unpaidActiveStatuses, "PayPal shows no trace of an action after the last reconcile"); err != nil {
 		return err
@@ -289,8 +251,6 @@ func (r *Runner) flagForOperator(ctx context.Context, log *slog.Logger, enrollme
 	return r.flagWorkshop(ctx, log, en.WorkshopID)
 }
 
-// performed reports whether PayPal shows the action of a job of this kind as
-// done for the attempt; known is false for kinds a reconcile does not resolve.
 func performed(kind string, a store.AttemptRow) (done, known bool) {
 	switch kind {
 	case store.KindCreateOrder:
@@ -307,13 +267,10 @@ func performed(kind string, a store.AttemptRow) (done, known bool) {
 	return false, false
 }
 
-// orderGone is PayPal's answer for an order that no longer exists.
 func orderGone(pe *paypal.Error) bool {
 	return pe.HTTPStatus == http.StatusNotFound && pe.Issue == issueInvalidResourceID
 }
 
-// expireOrder records the attempt's order as EXPIRED unless the attempt holds
-// an authorization by then (store.MarkOrderExpired).
 func (r *Runner) expireOrder(ctx context.Context, attemptID string) error {
 	_, err := r.st.MarkOrderExpired(ctx, attemptID)
 	return err

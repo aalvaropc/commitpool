@@ -9,7 +9,6 @@ interface Props {
   onSaved: () => Promise<unknown>
 }
 
-/** Where a participant says, in their own words, when they can come. */
 export default function AvailabilityPanel({ token, view, onSaved }: Props) {
   const { availability, workshop, proposal } = view
   const accepting = workshop.status === 'COLLECTING' || (proposal?.payments_open ?? false)

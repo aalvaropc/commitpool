@@ -12,38 +12,13 @@ import (
 )
 
 const (
-	// periodicInterval is how often Run calls RunPeriodic.
-	periodicInterval = 2 * time.Minute
-	// unknownAfter is how long a job may stay unknown before RunPeriodic
-	// reconciles its attempt, on top of the reconciles the job scheduled.
-	unknownAfter = 5 * time.Minute
-	// hourLayout is the hour a pending attempt's periodic reconcile key
-	// names, in UTC.
-	hourLayout = "2006-01-02T15"
-	// succeededRetention is how long RunPeriodic keeps a succeeded seat
-	// release or read-only reconcile (store.PurgeSucceededJobs).
+	periodicInterval   = 2 * time.Minute
+	unknownAfter       = 5 * time.Minute
+	hourLayout         = "2006-01-02T15"
 	succeededRetention = 30 * 24 * time.Hour
-	// closeOverdueAfter is how long past its proposal's close a funding
-	// workshop may wait before RunPeriodic runs its close again.
-	closeOverdueAfter = 5 * time.Minute
+	closeOverdueAfter  = 5 * time.Minute
 )
 
-// RunPeriodic reconciles, with a reconcile job due now, every attempt whose
-// outcome PayPal may still change without telling us. The latest attempt of
-// a CAPTURE_PENDING or REFUND_PENDING enrollment, and of a SEAT_RESERVED one
-// whose authorization PayPal reports PENDING, gets
-// reconcile:{attempt}:periodic:{hour}, so an authorization, capture or
-// refund that stays pending for days is read back once an hour, the first
-// time within two minutes of it turning pending. An attempt with a job
-// unknown for more than five minutes gets reconcile:{attempt}:periodic:{minute},
-// unless the attempt's last reconcile generation exists, which leaves that
-// job to an operator. Hours and minutes are UTC, so another call within the
-// same one enqueues nothing new. It deletes the succeeded seat releases and
-// read-only reconciles older than 30 days (store.PurgeSucceededJobs), and
-// then heals every workshop still funding or with money not settled
-// (HealWorkshop), so a step a failed hook left undone does not wait for an
-// unrelated event. Run calls it every two minutes; a failure on one attempt
-// or workshop does not stop the others.
 func (r *Runner) RunPeriodic(ctx context.Context) error {
 	var errs []error
 	now := r.clock.Now()
@@ -100,10 +75,6 @@ func (r *Runner) RunPeriodic(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-// reviveOverdueCloses enqueues close:{proposal} due now for every workshop
-// still FUNDING more than closeOverdueAfter past its close, or revives the
-// job when it failed or was parked: a close only reads and decides, so it is
-// safe to run again, and nothing else would ever close that workshop.
 func (r *Runner) reviveOverdueCloses(ctx context.Context, now time.Time) error {
 	overdue, err := r.st.OverdueCloses(ctx, now.Add(-closeOverdueAfter))
 	if err != nil {
@@ -124,12 +95,6 @@ func (r *Runner) reviveOverdueCloses(ctx context.Context, now time.Time) error {
 	return errors.Join(errs...)
 }
 
-// leftToOperator reports whether the attempt's last reconcile generation,
-// reconcile:{attempt}:{maxReconcileGenerations}, has run: it sends nothing
-// again and leaves the attempt's unknown jobs to an operator. While it waits
-// its six hours, the periodic reconciles keep reading PayPal and sending the
-// action again under its own key, so a PayPal that recovers in the meantime
-// still gets the money back without an operator.
 func (r *Runner) leftToOperator(ctx context.Context, attemptID string) (bool, error) {
 	j, err := r.st.JobByKey(ctx, reconcilePrefix(attemptID)+strconv.Itoa(maxReconcileGenerations))
 	return j != nil && j.Status == store.JobSucceeded, err

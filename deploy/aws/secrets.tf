@@ -30,8 +30,6 @@ resource "aws_secretsmanager_secret_version" "paypal" {
 
   secret_id = aws_secretsmanager_secret.paypal[each.key].id
 
-  # A single space is the placeholder: the app trims every variable, so it
-  # reads the value as unset until the real one is put by hand.
   secret_string = " "
 
   lifecycle {

@@ -8,9 +8,6 @@ import (
 	"github.com/aalvaropc/commitpool/internal/domain"
 )
 
-// refundRefused cancels a workshop with Ana paid and has PayPal refuse her
-// refund, so she ends REFUND_FAILED, flagged, and the workshop needs an
-// operator.
 func (e *env) refundRefused() (enrollmentID, attemptID string) {
 	e.t.Helper()
 	ana, a := e.paid("Ana")
@@ -58,7 +55,6 @@ func TestOperator_ClearWorkshopFlagRefusedWhileAnEnrollmentNeedsAnOperator(t *te
 		t.Fatalf("ClearWorkshopFlag while Ana's refund failed = %v, want ErrStillUnresolved", err)
 	}
 
-	// The operator settled Ana's money at PayPal by hand and records it.
 	e.transition(ana, domain.EnrollmentRefundFailed, domain.EnrollmentRefunded)
 	if err := e.runner.ClearEnrollmentFlag(e.ctx, ana); err != nil {
 		t.Fatalf("ClearEnrollmentFlag: %v", err)
@@ -98,7 +94,6 @@ func TestRetryRefund_ReconcileAfterAnAmbiguousRetryRecordsTheNewRefund(t *testin
 	e.wantStatus(ana.ID, domain.EnrollmentRefundFailed)
 	e.fake.SetCaptureStatus(*e.attempt(a.ID).CaptureID, "COMPLETED", "")
 
-	// PayPal refunds, but the answer never comes back.
 	e.fake.FailNext("refund", 0, "")
 	key, err := e.runner.RetryRefund(e.ctx, ana.ID)
 	if err != nil {
@@ -163,7 +158,6 @@ func TestOperator_ClearEnrollmentFlagRefusedWhileItsHoldIsStillOpen(t *testing.T
 	}
 	e.wantFlagged(en.ID, domain.EnrollmentCaptureFailed)
 
-	// The operator voids the hold at PayPal by hand and reads it back.
 	e.fake.SetAuthorizationStatus(*e.attempt(a.ID).AuthorizationID, "VOIDED")
 	key, err := e.runner.OperatorReconcile(e.ctx, en.ID)
 	if err != nil {

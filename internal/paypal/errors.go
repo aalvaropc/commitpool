@@ -10,7 +10,6 @@ import (
 	"strings"
 )
 
-// Error is a non-2xx answer from PayPal. It never carries the response body.
 type Error struct {
 	HTTPStatus int
 	Name       string
@@ -34,12 +33,6 @@ func (e *Error) Error() string {
 	return b.String()
 }
 
-// IsAmbiguous reports whether the outcome of the request is unknown: it may
-// or may not have been processed, so the caller must reconcile by reading the
-// resource before acting again. That covers timeouts and any transport
-// failure, a 5xx, and a 409 (PREVIOUS_REQUEST_IN_PROGRESS). A 429 is not
-// ambiguous: the request was rejected before processing, so retrying with the
-// same PayPal-Request-Id is safe. Every other 4xx is a definite answer.
 func IsAmbiguous(err error) bool {
 	if err == nil {
 		return false
@@ -51,8 +44,6 @@ func IsAmbiguous(err error) bool {
 	if errors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
-	// net.Error covers *url.Error, which is what http.Client returns for every
-	// transport failure, as well as bare timeouts and dial errors.
 	var ne net.Error
 	if errors.As(err, &ne) {
 		return true
@@ -61,10 +52,6 @@ func IsAmbiguous(err error) bool {
 	return errors.As(err, &un)
 }
 
-// Definitive returns PayPal's error when it is a final answer about the
-// resource, one asking again will not change: any 4xx except 401 and 403
-// (credentials, not the payment), 409 (ambiguous) and 429 (rejected before
-// processing). Any other error, or none, is nil.
 func Definitive(err error) *Error {
 	var pe *Error
 	if !errors.As(err, &pe) || pe.HTTPStatus < 400 || pe.HTTPStatus >= 500 {
@@ -77,8 +64,6 @@ func Definitive(err error) *Error {
 	return pe
 }
 
-// unconfirmedError marks a failure after the request was sent, such as a
-// truncated response, where PayPal may still have processed it.
 type unconfirmedError struct{ err error }
 
 func (e *unconfirmedError) Error() string { return e.err.Error() }

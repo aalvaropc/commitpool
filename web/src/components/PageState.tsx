@@ -13,7 +13,6 @@ export function Loading({ what }: { what: string }) {
 
 interface LoadErrorProps {
   error: ApiError
-  /** What a 404 means on this page, in one sentence. */
   missing: string
   onRetry: () => void
 }
@@ -36,7 +35,6 @@ export function LoadError({ error, missing, onRetry }: LoadErrorProps) {
   )
 }
 
-/** A refresh of a page already shown failed: it says so, and offers a refresh unless polling will retry. */
 export function RefreshError({ polling, onRetry }: { polling: boolean; onRetry: () => void }) {
   return (
     <Notice tone="attention">

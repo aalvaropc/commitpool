@@ -1,11 +1,4 @@
 #!/usr/bin/env bash
-# Pulls the app image and (re)starts the demo on this VM: PostgreSQL, the app
-# and Caddy (HTTPS through Let's Encrypt) on one Docker network. Usage:
-# deploy.sh <image-tag>. Settings come from /opt/commitpool/config, written at
-# boot; secrets come from SSM Parameter Store on every run and are written
-# only to root-only env files. Optional parameters: mcp_secret signs the MCP
-# confirmation tokens across restarts; mail_from (a verified SES sender) turns
-# on email through Amazon SES, otherwise notifications are only logged.
 set -euo pipefail
 
 dir=/opt/commitpool
@@ -58,7 +51,6 @@ for _ in $(seq 1 60); do
 done
 
 docker pull --quiet "$REPOSITORY:$tag" >/dev/null
-# The app waits up to 30 s for in-flight payment calls before it exits.
 docker stop -t 35 app >/dev/null 2>&1 || true
 docker rm app >/dev/null 2>&1 || true
 docker run -d --name app --network commitpool --restart unless-stopped \

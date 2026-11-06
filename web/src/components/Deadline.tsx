@@ -4,12 +4,10 @@ import { formatInZone, timeLeft } from '../lib/time'
 interface Props {
   closesAt: string
   timeZone: string
-  /** The server's payments_open; once false the window reads as closed whatever the clock says. */
   open: boolean
   size?: 'sm' | 'lg'
 }
 
-/** When payments close, on the workshop's clock, with the time left. */
 export default function Deadline({ closesAt, timeZone, open, size = 'sm' }: Props) {
   const now = Math.max(useNow(15000), Date.now())
   const left = open ? timeLeft(closesAt, now) : null

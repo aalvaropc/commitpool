@@ -10,8 +10,6 @@ import (
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
-// mockAuthorizationExpired is the only PayPal-Mock-Response code the demo
-// control sets: it makes the next capture of the attempt fail.
 const mockAuthorizationExpired = "AUTHORIZATION_EXPIRED"
 
 type participantDTO struct {
@@ -37,11 +35,6 @@ type ownerViewDTO struct {
 	Demo           demoDTO           `json:"demo"`
 }
 
-// ownerView is the owner's dashboard: the share link to pass around, every
-// participant with their latest availability (message, reading and
-// correction), the date recommendation with its explanation, the separated
-// counts and each enrollment's financial status. Only the owner sees the
-// share link here.
 func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
 	ws, err := s.ownerWorkshop(r)
 	if err != nil {
@@ -116,8 +109,6 @@ var (
 	errCaptureStarted      = conflict("capture_already_started", "This enrollment's capture has already started or it is finished.")
 )
 
-// proposalRefusals turns each domain.ValidateProposal rule into the reason a
-// refused proposal reports.
 var proposalRefusals = []struct {
 	err             error
 	reason, message string
@@ -130,12 +121,6 @@ var proposalRefusals = []struct {
 	{domain.ErrNotEnoughCompatible, "not_enough_compatible", "Fewer participants can attend this date than the minimum."},
 }
 
-// openProposal opens payments on one candidate date. The proposal is built
-// from the workshop's own terms and the chosen date, never from the request,
-// and domain.ValidateProposal decides whether it may open. store.OpenProposal
-// moves the workshop COLLECTING → FUNDING by compare-and-set, which locks its
-// terms, and schedules close:{proposal} for when the window ends, in one
-// transaction.
 func (s *server) openProposal(w http.ResponseWriter, r *http.Request) error {
 	ws, err := s.ownerWorkshop(r)
 	if err != nil {
@@ -230,9 +215,6 @@ func (s *server) openProposal(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// alreadyOpen refuses a second proposal. It first makes sure the open one has
-// its close job, a repair for proposals opened before the close was enqueued
-// with them; the enqueue is a no-op otherwise.
 func (s *server) alreadyOpen(ctx context.Context, open *store.ProposalRow) error {
 	if open != nil {
 		if err := s.scheduleClose(ctx, *open); err != nil {
@@ -246,10 +228,6 @@ func (s *server) scheduleClose(ctx context.Context, p store.ProposalRow) error {
 	return s.Worker.Enqueue(ctx, store.KindClose, store.JobKey(store.KindClose, p.ID), &p.WorkshopID, nil, nil, p.ClosesAt)
 }
 
-// demoCloseNow ends the payment window now, for demos: the proposal's close
-// moves to now first, so no capture round or new seat can start, and then
-// close:{proposal} is made due now for the worker, created, revived or
-// brought forward as it stands.
 func (s *server) demoCloseNow(w http.ResponseWriter, r *http.Request) error {
 	if !s.Cfg.DemoMode {
 		return errNotFound
@@ -271,9 +249,6 @@ func (s *server) demoCloseNow(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	// Each step is a no-op unless it applies: a missing job is created due
-	// now, a failed or parked one is revived now, a pending one is brought
-	// forward, so 202 means a close will run.
 	key := store.JobKey(store.KindClose, p.ID)
 	if err := s.Worker.Enqueue(ctx, store.KindClose, key, &ws.ID, nil, nil, now); err != nil {
 		return err
@@ -289,11 +264,6 @@ func (s *server) demoCloseNow(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// demoFailNextCapture makes the enrollment's next capture fail at PayPal's
-// sandbox, by storing the AUTHORIZATION_EXPIRED mock on its latest attempt;
-// the capture job sends it as PayPal-Mock-Response. It applies until the
-// capture starts: once the enrollment is CAPTURING, or the attempt records a
-// capture, it is refused with 409 (store.SetCaptureMock).
 func (s *server) demoFailNextCapture(w http.ResponseWriter, r *http.Request) error {
 	if !s.Cfg.SandboxMocks {
 		return errNotFound
@@ -331,8 +301,6 @@ func (s *server) demoFailNextCapture(w http.ResponseWriter, r *http.Request) err
 		return conflict("no_payment_attempt", "This enrollment has no payment yet.")
 	}
 	code := mockAuthorizationExpired
-	// Checked again under the enrollment's row lock, so a capture that started
-	// while this request ran is seen: the mock must never reach a refund.
 	stored, err := s.Store.SetCaptureMock(ctx, a.ID, code)
 	if err != nil {
 		return err
@@ -345,12 +313,8 @@ func (s *server) demoFailNextCapture(w http.ResponseWriter, r *http.Request) err
 	return nil
 }
 
-// maxCancelReason caps the reason an organizer gives for cancelling.
 const maxCancelReason = 280
 
-// cancelWorkshop is the organizer's cancel: any time before the workshop
-// starts (worker.CancelWorkshop). Holds are released and payments refunded
-// by the worker right after; the answer is the cancelled workshop.
 func (s *server) cancelWorkshop(w http.ResponseWriter, r *http.Request) error {
 	ws, err := s.ownerWorkshop(r)
 	if err != nil {

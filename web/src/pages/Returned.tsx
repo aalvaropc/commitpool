@@ -2,7 +2,6 @@ import { useSearchParams } from 'react-router'
 import { ButtonLink, Notice, Page } from '../components/ui'
 import { returnedMessage, returnPath } from '../lib/returned'
 
-/** Where PayPal sends a participant back: what happened and the way to their page. */
 export default function Returned() {
   const [params] = useSearchParams()
   const result = params.get('result')

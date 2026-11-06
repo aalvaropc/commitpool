@@ -9,11 +9,6 @@
   font-display: swap;
 }
 
-/*
- * Cheque paper, signing ink and three money states: a hold (amber), a
- * completed payment (green) and a cancellation or refund (rose). Every
- * text colour clears 4.5:1 on its wash; fills and input edges clear 3:1.
- */
 @theme {
   --font-sans: "Archivo", ui-sans-serif, system-ui, sans-serif;
 
@@ -42,7 +37,6 @@
   --color-attention-wash: #fce6da;
 }
 
-/* Archivo's width axis carries the voice: money and deadlines run wide. */
 @utility wide {
   font-stretch: 125%;
 }

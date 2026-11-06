@@ -11,7 +11,6 @@ import (
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
-// Notification kinds. A participant without an email gets none.
 const (
 	NotifyJoined          = "joined"
 	NotifyConfirmed       = "confirmed"
@@ -20,10 +19,6 @@ const (
 	NotifyRefundCompleted = "refund_completed"
 )
 
-// notify sends one notification of the outbox. Delivery is at least once: a
-// send that fails is retried under the same key, and one the provider
-// rejects for good is marked failed and not sent again. The joined message
-// carries the participant's private link, so its body is dropped once sent.
 func (r *Runner) notify(ctx context.Context, job *store.Job) (*int, error) {
 	n, err := r.st.NotificationByKey(ctx, job.IdempotencyKey)
 	if err != nil {
@@ -46,8 +41,6 @@ func (r *Runner) notify(ctx context.Context, job *store.Job) (*int, error) {
 	return nil, r.st.MarkNotificationSent(ctx, n.Key, id, r.clock.Now(), n.Kind == NotifyJoined)
 }
 
-// NotifyJoined queues the welcome message with the participant's private
-// link; link exists only at join time, since only its hash is kept.
 func (r *Runner) NotifyJoined(ctx context.Context, workshopID, participantID, link string) error {
 	name, email, err := r.st.ParticipantEmail(ctx, participantID)
 	if err != nil || email == "" {
@@ -66,9 +59,6 @@ func (r *Runner) NotifyJoined(ctx context.Context, workshopID, participantID, li
 	})
 }
 
-// Notify queues a message about one enrollment: confirmed, payment_failed or
-// refund_completed, keyed by the enrollment so it goes out once. Best
-// effort: a failure is logged, never returned to a money move.
 func (r *Runner) Notify(ctx context.Context, enrollmentID, kind string) error {
 	en, err := r.st.EnrollmentByID(ctx, enrollmentID)
 	if err != nil {
@@ -111,8 +101,6 @@ func (r *Runner) Notify(ctx context.Context, enrollmentID, kind string) error {
 	})
 }
 
-// notifyCancelled tells every participant of the workshop with an email
-// that it is cancelled, once each.
 func (r *Runner) notifyCancelled(ctx context.Context, workshopID string) {
 	w, err := r.st.WorkshopByID(ctx, workshopID)
 	if err == nil {
@@ -138,8 +126,6 @@ func (r *Runner) notifyCancelled(ctx context.Context, workshopID string) {
 	}
 }
 
-// notifyEnrollment is Notify for a hook: it logs a failure instead of
-// returning it, so a notification never fails a money move.
 func (r *Runner) notifyEnrollment(ctx context.Context, enrollmentID, kind string) {
 	if err := r.Notify(ctx, enrollmentID, kind); err != nil {
 		r.log.Error("notify: could not queue a notification", "enrollment_id", enrollmentID, "kind", kind, "error", err)
@@ -151,7 +137,6 @@ func (r *Runner) queue(ctx context.Context, n store.Notification) error {
 	return err
 }
 
-// describeStart is when a workshop starts, on its own clock.
 func describeStart(t time.Time, tz string) string {
 	loc, err := time.LoadLocation(tz)
 	if err != nil {
@@ -160,8 +145,6 @@ func describeStart(t time.Time, tz string) string {
 	return t.In(loc).Format("Mon 2 Jan 2006, 15:04 MST")
 }
 
-// RunPending runs every job due now, one after the other, and returns once
-// none is left: for tests and tools that need the outbox drained.
 func (r *Runner) RunPending(ctx context.Context) error {
 	for {
 		ran, err := r.RunOnce(ctx)

@@ -60,8 +60,6 @@ func applyMigration(ctx context.Context, pool *pgxpool.Pool, version, body strin
 	})
 }
 
-// inLockedTx serialises concurrent migrators (several processes or test
-// packages starting at once) with a transaction-scoped advisory lock.
 func inLockedTx(ctx context.Context, pool *pgxpool.Pool, fn func(tx pgx.Tx) error) error {
 	tx, err := pool.Begin(ctx)
 	if err != nil {

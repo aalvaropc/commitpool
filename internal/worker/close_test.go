@@ -17,8 +17,6 @@ func releaseSeatsKey(workshopID string, now time.Time) string {
 	return "release_seats:" + workshopID + ":" + now.UTC().Format("2006-01-02T15:04")
 }
 
-// releaseSeatsNow enqueues the env workshop's seat release due now and
-// returns its key.
 func (e *env) releaseSeatsNow() string {
 	e.t.Helper()
 	key := releaseSeatsKey(e.workshop.ID, e.clock.Now())
@@ -28,9 +26,6 @@ func (e *env) releaseSeatsNow() string {
 	return key
 }
 
-// runAgain makes the finished job run once more, as when its worker died
-// after the handler's effects and before the outcome was recorded, and
-// RequeueStale took the job back.
 func (e *env) runAgain(key string) {
 	e.t.Helper()
 	now := e.clock.Now()
@@ -46,21 +41,14 @@ func (e *env) runAgain(key string) {
 	e.wantJob(key, "succeeded")
 }
 
-// nearClose moves the clock to 20 minutes before payments close, so a seat
-// reserved now is still held when they close.
 func (e *env) nearClose() { e.clock.Set(e.proposal.ClosesAt.Add(-20 * time.Minute)) }
 
-// authorizeJustBeforeClose plays a buyer who approves a minute before
-// payments close, while they still take authorizations. It leaves the clock
-// there.
 func (e *env) authorizeJustBeforeClose(en store.EnrollmentRow, a store.AttemptRow) store.AttemptRow {
 	e.t.Helper()
 	e.clock.Set(e.proposal.ClosesAt.Add(-time.Minute))
 	return e.authorize(en, a)
 }
 
-// dropJob deletes the job, as if the step that enqueues it had failed after
-// the move that called for it.
 func (e *env) dropJob(key string) {
 	e.t.Helper()
 	tag, err := e.st.Pool.Exec(e.ctx, `delete from jobs where idempotency_key = $1`, key)
@@ -79,12 +67,9 @@ func TestClose_TwoPaidCancelsVoidsRefundsAndTracksPending(t *testing.T) {
 	e.nearClose()
 	e3, a3 := e.withOrder("Cleo")
 	a3 = e.authorizeJustBeforeClose(e3, a3)
-	// Two paid and Cleo authorized reach the minimum, so the round enqueues
-	// Cleo's capture; the worker has not run it when payments close.
 	e.wantJob("capture:"+a3.ID, "pending")
 	e.clock.Set(e.proposal.ClosesAt)
 
-	// Opening the proposal scheduled its close; enqueueing it again adds nothing.
 	e.wantJob(e.closeKey(), "pending")
 	if e.enqueueClose() {
 		t.Fatal("enqueueing the close job again created a second one")
@@ -144,7 +129,6 @@ func TestClose_RepeatedCloseJobIsNoop(t *testing.T) {
 	ben, a2 := e.paid("Ben")
 	e.nearClose()
 	cleo, a3 := e.withOrder("Cleo")
-	// Dan's seat is still live when payments close and lapses after.
 	dan, _ := e.enroll("Dan")
 	a3 = e.authorizeJustBeforeClose(cleo, a3)
 	e.clock.Set(e.proposal.ClosesAt)
@@ -359,8 +343,6 @@ func TestReleaseSeatsTick_EnqueuesOnePerWorkshopPerMinute(t *testing.T) {
 		e.wantNoJob(releaseSeatsKey(quiet.ID, at))
 	}
 
-	// The seats were reserved at t0 for 30 minutes; a tick enqueues a release
-	// only once one has expired.
 	base := t0.Add(31 * time.Minute)
 	first := base.Add(30 * time.Second)
 	e.clock.Set(first)
@@ -446,8 +428,6 @@ func TestReconcile_AuthorizationFoundAfterCloseIsVoided(t *testing.T) {
 	e.wantWorkshop(domain.WorkshopCancelled, domain.ResolutionSettled)
 }
 
-// moveWorkshop rewrites the workshop's state as a step the test stands in
-// for would have, through the store's compare-and-set.
 func (e *env) moveWorkshop(from domain.WorkshopStatus, to domain.WorkshopStatus, resolution domain.Resolution) {
 	e.t.Helper()
 	ok, err := e.st.TransitionWorkshop(e.ctx, e.workshop.ID, []domain.WorkshopStatus{from}, nil, to, resolution)
@@ -456,7 +436,6 @@ func (e *env) moveWorkshop(from domain.WorkshopStatus, to domain.WorkshopStatus,
 	}
 }
 
-// allJobKeys lists every job key in the database.
 func (e *env) allJobKeys() map[string]bool {
 	e.t.Helper()
 	rows, err := e.st.Pool.Query(e.ctx, `select idempotency_key from jobs`)
@@ -475,8 +454,6 @@ func (e *env) allJobKeys() map[string]bool {
 	return keys
 }
 
-// waitForRowLockWaiter returns once some statement waits on a row lock, or
-// fails when done reports first or nothing waits within five seconds.
 func (e *env) waitForRowLockWaiter(done <-chan error) {
 	e.t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
@@ -509,9 +486,6 @@ func TestClose_OnConfirmedWorkshopEnqueuesNoRefunds(t *testing.T) {
 	e.clock.Set(e.proposal.ClosesAt)
 	e.enqueueClose()
 
-	// Cleo's capture completes and confirms the workshop in a transaction
-	// that is still open when close decides: close reads two payments and
-	// cancels, but its write has to wait for that transaction.
 	tx, err := e.st.Pool.Begin(e.ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -557,8 +531,6 @@ func TestClose_RetryOnCancelledResolvingEnqueuesSameKeys(t *testing.T) {
 	a3 = e.authorizeJustBeforeClose(cleo, a3)
 	e.clock.Set(e.proposal.ClosesAt.Add(time.Minute))
 	e.enqueueClose()
-	// A first close recorded the cancellation and stopped before enqueuing
-	// what it owes.
 	e.moveWorkshop(domain.WorkshopFunding, domain.WorkshopCancelled, domain.ResolutionResolving)
 	before := e.allJobKeys()
 
@@ -582,8 +554,6 @@ func TestClose_RetryOnCancelledResolvingEnqueuesSameKeys(t *testing.T) {
 	e.runUntilIdle()
 	e.wantStatus(ana.ID, domain.EnrollmentRefunded)
 	e.wantStatus(ben.ID, domain.EnrollmentRefunded)
-	// Cleo's queued capture is skipped in the cancelled workshop and her
-	// hold voided, never charged.
 	e.wantStatus(cleo.ID, domain.EnrollmentVoided)
 	wantString(t, "Cleo's authorization", e.attempt(a3.ID).AuthorizationStatus, "VOIDED")
 	e.wantStatus(dan.ID, domain.EnrollmentCapturePending)
@@ -658,7 +628,6 @@ func TestEscalate_CloseJobThatKeepsFailingFlagsWorkshopAndRetries(t *testing.T) 
 		e.runKey(key)
 	}
 
-	// A close never parks: it keeps retrying, and its workshop is flagged once.
 	e.wantJob(key, "pending")
 	got, err := e.st.WorkshopByID(e.ctx, w.ID)
 	if err != nil {
@@ -673,7 +642,6 @@ func TestEscalate_CloseJobThatKeepsFailingFlagsWorkshopAndRetries(t *testing.T) 
 func TestHeal_OrphanHoldAfterCaptureFailedIsVoided(t *testing.T) {
 	e := newEnv(t)
 	ana, a := e.authorized("Ana")
-	// The capture failure was recorded but the void it calls for was lost.
 	e.transition(ana.ID, domain.EnrollmentAuthorized, domain.EnrollmentCaptureFailed)
 	e.wantNoJob("void:" + a.ID)
 	e.clock.Set(e.proposal.ClosesAt)
@@ -699,7 +667,6 @@ func TestHeal_OrphanHoldAfterCaptureFailedIsVoided(t *testing.T) {
 func TestHeal_FundingAtMinimumConfirms(t *testing.T) {
 	e := newEnv(t)
 	e.confirmed()
-	// The confirmation after the third payment was lost.
 	e.moveWorkshop(domain.WorkshopConfirmed, domain.WorkshopFunding, domain.ResolutionOpen)
 
 	if err := e.runner.HealWorkshop(e.ctx, e.workshop.ID); err != nil {
@@ -713,7 +680,6 @@ func TestHeal_FundingAtMinimumConfirms(t *testing.T) {
 func TestHeal_CancelledPaidWithoutRefundJobEnqueuesRefund(t *testing.T) {
 	e := newEnv(t)
 	ana, a := e.paid("Ana")
-	// The workshop was cancelled but the refund it owes Ana was never enqueued.
 	e.moveWorkshop(domain.WorkshopFunding, domain.WorkshopCancelled, domain.ResolutionResolving)
 
 	e.runKey(e.reconcileNow(a))
@@ -733,7 +699,6 @@ func TestHeal_LeftoverAuthorizationIsVoidedOncePaymentsClosed(t *testing.T) {
 		dan, danAttempt := e.withOrder("Dan")
 		e.confirmed()
 		danAttempt = e.authorize(dan, danAttempt)
-		// The capture this authorization called for was lost.
 		e.dropJob("capture:" + danAttempt.ID)
 		e.clock.Set(e.proposal.ClosesAt.Add(time.Minute))
 
@@ -749,7 +714,6 @@ func TestHeal_LeftoverAuthorizationIsVoidedOncePaymentsClosed(t *testing.T) {
 	t.Run("cancelled workshop", func(t *testing.T) {
 		e := newEnv(t)
 		ana, a := e.authorized("Ana")
-		// The workshop was cancelled but the void it owes Ana was never enqueued.
 		e.moveWorkshop(domain.WorkshopFunding, domain.WorkshopCancelled, domain.ResolutionResolving)
 
 		e.runKey(e.reconcileNow(a))
@@ -775,8 +739,6 @@ func TestSettle_WaitsForAuthorizationOnReleasedSeat(t *testing.T) {
 	e.advance(10 * time.Minute)
 	e.runKey(e.releaseSeatsNow())
 	e.wantStatus(en.ID, domain.EnrollmentReleased)
-	// The seat is gone but the authorize's outcome is still unknown: PayPal
-	// may hold the buyer's money.
 	e.wantWorkshop(domain.WorkshopCancelled, domain.ResolutionResolving)
 
 	e.runKey("reconcile:" + a.ID + ":1")
@@ -818,7 +780,6 @@ func TestHeal_RevivesASkippedVoidOfAHoldStillHeld(t *testing.T) {
 	voidKey := e.enqueue("void", a)
 	e.runKey(voidKey)
 	e.wantJob(voidKey, "failed")
-	// The capture failed, but the revive of the void it calls for was lost.
 	e.transition(ana.ID, domain.EnrollmentCapturing, domain.EnrollmentCaptureFailed)
 
 	if err := e.runner.HealWorkshop(e.ctx, e.workshop.ID); err != nil {
@@ -833,9 +794,6 @@ func TestHeal_RevivesASkippedVoidOfAHoldStillHeld(t *testing.T) {
 	}
 }
 
-// landPaymentDuringCancellation makes the enrollment's move to PAID commit
-// in the statement that cancels its workshop, as a capture hook landing
-// between close's read of the workshop and its compare-and-set would.
 func (e *env) landPaymentDuringCancellation(enrollmentID string) {
 	e.t.Helper()
 	for _, stmt := range []string{
@@ -863,8 +821,6 @@ func TestClose_PaymentLandingWhileTheCancellationIsWrittenIsRefundedByTheClose(t
 	if err != nil {
 		t.Fatalf("capture at PayPal: %v", err)
 	}
-	// PayPal captured and the attempt holds the capture; the enrollment's
-	// move to PAID lands only while close writes the cancellation.
 	if _, err := e.st.UpdateAttemptFunc(e.ctx, a.ID, func(row *store.AttemptRow) error {
 		row.CaptureID, row.CaptureStatus = &c.ID, &c.Status
 		return nil
@@ -883,9 +839,6 @@ func TestClose_PaymentLandingWhileTheCancellationIsWrittenIsRefundedByTheClose(t
 }
 
 func TestHeal_StartsRoundMissedByFundingHook(t *testing.T) {
-	// missedRound authorizes three holds, the workshop's minimum, and drops
-	// the captures the third authorization's hook enqueued, as if the hook
-	// had failed after the AUTHORIZED move was written.
 	missedRound := func(e *env) []store.AttemptRow {
 		e.t.Helper()
 		var attempts []store.AttemptRow
@@ -952,7 +905,6 @@ func TestHeal_StartsRoundMissedByFundingHook(t *testing.T) {
 		dan, danAttempt := e.withOrder("Dan")
 		e.confirmed()
 		danAttempt = e.authorize(dan, danAttempt)
-		// The capture this authorization called for was lost.
 		e.dropJob("capture:" + danAttempt.ID)
 
 		if err := e.runner.HealWorkshop(e.ctx, e.workshop.ID); err != nil {
@@ -996,7 +948,6 @@ func TestHeal_ReloadsTheViewAfterConfirming(t *testing.T) {
 	e.nearClose()
 	dan, danAttempt := e.withOrder("Dan")
 	e.confirmed()
-	// The confirmation hook was missed: the workshop is still funding.
 	e.moveWorkshop(domain.WorkshopConfirmed, domain.WorkshopFunding, domain.ResolutionOpen)
 	danAttempt = e.authorizeJustBeforeClose(dan, danAttempt)
 	if _, err := e.st.Pool.Exec(e.ctx, `delete from jobs where idempotency_key = $1`, "capture:"+danAttempt.ID); err != nil {

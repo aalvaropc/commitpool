@@ -24,11 +24,9 @@ test.describe('induced capture failure', () => {
     const [ada, ben, cleo, dev] = participants
 
     await openPayments(owner, workshop, 4)
-    // Every checkout starts first: the demo control applies to a payment attempt, which the enrollment creates.
     for (const p of participants) await startCheckout(p)
     await failNextCharge(owner, ben.name)
 
-    // Three holds reach the minimum and are charged; Ben's charge fails, which leaves two paid seats.
     for (const p of [ada, ben, cleo]) await approveCheckout(p)
     await expect(enrollmentRow(owner, ben.name)).toContainText('Payment failed — you can try again', { timeout: 60_000 })
     await expect(paidSeats(owner, 2)).toBeVisible()
@@ -41,7 +39,6 @@ test.describe('induced capture failure', () => {
     for (const p of [ada, cleo, dev]) await expect(enrollmentRow(owner, p.name)).toContainText('Seat paid')
     await expect(enrollmentRow(owner, ben.name)).toContainText('Payment failed — you can try again')
 
-    // Ben's page stops polling once his own status is final, so it reads the confirmation on a reload.
     await ben.page.reload()
     await expect(headline(ben.page)).toHaveText('Workshop confirmed — payment failed, you can try again')
   })

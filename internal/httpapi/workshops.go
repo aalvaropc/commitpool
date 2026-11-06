@@ -12,23 +12,18 @@ import (
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
-// Limits on what a workshop and a participant may carry.
 const (
-	maxTitle       = 120
-	maxDescription = 2000
-	maxDurationMin = 24 * 60
-	maxCapacity    = 500
-	maxWindowMin   = int(domain.MaxPaymentWindow / time.Minute)
-	// dateLengthSlack is how far a candidate date's length may be from the
-	// duration: an hour, for a date that crosses a daylight-saving change.
+	maxTitle         = 120
+	maxDescription   = 2000
+	maxDurationMin   = 24 * 60
+	maxCapacity      = 500
+	maxWindowMin     = int(domain.MaxPaymentWindow / time.Minute)
 	dateLengthSlack  = time.Hour
 	maxDates         = 10
 	maxDisplayName   = 80
 	maxMessageLength = 2000
 )
 
-// supportedCurrencies are the currencies a price may be set in: ParseMoney
-// reads two decimals, and the MVP charges in US dollars.
 var supportedCurrencies = map[string]bool{"USD": true}
 
 type createWorkshopRequest struct {
@@ -54,9 +49,6 @@ type createWorkshopResponse struct {
 	ShareURL string      `json:"share_url"`
 }
 
-// createWorkshop stores a workshop with its terms and candidate dates. The
-// owner and share tokens appear only in this answer's URLs: the terms cannot
-// be edited afterwards, and they freeze into the proposal when payments open.
 func (s *server) createWorkshop(w http.ResponseWriter, r *http.Request) error {
 	var req createWorkshopRequest
 	if err := decode(r, &req); err != nil {
@@ -170,8 +162,6 @@ type publicView struct {
 	Tally    tallyDTO     `json:"tally"`
 }
 
-// publicWorkshop is what the share link shows before joining: the terms, the
-// dates, the proposal once payments open and the aggregate tally.
 func (s *server) publicWorkshop(w http.ResponseWriter, r *http.Request) error {
 	ws, err := s.sharedWorkshop(r)
 	if err != nil {
@@ -190,9 +180,6 @@ func (s *server) publicWorkshop(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// accepting reports whether the workshop still takes participants and their
-// availability: while it collects availability and, once payments open, for
-// as long as it sells seats (domain.PaymentsOpen), confirmed included.
 func (s *server) accepting(ctx context.Context, ws store.WorkshopRow) (bool, error) {
 	if ws.Status == domain.WorkshopCollecting {
 		return true, nil
@@ -204,7 +191,6 @@ func (s *server) accepting(ctx context.Context, ws store.WorkshopRow) (bool, err
 	return paymentsOpen(ws, p, s.Clock.Now()), nil
 }
 
-// open fails with errWorkshopClosed unless the workshop is accepting.
 func (s *server) open(ctx context.Context, ws store.WorkshopRow) error {
 	ok, err := s.accepting(ctx, ws)
 	if err != nil {
@@ -218,8 +204,6 @@ func (s *server) open(ctx context.Context, ws store.WorkshopRow) error {
 
 var errWorkshopClosed = conflict("workshop_closed", "This workshop no longer takes new participants or changes.")
 
-// joinWorkshop adds a participant through the share link and returns the
-// participant's private URL, the only time its token is shown.
 func (s *server) joinWorkshop(w http.ResponseWriter, r *http.Request) error {
 	ws, err := s.sharedWorkshop(r)
 	if err != nil {
@@ -256,8 +240,6 @@ func (s *server) joinWorkshop(w http.ResponseWriter, r *http.Request) error {
 	}
 	link := s.Cfg.BaseURL + "/p/" + token
 	if email != "" {
-		// The welcome message is the one place the private link travels:
-		// only its hash is kept. A failure here never fails the join.
 		if err := s.Store.SetParticipantEmail(r.Context(), p.ID, email); err != nil {
 			return err
 		}
@@ -269,8 +251,6 @@ func (s *server) joinWorkshop(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// optionalEmail checks an address a participant may leave for news about
-// their seat: empty, or one plain address of at most 254 characters.
 func optionalEmail(raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {

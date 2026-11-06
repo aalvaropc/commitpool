@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { formatMoney } from './money'
 
 describe('formatMoney', () => {
-  it('formats US dollars from minor units', () => {
-    expect(formatMoney({ minor: 1000, currency: 'USD' })).toBe('$10.00')
+  it('formats whole US dollars without cents', () => {
+    expect(formatMoney({ minor: 1000, currency: 'USD' })).toBe('$10')
+    expect(formatMoney({ minor: 4550, currency: 'USD' })).toBe('$45.50')
   })
 
   it('keeps cents and groups thousands', () => {

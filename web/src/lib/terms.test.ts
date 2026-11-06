@@ -6,7 +6,7 @@ const price = { minor: 1000, currency: 'USD', value: '10.00' }
 describe('workshopTerms', () => {
   it('lists price, minimum, capacity and duration', () => {
     expect(workshopTerms({ price, minimum: 3, capacity: 8, duration_min: 90 })).toEqual([
-      { label: 'Price', value: '$10.00', kind: 'money' },
+      { label: 'Price', value: '$10', kind: 'money' },
       { label: 'Needed to happen', value: '3', kind: 'number' },
       { label: 'Spots', value: '8', kind: 'number' },
       { label: 'Duration', value: '1 hour 30 min', kind: 'number' },
@@ -27,7 +27,7 @@ describe('lockedTerms', () => {
     })
     expect(items.map((i) => [i.label, i.value])).toEqual([
       ['Date', 'Sat, Nov 14 · 3 PM–5 PM'],
-      ['Price', '$10.00'],
+      ['Price', '$10'],
       ['Time to reserve', 'Demo window: 15 minutes'],
       ['Needed to happen', '3'],
       ['Spots', '8'],

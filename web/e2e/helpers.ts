@@ -55,10 +55,10 @@ export async function sendAvailability(p: Participant): Promise<void> {
 
 export async function openPayments(owner: Page, workshop: Workshop, canCome: number): Promise<void> {
   await owner.goto(workshop.ownerURL)
-  const recommended = owner.getByRole('listitem').filter({ has: owner.getByText('Recommended', { exact: true }) })
-  await expect(recommended).toContainText(`${canCome} can come`)
-  await recommended.getByRole('button', { name: 'Open reservations for this date' }).click()
-  await recommended.getByRole('button', { name: 'Open reservations', exact: true }).click()
+  const next = owner.getByRole('region', { name: 'Next step' })
+  await expect(next).toContainText(`works for ${canCome}`)
+  await next.getByRole('button', { name: /^Open reservations for / }).click()
+  await owner.getByRole('dialog').getByRole('button', { name: 'Open reservations', exact: true }).click()
   await expect(owner.getByRole('heading', { name: 'Reservations open' })).toBeVisible()
   await expect(headline(owner)).toHaveText('Reservations open')
 }
@@ -94,5 +94,9 @@ export function enrollmentRow(owner: Page, name: string): Locator {
 }
 
 export function paidSeats(owner: Page, paid: number): Locator {
-  return owner.getByRole('region', { name: 'Spots', exact: true }).getByText(`${paid} paid`, { exact: true })
+  return owner
+    .getByRole('region', { name: 'Spots', exact: true })
+    .locator('dl')
+    .filter({ has: owner.locator('dt', { hasText: /^Paid$/ }) })
+    .locator('dd', { hasText: new RegExp(`^${paid}$`) })
 }

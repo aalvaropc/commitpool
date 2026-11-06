@@ -55,8 +55,8 @@ export default function OperatorPanel({ token, view, onChange }: Props) {
   }
 
   return (
-    <section aria-labelledby="operator-title" className="flex flex-col gap-4 rounded-sm border border-rule border-t-4 border-t-attention bg-attention-wash p-5">
-      <h2 id="operator-title" className="text-2xl font-bold">
+    <section aria-labelledby="operator-title" className="flex flex-col gap-4 rounded-tile bg-attention-wash p-5 shadow-tile ring-1 ring-attention/30 sm:p-6">
+      <h2 id="operator-title" className="text-2xl text-attention">
         Needs your check
       </h2>
       <p className="max-w-prose">
@@ -78,7 +78,7 @@ export default function OperatorPanel({ token, view, onChange }: Props) {
                     busy={busy === e.id + a}
                     busyLabel={LABELS[a].busy}
                     disabled={busy !== null && busy !== e.id + a}
-                    className="px-3 py-1.5 text-sm"
+                    size="sm"
                   >
                     {LABELS[a].idle}
                   </Button>

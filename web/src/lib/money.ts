@@ -4,7 +4,7 @@ export interface MinorAmount {
 }
 
 export function formatMoney({ minor, currency }: MinorAmount): string {
-  const format = new Intl.NumberFormat('en-US', { style: 'currency', currency })
-  const digits = format.resolvedOptions().maximumFractionDigits ?? 2
-  return format.format(minor / 10 ** digits)
+  const digits = new Intl.NumberFormat('en-US', { style: 'currency', currency }).resolvedOptions().maximumFractionDigits ?? 2
+  const whole = minor % 10 ** digits === 0
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency, minimumFractionDigits: whole ? 0 : digits }).format(minor / 10 ** digits)
 }

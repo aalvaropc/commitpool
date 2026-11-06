@@ -28,10 +28,10 @@ export default function DemoControls({ token, view, onChange }: Props) {
   }
 
   return (
-    <section aria-labelledby="demo-title" className="flex flex-col gap-3 rounded-sm border border-dashed border-edge p-4">
-      <h2 id="demo-title" className="text-base font-bold">
+    <section aria-labelledby="demo-title" className="flex flex-col gap-3 rounded-control border border-dashed border-line-strong p-4">
+      <h3 id="demo-title" className="text-base">
         Demo controls
-      </h2>
+      </h3>
       <p className="text-sm text-ink-soft">This server runs in demo mode. Closing now ends reservations as if the deadline had passed.</p>
       <div>
         <Button variant="demo" onClick={closeNow} busy={busy} busyLabel="Closing reservations…">

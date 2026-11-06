@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -90,10 +91,46 @@ func clientAddr(r *http.Request) string {
 	if ip := net.ParseIP(host); ip != nil && (ip.IsPrivate() || ip.IsLoopback()) {
 		if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
 			hops := strings.Split(fwd, ",")
-			return strings.TrimSpace(hops[len(hops)-1])
+			host = strings.TrimSpace(hops[len(hops)-1])
 		}
 	}
+	if ip := net.ParseIP(host); ip != nil && ip.To4() == nil {
+		return ip.Mask(net.CIDRMask(64, 128)).String() + "/64"
+	}
 	return host
+}
+
+type slidingCap struct {
+	limit  int
+	within time.Duration
+	times  []time.Time
+}
+
+func (c *slidingCap) wait(now time.Time) time.Duration {
+	c.times = slices.DeleteFunc(c.times, func(t time.Time) bool { return !now.Before(t.Add(c.within)) })
+	if len(c.times) < c.limit {
+		return 0
+	}
+	return c.times[0].Add(c.within).Sub(now)
+}
+
+func (c *slidingCap) add(t time.Time) {
+	c.times = append(c.times, t)
+}
+
+func (c *slidingCap) remove(t time.Time) {
+	if i := slices.IndexFunc(c.times, t.Equal); i >= 0 {
+		c.times = slices.Delete(c.times, i, i+1)
+	}
+}
+
+func tryAcquire(slots chan struct{}) (release func(), ok bool) {
+	select {
+	case slots <- struct{}{}:
+		return func() { <-slots }, true
+	default:
+		return nil, false
+	}
 }
 
 func (s *server) acquireAI(ctx context.Context) (release func(), err error) {

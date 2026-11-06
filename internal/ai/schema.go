@@ -19,19 +19,7 @@ import (
 func InterpretationSchema(dateIDs []string) map[string]any {
 	str := map[string]any{"type": "string"}
 	texts := map[string]any{"type": "array", "items": str}
-	object := func(props map[string]any) map[string]any {
-		required := make([]string, 0, len(props))
-		for name := range props {
-			required = append(required, name)
-		}
-		slices.Sort(required)
-		return map[string]any{
-			"type":                 "object",
-			"properties":           props,
-			"required":             required,
-			"additionalProperties": false,
-		}
-	}
+	object := closedObject
 	condition := object(map[string]any{
 		"type": map[string]any{"type": "string", "enum": []string{domain.ConditionNone, domain.ConditionEndBefore, domain.ConditionStartAfter}},
 		"time": map[string]any{"type": "string", "description": `HH:MM on the 24-hour clock in the workshop's time zone for end_before and start_after; "" otherwise`},

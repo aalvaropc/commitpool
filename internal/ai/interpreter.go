@@ -44,6 +44,7 @@ type ExplainInput struct {
 type Interpreter interface {
 	Interpret(ctx context.Context, in InterpretInput) (domain.Interpretation, Meta, error)
 	Explain(ctx context.Context, in ExplainInput) (string, Meta, error)
+	Draft(ctx context.Context, in DraftInput) (Draft, Meta, error)
 }
 
 func PlainExplanation(in ExplainInput) string {

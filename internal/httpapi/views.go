@@ -397,6 +397,34 @@ func (st workshopState) tally() tallyDTO {
 	return out
 }
 
+type groupDTO struct {
+	Answered int            `json:"answered"`
+	CanCome  map[string]int `json:"can_come"`
+}
+
+func (s *server) group(ctx context.Context, st workshopState) (groupDTO, error) {
+	avails, err := s.Store.AvailabilitiesByWorkshop(ctx, st.w.ID)
+	if err != nil {
+		return groupDTO{}, err
+	}
+	rec, err := st.recommend(avails)
+	if err != nil {
+		return groupDTO{}, err
+	}
+	answered := make(map[string]bool, len(avails))
+	for _, a := range avails {
+		answered[a.ParticipantID] = true
+	}
+	g := groupDTO{Answered: len(answered), CanCome: make(map[string]int, len(st.dates))}
+	for _, d := range st.dates {
+		g.CanCome[d.ID] = 0
+	}
+	for _, d := range rec.PerDate {
+		g.CanCome[d.DateID] = len(d.Compatible)
+	}
+	return g, nil
+}
+
 func (st workshopState) ownerTally() ownerTallyDTO {
 	t := st.counts()
 	return ownerTallyDTO{

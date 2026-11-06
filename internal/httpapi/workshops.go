@@ -192,6 +192,7 @@ type publicView struct {
 	Dates    []dateDTO    `json:"dates"`
 	Proposal *proposalDTO `json:"proposal"`
 	Tally    tallyDTO     `json:"tally"`
+	Group    groupDTO     `json:"group"`
 }
 
 func (s *server) publicWorkshop(w http.ResponseWriter, r *http.Request) error {
@@ -203,11 +204,16 @@ func (s *server) publicWorkshop(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	g, err := s.group(r.Context(), st)
+	if err != nil {
+		return err
+	}
 	writeJSON(w, http.StatusOK, publicView{
 		Workshop: publicWorkshopView(ws),
 		Dates:    dateViews(st.dates, st.loc),
 		Proposal: proposalView(st.proposal, ws, s.Clock.Now()),
 		Tally:    st.tally(),
+		Group:    g,
 	})
 	return nil
 }

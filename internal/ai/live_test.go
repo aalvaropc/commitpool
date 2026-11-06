@@ -73,6 +73,21 @@ func TestBedrock_Live(t *testing.T) {
 		t.Errorf("explanation %q names a date the server did not recommend", text)
 	}
 	t.Logf("explanation: %s", text)
+
+	loc, _ := time.LoadLocation("America/New_York")
+	friday := time.Date(2026, 11, 6, 9, 0, 0, 0, loc)
+	draft, meta, err := b.Draft(ctx, ai.DraftInput{Text: mayaDescription, Timezone: "America/New_York", Today: friday})
+	if err != nil {
+		t.Fatalf("Draft: %v", err)
+	}
+	t.Logf("draft meta: %+v", meta)
+	t.Logf("draft: %+v", draft)
+	if draft.Price != "45" && draft.Price != "45.00" || draft.Capacity != 6 || draft.DurationMin != 120 || draft.Minimum != 0 {
+		t.Errorf("draft price %q capacity %d duration %d minimum %d, want 45, 6, 120 and no invented minimum", draft.Price, draft.Capacity, draft.DurationMin, draft.Minimum)
+	}
+	if len(draft.Dates) != 2 || draft.Dates[0].Start != "10:00" {
+		t.Errorf("draft dates = %+v, want the two weekend mornings", draft.Dates)
+	}
 }
 
 func envOr(name, def string) string {

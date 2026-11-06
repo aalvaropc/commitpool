@@ -106,11 +106,8 @@ func (s *server) workshopParams(req createWorkshopRequest) (store.CreateWorkshop
 	if req.DurationMin < 1 || req.DurationMin > maxDurationMin {
 		return none, badRequest("invalid_duration", "The duration must be between 1 and %d minutes.", maxDurationMin)
 	}
-	if req.Timezone == "" || req.Timezone == "Local" {
-		return none, badRequest("invalid_timezone", "The time zone must be an IANA name such as America/Lima.")
-	}
-	if _, err := time.LoadLocation(req.Timezone); err != nil {
-		return none, badRequest("invalid_timezone", "The time zone must be an IANA name such as America/Lima.")
+	if _, err := timeZone(req.Timezone); err != nil {
+		return none, err
 	}
 	if req.Minimum < 1 {
 		return none, badRequest("invalid_minimum", "At least 1 person must be needed.")
@@ -175,6 +172,18 @@ func (s *server) workshopParams(req createWorkshopRequest) (store.CreateWorkshop
 		IsDemo:           req.Demo && s.Cfg.DemoMode,
 		Dates:            dates,
 	}, nil
+}
+
+func timeZone(name string) (*time.Location, error) {
+	invalid := badRequest("invalid_timezone", "The time zone must be an IANA name such as America/New_York.")
+	if name == "" || name == "Local" {
+		return nil, invalid
+	}
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		return nil, invalid
+	}
+	return loc, nil
 }
 
 func optionalVenueCost(value, currency string) (*int64, error) {

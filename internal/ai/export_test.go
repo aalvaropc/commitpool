@@ -12,3 +12,5 @@ func NewBedrockForTest(_ context.Context, cfg BedrockConfig, baseURL string) (*B
 	awsCfg := aws.Config{Region: cfg.Region, Credentials: credentials.NewStaticCredentialsProvider("AKIDTEST", "test-secret", "")}
 	return newBedrock(cfg, awsCfg, option.WithBaseURL(baseURL))
 }
+
+var DraftSystem = draftSystem

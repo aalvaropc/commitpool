@@ -1,59 +1,71 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { api, ApiError, type CreateWorkshopResponse } from '../api'
-import CopyField from '../components/CopyField'
-import { Button, ButtonLink, Field, Notice, Page, describedBy, inputClass } from '../components/ui'
-import { browserTimeZone, TIME_ZONES, windowLabel } from '../lib/time'
-import { DATES_RULE, firstInvalid, serverField, validateWorkshop, type FormErrors, type WorkshopForm } from '../lib/workshopForm'
+import DescribeWorkshop from '../components/DescribeWorkshop'
+import WorkshopCreated from '../components/WorkshopCreated'
+import WorkshopReview, { type ReviewNote } from '../components/WorkshopReview'
+import { Page } from '../components/ui'
+import { browserTimeZone, TIME_ZONES } from '../lib/time'
+import { blankForm, firstInvalid, fromDraft, serverField, toRequest, validateWorkshop, type FieldKey, type FormErrors, type WorkshopForm } from '../lib/workshopForm'
 
-const WINDOWS = [1440, 2880, 60, 15, 5]
-const DAY_MS = 86400000
+type Step = 'describe' | 'review'
 
-type Form = WorkshopForm
-type Errors = FormErrors
+const DRAFTED: ReviewNote = { tone: 'hold', text: 'Claude drafted this from your description. Check every field; nothing is created until you press Create workshop.' }
+const NOT_DRAFTED: ReviewNote = { tone: 'attention', text: 'Claude couldn’t draft this one right now, so the form starts empty. Fill it in below.' }
 
-function isoDay(offsetDays: number): string {
-  const d = new Date(Date.now() + offsetDays * DAY_MS)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
-
-function focusFirstError(errors: Errors) {
+function focusFirstError(errors: FormErrors) {
   const key = firstInvalid(errors)
-  const target = key ? document.getElementById(`f-${key}`) : document.getElementById('f-form-error')
-  target?.focus()
+  document.getElementById(key ? `f-${key}` : 'f-form-error')?.focus()
 }
 
 export default function NewWorkshop() {
   const zone = browserTimeZone()
   const zones = useMemo(() => (TIME_ZONES.includes(zone) ? TIME_ZONES : [zone, ...TIME_ZONES]), [zone])
-  const [form, setForm] = useState<Form>({
-    title: '',
-    description: '',
-    duration: '120',
-    timezone: zone,
-    minimum: '3',
-    capacity: '8',
-    price: '10.00',
-    window: '1440',
-    date1: isoDay(7),
-    time1: '15:00',
-    date2: isoDay(8),
-    time2: '10:00',
-  })
-  const [errors, setErrors] = useState<Errors>({})
+  const [step, setStep] = useState<Step>('describe')
+  const [text, setText] = useState('')
+  const [drafting, setDrafting] = useState(false)
+  const [draftError, setDraftError] = useState<string | null>(null)
+  const [form, setForm] = useState<WorkshopForm>(() => blankForm(zone, Date.now()))
+  const [missing, setMissing] = useState<FieldKey[]>([])
+  const [note, setNote] = useState<ReviewNote | null>(null)
+  const [errors, setErrors] = useState<FormErrors>({})
   const [busy, setBusy] = useState(false)
   const [created, setCreated] = useState<CreateWorkshopResponse | null>(null)
-  const createdHeading = useRef<HTMLHeadingElement>(null)
   const [focusErrors, setFocusErrors] = useState(0)
+  const reviewHeading = useRef<HTMLHeadingElement>(null)
+  const cameBack = useRef(false)
 
   useEffect(() => {
-    if (created) createdHeading.current?.focus()
-  }, [created])
+    if (step === 'review') reviewHeading.current?.focus()
+    else if (cameBack.current) document.getElementById('f-text')?.focus()
+  }, [step])
 
   useEffect(() => {
     if (focusErrors) focusFirstError(errors)
   }, [focusErrors])
 
-  const set = (key: keyof Form) => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [key]: e.target.value }))
+  function review(next: WorkshopForm, gaps: FieldKey[], message: ReviewNote | null) {
+    setForm(next)
+    setMissing(gaps)
+    setNote(message)
+    setErrors({})
+    setStep('review')
+    window.scrollTo({ top: 0 })
+  }
+
+  async function draft() {
+    setDrafting(true)
+    setDraftError(null)
+    try {
+      const res = await api.draftWorkshop(text.trim(), form.timezone)
+      const base = blankForm(form.timezone, Date.now())
+      const { form: next, missing: gaps } = fromDraft(res.draft, base)
+      review(next, res.drafted ? gaps : [], res.drafted ? DRAFTED : NOT_DRAFTED)
+    } catch (err) {
+      setDraftError(err instanceof Error ? err.message : 'Claude could not draft it right now. Try again, or fill in the form yourself.')
+    } finally {
+      setDrafting(false)
+    }
+  }
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -65,20 +77,7 @@ export default function NewWorkshop() {
     }
     setBusy(true)
     try {
-      const price = form.price.trim()
-      const res = await api.createWorkshop({
-        title: form.title.trim(),
-        description: form.description.trim(),
-        duration_min: Number(form.duration),
-        timezone: form.timezone,
-        minimum: Number(form.minimum),
-        capacity: Number(form.capacity),
-        price: price.includes('.') ? price : `${price}.00`,
-        currency: 'USD',
-        payment_window_min: Number(form.window),
-        dates,
-      })
-      setCreated(res)
+      setCreated(await api.createWorkshop(toRequest(form, dates)))
       window.scrollTo({ top: 0 })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'The workshop could not be created.'
@@ -91,146 +90,42 @@ export default function NewWorkshop() {
   }
 
   if (created) {
-    const ownerPath = new URL(created.owner_url).pathname
     return (
       <Page>
-        <title>Workshop created – CommitPool</title>
-        <div className="flex flex-col gap-8">
-          <h1 ref={createdHeading} tabIndex={-1} className="text-3xl font-bold sm:text-4xl">
-            {created.workshop.title} is ready
-          </h1>
-          <Notice tone="attention" title="Save your organizer link now" role="alert">
-            It is the only way back to your organizer page and it will not be shown again. Anyone who has it can open payments.
-          </Notice>
-          <CopyField id="owner-url" label="Organizer link (keep it private)" value={created.owner_url} />
-          <CopyField id="share-url" label="Link for participants" value={created.share_url} hint="Send this one to the people you want to invite." />
-          <div>
-            <ButtonLink to={ownerPath}>Open the organizer page</ButtonLink>
-          </div>
-        </div>
+        <WorkshopCreated created={created} />
       </Page>
     )
   }
 
-  const input = (key: keyof Form, hint = false) => ({
-    id: `f-${key}`,
-    value: form[key],
-    onChange: set(key),
-    'aria-invalid': errors[key] ? true : undefined,
-    'aria-describedby': describedBy(`f-${key}`, hint, errors[key]),
-    className: inputClass,
-  })
-
   return (
     <Page>
       <title>Create a workshop – CommitPool</title>
-      <form onSubmit={submit} noValidate className="flex flex-col gap-10">
-        <div className="flex flex-col gap-2">
-          <h1 className="text-3xl font-bold sm:text-4xl">Create a workshop</h1>
-          <p className="max-w-prose text-ink-soft">Nothing is charged until you open payments for a date and enough people pay.</p>
-        </div>
-
-        <fieldset className="flex flex-col gap-5">
-          <legend className="mb-4 text-xl font-bold">The workshop</legend>
-          <Field id="f-title" label="Title" error={errors.title}>
-            <input {...input('title')} maxLength={120} />
-          </Field>
-          <Field id="f-description" label="Description" hint="Optional. What people will learn and what to bring." error={errors.description}>
-            <textarea {...input('description', true)} rows={3} maxLength={2000} />
-          </Field>
-          <Field id="f-duration" label="Duration in minutes" error={errors.duration}>
-            <input {...input('duration')} type="number" inputMode="numeric" min={1} max={1440} step={1} className={`${inputClass} sm:max-w-40`} />
-          </Field>
-        </fieldset>
-
-        <fieldset className="flex flex-col gap-5">
-          <legend className="mb-4 text-xl font-bold">Money and spots</legend>
-          <div className="grid gap-5 sm:grid-cols-3">
-            <Field id="f-price" label="Price per person, USD" hint="Prices are in US dollars." error={errors.price}>
-              <input {...input('price', true)} inputMode="decimal" autoComplete="off" />
-            </Field>
-            <Field id="f-minimum" label="People needed to happen" error={errors.minimum}>
-              <input {...input('minimum')} type="number" inputMode="numeric" min={1} step={1} />
-            </Field>
-            <Field id="f-capacity" label="Spots" error={errors.capacity}>
-              <input {...input('capacity')} type="number" inputMode="numeric" min={1} max={500} step={1} />
-            </Field>
-          </div>
-          <Field id="f-window" label="Time to reserve" hint="How long people have to reserve once you open reservations. At most 3 days, the time PayPal guarantees a hold." error={errors.window}>
-            <select {...input('window', true)} className={`${inputClass} sm:max-w-xs`}>
-              {WINDOWS.map((m) => (
-                <option key={m} value={m}>
-                  {windowLabel(m)}
-                </option>
-              ))}
-            </select>
-          </Field>
-        </fieldset>
-
-        <fieldset className="flex flex-col gap-5">
-          <legend className="mb-4 text-xl font-bold">Candidate dates</legend>
-          <p id="dates-rule" className="max-w-prose text-ink-soft">
-            {DATES_RULE} Reservations open when you choose a date, and the time to reserve runs from then.
-          </p>
-          <Field id="f-timezone" label="Time zone" hint="Everyone sees the dates and deadlines in this time zone." error={errors.timezone}>
-            <select {...input('timezone', true)} className={`${inputClass} sm:max-w-sm`}>
-              {zones.map((z) => (
-                <option key={z} value={z}>
-                  {z.replaceAll('_', ' ')}
-                </option>
-              ))}
-            </select>
-          </Field>
-          {(
-            [
-              ['First date', 'date1', 'time1'],
-              ['Second date', 'date2', 'time2'],
-            ] as const
-          ).map(([legend, dk, tk]) => (
-            <fieldset key={dk} className="flex flex-col gap-2 border-t border-rule pt-4">
-              <legend className="font-semibold">{legend}</legend>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="flex flex-col gap-1.5">
-                  <label htmlFor={`f-${dk}`} className="text-sm text-ink-soft">
-                    Day
-                  </label>
-                  <input {...input(dk)} aria-describedby={[describedBy(`f-${dk}`, false, errors[dk]), 'dates-rule'].filter(Boolean).join(' ')} type="date" />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <label htmlFor={`f-${tk}`} className="text-sm text-ink-soft">
-                    Starts at
-                  </label>
-                  <input {...input(tk)} aria-describedby={describedBy(`f-${dk}`, false, errors[dk])} type="time" />
-                </div>
-              </div>
-              {errors[dk] && (
-                <p id={`f-${dk}-error`} className="text-sm font-medium text-cancel">
-                  {errors[dk]}
-                </p>
-              )}
-            </fieldset>
-          ))}
-          <p className="text-sm text-ink-soft">Each date lasts the duration above.</p>
-        </fieldset>
-
-        <div className="flex flex-col items-start gap-4">
-          {errors.form && (
-            <div id="f-form-error" tabIndex={-1}>
-              <Notice tone="attention" role="alert">
-                {errors.form}
-              </Notice>
-            </div>
-          )}
-          {Object.keys(errors).some((k) => k !== 'form') && (
-            <p role="alert" className="font-medium text-cancel">
-              Some fields need a fix before the workshop can be created.
-            </p>
-          )}
-          <Button type="submit" busy={busy} busyLabel="Creating…" className="px-6 py-3 text-lg">
-            Create workshop
-          </Button>
-        </div>
-      </form>
+      {step === 'describe' ? (
+        <DescribeWorkshop
+          text={text}
+          onText={setText}
+          drafting={drafting}
+          error={draftError}
+          onDraft={draft}
+          onSkip={() => review(form, [], null)}
+        />
+      ) : (
+        <WorkshopReview
+          form={form}
+          onChange={setForm}
+          errors={errors}
+          missing={missing}
+          note={note}
+          zones={zones}
+          busy={busy}
+          onSubmit={submit}
+          onBack={() => {
+            cameBack.current = true
+            setStep('describe')
+          }}
+          headingRef={reviewHeading}
+        />
+      )}
     </Page>
   )
 }

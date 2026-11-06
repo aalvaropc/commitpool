@@ -54,6 +54,7 @@ type server struct {
 	limiter      *rateLimiter
 	demoQuota    *demoQuota
 	self         http.Handler
+	drafts       *rateLimiter
 	aiSem        chan struct{}
 }
 
@@ -70,6 +71,7 @@ func New(d Deps) http.Handler {
 	s := &server{Deps: d, explanations: newExplanationCache(), aiSem: make(chan struct{}, aiSlots)}
 	if d.Cfg.RateLimitPerMin > 0 {
 		s.limiter = newRateLimiter(d.Cfg.RateLimitPerMin)
+		s.drafts = newRateLimiter(draftsPerMin)
 	}
 	s.demoQuota = newDemoQuota(s.limiter != nil)
 	mux := http.NewServeMux()
@@ -89,6 +91,7 @@ func (s *server) routes(mux *http.ServeMux) {
 	api("POST /api/v1/workshops", s.createWorkshop)
 	api("GET /api/v1/demo", s.demoInfo)
 	api("POST /api/v1/demo/workshops", s.createDemoWorkshop)
+	api("POST /api/v1/workshop-drafts", s.draftWorkshop)
 	api("GET /api/v1/w/{token}", s.publicWorkshop)
 	api("POST /api/v1/w/{token}/participants", s.joinWorkshop)
 

@@ -30,6 +30,7 @@ const (
 
 	interpretMaxTokens = 2048
 	explainMaxTokens   = 2048
+	draftMaxTokens     = 4096
 
 	maxExplanationWords = 60
 )
@@ -39,6 +40,8 @@ var (
 	interpretSystemPrompt string
 	//go:embed prompts/explain_system.txt
 	explainSystemPrompt string
+	//go:embed prompts/draft_system.txt
+	draftSystemPrompt string
 )
 
 type BedrockConfig struct {
@@ -165,6 +168,29 @@ func (b *Bedrock) Explain(ctx context.Context, in ExplainInput) (string, Meta, e
 		return "", meta, errors.New("ai: explain: the answer was empty")
 	}
 	return text, meta, nil
+}
+
+func (b *Bedrock) Draft(ctx context.Context, in DraftInput) (Draft, Meta, error) {
+	msg, meta, err := b.send(ctx, "draft", anthropic.BetaMessageNewParams{
+		Model:     b.model,
+		MaxTokens: draftMaxTokens,
+		System:    []anthropic.BetaTextBlockParam{{Text: draftSystem(in)}},
+		Messages: []anthropic.BetaMessageParam{
+			anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock("The organizer's description, as a JSON string:\n" + jsonString(in.Text))),
+		},
+		OutputConfig: anthropic.BetaOutputConfigParam{
+			Effort: b.effort,
+			Format: anthropic.BetaJSONOutputFormatParam{Schema: DraftSchema()},
+		},
+	})
+	if err != nil {
+		return Draft{}, meta, err
+	}
+	out, err := ParseDraft([]byte(answerText(msg)))
+	if err != nil {
+		return Draft{}, meta, fmt.Errorf("ai: draft: %w", err)
+	}
+	return out, meta, nil
 }
 
 func (b *Bedrock) send(ctx context.Context, op string, params anthropic.BetaMessageNewParams) (*anthropic.BetaMessage, Meta, error) {

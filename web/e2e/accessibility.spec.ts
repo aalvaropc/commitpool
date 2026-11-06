@@ -1,5 +1,5 @@
 import { expectAccessible } from './a11y'
-import { createWorkshop, expect, sendAvailability, test } from './helpers'
+import { createWorkshop, expect, fillTheFormMyself, sendAvailability, test } from './helpers'
 
 test.describe('accessibility', () => {
   test('every page a person reaches has no serious accessibility problem', async ({ page, join }) => {
@@ -8,6 +8,9 @@ test.describe('accessibility', () => {
     await expectAccessible(page, 'the landing page')
 
     await page.goto('/new')
+    await expectAccessible(page, 'the describe step')
+
+    await fillTheFormMyself(page)
     await expectAccessible(page, 'the create form')
 
     const workshop = await createWorkshop(page, 'Accessible wheel-throwing')

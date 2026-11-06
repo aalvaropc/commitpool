@@ -6,20 +6,31 @@ interface Props {
   label: string
   value: string
   hint?: string
+  multiline?: boolean
 }
 
-export default function CopyField({ id, label, value, hint }: Props) {
-  const input = useRef<HTMLInputElement>(null)
+export default function CopyField({ id, label, value, hint, multiline = false }: Props) {
+  const field = useRef<HTMLInputElement & HTMLTextAreaElement>(null)
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
+  const what = multiline ? 'message' : 'link'
 
   async function copy() {
     try {
       await navigator.clipboard.writeText(value)
       setState('copied')
     } catch {
-      input.current?.select()
+      field.current?.select()
       setState('failed')
     }
+  }
+
+  const shared = {
+    id,
+    ref: field,
+    readOnly: true,
+    value,
+    'aria-describedby': hint ? `${id}-hint` : undefined,
+    onFocus: (e: { currentTarget: { select: () => void } }) => e.currentTarget.select(),
   }
 
   return (
@@ -32,22 +43,22 @@ export default function CopyField({ id, label, value, hint }: Props) {
           {hint}
         </p>
       )}
-      <div className="flex flex-col gap-2 sm:flex-row">
-        <input
-          id={id}
-          ref={input}
-          readOnly
-          value={value}
-          aria-describedby={hint ? `${id}-hint` : undefined}
-          onFocus={(e) => e.currentTarget.select()}
-          className={`${inputClass} min-w-0 text-sm`}
-        />
-        <Button variant="secondary" onClick={copy} aria-label={`Copy link: ${label}`} className="shrink-0">
-          Copy link
+      <div className={`flex flex-col gap-2 ${multiline ? '' : 'sm:flex-row'}`}>
+        {multiline ? (
+          <textarea {...shared} rows={4} className={`${inputClass} min-w-0 resize-none leading-relaxed`} />
+        ) : (
+          <input {...shared} className={`${inputClass} min-w-0 text-sm`} />
+        )}
+        <Button variant="secondary" onClick={copy} aria-label={`Copy ${what}: ${label}`} className="shrink-0 self-start">
+          Copy {what}
         </Button>
       </div>
       <p role="status" className="min-h-5 text-sm text-ink-soft">
-        {state === 'copied' ? 'Link copied.' : state === 'failed' ? 'Copying is blocked here. The link is selected; copy it with Ctrl+C or ⌘C.' : ''}
+        {state === 'copied'
+          ? `${what === 'link' ? 'Link' : 'Message'} copied.`
+          : state === 'failed'
+            ? `Copying is blocked here. The ${what} is selected; copy it with Ctrl+C or ⌘C.`
+            : ''}
       </p>
     </div>
   )

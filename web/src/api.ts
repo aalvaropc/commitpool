@@ -219,6 +219,27 @@ export interface DemoWorkshop {
   participants: { name: string; participant_url: string }[]
 }
 
+export type DraftField = 'title' | 'description' | 'host_name' | 'location' | 'duration_min' | 'price' | 'venue_cost' | 'minimum' | 'capacity' | 'dates'
+
+export interface WorkshopDraft {
+  title: string
+  description: string
+  host_name: string
+  location: string
+  duration_min: number
+  price: string
+  venue_cost: string
+  minimum: number
+  capacity: number
+  dates: { date: string; start: string }[]
+  missing: DraftField[]
+}
+
+export interface DraftResponse {
+  draft: WorkshopDraft
+  drafted: boolean
+}
+
 export interface CreateWorkshopResponse {
   workshop: Workshop
   dates: CandidateDate[]
@@ -282,6 +303,7 @@ export const api = {
   createWorkshop: (req: CreateWorkshopRequest) => request<CreateWorkshopResponse>('POST', '/api/v1/workshops', req),
   demoInfo: () => request<{ workshops: boolean }>('GET', '/api/v1/demo'),
   createDemo: () => request<DemoWorkshop>('POST', '/api/v1/demo/workshops'),
+  draftWorkshop: (text: string, timezone: string) => request<DraftResponse>('POST', '/api/v1/workshop-drafts', { text, timezone }),
 
   shared: (share: string) => request<PublicView>('GET', `/api/v1/w/${seg(share)}`),
   join: (share: string, displayName: string, email?: string) =>

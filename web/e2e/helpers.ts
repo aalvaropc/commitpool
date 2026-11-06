@@ -35,16 +35,28 @@ export const test = base.extend<{
   },
 })
 
-export async function createWorkshop(owner: Page, title: string): Promise<Workshop> {
+export async function fillTheFormMyself(owner: Page): Promise<void> {
   await owner.goto('/new')
-  await owner.getByLabel('Title', { exact: true }).fill(title)
-  await owner.getByLabel('People needed to happen').fill(String(MINIMUM))
-  await owner.getByRole('button', { name: 'Create workshop' }).click()
+  await owner.getByRole('button', { name: 'Fill in the form myself' }).click()
+  await expect(owner.getByRole('heading', { name: 'Check your workshop' })).toBeFocused()
+}
+
+export async function createdLinks(owner: Page, title: string): Promise<Workshop> {
   await expect(owner.getByRole('heading', { name: `${title} is ready` })).toBeVisible()
   return {
     ownerURL: await owner.getByRole('textbox', { name: 'Organizer link (keep it private)', exact: true }).inputValue(),
-    shareURL: await owner.getByRole('textbox', { name: 'Link for participants', exact: true }).inputValue(),
+    shareURL: await owner.getByRole('textbox', { name: 'Invite link', exact: true }).inputValue(),
   }
+}
+
+export async function createWorkshop(owner: Page, title: string): Promise<Workshop> {
+  await fillTheFormMyself(owner)
+  await owner.getByLabel('Title', { exact: true }).fill(title)
+  await owner.getByLabel('Price per person, USD').fill('10')
+  await owner.getByLabel('People needed to happen').fill(String(MINIMUM))
+  await owner.getByLabel('Spots').fill('8')
+  await owner.getByRole('button', { name: 'Create workshop' }).click()
+  return createdLinks(owner, title)
 }
 
 export async function sendAvailability(p: Participant): Promise<void> {

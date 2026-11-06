@@ -89,7 +89,11 @@ export AWS_REGION=us-east-1
 ## Later deploys and operations
 
 - New code: commit, then `scripts/deploy-ec2.sh` (the tag is the short
-  commit id). The app restarts in a few seconds; data stays.
+  commit id). The app restarts in a few seconds; data stays. `deploy.sh`
+  stops the old container with a 35 s grace period, since the app waits up
+  to 30 s for in-flight payment calls before it exits. Settings come from
+  `/opt/commitpool/config`, written at boot, and secrets are read from SSM on
+  every run and written only to root-only env files.
 - Logs and a shell: `aws ssm start-session --target "$(terraform -chdir=deploy/ec2 output -raw instance_id)"`,
   then `sudo docker logs --tail 100 app`.
 - `scripts/deploy-ec2.sh` installs the checkout's `deploy/ec2/deploy.sh` on

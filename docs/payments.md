@@ -465,3 +465,130 @@ Only the `jobs` table shows which action is stuck and why: the job status,
 owner view shows it as `capture_issue`), `debug_id` and `last_error`. Older attempts of an
 enrollment, `auth_expires_at`, `capture_debug_id`, `capture_reason` and
 `refund_reason` are only in `payment_attempts`.
+
+## Implementation reference
+
+The code carries no comments. The rules it follows, beyond the sections above,
+are here.
+
+### Return from PayPal
+
+- PayPal sends the buyer to `/paypal/return?e={enrollment}&token={order}`. The
+  query only finds the checkout: the order must be the enrollment's latest
+  attempt's, and PayPal must report it for this enrollment, this attempt and
+  the proposal's price and currency before `authorize:{attempt}` runs.
+- The buyer is redirected to `/paypal/returned` with the enrollment and the
+  outcome only, never a token or a PayPal issue.
+- A checkout whose hold is already recorded, or whose enrollment is past
+  checkout, is answered from the stored state without asking PayPal, so a
+  repeated return sends nothing twice.
+- An authorize skipped earlier is revived automatically; one PayPal refused as
+  `ORDER_NOT_APPROVED` is revived because the buyer is back with the order
+  approved. Any other refusal, or a job running, unknown or waiting for its
+  retry, is left alone.
+- A seat past its expiry is taken again under the capacity rule
+  (`store.ReReserveSeat`) for the configured seat TTL. When that is refused the
+  enrollment is read again, since another request or a reconcile may have
+  renewed the seat or placed the hold first.
+- An order PayPal no longer knows expired unapproved: the attempt records it
+  and the next checkout opens a new one. When PayPal does not answer,
+  `reconcile:{attempt}:return:{minute}` reads the checkout back shortly and the
+  buyer is told it is pending.
+- `/paypal/cancel` records the cancel on a `SEAT_RESERVED` enrollment; the seat
+  is kept until it expires, so the buyer can still approve the same checkout.
+- The inline authorize runs on even if the buyer closes the tab, so PayPal's
+  answer is recorded, not lost.
+
+### Webhooks
+
+- A delivery is checked for plausibility first (certificate URL on https
+  `*.paypal.com`, transmission time at most five minutes ahead), then verified
+  with PayPal (`verify-webhook-signature`, every transmission header and the
+  body byte for byte) before anything is stored.
+- An event is stored once by its id and answered `200` every time, a repeat
+  included.
+- The webhook never applies a payment state. It finds the attempt from the
+  resource or its related capture, authorization or order, and enqueues
+  `reconcile:{attempt}:webhook:{event_id}`; the reconcile reads PayPal and
+  applies what it finds, so an early or repeated event cannot count a payment
+  twice.
+- The log names a verified event and its attempt, never the body, and nothing
+  of an unverified delivery.
+
+### Worker
+
+- Three loops run side by side, each recovering from a panic and recording a
+  heartbeat for `/healthz`: claiming due jobs (every two seconds when idle),
+  taking back jobs claimed more than five minutes ago plus enqueuing seat
+  releases (every minute), and the periodic reconciles and heals (every two
+  minutes).
+- On shutdown no new job is claimed; a job already sent to PayPal may run on
+  for a short grace period so its answer is recorded instead of becoming
+  unknown, and results are written in a context that outlives the shutdown.
+- A handler's error decides the next step: an ambiguous PayPal error parks the
+  job as `unknown` and schedules the next reconcile generation; a recorded
+  refusal fails the job and keeps its key; anything else (a 429, a store
+  failure, a panic) retries it under the same key.
+- `EnqueueOrRevive` revives only a skip, never an action PayPal refused;
+  `Revive` is for callers that know something changed (the buyer is back with
+  an approved order, an operator).
+- A late result for a job that was taken back or settled elsewhere is dropped
+  (`ErrJobNotActive`), never written over the newer state.
+- A pending reconcile of the attempt that has not started yet resolves a new
+  unknown job too, so no extra generation is enqueued.
+
+### Job store
+
+- Every transition is a status-guarded update: only a running job can be
+  completed, retried, failed or parked as unknown (an unknown job can also be
+  completed by its reconcile). A guard that matches no row reports
+  `ErrNotFound` or `ErrJobNotActive`.
+- Claiming skips rows another worker is locking, so no job runs twice at once.
+- Enqueuing an existing key writes nothing and keeps the stored payload,
+  status and `run_at`.
+- `ReenqueueJob` and `ReviveJob` reuse the row and the key, keeping the
+  attempt count, so a retry reuses the PayPal-Request-Id. `AdvanceJob` only
+  brings a pending job forward, never later.
+- An unknown job's age is measured against the database clock.
+- The purge keeps payment actions, closes and numbered reconciles, because the
+  worker decides from their existence.
+
+### Payment attempts
+
+- A new attempt needs a `SEAT_RESERVED` enrollment whose latest attempt holds
+  no authorization, numbered under the enrollment's row lock. An attempt with
+  a hold therefore stays the enrollment's latest, so the hold, its capture, its
+  void and its refund always belong to the attempt the enrollment follows.
+- A second tab or a repeated click reuses the open checkout's attempt; a new
+  one is opened only when the order expired or PayPal refused to create it.
+- PayPal identity columns (order, authorization, capture and refund ids, hold
+  expiry) are only ever set: an update never clears them and refuses to
+  replace one with a different id.
+- The `Apply*` functions can run any number of times with the same answer.
+  They move an enrollment only for its latest attempt and never back from a
+  later or terminal status. A hold nobody will capture (an older attempt, a
+  released seat, a declined capture) gets its `void:{attempt}`.
+
+### Seats
+
+- Seats are reserved under the workshop's row lock, so concurrent requests
+  never exceed capacity; a lapsed seat no release job has freed yet does not
+  count.
+- A participant's active enrollment is any non-terminal one, or a flagged one
+  whatever its status, so a seat whose money state is uncertain never gets a
+  second hold beside it.
+- A seat kept while PayPal reviews an authorization (`PENDING`) is never
+  released by the seat tick.
+
+### Recommendation explanation
+
+- The recommended date always comes from `domain.Recommend`; Claude only
+  phrases it.
+- The owner view never waits for the model: on a cache miss it answers with
+  no text and `explanation_pending`, and one background call writes the text,
+  however many views ask meanwhile.
+- The cache key is the workshop plus exactly the facts the model is told, so
+  a change the model would not see does not ask for a new text.
+- A failed call, a panic or a text that names another candidate date falls
+  back to the plain explanation, which is served for a minute before the model
+  is asked again.

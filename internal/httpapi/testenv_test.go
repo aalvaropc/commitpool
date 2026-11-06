@@ -488,9 +488,10 @@ type workshopJSON struct {
 }
 
 type createdJSON struct {
-	Workshop workshopJSON `json:"workshop"`
-	OwnerURL string       `json:"owner_url"`
-	ShareURL string       `json:"share_url"`
+	Workshop     workshopJSON `json:"workshop"`
+	OwnerURL     string       `json:"owner_url"`
+	ShareURL     string       `json:"share_url"`
+	OwnerEmailed bool         `json:"owner_emailed"`
 }
 
 type dateJSON struct {

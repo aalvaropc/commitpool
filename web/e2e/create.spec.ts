@@ -34,8 +34,10 @@ test.describe('create a workshop', () => {
     await expect(page.getByLabel('Day 3')).toHaveCount(0)
     await expect(page.getByLabel('Day 2')).toBeFocused()
 
+    await page.getByLabel('Your email').fill('maya@example.test')
     await page.getByRole('button', { name: 'Create workshop' }).click()
     const links = await createdLinks(page, 'Wheel-throwing for beginners')
+    await expect(page.getByText('We also sent it to maya@example.test.')).toBeVisible()
     await expect(page.getByRole('textbox', { name: 'Message for your group chat', exact: true })).toHaveValue(
       new RegExp(`only happens if 3 people reserve; otherwise nobody pays\\. Tell me when you can come: ${links.shareURL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`),
     )

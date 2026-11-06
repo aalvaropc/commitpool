@@ -41,6 +41,7 @@ type createWorkshopRequest struct {
 	HostName         string `json:"host_name"`
 	Location         string `json:"location"`
 	VenueCost        string `json:"venue_cost"`
+	OwnerEmail       string `json:"owner_email"`
 	Demo             bool   `json:"demo"`
 	Dates            []struct {
 		StartsAt time.Time `json:"starts_at"`
@@ -49,10 +50,11 @@ type createWorkshopRequest struct {
 }
 
 type createWorkshopResponse struct {
-	Workshop workshopDTO `json:"workshop"`
-	Dates    []dateDTO   `json:"dates"`
-	OwnerURL string      `json:"owner_url"`
-	ShareURL string      `json:"share_url"`
+	Workshop     workshopDTO `json:"workshop"`
+	Dates        []dateDTO   `json:"dates"`
+	OwnerURL     string      `json:"owner_url"`
+	ShareURL     string      `json:"share_url"`
+	OwnerEmailed bool        `json:"owner_emailed"`
 }
 
 func (s *server) createWorkshop(w http.ResponseWriter, r *http.Request) error {
@@ -68,6 +70,15 @@ func (s *server) createWorkshop(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	ownerURL := s.Cfg.BaseURL + "/owner/" + ownerToken
+	emailed := false
+	if ws.OwnerEmail != "" && s.Worker != nil {
+		if err := s.Worker.NotifyOwnerCreated(context.WithoutCancel(r.Context()), ws.ID, ownerURL); err != nil {
+			s.Log.Error("create: could not queue the organizer's link", "workshop_id", ws.ID, "error", err)
+		} else {
+			emailed = true
+		}
+	}
 	dates, err := s.Store.CandidateDates(r.Context(), ws.ID)
 	if err != nil {
 		return err
@@ -77,10 +88,11 @@ func (s *server) createWorkshop(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	writeJSON(w, http.StatusCreated, createWorkshopResponse{
-		Workshop: ownerWorkshopView(ws),
-		Dates:    dateViews(dates, loc),
-		OwnerURL: s.Cfg.BaseURL + "/owner/" + ownerToken,
-		ShareURL: s.Cfg.BaseURL + "/w/" + shareToken,
+		Workshop:     ownerWorkshopView(ws),
+		Dates:        dateViews(dates, loc),
+		OwnerURL:     ownerURL,
+		OwnerEmailed: emailed,
+		ShareURL:     s.Cfg.BaseURL + "/w/" + shareToken,
 	})
 	return nil
 }
@@ -132,6 +144,10 @@ func (s *server) workshopParams(req createWorkshopRequest) (store.CreateWorkshop
 	if err != nil {
 		return none, err
 	}
+	ownerEmail, err := optionalEmail(req.OwnerEmail)
+	if err != nil {
+		return none, badRequest("invalid_owner_email", "Your email must be one plain address, such as maya@example.com.")
+	}
 	window := store.DefaultPaymentWindowMin
 	if req.PaymentWindowMin != nil {
 		window = *req.PaymentWindowMin
@@ -170,6 +186,7 @@ func (s *server) workshopParams(req createWorkshopRequest) (store.CreateWorkshop
 		Location:         location,
 		VenueCostMinor:   venueCost,
 		IsDemo:           req.Demo && s.Cfg.DemoMode,
+		OwnerEmail:       ownerEmail,
 		Dates:            dates,
 	}, nil
 }
@@ -292,7 +309,7 @@ func (s *server) joinWorkshop(w http.ResponseWriter, r *http.Request) error {
 		if err := s.Store.SetParticipantEmail(r.Context(), p.ID, email); err != nil {
 			return err
 		}
-		if err := s.Worker.NotifyJoined(r.Context(), ws.ID, p.ID, link); err != nil {
+		if err := s.Worker.NotifyJoined(context.WithoutCancel(r.Context()), ws.ID, p.ID, link); err != nil {
 			s.Log.Error("join: could not queue the welcome message", "workshop_id", ws.ID, "error", err)
 		}
 	}

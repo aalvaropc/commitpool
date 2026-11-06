@@ -7,6 +7,7 @@ const form: WorkshopForm = {
   title: 'Wheel-throwing for beginners',
   description: '',
   hostName: 'Maya Okafor',
+  ownerEmail: '',
   location: 'Maya’s studio · Greenpoint, Brooklyn',
   duration: '120',
   timezone: 'America/New_York',
@@ -63,6 +64,11 @@ describe('validateWorkshop', () => {
   it('checks the money and the people', () => {
     const { errors } = validateWorkshop({ ...form, price: '10.005', minimum: '9', title: ' ', venueCost: 'lots' }, now)
     expect(Object.keys(errors).sort()).toEqual(['capacity', 'price', 'title', 'venueCost'])
+  })
+
+  it('takes an optional email for the organizer', () => {
+    expect(validateWorkshop({ ...form, ownerEmail: 'maya@example.com' }, now).errors).toEqual({})
+    expect(validateWorkshop({ ...form, ownerEmail: 'maya' }, now).errors.ownerEmail).toBe('Write one address, such as maya@example.com, or leave it empty.')
   })
 
   it('lets the studio cost stay empty', () => {
@@ -151,6 +157,8 @@ describe('toRequest', () => {
     const req = toRequest(form, dates ?? [])
     expect(req).toMatchObject({ title: 'Wheel-throwing for beginners', host_name: 'Maya Okafor', location: 'Maya’s studio · Greenpoint, Brooklyn', price: '45.00', venue_cost: '120.00', currency: 'USD', minimum: 3, capacity: 6, duration_min: 120, payment_window_min: 1440 })
     expect(toRequest({ ...form, venueCost: ' ' }, []).venue_cost).toBeUndefined()
+    expect(toRequest(form, []).owner_email).toBeUndefined()
+    expect(toRequest({ ...form, ownerEmail: ' maya@example.com ' }, []).owner_email).toBe('maya@example.com')
   })
 })
 

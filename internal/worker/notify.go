@@ -4,21 +4,31 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/aalvaropc/commitpool/internal/domain"
+	"github.com/aalvaropc/commitpool/internal/ics"
+	"github.com/aalvaropc/commitpool/internal/invite"
 	"github.com/aalvaropc/commitpool/internal/mail"
+	"github.com/aalvaropc/commitpool/internal/notice"
 	"github.com/aalvaropc/commitpool/internal/present"
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
 const (
-	NotifyJoined          = "joined"
-	NotifyConfirmed       = "confirmed"
-	NotifyCancelled       = "cancelled"
-	NotifyPaymentFailed   = "payment_failed"
-	NotifyRefundCompleted = "refund_completed"
+	NotifyJoined          = string(notice.Joined)
+	NotifyReserved        = string(notice.Reserved)
+	NotifyConfirmed       = string(notice.Confirmed)
+	NotifyCancelled       = string(notice.Cancelled)
+	NotifyPaymentFailed   = string(notice.PaymentFailed)
+	NotifyRefundCompleted = string(notice.RefundCompleted)
+	NotifyOwnerCreated    = string(notice.OwnerCreated)
+	NotifyOwnerConfirmed  = string(notice.OwnerConfirmed)
+	NotifyOwnerCancelled  = string(notice.OwnerCancelled)
 )
+
+const linkAttempts = 5
 
 func (r *Runner) notify(ctx context.Context, job *store.Job) (*int, error) {
 	n, err := r.st.NotificationByKey(ctx, job.IdempotencyKey)
@@ -28,7 +38,29 @@ func (r *Runner) notify(ctx context.Context, job *store.Job) (*int, error) {
 	if n == nil || n.Status != "pending" {
 		return nil, nil
 	}
-	id, err := r.mailer.Send(ctx, mail.Message{To: n.To, Subject: n.Subject, Text: n.Body})
+	if stale, err := r.stale(ctx, n); err != nil || stale {
+		if err == nil {
+			r.log.Info("notification no longer true; not sent", "kind", n.Kind, "to", mail.Mask(n.To))
+			err = r.st.MarkNotificationSkipped(ctx, n.Key)
+		}
+		return nil, err
+	}
+	attachments, err := r.attachments(ctx, n)
+	if err != nil {
+		return nil, err
+	}
+	msg := mail.Message{To: n.To, Subject: n.Subject, Text: n.Body, HTML: n.HTML, Attachments: attachments}
+	id, err := r.mailer.Send(ctx, msg)
+	if errors.Is(err, mail.ErrRejected) && len(msg.Attachments) > 0 {
+		r.log.Warn("message with an attachment rejected; sending it without", "kind", n.Kind, "to", mail.Mask(n.To), "error", err)
+		msg.Attachments = nil
+		id, err = r.mailer.Send(ctx, msg)
+	}
+	link := notice.CarriesPrivateLink(notice.Kind(n.Kind))
+	if err != nil && !errors.Is(err, mail.ErrRejected) && link && job.Attempts >= linkAttempts {
+		r.log.Warn("message carrying a private link still failing; dropping it so the link is not kept", "kind", n.Kind, "to", mail.Mask(n.To), "error", err)
+		err = fmt.Errorf("%w: %v", mail.ErrRejected, err)
+	}
 	if errors.Is(err, mail.ErrRejected) {
 		r.log.Warn("notification rejected by the mail provider; not sent again", "kind", n.Kind, "to", mail.Mask(n.To), "error", err)
 		if err := r.st.MarkNotificationFailed(ctx, n.Key); err != nil {
@@ -39,7 +71,111 @@ func (r *Runner) notify(ctx context.Context, job *store.Job) (*int, error) {
 	if err != nil {
 		return nil, err
 	}
-	return nil, r.st.MarkNotificationSent(ctx, n.Key, id, r.clock.Now(), n.Kind == NotifyJoined)
+	return nil, r.st.MarkNotificationSent(ctx, n.Key, id, r.clock.Now(), link)
+}
+
+func (r *Runner) stale(ctx context.Context, n *store.NotificationRow) (bool, error) {
+	switch n.Kind {
+	case NotifyReserved:
+		en, err := r.st.EnrollmentByID(ctx, strings.TrimPrefix(n.Key, "notify:"+NotifyReserved+":"))
+		if err != nil {
+			return false, err
+		}
+		return en.Status != domain.EnrollmentAuthorized, nil
+	case NotifyConfirmed, NotifyOwnerConfirmed:
+		w, err := r.st.WorkshopByID(ctx, n.WorkshopID)
+		if err != nil {
+			return false, err
+		}
+		return w.Status == domain.WorkshopCancelled, nil
+	}
+	return false, nil
+}
+
+func (r *Runner) attachments(ctx context.Context, n *store.NotificationRow) ([]mail.Attachment, error) {
+	if n.Kind != NotifyConfirmed {
+		return nil, nil
+	}
+	w, err := r.st.WorkshopByID(ctx, n.WorkshopID)
+	if err != nil {
+		return nil, err
+	}
+	p, err := r.st.ActiveProposal(ctx, w.ID)
+	if err != nil || p == nil {
+		return nil, err
+	}
+	dates, err := r.st.CandidateDates(ctx, w.ID)
+	if err != nil {
+		return nil, err
+	}
+	loc, err := time.LoadLocation(w.Timezone)
+	if err != nil {
+		loc = time.UTC
+	}
+	enrollments, err := r.st.EnrollmentsByWorkshop(ctx, w.ID)
+	if err != nil {
+		return nil, err
+	}
+	paid := 0
+	for _, en := range enrollments {
+		if en.Status == domain.EnrollmentPaid {
+			paid++
+		}
+	}
+	price := present.Price(domain.Money{Minor: p.PriceMinor, Currency: p.Currency})
+	terms := invite.Terms(w.Status, price, p.Minimum, paid, loc)
+	event, ok := invite.Event(w, p, dates, invite.Describe(w, terms), "", r.clock.Now())
+	if !ok {
+		return nil, nil
+	}
+	return []mail.Attachment{{Name: invite.FileName(w.Title), ContentType: "text/calendar; charset=utf-8; method=PUBLISH", Data: ics.Calendar(event)}}, nil
+}
+
+func (r *Runner) noticeData(ctx context.Context, w store.WorkshopRow) (notice.Data, error) {
+	loc, err := time.LoadLocation(w.Timezone)
+	if err != nil {
+		loc = time.UTC
+	}
+	d := notice.Data{
+		Title:  w.Title,
+		Host:   w.HostName,
+		Place:  w.Location,
+		Price:  present.Price(domain.Money{Minor: w.PriceMinor, Currency: w.Currency}),
+		Needed: w.Minimum,
+	}
+	if w.ShareToken != "" {
+		d.InviteLink = r.cfg.BaseURL + "/w/" + w.ShareToken
+		d.InviteMessage = notice.InviteMessage(w.Title, w.Location, d.Price, d.Needed, d.InviteLink)
+	}
+	p, err := r.st.ActiveProposal(ctx, w.ID)
+	if err != nil || p == nil {
+		return d, err
+	}
+	d.Price = present.Price(domain.Money{Minor: p.PriceMinor, Currency: p.Currency})
+	d.Needed = p.Minimum
+	d.Deadline = present.Moment(p.ClosesAt, loc)
+	dates, err := r.st.CandidateDates(ctx, w.ID)
+	if err != nil {
+		return d, err
+	}
+	for _, c := range dates {
+		if c.ID == p.ChosenDateID {
+			d.When = present.DateLabel(c.StartsAt, c.EndsAt, loc)
+		}
+	}
+	if d.When == "" {
+		d.When = present.Moment(p.StartsAt, loc)
+	}
+	return d, nil
+}
+
+func (r *Runner) queueNotice(ctx context.Context, kind notice.Kind, d notice.Data, n store.Notification) error {
+	e, err := notice.Render(kind, d)
+	if err != nil {
+		return err
+	}
+	n.Kind, n.Subject, n.Body, n.HTML = string(kind), e.Subject, e.Text, e.HTML
+	return r.queue(ctx, n)
 }
 
 func (r *Runner) NotifyJoined(ctx context.Context, workshopID, participantID, link string) error {
@@ -51,12 +187,28 @@ func (r *Runner) NotifyJoined(ctx context.Context, workshopID, participantID, li
 	if err != nil {
 		return err
 	}
-	return r.queue(ctx, store.Notification{
-		WorkshopID: workshopID, ParticipantID: participantID, Kind: NotifyJoined, To: email,
-		Key:     "notify:" + NotifyJoined + ":" + participantID,
-		Subject: "Your seat link for " + w.Title,
-		Body: fmt.Sprintf("Hi %s,\n\nYou joined %s on CommitPool. This private link is your seat: keep it. It is where you say when you can come and, once reservations open, reserve your spot.\n\n%s\n\nNothing is charged until enough people reserve.\n",
-			name, w.Title, link),
+	d, err := r.noticeData(ctx, w)
+	if err != nil {
+		return err
+	}
+	d.Name, d.Link = name, link
+	return r.queueNotice(ctx, notice.Joined, d, store.Notification{
+		WorkshopID: workshopID, ParticipantID: participantID, To: email, Key: "notify:" + NotifyJoined + ":" + participantID,
+	})
+}
+
+func (r *Runner) NotifyOwnerCreated(ctx context.Context, workshopID, ownerLink string) error {
+	w, err := r.st.WorkshopByID(ctx, workshopID)
+	if err != nil || w.OwnerEmail == "" {
+		return err
+	}
+	d, err := r.noticeData(ctx, w)
+	if err != nil {
+		return err
+	}
+	d.Name, d.Link = w.HostName, ownerLink
+	return r.queueNotice(ctx, notice.OwnerCreated, d, store.Notification{
+		WorkshopID: workshopID, To: w.OwnerEmail, Key: "notify:" + NotifyOwnerCreated + ":" + workshopID,
 	})
 }
 
@@ -73,57 +225,97 @@ func (r *Runner) Notify(ctx context.Context, enrollmentID, kind string) error {
 	if err != nil {
 		return err
 	}
-	p, err := r.st.ActiveProposal(ctx, en.WorkshopID)
-	if err != nil {
-		return err
-	}
-	if p == nil {
-		return nil
-	}
-	price := present.Price(domain.Money{Minor: p.PriceMinor, Currency: p.Currency})
-	when := describeStart(p.StartsAt, w.Timezone)
-	var subject, body string
 	switch kind {
-	case NotifyConfirmed:
-		subject = "It's on: " + w.Title + " is confirmed"
-		body = fmt.Sprintf("Hi %s,\n\nIt's on! Enough people paid: %s on %s is happening. Your payment of %s went through.\n\nOpen the private link you received when you joined to see your spot.\n", name, w.Title, when, price)
-	case NotifyPaymentFailed:
-		subject = "Your payment for " + w.Title + " did not go through"
-		body = fmt.Sprintf("Hi %s,\n\nPayPal could not charge your hold of %s for %s on %s, so nothing was charged and PayPal releases your hold. While reservations are open you can try again from your private link.\n", name, price, w.Title, when)
-	case NotifyRefundCompleted:
-		subject = "Your refund for " + w.Title + " is complete"
-		body = fmt.Sprintf("Hi %s,\n\nPayPal completed your refund of %s for %s.\n", name, price, w.Title)
+	case NotifyReserved, NotifyConfirmed, NotifyPaymentFailed, NotifyRefundCompleted:
 	default:
 		return fmt.Errorf("notify: unknown kind %q", kind)
 	}
-	return r.queue(ctx, store.Notification{
-		WorkshopID: en.WorkshopID, ParticipantID: en.ParticipantID, Kind: kind, To: email,
-		Key: "notify:" + kind + ":" + enrollmentID, Subject: subject, Body: body,
+	d, err := r.noticeData(ctx, w)
+	if err != nil || d.Deadline == "" {
+		return err
+	}
+	d.Name = name
+	return r.queueNotice(ctx, notice.Kind(kind), d, store.Notification{
+		WorkshopID: en.WorkshopID, ParticipantID: en.ParticipantID, To: email, Key: "notify:" + kind + ":" + enrollmentID,
 	})
 }
 
 func (r *Runner) notifyCancelled(ctx context.Context, workshopID string) {
+	err := r.queueCancelled(ctx, workshopID)
+	if err != nil {
+		r.log.Error("notify: could not queue the cancellation notices", "workshop_id", workshopID, "error", err)
+	}
+}
+
+func (r *Runner) queueCancelled(ctx context.Context, workshopID string) error {
 	w, err := r.st.WorkshopByID(ctx, workshopID)
-	if err == nil {
-		var contacts []store.Contact
-		if contacts, err = r.st.ContactsOfWorkshop(ctx, workshopID); err == nil {
-			why := ""
-			if w.CancelReason != nil {
-				why = " The organizer said: " + *w.CancelReason
-			}
-			for _, c := range contacts {
-				err = errors.Join(err, r.queue(ctx, store.Notification{
-					WorkshopID: workshopID, ParticipantID: c.ParticipantID, Kind: NotifyCancelled, To: c.Email,
-					Key:     "notify:" + NotifyCancelled + ":" + c.ParticipantID,
-					Subject: w.Title + " is cancelled",
-					Body: fmt.Sprintf("Hi %s,\n\n%s is cancelled.%s Any hold of yours is released and any payment refunded; refunds can take a few days and you can follow yours from your private link.\n",
-						c.Name, w.Title, why),
-				}))
-			}
+	if err != nil {
+		return err
+	}
+	d, err := r.noticeData(ctx, w)
+	if err != nil {
+		return err
+	}
+	if w.CancelReason != nil {
+		d.Reason = *w.CancelReason
+	}
+	d.Opened = d.Deadline != ""
+	d.Closed = w.CancelledAt == nil && d.Opened
+	contacts, err := r.st.ContactsOfWorkshop(ctx, workshopID)
+	if err != nil {
+		return err
+	}
+	for _, c := range contacts {
+		pd := d
+		pd.Name = c.Name
+		err = errors.Join(err, r.queueNotice(ctx, notice.Cancelled, pd, store.Notification{
+			WorkshopID: workshopID, ParticipantID: c.ParticipantID, To: c.Email, Key: "notify:" + NotifyCancelled + ":" + c.ParticipantID,
+		}))
+	}
+	if w.OwnerEmail != "" {
+		od := d
+		od.Name = w.HostName
+		err = errors.Join(err, r.queueNotice(ctx, notice.OwnerCancelled, od, store.Notification{
+			WorkshopID: workshopID, To: w.OwnerEmail, Key: "notify:" + NotifyOwnerCancelled + ":" + workshopID,
+		}))
+	}
+	return err
+}
+
+func (r *Runner) onConfirmed(ctx context.Context, workshopID string) {
+	enrollments, err := r.st.EnrollmentsByWorkshop(ctx, workshopID)
+	if err != nil {
+		r.log.Error("notify: could not list who paid", "workshop_id", workshopID, "error", err)
+		return
+	}
+	paid := 0
+	for _, en := range enrollments {
+		if en.Status == domain.EnrollmentPaid {
+			paid++
+			r.notifyEnrollment(ctx, en.ID, NotifyConfirmed)
+		}
+	}
+	p, err := r.st.ActiveProposal(ctx, workshopID)
+	if err != nil || p == nil {
+		r.log.Error("notify: no proposal to total the payments", "workshop_id", workshopID, "error", err)
+		return
+	}
+	r.notifyOwnerConfirmed(ctx, workshopID, paid, domain.Money{Minor: int64(paid) * p.PriceMinor, Currency: p.Currency})
+}
+
+func (r *Runner) notifyOwnerConfirmed(ctx context.Context, workshopID string, paid int, collected domain.Money) {
+	w, err := r.st.WorkshopByID(ctx, workshopID)
+	if err == nil && w.OwnerEmail != "" {
+		var d notice.Data
+		if d, err = r.noticeData(ctx, w); err == nil {
+			d.Name, d.Paid, d.Collected = w.HostName, paid, present.Price(collected)
+			err = r.queueNotice(ctx, notice.OwnerConfirmed, d, store.Notification{
+				WorkshopID: workshopID, To: w.OwnerEmail, Key: "notify:" + NotifyOwnerConfirmed + ":" + workshopID,
+			})
 		}
 	}
 	if err != nil {
-		r.log.Error("notify: could not queue the cancellation notices", "workshop_id", workshopID, "error", err)
+		r.log.Error("notify: could not queue the organizer's confirmation", "workshop_id", workshopID, "error", err)
 	}
 }
 
@@ -136,14 +328,6 @@ func (r *Runner) notifyEnrollment(ctx context.Context, enrollmentID, kind string
 func (r *Runner) queue(ctx context.Context, n store.Notification) error {
 	_, err := r.st.EnqueueNotification(ctx, n, r.clock.Now())
 	return err
-}
-
-func describeStart(t time.Time, tz string) string {
-	loc, err := time.LoadLocation(tz)
-	if err != nil {
-		loc = time.UTC
-	}
-	return present.Moment(t, loc)
 }
 
 func (r *Runner) RunPending(ctx context.Context) error {

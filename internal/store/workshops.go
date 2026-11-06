@@ -29,6 +29,7 @@ type WorkshopRow struct {
 	HostName, Location     string
 	VenueCostMinor         *int64
 	IsDemo                 bool
+	OwnerEmail             string
 }
 
 type CandidateDateRow struct {
@@ -57,11 +58,12 @@ type CreateWorkshopParams struct {
 	HostName, Location string
 	VenueCostMinor     *int64
 	IsDemo             bool
+	OwnerEmail         string
 	Dates              []struct{ StartsAt, EndsAt time.Time }
 }
 
 const (
-	workshopCols      = `id, title, description, duration_min, timezone, minimum, capacity, price_minor, currency, payment_window_min, status, resolution, created_at, coalesce(share_token, ''), cancelled_at, cancel_reason, host_name, location, venue_cost_minor, is_demo`
+	workshopCols      = `id, title, description, duration_min, timezone, minimum, capacity, price_minor, currency, payment_window_min, status, resolution, created_at, coalesce(share_token, ''), cancelled_at, cancel_reason, host_name, location, venue_cost_minor, is_demo, coalesce(owner_email, '')`
 	candidateDateCols = `id, workshop_id, starts_at, ends_at`
 	proposalCols      = `id, workshop_id, version, chosen_date_id, price_minor, currency, minimum, capacity, opens_at, closes_at, starts_at`
 )
@@ -83,11 +85,11 @@ func (s *Store) CreateWorkshop(ctx context.Context, p CreateWorkshopParams) (w W
 	err = pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 		row, err := one[WorkshopRow](ctx, tx,
 			`insert into workshops (owner_token_hash, share_token_hash, share_token, title, description, duration_min, timezone,
-				minimum, capacity, price_minor, currency, payment_window_min, host_name, location, venue_cost_minor, is_demo)
-			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+				minimum, capacity, price_minor, currency, payment_window_min, host_name, location, venue_cost_minor, is_demo, owner_email)
+			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, nullif($17, ''))
 			returning `+workshopCols,
 			ownerHash, shareHash, shareToken, p.Title, p.Description, p.DurationMin, p.Timezone,
-			p.Minimum, p.Capacity, p.PriceMinor, p.Currency, window, p.HostName, p.Location, p.VenueCostMinor, p.IsDemo)
+			p.Minimum, p.Capacity, p.PriceMinor, p.Currency, window, p.HostName, p.Location, p.VenueCostMinor, p.IsDemo, p.OwnerEmail)
 		if err != nil {
 			return wrap("insert workshop", err)
 		}

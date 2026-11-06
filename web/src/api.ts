@@ -221,6 +221,7 @@ export interface CreateWorkshopRequest {
   host_name?: string
   location?: string
   venue_cost?: string
+  owner_email?: string
   dates: { starts_at: string; ends_at: string }[]
 }
 
@@ -257,6 +258,7 @@ export interface CreateWorkshopResponse {
   dates: CandidateDate[]
   owner_url: string
   share_url: string
+  owner_emailed?: boolean
 }
 
 export interface EnrollResponse {

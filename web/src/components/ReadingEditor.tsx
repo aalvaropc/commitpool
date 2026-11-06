@@ -75,7 +75,7 @@ export default function ReadingEditor({ token, availability, dates, timeZone, ed
       </div>
 
       {reading.needs_clarification && (
-        <Notice tone="hold" title="One detail is unclear">
+        <Notice tone="attention" title="One detail is unclear">
           {reading.ambiguities.length > 0 && (
             <ul className="list-disc pl-5">
               {reading.ambiguities.map((a, i) => (

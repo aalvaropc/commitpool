@@ -31,8 +31,8 @@ utilities they generate (`bg-brand`, `text-ink-soft`, `rounded-tile`).
 
 Every text pair clears WCAG AA: ink on canvas 16:1, ink-soft on white 7.1:1,
 white on brand 9:1, each tone on its wash at least 4.5:1. White on `go` is
-3.6:1, so the `go` button is only used at the large size (19px bold), where
-AA asks for 3:1.
+3.6:1, so only the large `go` button (19px bold, where AA asks for 3:1) uses
+it; smaller orange buttons fill with `go-deep` (5.2:1).
 
 Radii: `tile` 22px, `control` 14px, pills fully round. Shadows: `tile` (a
 1px contact shadow plus a soft 28px drop), `lift` for dialogs, `go` for the
@@ -57,14 +57,14 @@ All in `web/src/components/ui/`, exported from its `index.ts`.
 | Component | What it is for |
 |---|---|
 | `Tile`, `TileLabel` | The bento unit. `surface`, `muted` or `brand` (the hero tile). |
-| `Button`, `ButtonLink` | `primary` (violet), `go` (orange, large only), `secondary`, `quiet`, `danger`, `demo`. 44px minimum height. |
+| `Button`, `ButtonLink` | `primary` (violet), `go` (orange; darker below the large size), `secondary`, `quiet`, `danger`, `demo`. 44px minimum height. While busy an ordinary button keeps focus (`aria-disabled`); a submit button is disabled so Enter cannot send twice. |
 | `Pill`, `Tag`, `DemoTag` | Short status labels with a dot; text always present. |
 | `VerdictChip` | One person's answer for one date: icon plus words (Can come, Only if it ends by 6 PM, Can't, Not sure). |
 | `Avatar`, `AvatarStack` | Initials in a pastel chosen by name; the stack names everyone for screen readers. |
-| `Meter` | Progress to "it's on": paid (green) then reserved (violet) against an orange line at the number needed, with the caption in words ("2 more and it's on"). |
-| `Cover` | Deterministic rings drawn from a workshop's id, decorating the brand tile. |
-| `ConfirmDialog` | Native `<dialog>` for decisions with consequences (cancel, give up a spot, open reservations). Returns focus on close. |
-| `SegmentedControl` | Native radios styled as segments, for correcting a reading. |
+| `Meter` | Progress to "it's on": paid (solid green) then reserved (violet hatch) against an ink line at the number needed, with the state and the split in words ("2 more and it's on", "1 paid · 2 reserved · 3 needed"). |
+| `Cover` | Deterministic rings drawn from a workshop's id, decorating the brand tile; always round whatever the tile's shape. |
+| `ConfirmDialog` | Native `<dialog>` for decisions with consequences (cancel, give up a spot, open reservations). Cannot be dismissed while its action runs, announces the busy state, returns focus on close. |
+| `SegmentedControl` | Native radios styled as segments, the chosen one filled violet, for correcting a reading. |
 | `Field`, `inputClass`, `describedBy` | Labelled inputs with hint and error wired to `aria-describedby`. |
 | `Notice` | Inline status or error, toned. |
 | `Icon` | Authored 24px stroke icons, 1.75 stroke, one family. |

@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { AvatarStack } from './Avatar'
+import { Button } from './Button'
 import { ConfirmDialog } from './ConfirmDialog'
 import { Meter } from './Meter'
 import { SegmentedControl } from './SegmentedControl'
@@ -61,5 +62,39 @@ describe('ConfirmDialog', () => {
     expect(html).toMatch(/^<dialog[^>]*aria-labelledby="[^"]+"[^>]*aria-describedby="[^"]+"/)
     expect(html).toContain('Give up your spot?')
     expect(html).toContain('Yes, give it up')
+  })
+})
+
+describe('Button while busy', () => {
+  it('keeps an ordinary button focusable and says it is busy', () => {
+    const html = renderToStaticMarkup(
+      <Button busy busyLabel="Leaving…">
+        Yes, leave
+      </Button>,
+    )
+    expect(html).toContain('aria-disabled="true"')
+    expect(html).not.toMatch(/\sdisabled=""/)
+    expect(html).toContain('Leaving…')
+  })
+
+  it('disables a submit button so Enter cannot send the form twice', () => {
+    const html = renderToStaticMarkup(
+      <Button type="submit" busy>
+        Join the class
+      </Button>,
+    )
+    expect(html).toMatch(/\sdisabled=""/)
+  })
+
+  it('gives a small orange button the darker orange that clears 4.5:1', () => {
+    expect(renderToStaticMarkup(<Button variant="go">Go</Button>)).toContain('bg-go-deep')
+    expect(renderToStaticMarkup(<Button variant="go" size="lg">Go</Button>)).toContain('bg-go ')
+  })
+})
+
+describe('Meter caption', () => {
+  it('says the split between paid and reserved in words, not only in colour', () => {
+    const html = renderToStaticMarkup(<Meter capacity={6} needed={3} paid={1} reserved={2} />)
+    expect(html).toContain('1 paid · 2 reserved · 3 needed')
   })
 })

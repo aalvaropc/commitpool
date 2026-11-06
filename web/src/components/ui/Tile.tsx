@@ -5,7 +5,7 @@ type TileElement = 'div' | 'section' | 'article' | 'aside' | 'li'
 
 const tones: Record<TileTone, string> = {
   surface: 'bg-surface text-ink',
-  brand: 'bg-brand text-white',
+  brand: 'bg-brand text-white [&_:focus-visible]:outline-white',
   muted: 'bg-surface-muted text-ink',
 }
 

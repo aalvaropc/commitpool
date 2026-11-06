@@ -106,7 +106,7 @@ export default function CommitmentCard({ token, view, onChange }: Props) {
           <Deadline closesAt={proposal.closes_at} timeZone={tz} open={proposal.payments_open} size="lg" />
           {workshop.payment_window_min < 1440 && (
             <p>
-              <Tag tone="hold">{windowLabel(workshop.payment_window_min)}</Tag>
+              <Tag tone="attention">{windowLabel(workshop.payment_window_min)}</Tag>
             </p>
           )}
         </div>

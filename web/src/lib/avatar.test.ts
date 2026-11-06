@@ -9,14 +9,26 @@ describe('initials', () => {
     expect(initials('Ólafur Arnalds')).toBe('ÓA')
   })
 
-  it('falls back to a question mark for an empty name', () => {
+  it('falls back to a question mark when there is no letter', () => {
     expect(initials('   ')).toBe('?')
+    expect(initials('🎨')).toBe('?')
+  })
+
+  it('keeps whole letters however the accent was typed', () => {
+    expect(initials('O\u0301lafur Arnalds')).toBe('ÓA')
+  })
+
+  it('skips symbols and emoji to the first letter of each word', () => {
+    expect(initials('🇵🇪 Ana Ruiz')).toBe('AR')
+    expect(initials('(Ana) Ruiz')).toBe('AR')
+    expect(initials('👩🏽‍🎨 Studio')).toBe('S')
   })
 })
 
 describe('avatarTone', () => {
   it('gives the same person the same colour every time', () => {
     expect(avatarTone('Maya Okafor')).toBe(avatarTone('Maya Okafor'))
+    expect(avatarTone('O\u0301lafur')).toBe(avatarTone('Ólafur'))
   })
 
   it('spreads names across the palette', () => {

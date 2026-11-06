@@ -29,7 +29,7 @@ export function SegmentedControl<T extends string>({ legend, legendHidden = true
               <input id={id} type="radio" name={group} value={o.value} checked={value === o.value} onChange={() => onChange(o.value)} className="peer sr-only" />
               <label
                 htmlFor={id}
-                className="flex min-h-10 cursor-pointer items-center justify-center rounded-[0.625rem] px-3 text-sm font-semibold whitespace-nowrap text-ink-soft transition-colors duration-150 peer-checked:bg-surface peer-checked:text-ink peer-checked:shadow-tile peer-focus-visible:outline-3 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-brand peer-disabled:cursor-not-allowed peer-disabled:opacity-60 hover:text-ink"
+                className="flex min-h-11 cursor-pointer items-center justify-center rounded-[0.625rem] px-2 text-sm font-semibold whitespace-nowrap text-ink-soft transition-colors duration-150 peer-checked:bg-brand peer-checked:text-white peer-checked:shadow-tile peer-focus-visible:outline-3 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-brand peer-disabled:cursor-not-allowed peer-disabled:opacity-60 hover:text-ink"
               >
                 {o.label}
               </label>

@@ -16,10 +16,10 @@ export default function Shell() {
             <Logo />
           </Link>
           <span
-            className="rounded-full bg-brand-wash px-3 py-1.5 text-xs font-semibold text-brand"
+            className="rounded-full bg-brand-wash px-3 py-1.5 text-xs font-semibold whitespace-nowrap text-brand"
             title="Payments use PayPal's test environment: no real money moves."
           >
-            Test mode · PayPal Sandbox
+            Test mode<span className="hidden sm:inline"> · PayPal Sandbox</span>
           </span>
         </div>
       </header>

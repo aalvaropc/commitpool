@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 
 export const inputClass =
-  'w-full min-h-11 rounded-control border border-line-strong bg-surface px-3.5 py-2.5 text-base text-ink transition-[border-color,box-shadow] duration-150 hover:border-ink-soft focus:border-brand focus:shadow-[0_0_0_3px_var(--color-brand-wash)] focus:outline-none aria-[invalid=true]:border-no disabled:bg-surface-muted disabled:opacity-70'
+  'w-full min-h-11 rounded-control border border-line-strong bg-surface px-3.5 py-2.5 text-base text-ink transition-[border-color] duration-150 hover:border-ink-soft focus-visible:border-brand aria-[invalid=true]:border-no disabled:bg-surface-muted disabled:opacity-70'
 
 interface FieldProps {
   id: string

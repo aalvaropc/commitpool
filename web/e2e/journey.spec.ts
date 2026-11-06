@@ -27,12 +27,12 @@ test.describe('funding journey', () => {
       await approveCheckout(p)
     }
 
-    await expect(headline(owner)).toHaveText('Workshop confirmed', { timeout: 60_000 })
-    await expect(owner.getByText('3 paid seats reached the minimum of 3.')).toBeVisible()
+    await expect(headline(owner)).toHaveText('It’s on', { timeout: 60_000 })
+    await expect(owner.getByText('3 payments reached the 3 needed.')).toBeVisible()
     await expect(paidSeats(owner, 3)).toBeVisible()
     for (const p of participants) {
-      await expect(enrollmentRow(owner, p.name)).toContainText('Seat paid')
-      await expect(headline(p.page)).toHaveText('Seat confirmed')
+      await expect(enrollmentRow(owner, p.name)).toContainText('Paid')
+      await expect(headline(p.page)).toHaveText('You’re in — it’s on')
     }
   })
 })

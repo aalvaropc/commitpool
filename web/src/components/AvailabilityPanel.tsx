@@ -82,6 +82,7 @@ export default function AvailabilityPanel({ token, view, onSaved }: Props) {
           token={token}
           availability={availability}
           dates={view.dates}
+          timeZone={view.workshop.timezone}
           editable={accepting}
           onSaved={onSaved}
         />

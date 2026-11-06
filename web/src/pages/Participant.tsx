@@ -12,6 +12,7 @@ import { useNow, usePolling, useResource } from '../lib/hooks'
 import { rememberParticipant } from '../lib/participant'
 import { authorizationPending, headline, returnCheckSettled, seatHeld, shouldPollParticipant, tone } from '../lib/status'
 import { workshopTerms } from '../lib/terms'
+import { formatDateRange } from '../lib/time'
 
 const CHECK_PATIENCE_MS = 30000
 
@@ -75,7 +76,7 @@ export default function Participant() {
             <Notice tone="hold" title="Checking your payment…">
               {now - checkingSince < CHECK_PATIENCE_MS
                 ? 'PayPal is confirming your hold. This page updates on its own.'
-                : 'PayPal has not confirmed your hold yet. This page keeps checking; if you left PayPal before approving, authorize again below.'}
+                : 'PayPal has not confirmed your hold yet. This page keeps checking; if you left PayPal before approving, reserve again below.'}
             </Notice>
           )}
           {view.error && <RefreshError polling={polling} onRetry={() => void view.reload()} />}
@@ -98,7 +99,7 @@ export default function Participant() {
             <ul className="flex flex-col">
               {d.dates.map((date) => (
                 <li key={date.id} className="semiwide border-t border-rule py-3 font-semibold">
-                  {date.label}
+                  {formatDateRange(date.starts_at, date.ends_at, w.timezone)}
                 </li>
               ))}
             </ul>

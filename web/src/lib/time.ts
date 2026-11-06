@@ -86,14 +86,48 @@ export function zonedPlusMinutes(start: string, minutes: number, timeZone: strin
   return rfc3339InZone(Date.parse(start) + minutes * 60000, timeZone)
 }
 
-export function formatInZone(iso: string, timeZone: string): string {
-  const w = wallClock(Date.parse(iso), timeZone)
-  return `${w.weekday} ${w.day} ${w.monthName} ${w.year}, ${pad(w.hour)}:${pad(w.minute)} ${timeZone}`
+function clockText(hour: number, minute: number): string {
+  const period = hour < 12 ? 'AM' : 'PM'
+  const h = hour % 12 === 0 ? 12 : hour % 12
+  return minute === 0 ? `${h} ${period}` : `${h}:${pad(minute)} ${period}`
 }
 
-export function formatTimeInZone(iso: string, timeZone: string): string {
+function dayText(w: Wall): string {
+  return `${w.weekday}, ${w.monthName} ${w.day}`
+}
+
+export function formatDay(iso: string, timeZone: string): string {
+  return dayText(wallClock(Date.parse(iso), timeZone))
+}
+
+export function formatClock(iso: string, timeZone: string): string {
   const w = wallClock(Date.parse(iso), timeZone)
-  return `${pad(w.hour)}:${pad(w.minute)} ${timeZone}`
+  return clockText(w.hour, w.minute)
+}
+
+export function formatMoment(iso: string, timeZone: string): string {
+  const w = wallClock(Date.parse(iso), timeZone)
+  return `${dayText(w)} · ${clockText(w.hour, w.minute)}`
+}
+
+export function formatDateRange(startIso: string, endIso: string, timeZone: string): string {
+  const s = wallClock(Date.parse(startIso), timeZone)
+  const e = wallClock(Date.parse(endIso), timeZone)
+  const sameDay = s.year === e.year && s.month === e.month && s.day === e.day
+  if (sameDay) return `${dayText(s)} · ${clockText(s.hour, s.minute)}–${clockText(e.hour, e.minute)}`
+  return `${dayText(s)} · ${clockText(s.hour, s.minute)} – ${dayText(e)} · ${clockText(e.hour, e.minute)}`
+}
+
+export function zoneName(timeZone: string): string {
+  const slash = timeZone.lastIndexOf('/')
+  if (slash < 0) return timeZone
+  return `${timeZone.slice(slash + 1).replaceAll('_', ' ')} time`
+}
+
+export function clock12(hhmm: string): string {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm)
+  if (!m) return hhmm
+  return clockText(Number(m[1]) % 24, Number(m[2]))
 }
 
 export function earlier(a: string, b: string): string {
@@ -122,7 +156,8 @@ export function durationLabel(minutes: number): string {
   const h = Math.floor(minutes / 60)
   const m = minutes % 60
   if (h === 0) return `${m} min`
-  return m === 0 ? `${h} h` : `${h} h ${m} min`
+  const hours = h === 1 ? '1 hour' : `${h} hours`
+  return m === 0 ? hours : `${hours} ${m} min`
 }
 
 export function browserTimeZone(): string {

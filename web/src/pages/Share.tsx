@@ -10,7 +10,7 @@ import { useResource } from '../lib/hooks'
 import { joinedAs, rememberJoin, tokenFromParticipantURL } from '../lib/participant'
 import { count } from '../lib/plural'
 import { workshopTerms } from '../lib/terms'
-import { formatInZone } from '../lib/time'
+import { formatDateRange, formatMoment, zoneName } from '../lib/time'
 
 export default function Share() {
   const { share = '' } = useParams()
@@ -71,7 +71,7 @@ export default function Share() {
             <h2 id="date-title" className="text-2xl font-bold">
               The date is set
             </h2>
-            <p className="wide text-xl font-semibold tabular-nums">{chosen?.label ?? formatInZone(d.proposal.starts_at, w.timezone)}</p>
+            <p className="wide text-xl font-semibold tabular-nums">{chosen ? formatDateRange(chosen.starts_at, chosen.ends_at, w.timezone) : formatMoment(d.proposal.starts_at, w.timezone)}</p>
             {d.proposal.payments_open && <Deadline closesAt={d.proposal.closes_at} timeZone={w.timezone} open />}
             <SeatMeter capacity={d.tally.capacity} minimum={d.tally.minimum} paid={d.tally.paid} authorized={d.tally.authorized} label="Group progress" />
           </section>
@@ -83,10 +83,11 @@ export default function Share() {
             <ul className="flex flex-col">
               {d.dates.map((date) => (
                 <li key={date.id} className="semiwide border-t border-rule py-3 font-semibold">
-                  {date.label}
+                  {formatDateRange(date.starts_at, date.ends_at, w.timezone)}
                 </li>
               ))}
             </ul>
+            <p className="text-sm text-ink-soft">Times in {zoneName(w.timezone)}.</p>
             <p className="text-ink-soft">
               {count(d.tally.interested, 'person', 'people')} {d.tally.interested === 1 ? 'has' : 'have'} joined so far.
             </p>
@@ -109,7 +110,7 @@ export default function Share() {
               {already ? 'Join as someone else' : 'Join'}
             </h2>
             <p className="max-w-prose text-ink-soft">
-              Joining gives you a personal page to say when you can come and, once the date is set, to authorize your seat. Nothing is
+              Joining gives you a personal page to say when you can come and, once the date is set, to reserve your spot. Nothing is
               charged when you join.
             </p>
             <form onSubmit={join} noValidate className="flex flex-col gap-4">
@@ -129,7 +130,7 @@ export default function Share() {
                 id="email"
                 label="Email (optional)"
                 error={emailError ?? undefined}
-                hint="Only to send you your personal link and news about your seat: confirmed, cancelled, a failed charge or a refund."
+                hint="Only to send you your personal link and news about your spot: when it’s on, a cancellation, a failed charge or a refund."
               >
                 <input
                   id="email"
@@ -152,7 +153,7 @@ export default function Share() {
           </section>
         ) : (
           <Notice title="This workshop is not taking new participants">
-            {w.status === 'CANCELLED' ? 'It was cancelled.' : 'Its payment window has closed.'}
+            {w.status === 'CANCELLED' ? 'It was cancelled.' : 'Reservations have closed.'}
           </Notice>
         )}
       </div>

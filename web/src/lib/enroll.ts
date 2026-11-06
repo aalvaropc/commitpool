@@ -1,10 +1,10 @@
 import { ApiError } from '../api'
 
 const MESSAGES: Record<string, string> = {
-  proposal_not_open: 'Payments are not open for this workshop any more.',
-  consent_version_mismatch: 'The terms have changed. Read them again below before authorizing.',
-  capacity_full: 'Every seat is taken.',
-  seat_expired: 'Your seat reservation expired and no seat was free to renew it. Nothing was charged.',
+  proposal_not_open: 'Reservations are not open for this workshop any more.',
+  consent_version_mismatch: 'The terms were updated — please read them again before reserving.',
+  capacity_full: 'Every spot is taken.',
+  seat_expired: 'Your reservation expired and no spot was free to renew it. Nothing was charged.',
   checkout_in_progress: 'Your checkout is still being prepared in another window. Try again in a moment.',
   workshop_closed: 'This workshop no longer takes new participants or changes.',
   paypal_unavailable: 'PayPal is not answering — try again in a moment',

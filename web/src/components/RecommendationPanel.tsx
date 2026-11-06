@@ -1,6 +1,7 @@
 import type { OwnerView } from '../api'
 import { count } from '../lib/plural'
 import { blockerText } from '../lib/reading'
+import { formatDateRange } from '../lib/time'
 import OpenPayments from './OpenPayments'
 import { Button, Tag } from './ui'
 
@@ -28,7 +29,7 @@ export default function RecommendationPanel({ token, view, explanationStalled, o
         <p className="mt-1 text-ink-soft">
           {anyone
             ? rec.meets_minimum
-              ? 'The recommended date has enough people who can come to reach the minimum.'
+              ? 'The recommended date has enough people to happen.'
               : `No date has ${count(workshop.minimum, 'person', 'people')} who can come yet.`
             : 'No availability yet. Share the link so participants can say when they can come.'}
         </p>
@@ -62,7 +63,7 @@ export default function RecommendationPanel({ token, view, explanationStalled, o
           return (
             <li key={d.id} className="flex flex-col gap-3 border-t border-rule py-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <h3 className="text-lg font-bold">{d.label}</h3>
+                <h3 className="text-lg font-bold">{formatDateRange(d.starts_at, d.ends_at, workshop.timezone)}</h3>
                 {recommended && <Tag tone={rec.meets_minimum ? 'paid' : 'neutral'}>Recommended</Tag>}
               </div>
               <p>
@@ -88,7 +89,7 @@ export default function RecommendationPanel({ token, view, explanationStalled, o
                 ) : (
                   anyone && (
                     <p className="text-sm text-ink-soft">
-                      Payments can open on this date once {workshop.minimum - compatible.length} more can come.
+                      Reservations can open on this date once {workshop.minimum - compatible.length} more can come.
                     </p>
                   )
                 ))}

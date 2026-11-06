@@ -1,5 +1,5 @@
 import { useNow } from '../lib/hooks'
-import { formatInZone, timeLeft } from '../lib/time'
+import { formatMoment, timeLeft } from '../lib/time'
 
 interface Props {
   closesAt: string
@@ -13,9 +13,9 @@ export default function Deadline({ closesAt, timeZone, open, size = 'sm' }: Prop
   const left = open ? timeLeft(closesAt, now) : null
   return (
     <p className={size === 'lg' ? 'flex flex-col gap-0.5' : ''}>
-      <span className={size === 'lg' ? 'text-sm text-ink-soft' : ''}>{left ? 'Payments close ' : 'Payments closed '}</span>
+      <span className={size === 'lg' ? 'text-sm text-ink-soft' : ''}>{left ? 'Reservations close ' : 'Reservations closed '}</span>
       <time dateTime={closesAt} className={`tabular-nums ${size === 'lg' ? 'wide text-xl font-semibold' : 'font-semibold'}`}>
-        {formatInZone(closesAt, timeZone)}
+        {formatMoment(closesAt, timeZone)}
       </time>
       {left && <span className={size === 'lg' ? 'font-medium text-hold' : 'text-ink-soft'}> {size === 'lg' ? `${left} left` : `(${left} left)`}</span>}
     </p>

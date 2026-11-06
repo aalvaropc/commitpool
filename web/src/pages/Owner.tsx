@@ -18,7 +18,7 @@ import { usePolling, useResource } from '../lib/hooks'
 import { count } from '../lib/plural'
 import { headline, heldAny, refundsAny, shouldPollOwner, tone } from '../lib/status'
 import { lockedTerms, workshopTerms } from '../lib/terms'
-import { windowLabel } from '../lib/time'
+import { formatDateRange, windowLabel, zoneName } from '../lib/time'
 
 const EXPLANATION_TRIES = 6
 
@@ -87,7 +87,7 @@ export default function Owner() {
             {w.status === 'CANCELLED' && <p>{cancellationDetail(d)}</p>}
             {w.status === 'CONFIRMED' && (
               <p>
-                {count(t.paid, 'paid seat')} reached the minimum of {t.minimum}.
+                {count(t.paid, 'payment')} reached the {t.minimum} needed.
               </p>
             )}
           </StatusBanner>
@@ -96,7 +96,7 @@ export default function Owner() {
           <section aria-labelledby="counts-title" className="flex flex-col gap-4">
             <div className="flex items-center justify-between gap-3">
               <h2 id="counts-title" className="text-xl font-bold">
-                Seats
+                Spots
               </h2>
               <Button variant="secondary" onClick={() => void view.reload()} className="px-3 py-1.5 text-sm">
                 Refresh
@@ -104,11 +104,11 @@ export default function Owner() {
             </div>
             <dl className="grid grid-cols-3 gap-3">
               <div>
-                <dt className="text-sm text-ink-soft">Interested</dt>
+                <dt className="text-sm text-ink-soft">Joined</dt>
                 <dd className="wide text-3xl font-bold tabular-nums">{t.interested}</dd>
               </div>
               <div>
-                <dt className="text-sm text-ink-soft">Authorized</dt>
+                <dt className="text-sm text-ink-soft">Reserved</dt>
                 <dd className="wide text-3xl font-bold text-hold tabular-nums">{t.authorized}</dd>
               </div>
               <div>
@@ -121,7 +121,7 @@ export default function Owner() {
             </dl>
             <SeatMeter capacity={t.capacity} minimum={t.minimum} paid={t.paid} authorized={t.authorized} reserved={t.reserved} />
             <p className="text-sm text-ink-soft">
-              {t.seats_taken} of {count(t.capacity, 'seat')} taken. {count(t.capturing + t.pending, 'charge')} in progress
+              {t.seats_taken} of {count(t.capacity, 'spot')} taken. {count(t.capturing + t.pending, 'charge')} in progress
               {t.failed ? `, ${t.failed} failed` : ''}.
             </p>
           </section>
@@ -152,16 +152,19 @@ export default function Owner() {
             {w.description && <p className="max-w-prose whitespace-pre-line">{w.description}</p>}
             {!d.proposal && <Terms items={workshopTerms(w)} />}
             <p className="text-sm text-ink-soft">
-              Times in {w.timezone}. {w.payment_window_min < 1440 ? windowLabel(w.payment_window_min) : `Payment window: ${windowLabel(w.payment_window_min)}`}.
+              Times in {zoneName(w.timezone)}. {w.payment_window_min < 1440 ? windowLabel(w.payment_window_min) : `Reservations stay open ${windowLabel(w.payment_window_min)}`}.
             </p>
           </section>
 
           {d.proposal ? (
             <section aria-labelledby="locked-title" className="flex flex-col gap-4 rounded-sm border border-rule border-t-4 border-t-ink bg-sheet p-5 sm:p-7">
               <h2 id="locked-title" className="text-2xl font-bold">
-                Payments opened
+                Reservations open
               </h2>
-              <p className="wide text-xl font-semibold tabular-nums">{d.dates.find((x) => x.id === d.proposal?.date_id)?.label}</p>
+              <p className="wide text-xl font-semibold tabular-nums">{(() => {
+                  const chosen = d.dates.find((x) => x.id === d.proposal?.date_id)
+                  return chosen ? formatDateRange(chosen.starts_at, chosen.ends_at, w.timezone) : null
+                })()}</p>
               <TermsList
                 items={lockedTerms({
                   timeZone: w.timezone,

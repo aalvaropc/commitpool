@@ -40,8 +40,8 @@ export default function SeatMeter({ capacity, minimum, paid, authorized, reserve
   return (
     <figure className="flex flex-col gap-2">
       <figcaption className="sr-only">
-        {label}: {paid} paid of {minimum} needed, {count(authorized, 'hold')} authorized
-        {reserved > 0 ? `, ${reserved} reserved` : ''}, capacity {capacity}.
+        {label}: {paid} paid of {minimum} needed, {authorized} reserved
+        {reserved > 0 ? `, ${reserved} at checkout` : ''}, {count(capacity, 'spot')}.
       </figcaption>
       <div aria-hidden="true" className="relative pt-1 pb-6" style={{ maxWidth: total <= MAX_CELLS ? `${total * cell}px` : undefined }}>
         {total <= MAX_CELLS ? (
@@ -61,7 +61,7 @@ export default function SeatMeter({ capacity, minimum, paid, authorized, reserve
           className={`absolute bottom-0 ${size === 'lg' ? 'text-sm' : 'text-xs'} font-semibold whitespace-nowrap ${reached ? 'text-paid' : 'text-ink'} ${min / total > 0.6 ? '-translate-x-full' : ''}`}
           style={{ left: marker }}
         >
-          Minimum {minimum}
+          {minimum} needed
         </span>
       </div>
       <ul aria-hidden="true" className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-ink-soft">
@@ -69,15 +69,15 @@ export default function SeatMeter({ capacity, minimum, paid, authorized, reserve
           <span className="size-3 bg-paid-fill" /> {paid} paid
         </li>
         <li className="flex items-center gap-1.5">
-          <span className="hatch size-3 border border-hold-fill" /> {count(authorized, 'hold')} authorized
+          <span className="hatch size-3 border border-hold-fill" /> {authorized} reserved
         </li>
         {reserved > 0 && (
           <li className="flex items-center gap-1.5">
-            <span className="size-3 border border-dashed border-hold-fill" /> {reserved} reserved
+            <span className="size-3 border border-dashed border-hold-fill" /> {reserved} at checkout
           </li>
         )}
         <li className="flex items-center gap-1.5">
-          <span className="size-3 border border-edge bg-sheet" /> {count(capacity, 'seat')}
+          <span className="size-3 border border-edge bg-sheet" /> {count(capacity, 'spot')}
         </li>
       </ul>
     </figure>

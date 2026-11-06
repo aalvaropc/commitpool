@@ -46,7 +46,7 @@ describe('returnPath', () => {
 describe('returnedMessage', () => {
   it('promises a charge only if the minimum is reached', () => {
     expect(returnedMessage('authorized').body).toBe(
-      'Your hold is authorized. You will only be charged if the group reaches the minimum.',
+      'Your spot is reserved and nothing is charged yet. You are charged only if enough people reserve for the workshop to happen.',
     )
   })
 

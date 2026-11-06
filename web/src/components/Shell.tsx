@@ -24,7 +24,7 @@ export default function Shell() {
       </main>
       <footer className="border-t border-rule">
         <p className="mx-auto w-full max-w-6xl px-4 py-6 text-sm text-ink-soft sm:px-6">
-          Payments run through PayPal. A hold is charged only when the group can reach its minimum.
+          The class happens, or nobody pays. Payments run through PayPal.
         </p>
       </footer>
     </div>

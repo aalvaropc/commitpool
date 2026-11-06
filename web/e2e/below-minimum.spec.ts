@@ -28,16 +28,16 @@ test.describe('below minimum', () => {
     await failNextCharge(owner, cleo.name)
 
     for (const p of participants) await approveCheckout(p)
-    await expect(enrollmentRow(owner, cleo.name)).toContainText('Payment failed — you can try again', { timeout: 60_000 })
+    await expect(enrollmentRow(owner, cleo.name)).toContainText('Payment didn\'t go through — try again', { timeout: 60_000 })
     await expect(paidSeats(owner, 2)).toBeVisible()
-    await expect(headline(owner)).toHaveText('Payments are open')
+    await expect(headline(owner)).toHaveText('Reservations open')
 
-    await owner.getByRole('button', { name: /Close payments now/ }).click()
+    await owner.getByRole('button', { name: /Close reservations now/ }).click()
 
-    await expect(headline(owner)).toHaveText('Workshop cancelled — refund completed', { timeout: 60_000 })
+    await expect(headline(owner)).toHaveText('Cancelled — everyone was refunded', { timeout: 60_000 })
     await expect(owner.getByText('1 hold released, 2 refunds completed, 0 in progress.')).toBeVisible()
-    for (const p of [ada, ben]) await expect(enrollmentRow(owner, p.name)).toContainText('Refund completed')
-    await expect(enrollmentRow(owner, cleo.name)).toContainText('Hold released')
-    for (const p of [ada, ben]) await expect(headline(p.page)).toHaveText('Workshop cancelled — refund completed')
+    for (const p of [ada, ben]) await expect(enrollmentRow(owner, p.name)).toContainText('Refunded')
+    await expect(enrollmentRow(owner, cleo.name)).toContainText('Not charged')
+    for (const p of [ada, ben]) await expect(headline(p.page)).toHaveText('Cancelled — you were refunded')
   })
 })

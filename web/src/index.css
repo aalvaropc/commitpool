@@ -1,94 +1,170 @@
 @import "tailwindcss";
 
 @font-face {
-  font-family: "Archivo";
-  src: url("./assets/fonts/archivo-latin-var.woff2") format("woff2");
+  font-family: "Outfit";
+  src: url("./assets/fonts/outfit-latin-var.woff2") format("woff2");
   font-weight: 100 900;
-  font-stretch: 62% 125%;
   font-style: normal;
   font-display: swap;
 }
 
+@font-face {
+  font-family: "Work Sans";
+  src: url("./assets/fonts/work-sans-latin-var.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Work Sans";
+  src: url("./assets/fonts/work-sans-latin-italic-var.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+}
+
 @theme {
-  --font-sans: "Archivo", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Work Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Outfit", "Work Sans", ui-sans-serif, system-ui, sans-serif;
 
-  --color-paper: #f2f4ef;
-  --color-sheet: #fbfcfa;
-  --color-ink: #17233a;
-  --color-ink-soft: #4b576b;
-  --color-rule: #d3d9cf;
-  --color-edge: #7d8778;
+  --color-canvas: #f3f2f7;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f8f7fb;
+  --color-ink: #18122b;
+  --color-ink-soft: #5b5470;
+  --color-ink-faint: #6b6480;
+  --color-line: #e4e0ef;
+  --color-line-strong: #8f88a6;
 
-  --color-signal: #2a3fcb;
-  --color-signal-deep: #1f2f9e;
+  --color-brand: #5b21b6;
+  --color-brand-deep: #4c1d95;
+  --color-brand-wash: #ede7fb;
+  --color-brand-soft: #c4b5fd;
+  --color-on-brand-soft: #e9d5ff;
 
-  --color-hold: #8a5300;
-  --color-hold-fill: #b87503;
-  --color-hold-wash: #fbefd5;
+  --color-go: #ea580c;
+  --color-go-deep: #c2410c;
+  --color-go-wash: #ffedd5;
 
-  --color-paid: #17663f;
-  --color-paid-fill: #1f7a4c;
-  --color-paid-wash: #ddefe3;
+  --color-paid: #15803d;
+  --color-paid-wash: #dcfce7;
+  --color-maybe: #b45309;
+  --color-maybe-wash: #fef3c7;
+  --color-no: #9f1239;
+  --color-no-wash: #ffe4e6;
+  --color-attention: #c2410c;
+  --color-attention-wash: #ffedd5;
 
-  --color-cancel: #a3243a;
-  --color-cancel-wash: #f8e1e4;
+  --color-avatar-amber: #fde68a;
+  --color-avatar-amber-ink: #78350f;
+  --color-avatar-sky: #bfdbfe;
+  --color-avatar-sky-ink: #1e3a8a;
+  --color-avatar-pink: #fbcfe8;
+  --color-avatar-pink-ink: #831843;
+  --color-avatar-mint: #bbf7d0;
+  --color-avatar-mint-ink: #14532d;
+  --color-avatar-lilac: #ddd6fe;
+  --color-avatar-lilac-ink: #4c1d95;
+  --color-avatar-peach: #fed7aa;
+  --color-avatar-peach-ink: #7c2d12;
 
-  --color-attention: #a8400c;
-  --color-attention-wash: #fce6da;
+  --color-paper: var(--color-canvas);
+  --color-sheet: var(--color-surface);
+  --color-rule: var(--color-line);
+  --color-edge: var(--color-line-strong);
+  --color-signal: var(--color-brand);
+  --color-signal-deep: var(--color-brand-deep);
+  --color-hold: var(--color-brand);
+  --color-hold-fill: var(--color-brand);
+  --color-hold-wash: var(--color-brand-wash);
+  --color-paid-fill: var(--color-paid);
+  --color-cancel: var(--color-no);
+  --color-cancel-wash: var(--color-no-wash);
+
+  --radius-tile: 1.375rem;
+  --radius-control: 0.875rem;
+
+  --shadow-tile: 0 1px 2px rgb(24 18 43 / 0.05), 0 12px 28px -18px rgb(24 18 43 / 0.22);
+  --shadow-lift: 0 2px 4px rgb(24 18 43 / 0.06), 0 20px 40px -20px rgb(24 18 43 / 0.32);
+  --shadow-go: 0 2px 4px rgb(194 65 12 / 0.18), 0 14px 28px -12px rgb(234 88 12 / 0.55);
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @utility wide {
-  font-stretch: 125%;
+  font-family: var(--font-display);
+  letter-spacing: -0.015em;
 }
 
 @utility semiwide {
-  font-stretch: 112.5%;
+  font-family: var(--font-display);
+}
+
+@utility display {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
 }
 
 @utility hatch {
   background-image: repeating-linear-gradient(
     -45deg,
-    var(--color-hold-fill) 0 3px,
-    var(--color-hold-wash) 3px 6px
+    var(--color-brand) 0 3px,
+    var(--color-brand-wash) 3px 6px
   );
 }
 
 @layer base {
   :root {
     color-scheme: light;
+    accent-color: var(--color-brand);
+    scrollbar-color: var(--color-line-strong) transparent;
   }
 
   html {
     -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
   }
 
   body {
-    background: var(--color-paper);
+    background: var(--color-canvas);
     color: var(--color-ink);
     font-family: var(--font-sans);
-    font-stretch: 100%;
     line-height: 1.55;
     font-feature-settings: "kern";
     text-rendering: optimizeLegibility;
+    caret-color: var(--color-brand);
   }
 
   h1,
   h2,
   h3 {
-    font-stretch: 112.5%;
-    line-height: 1.15;
-    letter-spacing: -0.01em;
+    font-family: var(--font-display);
+    font-weight: 700;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
     text-wrap: balance;
   }
 
+  a {
+    text-underline-offset: 0.2em;
+    text-decoration-thickness: 1.5px;
+  }
+
   :focus-visible {
-    outline: 3px solid var(--color-signal);
-    outline-offset: 2px;
-    border-radius: 2px;
+    outline: 3px solid var(--color-brand);
+    outline-offset: 3px;
+    border-radius: 6px;
   }
 
   ::selection {
-    background: var(--color-hold-wash);
+    background: var(--color-brand-wash);
+    color: var(--color-ink);
+  }
+
+  ::placeholder {
+    color: var(--color-ink-faint);
+    opacity: 1;
   }
 }
 

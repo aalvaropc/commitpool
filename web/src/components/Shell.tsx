@@ -1,31 +1,36 @@
 import { Link, Outlet } from 'react-router'
+import { Logo } from './ui'
 
 export default function Shell() {
   return (
     <div className="flex min-h-dvh flex-col">
       <a
         href="#main"
-        className="sr-only rounded-md bg-signal px-3 py-2 font-semibold text-white focus:not-sr-only focus:absolute focus:top-2 focus:left-2"
+        className="sr-only rounded-control bg-brand px-3 py-2 font-semibold text-white focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50"
       >
         Skip to content
       </a>
-      <header className="border-b border-rule">
-        <div className="mx-auto flex h-14 w-full max-w-6xl items-center px-4 sm:px-6">
-          <Link to="/" className="wide text-lg font-bold tracking-tight text-ink no-underline">
-            CommitPool
+      <header>
+        <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between gap-3 px-4 sm:px-6">
+          <Link to="/" className="rounded-control no-underline" aria-label="CommitPool home">
+            <Logo />
           </Link>
-          <span className="ml-3 rounded-sm border border-dashed border-edge px-2 py-0.5 text-xs font-semibold text-ink-soft" title="Payments use PayPal's test environment: no real money moves.">
-            PayPal Sandbox
+          <span
+            className="rounded-full bg-brand-wash px-3 py-1.5 text-xs font-semibold text-brand"
+            title="Payments use PayPal's test environment: no real money moves."
+          >
+            Test mode · PayPal Sandbox
           </span>
         </div>
       </header>
       <main id="main" className="flex-1">
         <Outlet />
       </main>
-      <footer className="border-t border-rule">
-        <p className="mx-auto w-full max-w-6xl px-4 py-6 text-sm text-ink-soft sm:px-6">
-          The class happens, or nobody pays. Payments run through PayPal.
-        </p>
+      <footer className="mt-10">
+        <div className="mx-auto flex w-full max-w-6xl flex-col gap-1 px-4 py-8 text-sm text-ink-soft sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <p className="font-display font-semibold text-ink">The class happens, or nobody pays.</p>
+          <p>Payments by PayPal · Reading by Claude on Amazon Bedrock</p>
+        </div>
       </footer>
     </div>
   )

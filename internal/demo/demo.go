@@ -2,6 +2,7 @@ package demo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"path"
@@ -61,7 +62,15 @@ type Participant struct {
 type Result struct {
 	OwnerURL, ShareURL     string
 	OwnerToken, ShareToken string
-	Participants           []Participant
+	Price                  string
+}
+
+const PreparedNote = "Prepared demo data: Maya, her studio and the six participants were written for this demo."
+
+const answerAttempts = 4
+
+type temporary interface {
+	Temporary() bool
 }
 
 type Pace func(context.Context) error
@@ -122,6 +131,7 @@ func Create(ctx context.Context, api Caller, sc Scenario, o Options) (Result, er
 	return Result{
 		OwnerURL: created.OwnerURL, ShareURL: created.ShareURL,
 		OwnerToken: path.Base(created.OwnerURL), ShareToken: path.Base(created.ShareURL),
+		Price: price,
 	}, nil
 }
 
@@ -140,26 +150,41 @@ func Join(ctx context.Context, api Caller, res Result, people []Person) ([]Parti
 }
 
 func Answer(ctx context.Context, api Caller, people []Participant, pace Pace) error {
+	var errs []error
 	for _, p := range people {
-		if pace != nil {
-			if err := pace(ctx); err != nil {
-				return err
-			}
+		if err := wait(ctx, pace, 1); err != nil {
+			return errors.Join(append(errs, err)...)
 		}
-		if err := api.Call(ctx, http.MethodPost, "/api/v1/p/"+p.Token+"/availability", map[string]any{"message": p.Message}, nil); err != nil {
-			return fmt.Errorf("availability of %s: %w", p.Name, err)
+		if err := answer(ctx, api, p, pace); err != nil {
+			errs = append(errs, fmt.Errorf("availability of %s: %w", p.Name, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func answer(ctx context.Context, api Caller, p Participant, pace Pace) error {
+	var err error
+	for attempt := 1; attempt <= answerAttempts; attempt++ {
+		err = api.Call(ctx, http.MethodPost, "/api/v1/p/"+p.Token+"/availability", map[string]any{"message": p.Message}, nil)
+		var t temporary
+		if err == nil || !errors.As(err, &t) || !t.Temporary() || attempt == answerAttempts {
+			return err
+		}
+		if werr := wait(ctx, pace, attempt); werr != nil {
+			return errors.Join(err, werr)
+		}
+	}
+	return err
+}
+
+func wait(ctx context.Context, pace Pace, steps int) error {
+	if pace == nil {
+		return ctx.Err()
+	}
+	for range steps {
+		if err := pace(ctx); err != nil {
+			return err
 		}
 	}
 	return nil
-}
-
-func Run(ctx context.Context, api Caller, sc Scenario, o Options, pace Pace) (Result, error) {
-	res, err := Create(ctx, api, sc, o)
-	if err != nil {
-		return res, err
-	}
-	if res.Participants, err = Join(ctx, api, res, sc.People); err != nil {
-		return res, err
-	}
-	return res, Answer(ctx, api, res.Participants, pace)
 }

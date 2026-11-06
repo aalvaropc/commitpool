@@ -1,3 +1,4 @@
+import { expectAccessible } from './a11y'
 import { expect, test } from './helpers'
 
 test.describe('one-click demo', () => {
@@ -10,6 +11,7 @@ test.describe('one-click demo', () => {
     await expect(page.getByText('Demo workshop · prepared data')).toBeVisible()
     await expect(page.getByText('6 of 6 answered', { exact: false })).toBeVisible({ timeout: 30_000 })
     await expect(page.getByRole('region', { name: 'Next step' })).toContainText('works for 4 — you need 3')
+    await expectAccessible(page, 'the demo organizer page')
 
     const priya = page.getByRole('link', { name: /Act as Priya Raman/ })
     await expect(priya).toBeVisible()

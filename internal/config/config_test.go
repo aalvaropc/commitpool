@@ -307,8 +307,8 @@ func TestLoad_Mailer(t *testing.T) {
 
 func TestLoad_DemoPace(t *testing.T) {
 	cfg, err := load(baseEnv())
-	if err != nil || cfg.DemoPace != 1200*time.Millisecond {
-		t.Fatalf("default demo pace = %v, %v; want 1.2s", cfg.DemoPace, err)
+	if err != nil || cfg.DemoPace != 2*time.Second {
+		t.Fatalf("default demo pace = %v, %v; want 2s", cfg.DemoPace, err)
 	}
 	env := baseEnv()
 	env["COMMITPOOL_DEMO_PACE_MS"] = "0"

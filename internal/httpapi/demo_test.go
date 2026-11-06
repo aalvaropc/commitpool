@@ -1,10 +1,13 @@
 package httpapi_test
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
+	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
-	"time"
 )
 
 type demoJSON struct {
@@ -41,26 +44,50 @@ func TestDemo_CreatesMayasWorkshopAndItsAnswersArrive(t *testing.T) {
 		t.Fatalf("participants = %+v", d.Participants)
 	}
 
-	ownerPath := "/api/v1/owner/" + strings.TrimPrefix(d.OwnerURL, appBaseURL+"/owner/")
-	deadline := time.Now().Add(20 * time.Second)
-	for {
-		var v ownerViewJSON
-		e.call(http.MethodGet, ownerPath, nil, http.StatusOK, &v)
-		if v.Workshop.HostName != "Maya Okafor" || v.Workshop.Title != "Wheel-throwing for beginners" {
-			t.Fatalf("workshop = %+v", v.Workshop)
-		}
-		if len(v.Availabilities) == 6 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("only %d of 6 answers arrived", len(v.Availabilities))
-		}
-		time.Sleep(50 * time.Millisecond)
+	e.background.Wait()
+	var v ownerViewJSON
+	e.call(http.MethodGet, "/api/v1/owner/"+strings.TrimPrefix(d.OwnerURL, appBaseURL+"/owner/"), nil, http.StatusOK, &v)
+	if v.Workshop.HostName != "Maya Okafor" || v.Workshop.Title != "Wheel-throwing for beginners" {
+		t.Fatalf("workshop = %+v", v.Workshop)
+	}
+	if len(v.Availabilities) != 6 {
+		t.Fatalf("%d of 6 answers arrived", len(v.Availabilities))
 	}
 }
 
-func TestDemo_OneWorkshopAMinutePerVisitor(t *testing.T) {
+func TestDemo_AnswersArriveAfterTheVisitorLeaves(t *testing.T) {
+	e := newEnv(t, withDemoMode())
+	ctx, cancel := context.WithCancel(e.ctx)
+	rec := httptest.NewRecorder()
+	e.h.ServeHTTP(rec, httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/demo/workshops", nil))
+	cancel()
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("demo = %d %s", rec.Code, rec.Body)
+	}
+	var d demoJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &d); err != nil {
+		t.Fatal(err)
+	}
+	e.background.Wait()
+	var v ownerViewJSON
+	e.call(http.MethodGet, "/api/v1/owner/"+strings.TrimPrefix(d.OwnerURL, appBaseURL+"/owner/"), nil, http.StatusOK, &v)
+	if len(v.Availabilities) != 6 {
+		t.Errorf("%d of 6 answers arrived after the visitor left", len(v.Availabilities))
+	}
+}
+
+func TestDemo_AVisitorStartsTwoThenWaits(t *testing.T) {
 	e := newEnv(t, withDemoMode(), withRateLimit(120))
 	e.call(http.MethodPost, "/api/v1/demo/workshops", nil, http.StatusCreated, nil)
-	e.wantError(http.MethodPost, "/api/v1/demo/workshops", nil, http.StatusTooManyRequests, "rate_limited")
+	e.call(http.MethodPost, "/api/v1/demo/workshops", nil, http.StatusCreated, nil)
+	rec := e.request(http.MethodPost, "/api/v1/demo/workshops", nil)
+	if rec.Code != http.StatusTooManyRequests || !strings.Contains(rec.Body.String(), "demo_rate_limited") {
+		t.Fatalf("third demo = %d %s, want 429 demo_rate_limited", rec.Code, rec.Body)
+	}
+	if wait, _ := strconv.Atoi(rec.Header().Get("Retry-After")); wait < 1100 || wait > 1200 {
+		t.Errorf("Retry-After = %q, want about 20 minutes", rec.Header().Get("Retry-After"))
+	}
+	if !strings.Contains(rec.Body.String(), "20 minutes") {
+		t.Errorf("message = %s, want the real wait", rec.Body)
+	}
 }

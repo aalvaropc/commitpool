@@ -28,6 +28,14 @@ func (e *Error) Error() string {
 	return fmt.Sprintf("%s (%s)", e.Message, e.Code)
 }
 
+func (e *Error) Temporary() bool {
+	switch e.Status {
+	case http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	}
+	return false
+}
+
 func (c Client) Call(ctx context.Context, method, path string, body, out any) error {
 	if c.Handler == nil {
 		return errors.New("inproc: no handler attached")

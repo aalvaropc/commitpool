@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"sync"
 	"syscall"
 	"time"
 	_ "time/tzdata"
@@ -80,10 +81,11 @@ func run(log *slog.Logger) error {
 		mailer = ses
 	}
 	runner := worker.New(worker.Deps{Store: st, PayPal: pp, Clock: clk, Cfg: cfg, Log: log, Mailer: mailer})
+	var background sync.WaitGroup
 	srv := &http.Server{
 		Addr: ":" + cfg.Port,
 		Handler: httpapi.New(httpapi.Deps{
-			Store: st, Worker: runner, PayPal: pp, AI: interpreter, Clock: clk, Cfg: cfg, Log: log, Dist: dist,
+			Store: st, Worker: runner, PayPal: pp, AI: interpreter, Clock: clk, Cfg: cfg, Log: log, Dist: dist, Background: &background,
 			MCP: mcpserver.New(mcpserver.Config{Secret: cfg.MCPSecret, Clock: clk, Log: log, Version: version()}),
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
@@ -121,11 +123,28 @@ func run(log *slog.Logger) error {
 	if err := srv.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Warn("shutdown: requests still running at the deadline were cut", "error", err)
 	}
+	if err := waitFor(shutdownCtx, &background); err != nil {
+		log.Warn("shutdown: demo answers still arriving at the deadline were cut", "error", err)
+	}
 	if err := runner.WaitInline(shutdownCtx); err != nil {
 		log.Warn("shutdown: inline jobs still running at the deadline; their results reconcile at the next start", "error", err)
 	}
 	log.Info("stopped")
 	return nil
+}
+
+func waitFor(ctx context.Context, wg *sync.WaitGroup) error {
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func newPayPal(cfg *config.Config, log *slog.Logger) (paypal.API, func(), error) {

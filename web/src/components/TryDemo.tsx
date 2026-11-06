@@ -4,8 +4,8 @@ import { api } from '../api'
 import { rememberDemo } from '../lib/demo'
 import { Button, Icon, Notice, type ButtonSize } from './ui'
 
-export function useDemoAvailable(): boolean {
-  const [available, setAvailable] = useState(false)
+export function useDemoAvailable(): boolean | undefined {
+  const [available, setAvailable] = useState<boolean>()
   useEffect(() => {
     let live = true
     api
@@ -19,7 +19,7 @@ export function useDemoAvailable(): boolean {
   return available
 }
 
-export default function TryDemo({ size = 'lg' }: { size?: ButtonSize }) {
+export default function TryDemo({ size = 'lg', pending = false }: { size?: ButtonSize; pending?: boolean }) {
   const navigate = useNavigate()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -35,6 +35,17 @@ export default function TryDemo({ size = 'lg' }: { size?: ButtonSize }) {
       setError(e instanceof Error ? e.message : 'The demo could not start right now.')
       setBusy(false)
     }
+  }
+
+  if (pending) {
+    return (
+      <div aria-hidden="true" className="invisible">
+        <Button variant="go" size={size} tabIndex={-1}>
+          Try it as Maya
+          <Icon name="arrowRight" size={20} />
+        </Button>
+      </div>
+    )
   }
 
   return (

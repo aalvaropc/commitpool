@@ -56,3 +56,11 @@ func TestClient_RefusesWithoutAHandler(t *testing.T) {
 		t.Fatal("Call without a handler: want an error")
 	}
 }
+
+func TestError_TemporaryOnlyForBusyOrUpstreamFailures(t *testing.T) {
+	for status, want := range map[int]bool{429: true, 502: true, 503: true, 504: true, 400: false, 404: false, 409: false, 500: false} {
+		if got := (&inproc.Error{Status: status}).Temporary(); got != want {
+			t.Errorf("status %d temporary = %v, want %v", status, got, want)
+		}
+	}
+}

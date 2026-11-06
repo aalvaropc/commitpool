@@ -128,11 +128,12 @@ Hosted demo: <https://3-209-60-155.sslip.io> (PayPal Sandbox; MCP at
 
 The video follows this script against a local or hosted instance:
 
-1. `make seed` creates the demo workshop through the API: a street
-   photography walk on the next free weekend, minimum 3 of 6 seats at US$10,
-   and six participants whose availability is already sent. Four can come on
-   the Saturday, three on the Sunday, and one message is too vague to read,
-   so the organizer page shows a clarification request.
+1. **Try it as Maya** on the landing page (or `make seed`) creates Maya
+   Okafor's "Wheel-throwing for beginners" at her studio in Greenpoint,
+   Brooklyn: US$45 a spot, a US$120 studio, 3 needed of 6 spots, Saturday or
+   Sunday 10 AM–12 PM New York time. Six participants answer one by one; four
+   can come on the Saturday, three on the Sunday, and one message is too
+   vague to read, so the organizer page shows a clarification request.
 2. On the organizer page, open reservations on the recommended date.
 3. Three participants, in their own browser contexts, accept the consent and
    reserve with Personal Sandbox accounts. The third reservation starts
@@ -148,6 +149,14 @@ Everything in the demo is labelled: the Sandbox, the prepared data, the
 accelerated clock and the induced failure. The demo controls exist only when
 `COMMITPOOL_DEMO_MODE=1` and `COMMITPOOL_SANDBOX_MOCKS=1` are set, and the
 mock header is refused outside the Sandbox.
+
+On a demo server, `GET /api/v1/demo` says demo workshops are on and
+`POST /api/v1/demo/workshops` creates one for Maya: it answers with the
+organizer link, the invite link and one link per participant, then sends the
+six answers in the background, one every `COMMITPOOL_DEMO_PACE_MS`. One
+address can start two demos and then one every 20 minutes (only while the
+rate limit is on); at most 30 start in any hour and 6 fill in at once. Both
+endpoints answer 404 outside demo mode.
 
 ## Stack
 
@@ -180,10 +189,11 @@ For frontend work, run `pnpm -C web dev`; Vite proxies `/api`, `/paypal` and
 
 ### Seed a demo workshop
 
-With the service running, `make seed` creates the demo through the HTTP API: a
-street photography walk on the next free weekend, minimum 3 of 6 seats at
-US$10, and six participants whose availability messages are already sent (one
-of them deliberately vague, so the organizer sees a clarification request). It
+With the service running, `make seed` creates Maya's demo workshop through the
+HTTP API on the next free weekend: 3 needed of 6 spots at US$45, and six
+participants whose availability messages are already sent (one of them
+deliberately vague, so the organizer sees a clarification request). Against a
+server without demo mode, the description says the data is prepared. It
 prints the organizer link, the invite link and one link per participant, and
 needs no credentials. `go run ./cmd/seed -h` lists the flags: another base URL
 (`-base`), price, time zone, payment window, and `-open-payments` to open
@@ -206,7 +216,8 @@ one of them with its default. Secrets are only ever read from the environment.
 | `COMMITPOOL_BEDROCK_MODEL`, `COMMITPOOL_BEDROCK_FALLBACK_MODEL` | Bedrock model or inference profile IDs. The model defaults to Claude Sonnet 4.5 through the US inference profile, `us.anthropic.claude-sonnet-4-5-20250929-v1:0`; the fallback model defaults to none, which turns the refusal fallback off. |
 | `COMMITPOOL_BEDROCK_EFFORT` | Effort for every Bedrock call: `none` (default; Sonnet 4.5 takes no effort), or `low`, `medium`, `high`, `xhigh`, `max` for a model that takes one. |
 | `COMMITPOOL_SEAT_TTL_MIN` | Minutes a reserved seat is held while the buyer approves at PayPal (default `30`). |
-| `COMMITPOOL_DEMO_MODE` | `1` enables the organizer's **Close payments now** control. |
+| `COMMITPOOL_DEMO_MODE` | `1` enables "Try it as Maya" (the demo workshop endpoints) and the organizer's **Close reservations now** control. |
+| `COMMITPOOL_DEMO_PACE_MS` | Milliseconds between the answers of a demo workshop (default `2000`; the end-to-end script uses `50`). |
 | `COMMITPOOL_SANDBOX_MOCKS` | `1` enables **Fail next charge** and the `PayPal-Mock-Response` header; rejected unless `PAYPAL_BASE_URL` is a sandbox URL. |
 | `COMMITPOOL_MAILER`, `COMMITPOOL_MAIL_FROM` | How notifications go out: `log` (default: logged with a masked address, not sent) or `ses` (Amazon SES v2 with the default AWS credentials, from `COMMITPOOL_MAIL_FROM`, a verified sender identity). |
 | `COMMITPOOL_RATE_LIMIT` | Writes (POST, PUT) a minute one client address may send, in bursts of half that; `off` turns it off (the end-to-end script does). Default `120`. Reads are never limited. |

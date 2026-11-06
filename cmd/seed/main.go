@@ -74,18 +74,20 @@ func run(ctx context.Context, client *http.Client, opts options, out io.Writer) 
 	}
 	api := apiClient{client: client, base: strings.TrimRight(opts.BaseURL, "/")}
 	sc := demo.Maya
-	price := opts.Price
-	if price == "" {
-		price = sc.Price
+	var info struct {
+		Workshops bool `json:"workshops"`
 	}
-	seeded, err := demo.Create(ctx, api, sc, demo.Options{Now: opts.Now, Timezone: opts.Timezone, WindowMin: opts.WindowMin, Price: price, Demo: true})
+	if err := api.Call(ctx, http.MethodGet, "/api/v1/demo", nil, &info); err != nil || !info.Workshops {
+		sc.Description += " " + demo.PreparedNote
+	}
+	seeded, err := demo.Create(ctx, api, sc, demo.Options{Now: opts.Now, Timezone: opts.Timezone, WindowMin: opts.WindowMin, Price: opts.Price, Demo: true})
 	if err != nil {
 		return res, err
 	}
 	res.OwnerURL, res.ShareURL = seeded.OwnerURL, seeded.ShareURL
 	ownerToken := seeded.OwnerToken
 	fmt.Fprintf(out, "%s with %s: %d needed of %d spots, %s %s a person, studio %s %s, reservations stay open %s once opened\n",
-		sc.Title, sc.HostName, sc.Minimum, sc.Capacity, sc.Currency, price, sc.Currency, sc.VenueCost, window(opts.WindowMin))
+		sc.Title, sc.HostName, sc.Minimum, sc.Capacity, sc.Currency, seeded.Price, sc.Currency, sc.VenueCost, window(opts.WindowMin))
 	fmt.Fprintf(out, "  organizer link (keep it private): %s\n", res.OwnerURL)
 	fmt.Fprintf(out, "  invite link:                      %s\n\n", res.ShareURL)
 
@@ -165,6 +167,24 @@ func window(minutes int) string {
 	return fmt.Sprintf("%d min", minutes)
 }
 
+type statusError struct {
+	method, route string
+	status        int
+	body          string
+}
+
+func (e *statusError) Error() string {
+	return fmt.Sprintf("%s %s: HTTP %d: %s", e.method, e.route, e.status, e.body)
+}
+
+func (e *statusError) Temporary() bool {
+	switch e.status {
+	case http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	}
+	return false
+}
+
 type apiClient struct {
 	client *http.Client
 	base   string
@@ -196,7 +216,7 @@ func (a apiClient) Call(ctx context.Context, method, route string, body any, out
 		return fmt.Errorf("%s %s: %w", method, route, err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return fmt.Errorf("%s %s: HTTP %d: %s", method, route, resp.StatusCode, strings.TrimSpace(string(raw)))
+		return &statusError{method: method, route: route, status: resp.StatusCode, body: strings.TrimSpace(string(raw))}
 	}
 	if out == nil {
 		return nil

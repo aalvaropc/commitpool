@@ -17,9 +17,15 @@ type call struct {
 	Body         map[string]any
 }
 
+type busy struct{}
+
+func (busy) Error() string   { return "every reader is busy" }
+func (busy) Temporary() bool { return true }
+
 type fakeAPI struct {
-	calls []call
-	fail  string
+	calls  []call
+	fail   string
+	busyOn map[string]int
 }
 
 func (f *fakeAPI) Call(_ context.Context, method, path string, body, out any) error {
@@ -29,6 +35,12 @@ func (f *fakeAPI) Call(_ context.Context, method, path string, body, out any) er
 	f.calls = append(f.calls, call{method, path, b})
 	if f.fail != "" && strings.Contains(path, f.fail) {
 		return errors.New("refused")
+	}
+	for key, left := range f.busyOn {
+		if strings.Contains(path, key) && left > 0 {
+			f.busyOn[key] = left - 1
+			return busy{}
+		}
 	}
 	var answer any
 	switch {
@@ -41,6 +53,21 @@ func (f *fakeAPI) Call(_ context.Context, method, path string, body, out any) er
 	}
 	raw, _ = json.Marshal(answer)
 	return json.Unmarshal(raw, out)
+}
+
+func (f *fakeAPI) answers() []string {
+	var out []string
+	for _, c := range f.calls {
+		if strings.HasSuffix(c.Path, "/availability") {
+			out = append(out, c.Body["message"].(string))
+		}
+	}
+	return out
+}
+
+func mayaOptions() demo.Options {
+	ny, _ := time.LoadLocation("America/New_York")
+	return demo.Options{Now: time.Date(2026, 11, 6, 9, 0, 0, 0, ny), Timezone: "America/New_York", WindowMin: 1440, Demo: true}
 }
 
 func TestMaya_IsTheDemoPersona(t *testing.T) {
@@ -62,13 +89,9 @@ func TestFirstSaturday_LeavesTheWindowAndLeadTime(t *testing.T) {
 	}
 }
 
-func TestRun_CreatesJoinsAndAnswersInOrder(t *testing.T) {
+func TestCreate_SendsMayasWorkshopAndThePriceItUsed(t *testing.T) {
 	api := &fakeAPI{}
-	ny, _ := time.LoadLocation("America/New_York")
-	var paced int
-	res, err := demo.Run(context.Background(), api, demo.Maya, demo.Options{
-		Now: time.Date(2026, 11, 6, 9, 0, 0, 0, ny), Timezone: "America/New_York", WindowMin: 1440, Demo: true,
-	}, func(context.Context) error { paced++; return nil })
+	res, err := demo.Create(context.Background(), api, demo.Maya, mayaOptions())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,27 +102,71 @@ func TestRun_CreatesJoinsAndAnswersInOrder(t *testing.T) {
 	if dates := create.Body["dates"].([]any); len(dates) != 2 {
 		t.Errorf("dates = %v, want Saturday and Sunday", dates)
 	}
-	if res.OwnerURL != "https://cp.test/owner/OWNER" || len(res.Participants) != 6 || paced != 6 {
-		t.Errorf("result = %+v, paced %d", res, paced)
+	if res.OwnerURL != "https://cp.test/owner/OWNER" || res.ShareToken != "SHARE" || res.Price != "45.00" {
+		t.Errorf("result = %+v", res)
 	}
-	if res.Participants[0].Name != "Priya Raman" || res.Participants[0].Token == "" {
-		t.Errorf("first participant = %+v", res.Participants[0])
-	}
-	var answers []string
-	for _, c := range api.calls {
-		if strings.HasSuffix(c.Path, "/availability") {
-			answers = append(answers, c.Body["message"].(string))
-		}
-	}
-	if len(answers) != 6 || answers[0] != demo.Maya.People[0].Message {
-		t.Errorf("answers = %v", answers)
+	o := mayaOptions()
+	o.Price = "10.00"
+	if res, _ := demo.Create(context.Background(), &fakeAPI{}, demo.Maya, o); res.Price != "10.00" {
+		t.Errorf("price = %q, want the override", res.Price)
 	}
 }
 
-func TestRun_StopsAtTheFirstRefusal(t *testing.T) {
-	api := &fakeAPI{fail: "/participants"}
-	_, err := demo.Run(context.Background(), api, demo.Maya, demo.Options{Now: time.Now(), Timezone: "UTC", WindowMin: 60}, nil)
+func TestJoinAndAnswer_InTheScenarioOrder(t *testing.T) {
+	api := &fakeAPI{}
+	people, err := demo.Join(context.Background(), api, demo.Result{ShareToken: "SHARE"}, demo.Maya.People)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(people) != 6 || people[0].Name != "Priya Raman" || people[0].Token == "" {
+		t.Fatalf("people = %+v", people)
+	}
+	var paced int
+	if err := demo.Answer(context.Background(), api, people, func(context.Context) error { paced++; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if got := api.answers(); len(got) != 6 || got[0] != demo.Maya.People[0].Message || paced != 6 {
+		t.Errorf("answers = %v, paced %d", got, paced)
+	}
+}
+
+func TestJoin_NamesWhoCouldNotJoin(t *testing.T) {
+	_, err := demo.Join(context.Background(), &fakeAPI{fail: "/participants"}, demo.Result{ShareToken: "SHARE"}, demo.Maya.People)
 	if err == nil || !strings.Contains(err.Error(), "Priya Raman") {
-		t.Fatalf("err = %v, want the join of the first person named", err)
+		t.Fatalf("err = %v, want the first person named", err)
+	}
+}
+
+func TestAnswer_WaitsOutABusyReaderAndMovesOnPastARefusal(t *testing.T) {
+	people := []demo.Participant{{Name: "Priya", Message: "a", Token: "P1"}, {Name: "Ben", Message: "b", Token: "P2"}, {Name: "Lucía", Message: "c", Token: "P3"}}
+	api := &fakeAPI{busyOn: map[string]int{"/p/P1/": 2}, fail: "/p/P2/"}
+	var paced int
+	err := demo.Answer(context.Background(), api, people, func(context.Context) error { paced++; return nil })
+	if err == nil || !strings.Contains(err.Error(), "Ben") || strings.Contains(err.Error(), "Priya") {
+		t.Fatalf("err = %v, want only Ben's refusal", err)
+	}
+	if got := api.answers(); len(got) != 5 || got[4] != "c" {
+		t.Errorf("answers = %v, want Priya three times, Ben once, then Lucía", got)
+	}
+	if paced != 3+1+2 {
+		t.Errorf("paced %d times, want one step per person plus 1 and 2 steps of backoff", paced)
+	}
+}
+
+func TestAnswer_GivesUpOnAReaderThatStaysBusy(t *testing.T) {
+	people := []demo.Participant{{Name: "Priya", Message: "a", Token: "P1"}}
+	api := &fakeAPI{busyOn: map[string]int{"/p/P1/": 10}}
+	if err := demo.Answer(context.Background(), api, people, nil); err == nil || len(api.answers()) != 4 {
+		t.Errorf("err %v after %d tries, want an error after 4", err, len(api.answers()))
+	}
+}
+
+func TestAnswer_StopsWhenTheTimeIsUp(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	api := &fakeAPI{}
+	err := demo.Answer(ctx, api, []demo.Participant{{Name: "Priya", Token: "P1"}}, func(ctx context.Context) error { return ctx.Err() })
+	if !errors.Is(err, context.Canceled) || len(api.calls) != 0 {
+		t.Errorf("err %v with %d calls, want cancelled before any call", err, len(api.calls))
 	}
 }

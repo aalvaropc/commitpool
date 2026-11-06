@@ -43,6 +43,7 @@ export default function Owner() {
         paymentsOpen: d.proposal?.payments_open ?? false,
         enrollments: d.enrollments.map((e) => e.status),
         explanationPending: pending,
+        demoFilling: d.workshop.demo === true && d.availabilities.length < d.participants.length,
       })
     : null
   usePolling(view.reload, refresh ?? 0, refresh !== null)

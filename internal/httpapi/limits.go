@@ -25,7 +25,8 @@ const (
 
 type rateLimiter struct {
 	mu        sync.Mutex
-	perMin    int
+	every     time.Duration
+	burst     int
 	buckets   map[string]*bucket
 	lastSweep time.Time
 }
@@ -36,15 +37,24 @@ type bucket struct {
 }
 
 func newRateLimiter(perMin int) *rateLimiter {
-	return &rateLimiter{perMin: perMin, buckets: map[string]*bucket{}}
+	return newIntervalLimiter(time.Minute/time.Duration(perMin), max(perMin/2, 1))
+}
+
+func newIntervalLimiter(every time.Duration, burst int) *rateLimiter {
+	return &rateLimiter{every: every, burst: burst, buckets: map[string]*bucket{}}
 }
 
 func (l *rateLimiter) allow(addr string, now time.Time) bool {
+	return l.wait(addr, now) == 0
+}
+
+func (l *rateLimiter) wait(addr string, now time.Time) time.Duration {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if now.Sub(l.lastSweep) > sweepEvery {
+		idle := max(idleAfter, l.every*time.Duration(l.burst))
 		for a, b := range l.buckets {
-			if now.Sub(b.seen) > idleAfter {
+			if now.Sub(b.seen) > idle {
 				delete(l.buckets, a)
 			}
 		}
@@ -52,11 +62,16 @@ func (l *rateLimiter) allow(addr string, now time.Time) bool {
 	}
 	b, ok := l.buckets[addr]
 	if !ok {
-		b = &bucket{lim: rate.NewLimiter(rate.Every(time.Minute/time.Duration(l.perMin)), max(l.perMin/2, 1))}
+		b = &bucket{lim: rate.NewLimiter(rate.Every(l.every), l.burst)}
 		l.buckets[addr] = b
 	}
 	b.seen = now
-	return b.lim.AllowN(now, 1)
+	r := b.lim.ReserveN(now, 1)
+	if d := r.DelayFrom(now); d > 0 {
+		r.CancelAt(now)
+		return d
+	}
+	return 0
 }
 
 func limited(r *http.Request) bool {

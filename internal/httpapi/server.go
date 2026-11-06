@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aalvaropc/commitpool/internal/ai"
@@ -38,6 +39,8 @@ type Deps struct {
 	Log    *slog.Logger
 	Dist   fs.FS
 	MCP    MCPServer
+
+	Background *sync.WaitGroup
 }
 
 type MCPServer interface {
@@ -61,11 +64,14 @@ func New(d Deps) http.Handler {
 	if d.Clock == nil {
 		d.Clock = clock.Real{}
 	}
+	if d.Background == nil {
+		d.Background = &sync.WaitGroup{}
+	}
 	s := &server{Deps: d, explanations: newExplanationCache(), aiSem: make(chan struct{}, aiSlots)}
 	if d.Cfg.RateLimitPerMin > 0 {
 		s.limiter = newRateLimiter(d.Cfg.RateLimitPerMin)
-		s.demoQuota = newDemoQuota()
 	}
+	s.demoQuota = newDemoQuota(s.limiter != nil)
 	mux := http.NewServeMux()
 	s.routes(mux)
 	h := s.observe(mux)

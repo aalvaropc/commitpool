@@ -133,9 +133,11 @@ interface RefreshInput {
   paymentsOpen: boolean
   enrollments: OwnerView['enrollments'][number]['status'][]
   explanationPending: boolean
+  demoFilling?: boolean
 }
 
 export function ownerRefresh(s: RefreshInput): number | null {
+  if (s.demoFilling && s.status === 'COLLECTING') return 2000
   if (s.explanationPending && s.status === 'COLLECTING') return 3000
   if (shouldPollOwner(s)) return 5000
   if (s.status === 'COLLECTING') return 8000

@@ -30,10 +30,12 @@ var t0 = time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
 
 type ownerView struct {
 	Workshop struct {
-		Status   string `json:"status"`
-		Minimum  int    `json:"minimum"`
-		Capacity int    `json:"capacity"`
-		Price    struct {
+		Description string `json:"description"`
+		Demo        bool   `json:"demo"`
+		Status      string `json:"status"`
+		Minimum     int    `json:"minimum"`
+		Capacity    int    `json:"capacity"`
+		Price       struct {
 			Value string `json:"value"`
 		} `json:"price"`
 		PaymentWindowMin int `json:"payment_window_min"`
@@ -60,7 +62,7 @@ type ownerView struct {
 	} `json:"recommendation"`
 }
 
-func newApp(t *testing.T) *httptest.Server {
+func newApp(t *testing.T, edits ...func(*config.Config)) *httptest.Server {
 	t.Helper()
 	st := storetest.New(t)
 	fake := paypaltest.NewServer()
@@ -75,6 +77,9 @@ func newApp(t *testing.T) *httptest.Server {
 		AIProvider:         config.AIProviderFake,
 		SeatTTL:            30 * time.Minute,
 		FakePayPal:         true,
+	}
+	for _, edit := range edits {
+		edit(&cfg)
 	}
 	pp, err := paypal.New(paypal.Config{BaseURL: fake.URL, ClientID: cfg.PayPalClientID, ClientSecret: cfg.PayPalClientSecret})
 	if err != nil {
@@ -199,5 +204,21 @@ func TestRun_OpenPaymentsFixesTheRecommendedDate(t *testing.T) {
 	}
 	if !res.PaymentsOpened || !strings.Contains(out, "Reservations are open") {
 		t.Errorf("result/output do not say payments opened: %+v\n%s", res, out)
+	}
+}
+
+func TestRun_LabelsPreparedDataWhateverTheServerMode(t *testing.T) {
+	plain := newApp(t)
+	res, _ := seed(t, plain, false)
+	if got := ownerViewOf(t, plain, res).Workshop; got.Demo || !strings.HasSuffix(got.Description, demo.PreparedNote) {
+		t.Errorf("without demo mode: demo %v, description %q; want the prepared-data note in the description", got.Demo, got.Description)
+	}
+}
+
+func TestRun_LeavesTheLabelToADemoServer(t *testing.T) {
+	demoServer := newApp(t, func(c *config.Config) { c.DemoMode = true })
+	res, _ := seed(t, demoServer, false)
+	if got := ownerViewOf(t, demoServer, res).Workshop; !got.Demo || strings.Contains(got.Description, demo.PreparedNote) {
+		t.Errorf("with demo mode: demo %v, description %q; want the label and Maya's own description", got.Demo, got.Description)
 	}
 }

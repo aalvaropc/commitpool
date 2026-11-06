@@ -12,7 +12,7 @@ import (
 const (
 	defaultPayPalBaseURL = "https://api-m.sandbox.paypal.com"
 	defaultSeatTTLMin    = 30
-	defaultDemoPaceMS    = 1200
+	defaultDemoPaceMS    = 2000
 
 	DefaultBedrockModel         = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
 	DefaultBedrockFallbackModel = ""

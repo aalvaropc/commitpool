@@ -3,7 +3,7 @@ import TryDemo, { useDemoAvailable } from '../components/TryDemo'
 import { Avatar, ButtonLink, Icon, Meter, Pill, Tile, VerdictChip, type IconName } from '../components/ui'
 
 const chat = [
-  { name: 'Priya Raman', text: 'Saturday works for me!' },
+  { name: 'Priya Raman', text: 'Saturday works for me, Sunday I can’t.' },
   { name: 'Ben Whitaker', text: 'either day, but Sat only if we finish before six' },
   { name: 'Grace Liu', text: 'maybe? ideally in the afternoon' },
 ]
@@ -17,8 +17,8 @@ const grid = [
 const roles: { icon: IconName; title: string; body: string }[] = [
   { icon: 'quote', title: 'Claude reads', body: 'Each answer becomes a verdict per date, with the words it came from. Vague answers get a question, not a guess.' },
   { icon: 'calendar', title: 'CommitPool decides', body: 'Who can come, which date works, when to charge and when to release. The rules are code, not a model.' },
-  { icon: 'lock', title: 'PayPal moves the money', body: 'Holds, charges, releases and refunds through PayPal’s own authorize-then-capture flow.' },
-  { icon: 'check', title: 'People approve', body: 'Every hold is approved by the person at PayPal. Every date is opened by the organizer.' },
+  { icon: 'lock', title: 'PayPal moves the money', body: 'Every reservation, charge, release and refund goes through PayPal. CommitPool only tells PayPal when.' },
+  { icon: 'check', title: 'People approve', body: 'Each person approves their own reservation at PayPal. Only the organizer opens a date.' },
 ]
 
 const faq = [
@@ -36,7 +36,7 @@ const faq = [
   },
   {
     q: 'Does anyone need an account?',
-    a: 'No. The organizer gets a private link to their workshop; participants join from the invite link with a name and get a private link of their own.',
+    a: 'Not a CommitPool account. The organizer gets a private link to their workshop; participants join from the invite link with a name and get a private link of their own. Reserving a spot happens at PayPal.',
   },
   {
     q: 'Is this real money?',
@@ -89,8 +89,8 @@ export default function Home() {
             reserve for the class to run.
           </p>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
-            {demo && <TryDemo />}
-            <ButtonLink to="/new" variant={demo ? 'secondary' : 'primary'} size="lg">
+            {demo !== false && <TryDemo pending={demo === undefined} />}
+            <ButtonLink to="/new" variant={demo === false ? 'primary' : 'secondary'} size="lg">
               Create a workshop
             </ButtonLink>
           </div>
@@ -136,7 +136,7 @@ export default function Home() {
         <h2 id="story-title" className="max-w-[22ch] text-3xl sm:text-5xl">
           From “maybe” to “it’s on” in three steps
         </h2>
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 lg:grid-cols-3">
           <Step n={1} title="Everyone answers in their own words" body="Share one link in the group chat. People join with a name and say when they can come, the way they already would.">
             <ul className="flex flex-col gap-2.5" aria-label="Example answers">
               {chat.map((m) => (
@@ -185,7 +185,7 @@ export default function Home() {
               </tbody>
             </table>
           </Step>
-          <Step n={3} title="Reserve now, pay only if it happens" body="Each person reserves with a PayPal hold. Once enough reserve, the holds are charged and the class is on. Not enough? Every hold is released.">
+          <Step n={3} title="Reserve now, pay only if it happens" body="Each person reserves with PayPal and nothing is charged yet. Once enough reserve, they are charged and the class is on. Not enough by the deadline? Nobody pays.">
             <div className="flex h-full flex-col justify-center gap-3">
               <p className="font-display text-3xl font-extrabold text-paid">It’s on</p>
               <Meter capacity={6} needed={3} paid={4} reserved={0} showCaption={false} />
@@ -208,7 +208,7 @@ export default function Home() {
             <h3 className="text-2xl">For everyone who comes</h3>
             <Checks
               tone="text-paid"
-              items={['Say when you can come in plain words.', 'Reserve with PayPal; you are charged only if it happens.', 'Change your mind before you are charged and your hold is released.']}
+              items={['Say when you can come in plain words.', 'Reserve with PayPal; you are charged only if it happens.', 'Give up your spot before you are charged and you pay nothing.']}
             />
           </Tile>
         </div>
@@ -239,12 +239,17 @@ export default function Home() {
             </h2>
             <p className="text-ink-soft">
               CommitPool is also an MCP server. An assistant can create the workshop, report who can come and open reservations once the
-              organizer approves the exact terms. No tool moves money: every hold is still approved by a person at PayPal.
+              organizer approves the exact terms. No tool moves money: every reservation is still approved by a person at PayPal.
             </p>
           </div>
-          <pre tabIndex={0} aria-label="Command to add CommitPool to Claude Code" className="overflow-x-auto rounded-control bg-ink p-4 text-sm leading-relaxed text-on-brand-soft">
-            <code>{`claude mcp add --transport http commitpool \\\n  ${origin}/mcp`}</code>
-          </pre>
+          <figure className="flex min-w-0 flex-col gap-2">
+            <figcaption id="mcp-command" className="text-sm font-semibold">
+              Add it to Claude Code
+            </figcaption>
+            <pre role="region" aria-labelledby="mcp-command" tabIndex={0} className="overflow-x-auto rounded-control bg-ink p-4 text-sm leading-relaxed text-on-brand-soft">
+              <code>{`claude mcp add --transport http commitpool \\\n  ${origin}/mcp`}</code>
+            </pre>
+          </figure>
         </Tile>
       </section>
 

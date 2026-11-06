@@ -60,9 +60,9 @@ export default function EnrollmentList({ token, view, onChange }: Props) {
             const canFail = mocks && (e.status === 'SEAT_RESERVED' || e.status === 'AUTHORIZED') && e.payment && !e.payment.capture_status
             return (
               <li key={e.id} className="flex flex-col gap-2 border-t border-line py-3.5 first:border-t-0 sm:flex-row sm:items-start sm:gap-4">
-                <p className="flex items-center gap-2.5 font-semibold sm:w-44 sm:shrink-0">
+                <p className="flex min-w-0 items-center gap-2.5 font-semibold sm:w-44 sm:shrink-0">
                   <Avatar name={e.display_name ?? '?'} size="sm" />
-                  <span>{e.display_name}</span>
+                  <span className="min-w-0 [overflow-wrap:anywhere]">{e.display_name}</span>
                 </p>
                 <div className="flex min-w-0 flex-1 flex-col gap-1.5">
                   <p className="flex flex-wrap items-center gap-2">
@@ -70,7 +70,7 @@ export default function EnrollmentList({ token, view, onChange }: Props) {
                   </p>
                   {line && (
                     <details className="text-sm text-ink-soft">
-                      <summary className="w-fit cursor-pointer rounded-sm font-medium text-ink-soft hover:text-ink">PayPal details</summary>
+                      <summary className="-my-2 w-fit cursor-pointer rounded-sm py-3 font-medium text-ink-soft hover:text-ink">PayPal details</summary>
                       <p className="mt-1 break-words">
                         {line} · {human(e.status)}
                       </p>

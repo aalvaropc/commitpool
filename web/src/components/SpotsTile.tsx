@@ -13,7 +13,7 @@ export default function SpotsTile({ view }: { view: OwnerView }) {
       </h2>
       <div className="grid grid-cols-3 gap-3">
         <Stat label="Joined" value={t.interested} />
-        <Stat label="Reserved" value={<span className="text-brand">{t.authorized}</span>} />
+        <Stat label="Reserved" value={<span className="text-brand">{t.authorized + t.capturing + t.pending}</span>} />
         <Stat label="Paid" value={<span className="text-paid">{t.paid}</span>} />
       </div>
       {view.proposal ? (

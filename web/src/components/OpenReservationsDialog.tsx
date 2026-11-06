@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { api, type OwnerView } from '../api'
+import { dateNames } from '../lib/event'
 import { lockedTerms } from '../lib/terms'
-import { formatDateRange, formatDay } from '../lib/time'
+import { formatDateRange } from '../lib/time'
 import { TermsList } from './Terms'
 import { ConfirmDialog, Notice } from './ui'
 
@@ -37,7 +38,7 @@ export default function OpenReservationsDialog({ token, view, dateId, onClose, o
   return (
     <ConfirmDialog
       open={date !== undefined}
-      title={date ? `Open reservations for ${formatDay(date.starts_at, w.timezone)}?` : 'Open reservations?'}
+      title={date ? `Open reservations for ${dateNames(view.dates, w.timezone).get(date.id)}?` : 'Open reservations?'}
       confirmLabel="Open reservations"
       busy={busy}
       busyLabel="Opening reservations…"

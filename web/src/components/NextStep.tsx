@@ -9,6 +9,11 @@ interface Props {
   onOpen: (dateId: string) => void
 }
 
+export function InviteLink({ url, hint }: { url?: string; hint: string }) {
+  if (!url) return <p className="text-sm text-ink-soft">This workshop was created before invite links were kept, so there is none to show.</p>
+  return <CopyField id="share-url" label="Invite link" value={url} hint={hint} />
+}
+
 export default function NextStep({ view, step, onOpen }: Props) {
   const action = step.action
   return (
@@ -26,9 +31,7 @@ export default function NextStep({ view, step, onOpen }: Props) {
           </Button>
         </div>
       )}
-      {action.kind === 'share' && view.share_url && (
-        <CopyField id="share-url" label="Invite link" value={view.share_url} hint="Send it to your group chat. Anyone with it can join and say when they can come." />
-      )}
+      {action.kind === 'share' && <InviteLink url={view.share_url} hint="Send it to your group chat. Anyone with it can join and say when they can come." />}
     </Tile>
   )
 }

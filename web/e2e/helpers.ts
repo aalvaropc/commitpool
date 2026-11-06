@@ -94,5 +94,9 @@ export function enrollmentRow(owner: Page, name: string): Locator {
 }
 
 export function paidSeats(owner: Page, paid: number): Locator {
-  return owner.getByRole('region', { name: 'Spots', exact: true }).getByText(new RegExp(`^${paid} paid · `))
+  return owner
+    .getByRole('region', { name: 'Spots', exact: true })
+    .locator('dl')
+    .filter({ has: owner.locator('dt', { hasText: /^Paid$/ }) })
+    .locator('dd', { hasText: new RegExp(`^${paid}$`) })
 }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError } from '../api'
+import { startPolling } from './polling'
 
 export interface Resource<T> {
   data?: T
@@ -42,17 +43,7 @@ export function usePolling(fn: () => Promise<unknown>, ms: number, active: boole
   fnRef.current = fn
   useEffect(() => {
     if (!active) return
-    let stopped = false
-    let timer: ReturnType<typeof setTimeout>
-    const tick = async () => {
-      if (globalThis.document?.visibilityState !== 'hidden') await fnRef.current()
-      if (!stopped) timer = setTimeout(tick, ms)
-    }
-    timer = setTimeout(tick, ms)
-    return () => {
-      stopped = true
-      clearTimeout(timer)
-    }
+    return startPolling(() => fnRef.current(), ms, globalThis.document)
   }, [active, ms])
 }
 

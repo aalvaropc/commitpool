@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -30,7 +28,7 @@ type Config struct {
 
 type Server struct {
 	cfg Config
-	api http.Handler
+	api inproc.Client
 	srv *mcp.Server
 }
 
@@ -56,7 +54,7 @@ func New(cfg Config) *Server {
 	return s
 }
 
-func (s *Server) Attach(api http.Handler) { s.api = api }
+func (s *Server) Attach(api http.Handler) { s.api = inproc.Client{Handler: api} }
 
 func (s *Server) MCP() *mcp.Server { return s.srv }
 
@@ -93,72 +91,8 @@ link is a person's seat, so keep both private. You can prepare everything, but m
 the person approves at PayPal, and you must show terms to the person and get their yes before
 confirm_open_payments or get_checkout_link.`
 
-type apiError struct {
-	Status  int
-	Code    string `json:"error"`
-	Message string `json:"message"`
-	Reason  string `json:"reason"`
-}
-
-func (e *apiError) Error() string {
-	if e.Reason != "" {
-		return fmt.Sprintf("%s (%s, %s)", e.Message, e.Code, e.Reason)
-	}
-	return fmt.Sprintf("%s (%s)", e.Message, e.Code)
-}
-
 func (s *Server) call(ctx context.Context, method, path string, body, out any) error {
-	if s.api == nil {
-		return errors.New("mcpserver: no API attached")
-	}
-	var reader io.Reader
-	if body != nil {
-		raw, err := json.Marshal(body)
-		if err != nil {
-			return err
-		}
-		reader = bytes.NewReader(raw)
-	}
-	req, err := http.NewRequestWithContext(inproc.With(ctx), method, path, reader)
-	if err != nil {
-		return err
-	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	rec := &recorder{header: http.Header{}, status: http.StatusOK}
-	s.api.ServeHTTP(rec, req)
-	if rec.status >= 400 {
-		ae := &apiError{Status: rec.status}
-		if err := json.Unmarshal(rec.body.Bytes(), ae); err != nil || ae.Message == "" {
-			ae.Code, ae.Message = "http_"+fmt.Sprint(rec.status), http.StatusText(rec.status)
-		}
-		return ae
-	}
-	if out == nil {
-		return nil
-	}
-	return json.Unmarshal(rec.body.Bytes(), out)
-}
-
-type recorder struct {
-	header http.Header
-	status int
-	wrote  bool
-	body   bytes.Buffer
-}
-
-func (r *recorder) Header() http.Header { return r.header }
-
-func (r *recorder) WriteHeader(status int) {
-	if !r.wrote {
-		r.status, r.wrote = status, true
-	}
-}
-
-func (r *recorder) Write(p []byte) (int, error) {
-	r.wrote = true
-	return r.body.Write(p)
+	return s.api.Call(ctx, method, path, body, out)
 }
 
 var tokenPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{16,128}$`)

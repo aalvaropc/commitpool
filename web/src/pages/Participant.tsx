@@ -63,7 +63,7 @@ export default function Participant() {
     <Page wide>
       <title>{`${w.title} – CommitPool`}</title>
       <div className="mx-auto flex max-w-4xl flex-col gap-4 sm:gap-5">
-        <EventHero view={d} seed={token} compact />
+        <EventHero view={d} compact />
         <p className="flex items-center gap-2 text-sm text-ink-soft">
           <Avatar name={d.participant.display_name} size="sm" />
           You joined as {d.participant.display_name}.

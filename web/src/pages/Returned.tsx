@@ -15,7 +15,7 @@ export default function Returned() {
         <h1 className="text-2xl text-ink-soft">Back from PayPal</h1>
         <div role={message.tone === 'attention' ? 'alert' : 'status'} className="flex flex-col gap-3">
           <span aria-hidden="true" className={`grid size-12 place-items-center rounded-full ${toneWash[message.tone]} ${toneText[message.tone]}`}>
-            <Icon name={message.tone === 'hold' || message.tone === 'paid' ? 'check' : message.tone === 'neutral' ? 'help' : 'x'} size={24} />
+            <Icon name={result === 'pending' ? 'clock' : message.tone === 'hold' || message.tone === 'paid' ? 'check' : message.tone === 'neutral' ? 'help' : 'x'} size={24} />
           </span>
           <p className="font-display text-3xl font-bold">{message.title}</p>
           <p className="max-w-prose text-ink-soft">{message.body}</p>

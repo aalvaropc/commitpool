@@ -8,6 +8,7 @@ export function verdictText(v: DateVerdict): string {
     case 'unavailable':
       return 'Can’t come'
     case 'conditional':
+      if (!v.condition.time) return 'Only with a condition'
       if (v.condition.type === 'end_before') return `Only if it ends by ${clock12(v.condition.time)}`
       if (v.condition.type === 'start_after') return `Only if it starts at ${clock12(v.condition.time)} or later`
       return 'Only with a condition'

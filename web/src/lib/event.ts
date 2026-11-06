@@ -1,5 +1,4 @@
 import type { CandidateDate, Group } from '../api'
-import { count } from './plural'
 import { formatDateRange, formatDay, formatTimeRange } from './time'
 
 export interface DateRow {
@@ -27,7 +26,7 @@ export function dateRows(dates: CandidateDate[], group: Group, chosenId: string 
   }))
 }
 
-export function groupLine(group: Group, needed: number): string {
-  const head = group.answered === 0 ? 'Be the first to say when you can come.' : `${count(group.answered, 'person', 'people')} answered so far.`
-  return `${head} ${needed} needed to happen.`
+export function groupSummary(group: Group, needed: number): { count: number | null; text: string } {
+  if (group.answered === 0) return { count: null, text: `Be the first to say when you can come. ${needed} needed to happen.` }
+  return { count: group.answered, text: `${group.answered === 1 ? 'person' : 'people'} answered so far. ${needed} needed to happen.` }
 }

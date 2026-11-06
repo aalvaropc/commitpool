@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dateRows, groupLine } from './event'
+import { dateRows, groupSummary } from './event'
 
 const dates = [
   { id: 'sat', starts_at: '2026-11-14T15:00:00Z', ends_at: '2026-11-14T17:00:00Z', label: '' },
@@ -25,13 +25,13 @@ describe('dateRows', () => {
   })
 })
 
-describe('groupLine', () => {
-  it('invites the first answer', () => {
-    expect(groupLine({ answered: 0, can_come: {} }, 3)).toBe('Be the first to say when you can come. 3 needed to happen.')
+describe('groupSummary', () => {
+  it('invites the first answer without a zero', () => {
+    expect(groupSummary({ answered: 0, can_come: {} }, 3)).toEqual({ count: null, text: 'Be the first to say when you can come. 3 needed to happen.' })
   })
 
   it('counts the answers so far', () => {
-    expect(groupLine({ answered: 1, can_come: {} }, 3)).toBe('1 person answered so far. 3 needed to happen.')
-    expect(groupLine({ answered: 4, can_come: {} }, 3)).toBe('4 people answered so far. 3 needed to happen.')
+    expect(groupSummary({ answered: 1, can_come: {} }, 3)).toEqual({ count: 1, text: 'person answered so far. 3 needed to happen.' })
+    expect(groupSummary({ answered: 4, can_come: {} }, 3)).toEqual({ count: 4, text: 'people answered so far. 3 needed to happen.' })
   })
 })

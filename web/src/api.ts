@@ -65,6 +65,7 @@ export interface Tally {
   interested: number
   authorized: number
   paid: number
+  charging: number
   minimum: number
   capacity: number
 }

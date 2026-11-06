@@ -18,6 +18,12 @@ describe('verdictText', () => {
   })
 })
 
+describe('verdictText for an unfinished condition', () => {
+  it('never ends mid-sentence when the time is missing', () => {
+    expect(verdictText({ candidate_date_id: 'a', verdict: 'conditional', condition: { type: 'end_before', time: '' }, evidence: '' })).toBe('Only with a condition')
+  })
+})
+
 describe('blockerText', () => {
   it('turns the server’s blockers into plain words', () => {
     expect(blockerText('unavailable')).toBe('can’t come')

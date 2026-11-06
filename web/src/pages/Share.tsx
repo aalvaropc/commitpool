@@ -53,7 +53,12 @@ export default function Share() {
     <Page wide>
       <title>{`${w.title} – CommitPool`}</title>
       <div className="mx-auto flex max-w-4xl flex-col gap-4 sm:gap-5">
-        <EventHero view={d} seed={share} />
+        <EventHero view={d} />
+        {!open && (
+          <Notice tone={w.status === 'CANCELLED' ? 'cancel' : 'neutral'} title="This class is not taking new people">
+            {w.status === 'CANCELLED' ? 'It was cancelled.' : 'Reservations have closed.'}
+          </Notice>
+        )}
         <EventDetails view={d} />
 
         {already && (
@@ -109,11 +114,7 @@ export default function Share() {
               </Button>
             </form>
           </Tile>
-        ) : (
-          <Notice title="This workshop is not taking new participants">
-            {w.status === 'CANCELLED' ? 'It was cancelled.' : 'Reservations have closed.'}
-          </Notice>
-        )}
+        ) : null}
       </div>
     </Page>
   )

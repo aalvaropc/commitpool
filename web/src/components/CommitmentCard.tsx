@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { api, ApiError, type ParticipantView } from '../api'
-import { withdrawKind } from '../lib/actions'
+import { withdrawKind, type WithdrawKind } from '../lib/actions'
 import { enrollErrorMessage, isSafeRedirect, REFRESH_AFTER } from '../lib/enroll'
 import { formatMoney } from '../lib/money'
 import { authorizationPending, canStartCheckout, enrollmentTone, seatHeld } from '../lib/status'
@@ -20,7 +20,7 @@ export default function CommitmentCard({ token, view, onChange }: Props) {
   const { proposal, workshop, enrollment, consent } = view
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [confirming, setConfirming] = useState(false)
+  const [leaving, setLeaving] = useState<WithdrawKind | null>(null)
   const [withdrawn, setWithdrawn] = useState<string | null>(null)
   if (!proposal) return null
   const tz = workshop.timezone
@@ -60,15 +60,16 @@ export default function CommitmentCard({ token, view, onChange }: Props) {
   }
 
   async function withdraw() {
+    const was = leaving
     setBusy(true)
     setError(null)
     try {
       await api.withdraw(token)
-      setConfirming(false)
-      setWithdrawn(kind === 'void' ? 'You left. PayPal releases your hold; you are not charged.' : 'You gave up your spot. Nothing was held at PayPal.')
+      setLeaving(null)
+      setWithdrawn(was === 'void' ? 'You left. PayPal releases your hold; you are not charged.' : 'You gave up your spot. Nothing was held at PayPal.')
       await onChange()
     } catch (e) {
-      setConfirming(false)
+      setLeaving(null)
       setError(e instanceof Error ? e.message : 'You could not leave right now.')
       if (e instanceof ApiError) await onChange()
     } finally {
@@ -136,12 +137,12 @@ export default function CommitmentCard({ token, view, onChange }: Props) {
         </div>
         {canAuthorize ? (
           <div className="flex flex-col gap-2">
-            <Button variant="go" size="lg" block onClick={authorize} busy={busy} busyLabel="Opening PayPal…" aria-describedby="consent-text">
+            <p id="consent-action" className="text-sm text-ink-soft">
+              Reserving accepts these terms and opens PayPal in this tab. PayPal holds {formatMoney(proposal.price)}; you are charged only if it happens.
+            </p>
+            <Button variant="go" size="lg" block onClick={authorize} busy={busy} busyLabel="Opening PayPal…" aria-describedby="consent-action consent-text">
               Reserve with PayPal
             </Button>
-            <p className="text-center text-sm text-ink-soft">
-              {formatMoney(proposal.price)} held, charged only if it happens. Selecting it accepts the terms and opens PayPal in this tab.
-            </p>
           </div>
         ) : (
           !proposal.payments_open && <p className="text-ink-soft">Reservations are closed for this workshop.</p>
@@ -155,7 +156,7 @@ export default function CommitmentCard({ token, view, onChange }: Props) {
 
       {canWithdraw && (
         <div className="border-t border-line pt-4">
-          <Button variant="quiet" size="sm" onClick={() => setConfirming(true)}>
+          <Button variant="quiet" size="sm" onClick={() => setLeaving(kind)}>
             {kind === 'void' ? 'Leave and release my hold…' : 'Give up my spot…'}
           </Button>
         </div>
@@ -163,17 +164,17 @@ export default function CommitmentCard({ token, view, onChange }: Props) {
       {withdrawn && <Notice>{withdrawn}</Notice>}
 
       <ConfirmDialog
-        open={confirming}
-        title={kind === 'void' ? 'Leave and release your hold?' : 'Give up your spot?'}
+        open={leaving !== null && canWithdraw}
+        title={leaving === 'void' ? 'Leave and release your hold?' : 'Give up your spot?'}
         confirmLabel="Yes, leave"
         cancelLabel="Keep my spot"
         busy={busy}
         busyLabel="Leaving…"
         tone="danger"
         onConfirm={withdraw}
-        onClose={() => setConfirming(false)}
+        onClose={() => setLeaving(null)}
       >
-        {kind === 'void'
+        {leaving === 'void'
           ? `PayPal releases your hold of ${formatMoney(proposal.price)} and you are not charged. Your spot goes back to the group.`
           : 'Your spot goes back to the group. Nothing was held at PayPal.'}
       </ConfirmDialog>

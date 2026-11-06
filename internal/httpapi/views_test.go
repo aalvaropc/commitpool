@@ -88,3 +88,19 @@ func TestDateLabel_UsesTheWorkshopClock(t *testing.T) {
 		t.Errorf("overnight label = %q, want %q", got, want)
 	}
 }
+
+func TestTally_CountsChargesInFlight(t *testing.T) {
+	st := workshopState{
+		w: store.WorkshopRow{Minimum: 3, Capacity: 6},
+		enrollments: []store.EnrollmentRow{
+			{Status: domain.EnrollmentAuthorized},
+			{Status: domain.EnrollmentCapturing},
+			{Status: domain.EnrollmentCapturePending},
+			{Status: domain.EnrollmentPaid},
+		},
+	}
+	got := st.tally()
+	if got.Authorized != 1 || got.Charging != 2 || got.Paid != 1 {
+		t.Errorf("tally = %+v, want 1 reserved, 2 being charged and 1 paid", got)
+	}
+}

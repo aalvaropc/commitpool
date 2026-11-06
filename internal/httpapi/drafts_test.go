@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/aalvaropc/commitpool/internal/ai"
@@ -165,19 +166,77 @@ func TestDrafts_HaveTheirOwnLimitPerPerson(t *testing.T) {
 }
 
 func TestDrafts_ReadDatesOnTheClockOfThePlace(t *testing.T) {
-	e := newEnv(t, withAI(cannedDraftAI{draft: ai.Draft{Timezone: "Europe/London", Dates: []ai.DraftDate{{Date: "2026-11-14", Start: "10:00"}}}}))
+	e := newEnv(t, withAI(cannedDraftAI{draft: ai.Draft{Timezone: "Europe/London", Dates: []ai.DraftDate{{Date: "2026-11-02", Start: "08:30"}}}}))
 	var got draftResponseJSON
-	e.call(http.MethodPost, draftsPath, map[string]string{"text": "anything", "timezone": "America/Lima"}, http.StatusOK, &got)
-	if got.Draft.Timezone != "Europe/London" || len(got.Draft.Dates) != 1 {
-		t.Errorf("timezone %q dates %+v, want the place's zone", got.Draft.Timezone, got.Draft.Dates)
+	e.call(http.MethodPost, draftsPath, map[string]string{"text": "anything", "timezone": "America/Chicago"}, http.StatusOK, &got)
+	if got.Draft.Timezone != "Europe/London" || len(got.Draft.Dates) != 0 {
+		t.Errorf("timezone %q dates %+v; 08:30 in London has passed, so the date must go", got.Draft.Timezone, got.Draft.Dates)
 	}
 }
 
 func TestDrafts_KeepTheBrowsersZoneWhenThePlacesIsUnknown(t *testing.T) {
-	e := newEnv(t, withAI(cannedDraftAI{draft: ai.Draft{Timezone: "Mars/Olympus"}}))
+	e := newEnv(t, withAI(cannedDraftAI{draft: ai.Draft{Timezone: "Mars/Olympus", Dates: []ai.DraftDate{{Date: "2026-11-02", Start: "08:30"}}}}))
 	var got draftResponseJSON
-	e.call(http.MethodPost, draftsPath, map[string]string{"text": "anything", "timezone": "America/Lima"}, http.StatusOK, &got)
-	if got.Draft.Timezone != "America/Lima" {
-		t.Errorf("timezone %q, want the browser's zone when the place's is unknown", got.Draft.Timezone)
+	e.call(http.MethodPost, draftsPath, map[string]string{"text": "anything", "timezone": "America/Chicago"}, http.StatusOK, &got)
+	if got.Draft.Timezone != "America/Chicago" || len(got.Draft.Dates) != 1 {
+		t.Errorf("timezone %q dates %+v; 08:30 in Chicago is still ahead", got.Draft.Timezone, got.Draft.Dates)
 	}
+}
+
+func TestDrafts_DropTimesTheClockSkips(t *testing.T) {
+	e := newEnv(t, withAI(cannedDraftAI{draft: ai.Draft{Dates: []ai.DraftDate{{Date: "2027-03-14", Start: "02:30"}, {Date: "2027-03-14", Start: "03:30"}}}}))
+	var got draftResponseJSON
+	e.call(http.MethodPost, draftsPath, draftBody("anything"), http.StatusOK, &got)
+	if len(got.Draft.Dates) != 1 || got.Draft.Dates[0].Start != "03:30" {
+		t.Errorf("dates = %+v, want only 03:30: 02:30 does not exist on the night clocks spring forward", got.Draft.Dates)
+	}
+}
+
+func TestDrafts_BoundAmountsAndCounts(t *testing.T) {
+	e := newEnv(t, withAI(cannedDraftAI{draft: ai.Draft{Price: "99999999999", VenueCost: "10000000", Minimum: 900}}))
+	var got draftResponseJSON
+	e.call(http.MethodPost, draftsPath, draftBody("anything"), http.StatusOK, &got)
+	if got.Draft.Price != "" || got.Draft.VenueCost != "" || got.Draft.Minimum != 0 {
+		t.Errorf("price %q venue %q minimum %d, want amounts the form takes and at most 500 people", got.Draft.Price, got.Draft.VenueCost, got.Draft.Minimum)
+	}
+}
+
+type blockingDraftAI struct {
+	ai.Fake
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (b blockingDraftAI) Draft(ctx context.Context, in ai.DraftInput) (ai.Draft, ai.Meta, error) {
+	b.entered <- struct{}{}
+	select {
+	case <-b.release:
+	case <-ctx.Done():
+	}
+	return ai.Fake{}.Draft(ctx, in)
+}
+
+func TestDrafts_NeverTakeTheReadersParticipantsNeed(t *testing.T) {
+	stub := blockingDraftAI{entered: make(chan struct{}, 4), release: make(chan struct{})}
+	e := newEnv(t, withAI(stub))
+	h := e.createWorkshop()
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			e.request(http.MethodPost, draftsPath, draftBody(mayaDescription))
+		}()
+	}
+	defer wg.Wait()
+	defer close(stub.release)
+	<-stub.entered
+	<-stub.entered
+
+	var got draftResponseJSON
+	e.call(http.MethodPost, draftsPath, draftBody(mayaDescription), http.StatusOK, &got)
+	if got.Drafted {
+		t.Error("a third draft ran while both drafting slots were busy")
+	}
+	e.joinAndSay(h, "Ana", "Saturday works for me")
 }

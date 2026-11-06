@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -32,7 +31,7 @@ type demoRefusal struct {
 type demoQuota struct {
 	mu       sync.Mutex
 	visitors *rateLimiter
-	started  []time.Time
+	started  slidingCap
 	running  int
 }
 
@@ -43,7 +42,7 @@ type demoTicket struct {
 }
 
 func newDemoQuota(perVisitor bool) *demoQuota {
-	q := &demoQuota{}
+	q := &demoQuota{started: slidingCap{limit: demoHourlyCap, within: time.Hour}}
 	if perVisitor {
 		q.visitors = newIntervalLimiter(demoVisitorEvery, demoVisitorBurst)
 	}
@@ -61,9 +60,7 @@ func minutes(d time.Duration) string {
 func (q *demoQuota) start(addr string, now time.Time) (*demoTicket, *demoRefusal) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	q.started = slices.DeleteFunc(q.started, func(t time.Time) bool { return !now.Before(t.Add(time.Hour)) })
-	if len(q.started) >= demoHourlyCap {
-		wait := q.started[0].Add(time.Hour).Sub(now)
+	if wait := q.started.wait(now); wait > 0 {
 		return nil, &demoRefusal{wait: wait, err: newError(http.StatusTooManyRequests, "demo_busy",
 			fmt.Sprintf("Many people tried the demo this hour. Try again in %s, or create your own workshop.", minutes(wait)))}
 	}
@@ -77,7 +74,7 @@ func (q *demoQuota) start(addr string, now time.Time) (*demoTicket, *demoRefusal
 				fmt.Sprintf("You started a demo a few minutes ago. Use the links from that one, or try again in %s.", minutes(wait)))}
 		}
 	}
-	q.started = append(q.started, now)
+	q.started.add(now)
 	q.running++
 	return &demoTicket{q: q, started: now}, nil
 }
@@ -92,9 +89,7 @@ func (t *demoTicket) done() {
 
 func (t *demoTicket) refund() {
 	t.q.mu.Lock()
-	if i := slices.IndexFunc(t.q.started, t.started.Equal); i >= 0 {
-		t.q.started = slices.Delete(t.q.started, i, i+1)
-	}
+	t.q.started.remove(t.started)
 	t.q.mu.Unlock()
 	t.done()
 }

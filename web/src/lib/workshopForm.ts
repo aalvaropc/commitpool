@@ -3,8 +3,23 @@ import { formatMoney } from './money'
 import { zonedPlusMinutes, zonedToRFC3339 } from './time'
 
 export interface DateSlot {
+  id: string
   date: string
   time: string
+}
+
+let slots = 0
+
+export function newSlot(date: string, time: string): DateSlot {
+  slots += 1
+  return { id: `d${slots}`, date, time }
+}
+
+export function nextDay(date: string): string {
+  const d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date)
+  if (!d) return ''
+  const next = new Date(Date.UTC(Number(d[1]), Number(d[2]) - 1, Number(d[3]) + 1))
+  return next.toISOString().slice(0, 10)
 }
 
 export interface WorkshopForm {
@@ -23,7 +38,7 @@ export interface WorkshopForm {
 }
 
 export type TextField = Exclude<keyof WorkshopForm, 'dates'>
-export type FieldKey = TextField | 'dates' | `date${number}`
+export type FieldKey = TextField | 'dates' | `date:${string}`
 export type FormErrors = Partial<Record<FieldKey | 'form', string>>
 export type StartsAndEnds = { starts_at: string; ends_at: string }[]
 
@@ -62,7 +77,7 @@ const SERVER_FIELDS: Record<string, FieldKey> = {
   unsupported_currency: 'price',
   invalid_venue_cost: 'venueCost',
   invalid_payment_window: 'window',
-  invalid_dates: 'date0',
+  invalid_dates: 'dates',
 }
 
 function isoDay(now: number, offsetDays: number): string {
@@ -83,10 +98,7 @@ export function blankForm(timezone: string, now: number): WorkshopForm {
     price: '',
     venueCost: '',
     window: '1440',
-    dates: [
-      { date: isoDay(now, 7), time: '10:00' },
-      { date: isoDay(now, 8), time: '10:00' },
-    ],
+    dates: [newSlot(isoDay(now, 7), '10:00'), newSlot(isoDay(now, 8), '10:00')],
   }
 }
 
@@ -106,7 +118,7 @@ export function fromDraft(draft: WorkshopDraft, base: WorkshopForm): { form: Wor
     venueCost: draft.venue_cost ? plainAmount(draft.venue_cost) : base.venueCost,
     minimum: count(draft.minimum, base.minimum),
     capacity: count(draft.capacity, base.capacity),
-    dates: draft.dates.length ? draft.dates.map((d) => ({ date: d.date, time: d.start })) : base.dates,
+    dates: draft.dates.length ? draft.dates.map((d) => newSlot(d.date, d.start)) : base.dates,
   }
   return { form, missing: draft.missing.map((f) => DRAFT_FIELDS[f]).filter(Boolean) }
 }
@@ -123,14 +135,24 @@ export function breakEven(price: string, venueCost: string): { seats: number; te
   return { seats, text: `${seats} × ${usd(p)} = ${usd(seats * p)} covers your ${usd(v)} studio` }
 }
 
-export function firstInvalid(errors: FormErrors): FieldKey | null {
+export function firstInvalid(errors: FormErrors, dates: DateSlot[]): FieldKey | null {
   for (const key of ORDER) {
     if (errors[key]) return key
     if (key === 'dates') {
-      for (let i = 0; i < MAX_DATES + 1; i++) if (errors[`date${i}`]) return `date${i}`
+      const slot = dates.find((d) => errors[`date:${d.id}`])
+      if (slot) return `date:${slot.id}`
     }
   }
   return errors.window ? 'window' : null
+}
+
+export function dateErrors(errors: FormErrors): FormErrors {
+  return Object.fromEntries(Object.entries(errors).filter(([k]) => k.startsWith('date:')))
+}
+
+export function fitsBreakEven(seats: number, capacity: string): boolean {
+  const spots = Number(capacity)
+  return seats <= 500 && (!capacity.trim() || !Number.isInteger(spots) || spots < 1 || seats <= spots)
 }
 
 export function serverField(code: string): FieldKey | null {
@@ -156,8 +178,8 @@ export function validateWorkshop(f: WorkshopForm, now: number): { errors: FormEr
   const earliest = now + Number(f.window) * 60000 + DAY_MS
   const dates: StartsAndEnds = []
   const seen = new Set<string>()
-  f.dates.forEach((slot, i) => {
-    const key = `date${i}` as const
+  f.dates.forEach((slot) => {
+    const key = `date:${slot.id}` as const
     let starts: string
     try {
       starts = zonedToRFC3339(slot.date, slot.time, f.timezone)
@@ -203,5 +225,6 @@ export function toRequest(f: WorkshopForm, dates: StartsAndEnds): CreateWorkshop
 export function inviteMessage(created: Pick<CreateWorkshopResponse, 'workshop' | 'share_url'>): string {
   const w = created.workshop
   const where = w.location ? ` at ${w.location}` : ''
-  return `I’m planning ${w.title}${where}. It’s ${formatMoney(w.price)} a spot, and it only happens if ${w.minimum} of us reserve; otherwise nobody pays. Tell me when you can come: ${created.share_url}`
+  const who = w.minimum === 1 ? '1 person reserves' : `${w.minimum} people reserve`
+  return `I’m planning ${w.title}${where}. It’s ${formatMoney(w.price)} a spot, and it only happens if ${who}; otherwise nobody pays. Tell me when you can come: ${created.share_url}`
 }

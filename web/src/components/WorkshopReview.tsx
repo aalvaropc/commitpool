@@ -1,6 +1,6 @@
-import type { FormEvent, ReactNode, Ref } from 'react'
+import { useEffect, useRef, type FormEvent, type ReactNode, type Ref } from 'react'
 import { windowLabel } from '../lib/time'
-import { breakEven, DATES_RULE, MAX_DATES, type DateSlot, type FieldKey, type FormErrors, type TextField, type WorkshopForm } from '../lib/workshopForm'
+import { breakEven, DATES_RULE, fitsBreakEven, MAX_DATES, newSlot, nextDay, type DateSlot, type FieldKey, type FormErrors, type TextField, type WorkshopForm } from '../lib/workshopForm'
 import { Button, Field, Icon, Notice, Tile, describedBy, inputClass } from './ui'
 
 const WINDOWS = [1440, 2880, 60, 15, 5]
@@ -13,7 +13,7 @@ export interface ReviewNote {
 
 interface Props {
   form: WorkshopForm
-  onChange: (form: WorkshopForm) => void
+  onChange: (form: WorkshopForm, edited?: FieldKey) => void
   errors: FormErrors
   missing: FieldKey[]
   note: ReviewNote | null
@@ -46,7 +46,13 @@ export default function WorkshopReview({ form, onChange, errors, missing, note, 
       </>
     )
   }
-  const set = (key: TextField) => (e: { target: { value: string } }) => onChange({ ...form, [key]: e.target.value })
+  const focusNext = useRef<string | null>(null)
+  useEffect(() => {
+    if (!focusNext.current) return
+    document.getElementById(focusNext.current)?.focus()
+    focusNext.current = null
+  })
+  const set = (key: TextField) => (e: { target: { value: string } }) => onChange({ ...form, [key]: e.target.value }, key)
   const input = (key: TextField, text?: string) => ({
     id: `f-${key}`,
     value: form[key],
@@ -55,13 +61,25 @@ export default function WorkshopReview({ form, onChange, errors, missing, note, 
     'aria-describedby': describedBy(`f-${key}`, hint(key, text) !== undefined, errors[key]),
     className: inputClass,
   })
-  const setDate = (i: number, part: keyof DateSlot, value: string) => onChange({ ...form, dates: form.dates.map((d, j) => (j === i ? { ...d, [part]: value } : d)) })
+  const setDate = (id: string, part: 'date' | 'time', value: string) =>
+    onChange({ ...form, dates: form.dates.map((d) => (d.id === id ? { ...d, [part]: value } : d)) }, `date:${id}`)
   const addDate = () => {
     const last = form.dates.at(-1)
-    onChange({ ...form, dates: [...form.dates, { date: last?.date ?? '', time: last?.time ?? '10:00' }] })
+    const slot = newSlot(last ? nextDay(last.date) : '', last?.time ?? '10:00')
+    focusNext.current = `f-date:${slot.id}`
+    onChange({ ...form, dates: [...form.dates, slot] }, 'dates')
   }
-  const removeDate = (i: number) => onChange({ ...form, dates: form.dates.filter((_, j) => j !== i) })
+  const removeDate = (slot: DateSlot) => {
+    const i = form.dates.indexOf(slot)
+    const neighbour = form.dates[i + 1] ?? form.dates[i - 1]
+    focusNext.current = neighbour ? `f-date:${neighbour.id}` : 'f-dates'
+    onChange({ ...form, dates: form.dates.filter((d) => d.id !== slot.id) }, `date:${slot.id}`)
+  }
   const even = breakEven(form.price, form.venueCost)
+  const applyEven = (seats: number) => {
+    focusNext.current = 'f-minimum'
+    onChange({ ...form, minimum: String(seats) }, 'minimum')
+  }
 
   return (
     <form onSubmit={onSubmit} noValidate className="flex flex-col gap-5">
@@ -111,16 +129,21 @@ export default function WorkshopReview({ form, onChange, errors, missing, note, 
             <input {...input('venueCost', 'Optional. Only you see it; it tells you how many people you need.')} inputMode="decimal" autoComplete="off" />
           </Field>
         </div>
-        {even && (
-          <div className="flex flex-col gap-3 rounded-control bg-paid-wash p-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="font-semibold text-paid">{even.text}.</p>
-            {form.minimum !== String(even.seats) && (
-              <Button variant="secondary" size="sm" onClick={() => onChange({ ...form, minimum: String(even.seats) })}>
-                Use {even.seats} as the minimum
-              </Button>
-            )}
-          </div>
-        )}
+        {even &&
+          (fitsBreakEven(even.seats, form.capacity) ? (
+            <div className="flex flex-col gap-3 rounded-control bg-paid-wash p-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="font-semibold text-paid">{even.text}.</p>
+              {form.minimum !== String(even.seats) && (
+                <Button variant="secondary" size="sm" onClick={() => applyEven(even.seats)}>
+                  Set people needed to {even.seats}
+                </Button>
+              )}
+            </div>
+          ) : (
+            <p className="rounded-control bg-attention-wash p-4 font-semibold text-attention">
+              Covering the studio takes {even.seats} people, more than the spots you offer. Raise the price, add spots or check the studio cost.
+            </p>
+          ))}
         <div className="grid gap-5 sm:grid-cols-2">
           <Field id="f-minimum" label="People needed to happen" hint={hint('minimum', 'If fewer reserve by the deadline, nobody pays.')} error={errors.minimum}>
             <input {...input('minimum', 'If fewer reserve by the deadline, nobody pays.')} type="number" inputMode="numeric" min={1} step={1} />
@@ -159,48 +182,50 @@ export default function WorkshopReview({ form, onChange, errors, missing, note, 
           )}
           <ol className="flex flex-col gap-3">
             {form.dates.map((slot, i) => {
-              const error = errors[`date${i}`]
+              const error = errors[`date:${slot.id}`]
+              const day = `f-date:${slot.id}`
+              const time = `f-time:${slot.id}`
               return (
-                <li key={i}>
+                <li key={slot.id}>
                   <fieldset className="flex flex-col gap-2 rounded-control p-3 ring-1 ring-line ring-inset">
                     <legend className="sr-only">Date {i + 1}</legend>
                     <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-end gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,10rem)_auto]">
                       <div className="flex flex-col gap-1.5">
-                        <label htmlFor={`f-date${i}`} className="text-sm text-ink-soft">
+                        <label htmlFor={day} className="text-sm text-ink-soft">
                           Day {i + 1}
                         </label>
                         <input
-                          id={`f-date${i}`}
+                          id={day}
                           type="date"
                           value={slot.date}
-                          onChange={(e) => setDate(i, 'date', e.target.value)}
+                          onChange={(e) => setDate(slot.id, 'date', e.target.value)}
                           aria-invalid={error ? true : undefined}
-                          aria-describedby={[error ? `f-date${i}-error` : '', 'dates-rule'].filter(Boolean).join(' ')}
+                          aria-describedby={[error ? `${day}-error` : '', 'dates-rule'].filter(Boolean).join(' ')}
                           className={inputClass}
                         />
                       </div>
                       <div className="flex flex-col gap-1.5">
-                        <label htmlFor={`f-time${i}`} className="text-sm text-ink-soft">
+                        <label htmlFor={time} className="text-sm text-ink-soft">
                           Starts at
                         </label>
                         <input
-                          id={`f-time${i}`}
+                          id={time}
                           type="time"
                           value={slot.time}
-                          onChange={(e) => setDate(i, 'time', e.target.value)}
+                          onChange={(e) => setDate(slot.id, 'time', e.target.value)}
                           aria-invalid={error ? true : undefined}
-                          aria-describedby={error ? `f-date${i}-error` : undefined}
+                          aria-describedby={error ? `${day}-error` : undefined}
                           className={inputClass}
                         />
                       </div>
                       {form.dates.length > 1 && (
-                        <Button variant="quiet" size="sm" onClick={() => removeDate(i)} className="col-span-2 justify-self-start sm:col-span-1">
+                        <Button variant="quiet" size="sm" onClick={() => removeDate(slot)} className="col-span-2 justify-self-start sm:col-span-1">
                           Remove<span className="sr-only"> day {i + 1}</span>
                         </Button>
                       )}
                     </div>
                     {error && (
-                      <p id={`f-date${i}-error`} className="text-sm font-medium text-no">
+                      <p id={`${day}-error`} className="text-sm font-medium text-no">
                         {error}
                       </p>
                     )}
@@ -221,7 +246,7 @@ export default function WorkshopReview({ form, onChange, errors, missing, note, 
       </Section>
 
       <Tile className="sm:p-6">
-        <details className="group">
+        <details className="group" open={errors.window ? true : undefined}>
           <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 font-display text-xl font-bold">
             More options
             <Icon name="arrowRight" className="text-brand transition-transform duration-200 group-open:rotate-90" />

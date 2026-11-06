@@ -24,18 +24,20 @@ test.describe('create a workshop', () => {
 
     await page.getByRole('button', { name: 'Create workshop' }).click()
     await expect(page.getByLabel('People needed to happen')).toBeFocused()
-    await page.getByRole('button', { name: 'Use 3 as the minimum' }).click()
+    await page.getByRole('button', { name: 'Set people needed to 3' }).click()
     await expect(page.getByLabel('People needed to happen')).toHaveValue('3')
+    await expect(page.getByLabel('People needed to happen')).toBeFocused()
 
     await page.getByRole('button', { name: 'Add another date' }).click()
-    await expect(page.getByLabel('Day 3')).toBeVisible()
+    await expect(page.getByLabel('Day 3')).toBeFocused()
     await page.getByRole('button', { name: 'Remove day 3' }).click()
     await expect(page.getByLabel('Day 3')).toHaveCount(0)
+    await expect(page.getByLabel('Day 2')).toBeFocused()
 
     await page.getByRole('button', { name: 'Create workshop' }).click()
     const links = await createdLinks(page, 'Wheel-throwing for beginners')
     await expect(page.getByRole('textbox', { name: 'Message for your group chat', exact: true })).toHaveValue(
-      new RegExp(`only happens if 3 of us reserve; otherwise nobody pays\\. Tell me when you can come: ${links.shareURL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`),
+      new RegExp(`only happens if 3 people reserve; otherwise nobody pays\\. Tell me when you can come: ${links.shareURL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`),
     )
     await expectAccessible(page, 'the created page')
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CreateWorkshopResponse, WorkshopDraft } from '../api'
-import { blankForm, breakEven, DATES_RULE, firstInvalid, fromDraft, inviteMessage, MAX_DATES, serverField, toRequest, validateWorkshop, type WorkshopForm } from './workshopForm'
+import { blankForm, breakEven, DATES_RULE, dateErrors, firstInvalid, fitsBreakEven, fromDraft, inviteMessage, MAX_DATES, newSlot, nextDay, serverField, toRequest, validateWorkshop, type WorkshopForm } from './workshopForm'
 
 const now = Date.parse('2026-10-27T12:00:00Z')
 const form: WorkshopForm = {
@@ -15,11 +15,10 @@ const form: WorkshopForm = {
   price: '45',
   venueCost: '120',
   window: '1440',
-  dates: [
-    { date: '2026-11-03', time: '15:00' },
-    { date: '2026-11-04', time: '10:00' },
-  ],
+  dates: [newSlot('2026-11-03', '15:00'), newSlot('2026-11-04', '10:00')],
 }
+
+const plain = (f: WorkshopForm) => f.dates.map(({ date, time }) => ({ date, time }))
 
 const draft = (over: Partial<WorkshopDraft> = {}): WorkshopDraft => ({
   title: '',
@@ -52,7 +51,10 @@ describe('validateWorkshop', () => {
   })
 
   it('refuses a date that starts less than 24 h after the window would close', () => {
-    const at = (date: string, time: string, window = '1440') => validateWorkshop({ ...form, window, dates: [{ date, time }] }, now).errors.date0
+    const at = (date: string, time: string, window = '1440') => {
+      const slot = newSlot(date, time)
+      return validateWorkshop({ ...form, window, dates: [slot] }, now).errors[`date:${slot.id}`]
+    }
     expect(at('2026-10-29', '07:59')).toBe(DATES_RULE)
     expect(at('2026-10-29', '08:00')).toBeUndefined()
     expect(at('2026-10-28', '08:30', '15')).toBeUndefined()
@@ -69,10 +71,11 @@ describe('validateWorkshop', () => {
 
   it('needs at least one date, at most ten, each once', () => {
     expect(validateWorkshop({ ...form, dates: [] }, now).errors.dates).toBe('Offer at least one date.')
-    const many = Array.from({ length: MAX_DATES + 1 }, (_, i) => ({ date: `2026-11-${String(10 + i).padStart(2, '0')}`, time: '10:00' }))
+    const many = Array.from({ length: MAX_DATES + 1 }, (_, i) => newSlot(`2026-11-${String(10 + i).padStart(2, '0')}`, '10:00'))
     expect(validateWorkshop({ ...form, dates: many }, now).errors.dates).toBe('Offer at most 10 dates.')
-    const twice = validateWorkshop({ ...form, dates: [form.dates[0], form.dates[0]] }, now).errors
-    expect(twice).toEqual({ date1: 'This date and time is already on the list.' })
+    const copy = newSlot(form.dates[0].date, form.dates[0].time)
+    const twice = validateWorkshop({ ...form, dates: [form.dates[0], copy] }, now).errors
+    expect(twice).toEqual({ [`date:${copy.id}`]: 'This date and time is already on the list.' })
   })
 })
 
@@ -87,7 +90,7 @@ describe('fromDraft', () => {
     expect(got.venueCost).toBe('120')
     expect(got.capacity).toBe('6')
     expect(got.minimum).toBe('')
-    expect(got.dates).toEqual([{ date: '2026-11-14', time: '10:00' }])
+    expect(plain(got)).toEqual([{ date: '2026-11-14', time: '10:00' }])
     expect(missing).toEqual(['description', 'minimum'])
   })
 
@@ -103,11 +106,36 @@ describe('fromDraft', () => {
   })
 })
 
+describe('date slots', () => {
+  it('keep their id while their place in the list changes', () => {
+    const a = newSlot('2026-11-14', '10:00')
+    const b = newSlot('2026-11-14', '10:00')
+    expect(a.id).not.toBe(b.id)
+  })
+
+  it('suggest the day after the last one', () => {
+    expect(nextDay('2026-11-14')).toBe('2026-11-15')
+    expect(nextDay('2026-12-31')).toBe('2027-01-01')
+    expect(nextDay('')).toBe('')
+  })
+
+  it('keep only the date errors when a draft opens', () => {
+    expect(dateErrors({ title: 'x', 'date:d1': 'y', dates: 'z' })).toEqual({ 'date:d1': 'y' })
+  })
+})
+
 describe('breakEven', () => {
   it('suggests how many people cover the studio', () => {
     expect(breakEven('45', '120')).toEqual({ seats: 3, text: '3 × $45 = $135 covers your $120 studio' })
     expect(breakEven('40', '120')).toEqual({ seats: 3, text: '3 × $40 = $120 covers your $120 studio' })
     expect(breakEven('12.50', '100')).toEqual({ seats: 8, text: '8 × $12.50 = $100 covers your $100 studio' })
+  })
+
+  it('only suggests what the spots allow', () => {
+    expect(fitsBreakEven(3, '6')).toBe(true)
+    expect(fitsBreakEven(6, '4')).toBe(false)
+    expect(fitsBreakEven(6, '')).toBe(true)
+    expect(fitsBreakEven(501, '')).toBe(false)
   })
 
   it('stays quiet without both amounts', () => {
@@ -133,18 +161,20 @@ describe('inviteMessage', () => {
       share_url: 'https://example.test/w/abc',
     } as CreateWorkshopResponse
     expect(inviteMessage(created)).toBe(
-      'I’m planning Wheel-throwing for beginners at Maya’s studio · Greenpoint, Brooklyn. It’s $45 a spot, and it only happens if 3 of us reserve; otherwise nobody pays. Tell me when you can come: https://example.test/w/abc',
+      'I’m planning Wheel-throwing for beginners at Maya’s studio · Greenpoint, Brooklyn. It’s $45 a spot, and it only happens if 3 people reserve; otherwise nobody pays. Tell me when you can come: https://example.test/w/abc',
     )
+    expect(inviteMessage({ ...created, workshop: { ...created.workshop, minimum: 1 } })).toContain('only happens if 1 person reserves;')
     expect(inviteMessage({ ...created, workshop: { ...created.workshop, location: '' } })).toContain('I’m planning Wheel-throwing for beginners. It’s')
   })
 })
 
 describe('firstInvalid', () => {
   it('follows the order of the fields on the page', () => {
-    expect(firstInvalid({ date1: 'x', price: 'x', capacity: 'x' })).toBe('price')
-    expect(firstInvalid({ date3: 'x', date1: 'x' })).toBe('date1')
-    expect(firstInvalid({ window: 'x', dates: 'x' })).toBe('dates')
-    expect(firstInvalid({})).toBeNull()
+    const [first, second] = form.dates
+    expect(firstInvalid({ [`date:${first.id}`]: 'x', price: 'x', capacity: 'x' }, form.dates)).toBe('price')
+    expect(firstInvalid({ [`date:${second.id}`]: 'x', [`date:${first.id}`]: 'x' }, form.dates)).toBe(`date:${first.id}`)
+    expect(firstInvalid({ window: 'x', dates: 'x' }, form.dates)).toBe('dates')
+    expect(firstInvalid({}, form.dates)).toBeNull()
   })
 })
 
@@ -154,7 +184,7 @@ describe('serverField', () => {
     expect(serverField('invalid_venue_cost')).toBe('venueCost')
     expect(serverField('invalid_host_name')).toBe('hostName')
     expect(serverField('minimum_above_capacity')).toBe('capacity')
-    expect(serverField('invalid_dates')).toBe('date0')
+    expect(serverField('invalid_dates')).toBe('dates')
     expect(serverField('internal_error')).toBeNull()
   })
 })

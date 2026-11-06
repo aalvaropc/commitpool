@@ -54,7 +54,7 @@ type server struct {
 	limiter      *rateLimiter
 	demoQuota    *demoQuota
 	self         http.Handler
-	drafts       *rateLimiter
+	drafts       *draftQuota
 	aiSem        chan struct{}
 }
 
@@ -71,9 +71,9 @@ func New(d Deps) http.Handler {
 	s := &server{Deps: d, explanations: newExplanationCache(), aiSem: make(chan struct{}, aiSlots)}
 	if d.Cfg.RateLimitPerMin > 0 {
 		s.limiter = newRateLimiter(d.Cfg.RateLimitPerMin)
-		s.drafts = newRateLimiter(draftsPerMin)
 	}
 	s.demoQuota = newDemoQuota(s.limiter != nil)
+	s.drafts = newDraftQuota(s.limiter != nil)
 	mux := http.NewServeMux()
 	s.routes(mux)
 	h := s.observe(mux)

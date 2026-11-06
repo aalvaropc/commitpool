@@ -2,9 +2,13 @@ package httpapi
 
 import (
 	"context"
+	"fmt"
+	"math"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -13,14 +17,47 @@ import (
 )
 
 const (
-	maxDraftText  = 2000
-	draftTimeout  = 30 * time.Second
-	draftsPerMin  = 4
-	draftDayClock = "2006-01-02 15:04"
+	maxDraftText      = 2000
+	draftTimeout      = 30 * time.Second
+	draftVisitorEvery = 15 * time.Second
+	draftVisitorBurst = 2
+	draftHourlyCap    = 120
+	draftSlots        = 2
+	draftDayClock     = "2006-01-02 15:04"
+	maxDraftAmount    = 999999999
 )
 
-var errDraftLimited = newError(http.StatusTooManyRequests, "draft_rate_limited",
-	"Claude has drafted a few workshops from this address already. Wait a minute, or fill in the form yourself.")
+type draftQuota struct {
+	mu       sync.Mutex
+	visitors *rateLimiter
+	hour     slidingCap
+	slots    chan struct{}
+}
+
+func newDraftQuota(perVisitor bool) *draftQuota {
+	q := &draftQuota{hour: slidingCap{limit: draftHourlyCap, within: time.Hour}, slots: make(chan struct{}, draftSlots)}
+	if perVisitor {
+		q.visitors = newIntervalLimiter(draftVisitorEvery, draftVisitorBurst)
+	}
+	return q
+}
+
+func (q *draftQuota) take(addr string, now time.Time) (time.Duration, *apiError) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.visitors != nil {
+		if wait := q.visitors.wait(addr, now); wait > 0 {
+			return wait, newError(http.StatusTooManyRequests, "draft_rate_limited",
+				"Claude just drafted twice for you. Wait a moment, or fill in the form yourself.")
+		}
+	}
+	if wait := q.hour.wait(now); wait > 0 {
+		return wait, newError(http.StatusTooManyRequests, "draft_busy",
+			fmt.Sprintf("Claude has drafted many workshops this hour. Try again in %s, or fill in the form yourself.", minutes(wait)))
+	}
+	q.hour.add(now)
+	return 0, nil
+}
 
 var draftFields = []string{"title", "description", "host_name", "location", "duration_min", "price", "venue_cost", "minimum", "capacity", "dates"}
 
@@ -67,9 +104,9 @@ func (s *server) draftWorkshop(w http.ResponseWriter, r *http.Request) error {
 	}
 	zone := req.Timezone
 	now := s.Clock.Now()
-	if s.drafts != nil && !s.drafts.allow(clientAddr(r), now) {
-		w.Header().Set("Retry-After", "60")
-		return errDraftLimited
+	if wait, refused := s.drafts.take(clientAddr(r), now); refused != nil {
+		w.Header().Set("Retry-After", strconv.Itoa(max(1, int(math.Ceil(wait.Seconds())))))
+		return refused
 	}
 	draft, ok := s.draft(r, ai.DraftInput{Text: text, Timezone: req.Timezone, Today: now.In(loc)})
 	if place, err := timeZone(draft.Timezone); err == nil {
@@ -82,9 +119,9 @@ func (s *server) draftWorkshop(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (s *server) draft(r *http.Request, in ai.DraftInput) (ai.Draft, bool) {
-	release, err := s.acquireAI(r.Context())
-	if err != nil {
-		s.Log.Warn("draft workshop: no reader free", "error", err)
+	release, ok := tryAcquire(s.drafts.slots)
+	if !ok {
+		s.Log.Warn("draft workshop: every drafting slot is busy")
 		return ai.Draft{}, false
 	}
 	defer release()
@@ -115,7 +152,7 @@ func cleanDraft(d ai.Draft, loc *time.Location, now time.Time) draftDTO {
 	if d.Capacity >= 1 && d.Capacity <= maxCapacity {
 		out.Capacity = d.Capacity
 	}
-	if d.Minimum >= 1 && (out.Capacity == 0 || d.Minimum <= out.Capacity) {
+	if d.Minimum >= 1 && d.Minimum <= maxCapacity && (out.Capacity == 0 || d.Minimum <= out.Capacity) {
 		out.Minimum = d.Minimum
 	}
 	out.Missing = missingFields(out)
@@ -132,7 +169,7 @@ func clip(s string, limit int) string {
 
 func amount(value string, zeroAllowed bool) string {
 	m, err := domain.ParseMoney(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(value), "$")), "USD")
-	if err != nil || m.Minor < 0 || (m.Minor == 0 && !zeroAllowed) {
+	if err != nil || m.Minor < 0 || m.Minor > maxDraftAmount || (m.Minor == 0 && !zeroAllowed) {
 		return ""
 	}
 	return m.String()
@@ -142,7 +179,7 @@ func draftDates(in []ai.DraftDate, loc *time.Location, now time.Time) []draftDat
 	var starts []time.Time
 	for _, d := range in {
 		t, err := time.ParseInLocation(draftDayClock, d.Date+" "+d.Start, loc)
-		if err != nil || !t.After(now) || slices.ContainsFunc(starts, t.Equal) {
+		if err != nil || t.Format(draftDayClock) != d.Date+" "+d.Start || !t.After(now) || slices.ContainsFunc(starts, t.Equal) {
 			continue
 		}
 		starts = append(starts, t)

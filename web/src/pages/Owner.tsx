@@ -6,6 +6,7 @@ import CancelWorkshop from '../components/CancelWorkshop'
 import ClaudeRead from '../components/ClaudeRead'
 import Deadline from '../components/Deadline'
 import DemoControls from '../components/DemoControls'
+import DemoGuide from '../components/DemoGuide'
 import EnrollmentList from '../components/EnrollmentList'
 import NextStep, { InviteLink } from '../components/NextStep'
 import OpenReservationsDialog from '../components/OpenReservationsDialog'
@@ -81,6 +82,7 @@ export default function Owner() {
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-5">
         <div className="flex min-w-0 flex-col gap-4 lg:gap-5">
+          <DemoGuide token={token} view={d} />
           <OperatorPanel token={token} view={d} onChange={view.reload} />
           <StatusBanner headline={headline({ status: w.status, resolution: w.resolution, refunds: refundsAny(d.enrollments), held: heldAny(d.enrollments), releases: releasesAny(d.enrollments) })} tone={tone(w.status, w.resolution)}>
             {d.proposal && d.proposal.payments_open && <Deadline closesAt={d.proposal.closes_at} timeZone={w.timezone} open />}

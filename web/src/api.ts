@@ -37,6 +37,7 @@ export interface Workshop {
   resolution: Resolution
   host_name: string
   location: string
+  demo?: boolean
   venue_cost?: Money
   break_even_seats?: number
 }
@@ -212,6 +213,12 @@ export interface CreateWorkshopRequest {
   dates: { starts_at: string; ends_at: string }[]
 }
 
+export interface DemoWorkshop {
+  owner_url: string
+  share_url: string
+  participants: { name: string; participant_url: string }[]
+}
+
 export interface CreateWorkshopResponse {
   workshop: Workshop
   dates: CandidateDate[]
@@ -273,6 +280,8 @@ const seg = encodeURIComponent
 
 export const api = {
   createWorkshop: (req: CreateWorkshopRequest) => request<CreateWorkshopResponse>('POST', '/api/v1/workshops', req),
+  demoInfo: () => request<{ workshops: boolean }>('GET', '/api/v1/demo'),
+  createDemo: () => request<DemoWorkshop>('POST', '/api/v1/demo/workshops'),
 
   shared: (share: string) => request<PublicView>('GET', `/api/v1/w/${seg(share)}`),
   join: (share: string, displayName: string, email?: string) =>

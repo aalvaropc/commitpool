@@ -1,13 +1,16 @@
 package httpapi
 
 import (
+	"context"
 	"io/fs"
 	"net/http"
 	"path"
 	"strings"
 )
 
-func spaHandler(dist fs.FS) http.Handler {
+type previewLookup func(ctx context.Context, shareToken string) (invitePreview, error)
+
+func spaHandler(dist fs.FS, preview previewLookup) http.Handler {
 	var files http.Handler
 	if dist != nil {
 		files = http.FileServerFS(dist)
@@ -38,10 +41,22 @@ func spaHandler(dist fs.FS) http.Handler {
 			http.Error(w, "web app is not built: run `make web-build`", http.StatusNotFound)
 			return
 		}
+		if private(name) {
+			w.Header().Set("X-Robots-Tag", "noindex, nofollow")
+		}
+		if token, ok := strings.CutPrefix(name, "w/"); ok && preview != nil && validToken(token) {
+			if p, err := preview(r.Context(), token); err == nil {
+				index = injectPreview(index, p)
+			}
+		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
 		_, _ = w.Write(index)
 	})
+}
+
+func private(name string) bool {
+	return strings.HasPrefix(name, "p/") || strings.HasPrefix(name, "owner/")
 }
 
 func hidden(name string) bool {

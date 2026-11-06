@@ -507,6 +507,7 @@ type proposalJSON struct {
 	ClosesAt     time.Time `json:"closes_at"`
 	StartsAt     time.Time `json:"starts_at"`
 	PaymentsOpen bool      `json:"payments_open"`
+	CalendarPath string    `json:"calendar_path"`
 }
 
 type tallyJSON struct {

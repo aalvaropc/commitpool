@@ -53,6 +53,7 @@ type server struct {
 	explanations *explanationCache
 	limiter      *rateLimiter
 	demoQuota    *demoQuota
+	images       imageCache
 	self         http.Handler
 	drafts       *draftQuota
 	aiSem        chan struct{}
@@ -93,6 +94,9 @@ func (s *server) routes(mux *http.ServeMux) {
 	api("POST /api/v1/demo/workshops", s.createDemoWorkshop)
 	api("POST /api/v1/workshop-drafts", s.draftWorkshop)
 	api("GET /api/v1/w/{token}", s.publicWorkshop)
+	api("GET /api/v1/w/{token}/og.png", s.inviteImage)
+	api("GET /api/v1/w/{token}/calendar.ics", s.inviteCalendar)
+	api("GET /api/v1/p/{token}/calendar.ics", s.participantCalendar)
 	api("POST /api/v1/w/{token}/participants", s.joinWorkshop)
 
 	api("GET /api/v1/owner/{token}", s.ownerView)
@@ -116,7 +120,7 @@ func (s *server) routes(mux *http.ServeMux) {
 
 	api("/api/", func(http.ResponseWriter, *http.Request) error { return errNotFound })
 	mux.HandleFunc("GET /healthz", s.healthz)
-	mux.Handle("/", spaHandler(s.Dist))
+	mux.Handle("/", spaHandler(s.Dist, s.invitePreview))
 }
 
 type handlerFunc func(w http.ResponseWriter, r *http.Request) error
@@ -260,16 +264,23 @@ const tokenLength = 43
 
 func pathToken(r *http.Request) (string, error) {
 	t := r.PathValue("token")
-	if len(t) != tokenLength {
+	if !validToken(t) {
 		return "", errNotFound
+	}
+	return t, nil
+}
+
+func validToken(t string) bool {
+	if len(t) != tokenLength {
+		return false
 	}
 	for i := 0; i < len(t); i++ {
 		c := t[i]
 		if !('A' <= c && c <= 'Z' || 'a' <= c && c <= 'z' || '0' <= c && c <= '9' || c == '-' || c == '_') {
-			return "", errNotFound
+			return false
 		}
 	}
-	return t, nil
+	return true
 }
 
 func notFoundIfMissing(err error) error {

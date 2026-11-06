@@ -60,6 +60,7 @@ export interface Proposal {
   closes_at: string
   starts_at: string
   payments_open: boolean
+  calendar_path?: string
 }
 
 export interface Tally {

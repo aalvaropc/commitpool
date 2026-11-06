@@ -168,6 +168,7 @@ type proposalDTO struct {
 	ClosesAt     time.Time `json:"closes_at"`
 	StartsAt     time.Time `json:"starts_at"`
 	PaymentsOpen bool      `json:"payments_open"`
+	CalendarPath string    `json:"calendar_path,omitempty"`
 }
 
 func paymentsOpen(ws store.WorkshopRow, p *store.ProposalRow, now time.Time) bool {
@@ -198,6 +199,14 @@ func enrollmentLabel(en store.EnrollmentRow, ws store.WorkshopRow, p *store.Prop
 
 func authorizationPending(a *store.AttemptRow) bool {
 	return a != nil && a.AuthorizationStatus != nil && *a.AuthorizationStatus == store.AuthorizationPending
+}
+
+func ownerProposalView(p *store.ProposalRow, w store.WorkshopRow, now time.Time) *proposalDTO {
+	out := proposalView(p, w, now)
+	if out != nil && w.ShareToken != "" {
+		out.CalendarPath = "/api/v1/w/" + w.ShareToken + "/calendar.ics"
+	}
+	return out
 }
 
 func proposalView(p *store.ProposalRow, w store.WorkshopRow, now time.Time) *proposalDTO {

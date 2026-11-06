@@ -32,6 +32,7 @@ type ownerViewDTO struct {
 	Availabilities []availabilityDTO `json:"availabilities"`
 	Recommendation recommendationDTO `json:"recommendation"`
 	Enrollments    []enrollmentDTO   `json:"enrollments"`
+	Suggestions    []suggestionDTO   `json:"suggestions"`
 	Demo           demoDTO           `json:"demo"`
 }
 
@@ -61,11 +62,13 @@ func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
 		participants[i] = participantDTO{ID: p.ID, DisplayName: p.DisplayName}
 	}
 	availabilities := make([]availabilityDTO, len(avails))
+	readings := make(map[string]domain.Interpretation, len(avails))
 	for i, a := range avails {
 		in, err := inForce(a)
 		if err != nil {
 			return err
 		}
+		readings[a.ParticipantID] = in
 		availabilities[i] = availabilityView(a, in)
 		availabilities[i].ParticipantID = a.ParticipantID
 		availabilities[i].DisplayName = names[a.ParticipantID]
@@ -99,6 +102,7 @@ func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
 		Availabilities: availabilities,
 		Recommendation: recommendation,
 		Enrollments:    enrollments,
+		Suggestions:    s.suggestions(ctx, st, rec, readings, names, shareURL),
 		Demo:           demoDTO{DemoMode: s.Cfg.DemoMode, SandboxMocks: s.Cfg.SandboxMocks},
 	})
 	return nil

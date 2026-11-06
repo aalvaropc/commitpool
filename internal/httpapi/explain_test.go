@@ -72,7 +72,7 @@ func TestContainsWord(t *testing.T) {
 }
 
 func TestExplanationCache_SingleFlightEvictionAndRetry(t *testing.T) {
-	c := newExplanationCache()
+	c := newTextCache()
 	now := time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
 	key := func(i int) [sha256.Size]byte { return sha256.Sum256([]byte{byte(i), byte(i >> 8)}) }
 
@@ -90,18 +90,18 @@ func TestExplanationCache_SingleFlightEvictionAndRetry(t *testing.T) {
 		t.Errorf("in-flight marks left after finish: %d", len(c.inFlight))
 	}
 
-	for i := 1; i <= explanationCacheSize; i++ {
+	for i := 1; i <= textCacheSize; i++ {
 		c.claim(key(i), now)
 		c.finish(key(i), "text", time.Time{})
 	}
-	if len(c.entries) != explanationCacheSize || len(c.order) != explanationCacheSize {
-		t.Fatalf("cache holds %d entries (%d in order), want %d", len(c.entries), len(c.order), explanationCacheSize)
+	if len(c.entries) != textCacheSize || len(c.order) != textCacheSize {
+		t.Fatalf("cache holds %d entries (%d in order), want %d", len(c.entries), len(c.order), textCacheSize)
 	}
 	if _, fresh, _ := c.claim(key(0), now); fresh {
 		t.Error("the oldest entry survived eviction")
 	}
 	c.finish(key(0), "text 0", time.Time{})
-	if _, fresh, _ := c.claim(key(explanationCacheSize), now); !fresh {
+	if _, fresh, _ := c.claim(key(textCacheSize), now); !fresh {
 		t.Error("the newest entry is missing")
 	}
 
@@ -113,7 +113,7 @@ func TestExplanationCache_SingleFlightEvictionAndRetry(t *testing.T) {
 	if fresh || !start || text != "plain" {
 		t.Errorf("at the retry time: %q, fresh %v, start %v; want the stale text and one writer", text, fresh, start)
 	}
-	if len(c.order) != explanationCacheSize {
+	if len(c.order) != textCacheSize {
 		t.Errorf("replacing an entry grew the order to %d", len(c.order))
 	}
 }

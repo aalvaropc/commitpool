@@ -11,6 +11,10 @@ test.describe('one-click demo', () => {
     await expect(page.getByText('Demo workshop · prepared data')).toBeVisible()
     await expect(page.getByText('6 of 6 answered', { exact: false })).toBeVisible({ timeout: 30_000 })
     await expect(page.getByRole('region', { name: 'Next step' })).toContainText('works for 4 — you need 3')
+    const suggests = page.getByRole('region', { name: 'Claude suggests' })
+    await expect(suggests).toContainText('Grace Liu’s message needs clarifying.')
+    await expect(suggests.getByRole('button', { name: 'Copy message for Grace Liu' })).toBeVisible()
+    await expect(suggests).toContainText('Hi Grace!')
     await expectAccessible(page, 'the demo organizer page')
 
     const priya = page.getByRole('link', { name: /Act as Priya Raman/ })

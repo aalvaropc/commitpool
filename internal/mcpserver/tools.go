@@ -38,7 +38,7 @@ func (s *Server) addTools() {
 		Description: "After the person has read and accepted the consent text, get their PayPal approval link. Only the person's approval at PayPal places a hold; nothing is charged unless the group reaches its minimum."},
 		logged(s, "get_checkout_link", s.getCheckoutLink))
 	mcp.AddTool(s.srv, &mcp.Tool{Name: "get_status", Annotations: readOnly,
-		Description: "Read a workshop from its owner link: the recommended date and why, who can come, who has committed or paid, and what would happen if payments closed now."},
+		Description: "Read a workshop from its owner link: the recommended date and why, who can come, who has committed or paid, what would happen if payments closed now, and who the organizer could nudge, each with a message Claude drafted for the organizer to send. Nothing is sent: show the messages to the organizer and let them decide."},
 		logged(s, "get_status", s.getStatus))
 	mcp.AddTool(s.srv, &mcp.Tool{Name: "preview_open_payments", Annotations: readOnly,
 		Description: "Preview opening payments on a candidate date: the exact terms that will be locked (date, price, minimum, capacity, payment window). Nothing changes. Returns a confirmation token valid for ten minutes."},
@@ -127,6 +127,15 @@ type ownerView struct {
 		} `json:"per_date"`
 		Explanation string `json:"explanation"`
 	} `json:"recommendation"`
+	Suggestions []Suggestion `json:"suggestions"`
+}
+
+type Suggestion struct {
+	Kind    string `json:"kind"`
+	Name    string `json:"name,omitempty"`
+	Reason  string `json:"reason"`
+	Message string `json:"message"`
+	Pending bool   `json:"pending,omitempty"`
 }
 
 type participantView struct {
@@ -265,6 +274,7 @@ type StatusOut struct {
 	Capacity           int          `json:"capacity"`
 	PaymentsCloseAt    *time.Time   `json:"payments_close_at,omitempty"`
 	IfClosedNow        string       `json:"if_closed_now"`
+	Suggestions        []Suggestion `json:"suggestions,omitempty"`
 }
 
 func (s *Server) getStatus(ctx context.Context, _ *mcp.CallToolRequest, in OwnerIn) (*mcp.CallToolResult, StatusOut, error) {
@@ -292,6 +302,7 @@ func statusOf(v ownerView) StatusOut {
 		Explanation: v.Recommendation.Explanation,
 		Interested:  v.Tally.Interested, Authorized: v.Tally.Authorized, Paid: v.Tally.Paid,
 		Minimum: v.Workshop.Minimum, Capacity: v.Workshop.Capacity, Seats: []SeatStatus{},
+		Suggestions: v.Suggestions,
 	}
 	if v.Workshop.VenueCost != nil {
 		out.VenueCost = v.Workshop.VenueCost.String()

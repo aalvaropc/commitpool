@@ -175,7 +175,17 @@ export interface OwnerView {
   availabilities: Availability[]
   recommendation: Recommendation
   enrollments: Enrollment[]
+  suggestions: Suggestion[]
   demo: { demo_mode: boolean; sandbox_mocks: boolean }
+}
+
+export interface Suggestion {
+  kind: 'clarify' | 'condition' | 'reserve' | 'share'
+  participant_id?: string
+  name?: string
+  reason: string
+  message: string
+  pending: boolean
 }
 
 export interface Group {

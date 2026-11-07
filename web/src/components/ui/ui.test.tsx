@@ -86,9 +86,8 @@ describe('Button while busy', () => {
     expect(html).toMatch(/\sdisabled=""/)
   })
 
-  it('gives a small orange button the darker orange that clears 4.5:1', () => {
-    expect(renderToStaticMarkup(<Button variant="go">Go</Button>)).toContain('bg-go-deep')
-    expect(renderToStaticMarkup(<Button variant="go" size="lg">Go</Button>)).toContain('bg-go ')
+  it('shapes every button as a pill', () => {
+    for (const size of ['sm', 'md', 'lg'] as const) expect(renderToStaticMarkup(<Button size={size}>Go</Button>)).toContain('rounded-full')
   })
 })
 

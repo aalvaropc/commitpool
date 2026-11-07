@@ -57,7 +57,7 @@ export default function DescribeWorkshop({ showExample, text, onText, drafting, 
           />
         </Field>
         <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-          <Button type="submit" variant="go" size="lg" busy={drafting} busyLabel="Claude is drafting…">
+          <Button type="submit" size="lg" busy={drafting} busyLabel="Claude is drafting…">
             Draft it with Claude
             <Icon name="arrowRight" size={20} />
           </Button>

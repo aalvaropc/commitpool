@@ -40,7 +40,7 @@ export default function TryDemo({ size = 'lg', pending = false }: { size?: Butto
   if (pending) {
     return (
       <div aria-hidden="true" className="invisible">
-        <Button variant="go" size={size} tabIndex={-1}>
+        <Button size={size} tabIndex={-1}>
           Try it as Maya
           <Icon name="arrowRight" size={20} />
         </Button>
@@ -50,7 +50,7 @@ export default function TryDemo({ size = 'lg', pending = false }: { size?: Butto
 
   return (
     <div className="flex flex-col gap-2">
-      <Button variant="go" size={size} onClick={start} busy={busy} busyLabel="Setting up Maya’s class…">
+      <Button size={size} onClick={start} busy={busy} busyLabel="Setting up Maya’s class…">
         Try it as Maya
         <Icon name="arrowRight" size={20} />
       </Button>

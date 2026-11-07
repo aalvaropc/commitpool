@@ -109,7 +109,7 @@ export default function Share() {
                   />
                 </Field>
               </div>
-              <Button type="submit" variant="go" size="lg" block busy={busy} busyLabel="Joining…">
+              <Button type="submit" size="lg" block busy={busy} busyLabel="Joining…">
                 Join the class
               </Button>
             </form>

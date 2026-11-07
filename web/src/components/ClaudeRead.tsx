@@ -12,7 +12,7 @@ export default function ClaudeRead({ view, stalled, onCheck }: Props) {
   if (view.availabilities.length === 0 || view.workshop.status !== 'COLLECTING') return null
   return (
     <Tile as="section" aria-labelledby="claude-title" tone="muted" className="flex flex-col gap-2 shadow-none ring-1 ring-line">
-      <h2 id="claude-title" className="flex items-center gap-2 text-sm font-semibold tracking-[0.06em] text-ink-soft uppercase">
+      <h2 id="claude-title" className="flex items-center gap-2 text-base font-semibold text-ink-soft">
         <Icon name="quote" className="text-brand" />
         Claude’s read
       </h2>

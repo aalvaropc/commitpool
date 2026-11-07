@@ -9,7 +9,7 @@ interface ConfirmDialogProps {
   cancelLabel?: string
   busyLabel?: string
   busy?: boolean
-  tone?: Extract<ButtonVariant, 'primary' | 'danger' | 'go'>
+  tone?: Extract<ButtonVariant, 'primary' | 'danger'>
   onConfirm: () => void
   onClose: () => void
 }
@@ -45,7 +45,7 @@ export function ConfirmDialog({ open, title, children, confirmLabel, cancelLabel
         if (!busy) onClose()
       }}
       onClose={closed}
-      className="m-auto w-[min(32rem,calc(100vw-2rem))] rounded-tile bg-surface p-0 text-ink shadow-lift backdrop:bg-ink/40 backdrop:backdrop-blur-[2px]"
+      className="m-auto w-[min(32rem,calc(100vw-2rem))] rounded-tile bg-surface p-0 text-ink backdrop:bg-ink/55"
     >
       <div className="flex flex-col gap-4 p-5 sm:p-6">
         <h2 id={titleId} className="text-xl">

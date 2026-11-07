@@ -13,7 +13,7 @@ export default function Deadline({ closesAt, timeZone, open, size = 'sm' }: Prop
   const left = open ? timeLeft(closesAt, now) : null
   return (
     <p className={size === 'lg' ? 'flex flex-col gap-0.5' : 'text-sm'}>
-      <span className={size === 'lg' ? 'text-xs font-semibold tracking-[0.06em] text-ink-soft uppercase' : 'text-ink-soft'}>
+      <span className={size === 'lg' ? 'text-sm font-semibold text-ink-soft' : 'text-ink-soft'}>
         {left ? 'Reservations close ' : 'Reservations closed '}
       </span>
       <time dateTime={closesAt} className={`tabular-nums ${size === 'lg' ? 'font-display text-xl font-bold' : 'font-semibold'}`}>

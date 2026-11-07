@@ -20,12 +20,11 @@
   --color-ink-soft: #c2b5a5;
   --color-ink-faint: #a39686;
   --color-line: #3a2f27;
-  --color-line-strong: #6a5b4e;
+  --color-line-strong: #7d6d60;
   --color-white: #fbf6ee;
 
   --color-brand: #ff6a3d;
   --color-brand-deep: #ff8660;
-  --color-brand-soft: #ff9b7a;
   --color-brand-wash: #3a1d12;
   --color-on-brand: #1a0d07;
 
@@ -53,23 +52,8 @@
   --color-avatar-peach: #ffa57d;
   --color-avatar-peach-ink: #2d1006;
 
-  --color-paper: var(--color-canvas);
-  --color-sheet: var(--color-surface);
-  --color-rule: var(--color-line);
-  --color-edge: var(--color-line-strong);
-  --color-signal: var(--color-brand);
-  --color-signal-deep: var(--color-brand-deep);
-  --color-hold-fill: var(--color-hold);
-  --color-paid-fill: var(--color-paid);
-  --color-cancel: var(--color-no);
-  --color-cancel-wash: var(--color-no-wash);
-
   --radius-tile: 1.5rem;
   --radius-control: 1rem;
-
-  --shadow-tile: none;
-  --shadow-lift: none;
-  --shadow-go: none;
 
   --text-display: clamp(2.75rem, 9.5vw, 6rem);
   --text-display--line-height: 0.92;
@@ -190,7 +174,9 @@
   *::before,
   *::after {
     transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
     animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
   }

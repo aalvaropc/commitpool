@@ -77,6 +77,48 @@ describe('readSample', () => {
     expect(readSample(message).limits.sat).toEqual(limit)
   })
 
+  it.each([
+    ['Saturday, ideally in the afternoon', 'unknown', 'unknown'],
+    ['Saturday, only in the evening', 'unknown', 'unknown'],
+    ['Sunday, in the afternoon', 'unknown', 'unknown'],
+    ['Sunday only in the afternoon', 'unknown', 'unknown'],
+    ['Saturday evening is good', 'unknown', 'unknown'],
+    ['Saturday is bad', 'unavailable', 'unknown'],
+    ['Saturday I’m out', 'unavailable', 'unknown'],
+    ['Saturday and Sunday are bad for me', 'unavailable', 'unavailable'],
+    ['Sunday works, Saturday I have a wedding', 'unavailable', 'available'],
+    ['Sunday works, Saturday my cousin visits', 'unknown', 'available'],
+    ['Saturday and Sunday work', 'available', 'available'],
+    ['I’m in on Sunday', 'unknown', 'available'],
+    ['Saturday works, I can’t do Sunday evening', 'available', 'unavailable'],
+  ] as const)('does not count %j as a yes it is not', (message, sat, sun) => {
+    const reading = readSample(message)
+    expect([reading.sat, reading.sun]).toEqual([sat, sun])
+  })
+
+  it('asks about hours only when a day comes with a vague time of day', () => {
+    expect(readSample('Saturday, in the afternoon').ask).toBe('Which hours in the afternoon work for you?')
+    expect(readSample('Saturday works, I can’t do Sunday evening').ask).toBeNull()
+    expect(readSample('Sunday morning is perfect').ask).toBeNull()
+  })
+
+  it.each([
+    ['Saturday till 11', { type: 'end_before', hour: 11 }],
+    ['Saturday works but I have to leave by 11', { type: 'end_before', hour: 11 }],
+    ['Saturday is fine from 9', { type: 'start_after', hour: 9 }],
+    ['Saturday, as long as it’s before midnight', { type: 'end_before', hour: 23 + 59 / 60 }],
+  ] as const)('reads a time limit in %j even without a condition word', (message, limit) => {
+    const reading = readSample(message)
+    expect(reading.sat).toBe('conditional')
+    expect(reading.limits.sat).toEqual(limit)
+  })
+
+  it.each(['Saturday if it ends before 25', 'Saturday if we finish by 11:75'])('keeps no time from the impossible %j', (message) => {
+    const reading = readSample(message)
+    expect(reading.sat).toBe('conditional')
+    expect(reading.limits).toEqual({})
+  })
+
   it('leaves a condition without a time unresolved', () => {
     const reading = readSample('Saturday only if my sister can come')
     expect(reading.sat).toBe('conditional')

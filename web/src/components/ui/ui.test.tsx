@@ -96,4 +96,11 @@ describe('Meter caption', () => {
     const html = renderToStaticMarkup(<Meter capacity={6} needed={3} paid={1} reserved={2} />)
     expect(html).toContain('1 paid · 2 reserved · 3 needed')
   })
+
+  it('never speaks of reservations while it only shows who can come', () => {
+    const html = renderToStaticMarkup(<Meter capacity={6} needed={3} paid={0} reserved={4} interest />)
+    expect(html).toContain('aria-hidden="true"')
+    expect(html).not.toContain('reserved')
+    expect(html).not.toContain('bg-hold')
+  })
 })

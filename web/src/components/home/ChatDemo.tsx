@@ -80,7 +80,7 @@ export default function ChatDemo() {
 
   useEffect(() => {
     log.current?.scrollTo?.({ top: log.current.scrollHeight, behavior: reducedMotion() ? 'auto' : 'smooth' })
-  }, [items.length, phase])
+  }, [items, phase])
 
   useEffect(() => {
     if (!interacted.current) return
@@ -307,7 +307,7 @@ export default function ChatDemo() {
                 maxLength={160}
                 autoComplete="off"
                 placeholder={turn ? 'When can you come? Write it like a text' : phase === 'playing' ? 'Everyone is answering…' : 'Claude is on it…'}
-                className="min-h-12 min-w-0 flex-1 rounded-full bg-surface px-5 text-base text-ink transition-colors duration-150 placeholder:text-ink-faint read-only:opacity-60 hover:bg-canvas focus-visible:bg-canvas"
+                className="min-h-12 min-w-0 flex-1 rounded-full border border-line-strong bg-surface px-5 text-base text-ink transition-colors duration-150 placeholder:text-ink-faint read-only:opacity-60 hover:bg-canvas focus-visible:bg-canvas"
               />
               <button
                 type="submit"

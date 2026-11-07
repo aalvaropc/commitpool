@@ -37,10 +37,10 @@ export function Dots() {
   )
 }
 
-export function ClaudeMark({ size = 'md' }: { size?: 'sm' | 'md' }) {
+export function ClaudeMark() {
   return (
-    <span aria-hidden="true" className={`inline-grid shrink-0 place-items-center rounded-full bg-brand-wash text-brand ${size === 'md' ? 'size-10' : 'size-8'}`}>
-      <Icon name="spark" size={size === 'md' ? 20 : 16} />
+    <span aria-hidden="true" className="inline-grid size-10 shrink-0 place-items-center rounded-full bg-brand-wash text-brand">
+      <Icon name="spark" size={20} />
     </span>
   )
 }

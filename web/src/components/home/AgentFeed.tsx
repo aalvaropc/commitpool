@@ -8,7 +8,7 @@ const steps: { state: StepState; title: string; detail: string }[] = [
   { state: 'done', title: 'Matched every answer to every date', detail: 'Priya, Hannah and Tomás can come Saturday. Ben can if it ends by 6 PM.' },
   { state: 'ask', title: 'Grace said “ideally in the afternoon”', detail: 'Not enough to count her. Claude drafted a question for Maya to send.' },
   { state: 'done', title: 'Recommended Sat, Nov 14', detail: '4 can come. You need 3. The server decided; Claude explained.' },
-  { state: 'work', title: 'Watching the reservations', detail: 'Charges only start once 3 people have reserved.' },
+  { state: 'work', title: 'Lining up the nudges', detail: 'When reservations open, Claude drafts a reminder for anyone who can come but hasn’t reserved. Maya decides what to send.' },
 ]
 
 const marks: Record<StepState, { icon: IconName; tone: string }> = {

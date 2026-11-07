@@ -28,7 +28,7 @@ export default function MoneyFlow() {
   const total = people[scenario].length * 45
   return (
     <div ref={ref} className="flex min-w-0 flex-col gap-6 rounded-[2rem] bg-surface p-5 sm:p-8">
-      <SegmentedControl legend="What happens at the deadline" value={scenario} options={options} onChange={setScenario} />
+      <SegmentedControl legend="How many reserve before the deadline" value={scenario} options={options} onChange={setScenario} />
       <ul className="flex flex-col gap-2" aria-label="Reservations">
         {people[scenario].map((name) => (
           <li key={`${scenario}-${name}`} className="rise flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-2xl bg-surface-muted px-4 py-3">

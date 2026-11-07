@@ -41,7 +41,7 @@ export default function StartSentence({ demo }: { demo: boolean | undefined }) {
         </p>
         {demo !== false && (
           <div className="w-fit">
-            <TryDemo pending={demo === undefined} />
+            <TryDemo variant="demo" pending={demo === undefined} />
           </div>
         )}
       </div>

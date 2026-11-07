@@ -129,7 +129,7 @@ export function EventDetails({ view }: { view: PublicView }) {
           </>
         ) : (
           <>
-            <Meter capacity={capacity} needed={tally.minimum} paid={0} reserved={interest} showCaption={false} className="w-full" />
+            <Meter capacity={capacity} needed={tally.minimum} paid={0} reserved={interest} interest className="w-full" />
             <p className="text-lg">
               {summary.count !== null && <span className="font-display text-3xl font-bold tabular-nums">{summary.count} </span>}
               {summary.text}

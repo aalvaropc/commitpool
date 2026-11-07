@@ -47,6 +47,17 @@ describe('fits', () => {
   it('does not count a no', () => {
     expect(fits(readSample('I can’t make either day'), 'sat')).toBe(false)
   })
+
+  it.each(['Saturday works but I have to leave by 11', 'Saturday, only in the evening', 'Saturday is bad', 'Saturday if it ends before 25'])(
+    'does not count %j',
+    (message) => {
+      expect(fits(readSample(message), 'sat')).toBe(false)
+    },
+  )
+
+  it('counts a limit the class keeps without a condition word', () => {
+    expect(fits(readSample('Saturday is fine from 9'), 'sat')).toBe(true)
+  })
 })
 
 describe('recommend', () => {

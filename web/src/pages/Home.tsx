@@ -39,7 +39,7 @@ export default function Home() {
               The class happens, or nobody pays.
             </h1>
             <p className="max-w-[34rem] text-lead text-ink-soft">
-              Share one link in the group chat. Claude reads everyone’s “maybe”, finds the date that works, and PayPal only charges if enough people reserve.
+              Share one link in the group chat. Claude reads everyone’s “maybe”, you see which date works, and PayPal only charges if enough people reserve.
             </p>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
               {demo !== false && <TryDemo pending={demo === undefined} />}

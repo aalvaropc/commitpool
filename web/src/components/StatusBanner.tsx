@@ -18,7 +18,7 @@ interface Props {
 
 export default function StatusBanner({ headline, tone, children }: Props) {
   return (
-    <section aria-label="Workshop status" className="rounded-tile bg-surface p-4 shadow-tile sm:p-5">
+    <section aria-label="Workshop status" className="rounded-tile bg-surface p-4 sm:p-5">
       <div role="status" aria-live="polite" className="flex items-center gap-3">
         <span aria-hidden="true" className={`grid size-10 shrink-0 place-items-center rounded-full ${toneWash[tone]} ${toneText[tone]}`}>
           <Icon name={icons[tone]} size={20} />

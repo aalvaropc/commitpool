@@ -1,100 +1,73 @@
 @import "tailwindcss";
 
 @font-face {
-  font-family: "Outfit";
-  src: url("./assets/fonts/outfit-latin-var.woff2") format("woff2");
-  font-weight: 100 900;
+  font-family: "Bricolage Grotesque";
+  src: url("./assets/fonts/bricolage-latin-var.woff2") format("woff2");
+  font-weight: 200 800;
+  font-stretch: 75% 100%;
   font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Work Sans";
-  src: url("./assets/fonts/work-sans-latin-var.woff2") format("woff2");
-  font-weight: 100 900;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Work Sans";
-  src: url("./assets/fonts/work-sans-latin-italic-var.woff2") format("woff2");
-  font-weight: 100 900;
-  font-style: italic;
   font-display: swap;
 }
 
 @theme {
-  --font-sans: "Work Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Outfit", "Work Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
 
-  --color-canvas: #f3f2f7;
-  --color-surface: #ffffff;
-  --color-surface-muted: #f8f7fb;
-  --color-ink: #18122b;
-  --color-ink-soft: #5b5470;
-  --color-ink-faint: #6b6480;
-  --color-line: #e4e0ef;
-  --color-line-strong: #8f88a6;
+  --color-canvas: #14100d;
+  --color-surface: #1d1713;
+  --color-surface-muted: #2a221c;
+  --color-ink: #f4ece0;
+  --color-ink-soft: #c2b5a5;
+  --color-ink-faint: #a39686;
+  --color-line: #3a2f27;
+  --color-line-strong: #7d6d60;
+  --color-white: #fbf6ee;
 
-  --color-brand: #5b21b6;
-  --color-brand-deep: #4c1d95;
-  --color-brand-wash: #ede7fb;
-  --color-brand-soft: #c4b5fd;
-  --color-on-brand-soft: #e9d5ff;
+  --color-brand: #ff6a3d;
+  --color-brand-deep: #ff8660;
+  --color-brand-wash: #3a1d12;
+  --color-on-brand: #1a0d07;
 
-  --color-go: #ea580c;
-  --color-go-deep: #c2410c;
-  --color-go-wash: #ffedd5;
+  --color-paid: #7be0ae;
+  --color-paid-wash: #14271e;
+  --color-hold: #8aa4ff;
+  --color-hold-wash: #181f3d;
+  --color-maybe: #f4bd4f;
+  --color-maybe-wash: #2b2210;
+  --color-no: #f08096;
+  --color-no-wash: #351a21;
+  --color-attention: #f4bd4f;
+  --color-attention-wash: #2b2210;
 
-  --color-paid: #15803d;
-  --color-paid-wash: #dcfce7;
-  --color-maybe: #b45309;
-  --color-maybe-wash: #fef3c7;
-  --color-no: #9f1239;
-  --color-no-wash: #ffe4e6;
-  --color-attention: #c2410c;
-  --color-attention-wash: #ffedd5;
+  --color-avatar-amber: #f4bd4f;
+  --color-avatar-amber-ink: #1a0d07;
+  --color-avatar-sky: #8aa4ff;
+  --color-avatar-sky-ink: #101534;
+  --color-avatar-pink: #f08096;
+  --color-avatar-pink-ink: #2a0d14;
+  --color-avatar-mint: #7be0ae;
+  --color-avatar-mint-ink: #0b2216;
+  --color-avatar-lilac: #c9a3f5;
+  --color-avatar-lilac-ink: #20103a;
+  --color-avatar-peach: #ffa57d;
+  --color-avatar-peach-ink: #2d1006;
 
-  --color-avatar-amber: #fde68a;
-  --color-avatar-amber-ink: #78350f;
-  --color-avatar-sky: #bfdbfe;
-  --color-avatar-sky-ink: #1e3a8a;
-  --color-avatar-pink: #fbcfe8;
-  --color-avatar-pink-ink: #831843;
-  --color-avatar-mint: #bbf7d0;
-  --color-avatar-mint-ink: #14532d;
-  --color-avatar-lilac: #ddd6fe;
-  --color-avatar-lilac-ink: #4c1d95;
-  --color-avatar-peach: #fed7aa;
-  --color-avatar-peach-ink: #7c2d12;
+  --radius-tile: 1.5rem;
+  --radius-control: 1rem;
 
-  --color-paper: var(--color-canvas);
-  --color-sheet: var(--color-surface);
-  --color-rule: var(--color-line);
-  --color-edge: var(--color-line-strong);
-  --color-signal: var(--color-brand);
-  --color-signal-deep: var(--color-brand-deep);
-  --color-hold: var(--color-brand);
-  --color-hold-fill: var(--color-brand);
-  --color-hold-wash: var(--color-brand-wash);
-  --color-paid-fill: var(--color-paid);
-  --color-cancel: var(--color-no);
-  --color-cancel-wash: var(--color-no-wash);
-
-  --radius-tile: 1.375rem;
-  --radius-control: 0.875rem;
-
-  --shadow-tile: 0 1px 2px rgb(24 18 43 / 0.05), 0 12px 28px -18px rgb(24 18 43 / 0.22);
-  --shadow-lift: 0 2px 4px rgb(24 18 43 / 0.06), 0 20px 40px -20px rgb(24 18 43 / 0.32);
-  --shadow-go: 0 2px 4px rgb(194 65 12 / 0.18), 0 14px 28px -12px rgb(234 88 12 / 0.55);
+  --text-display: clamp(2.75rem, 9.5vw, 6rem);
+  --text-display--line-height: 0.92;
+  --text-head: clamp(2rem, 5vw, 3.5rem);
+  --text-head--line-height: 1;
+  --text-lead: clamp(1.25rem, 1.1rem + 0.6vw, 1.5rem);
+  --text-lead--line-height: 1.3;
 
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @utility wide {
   font-family: var(--font-display);
-  letter-spacing: -0.015em;
+  letter-spacing: -0.02em;
 }
 
 @utility semiwide {
@@ -103,20 +76,46 @@
 
 @utility display {
   font-family: var(--font-display);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
 }
 
-@utility hatch {
-  background-image: repeating-linear-gradient(
-    -45deg,
-    var(--color-brand) 0 3px,
-    var(--color-brand-wash) 3px 6px
-  );
+@utility shout {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-stretch: 75%;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+}
+
+@utility rise {
+  animation: rise 420ms var(--ease-out) both;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes blink {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+  }
+  40% {
+    opacity: 1;
+  }
 }
 
 @layer base {
   :root {
-    color-scheme: light;
+    color-scheme: dark;
     accent-color: var(--color-brand);
     scrollbar-color: var(--color-line-strong) transparent;
   }
@@ -130,7 +129,9 @@
     background: var(--color-canvas);
     color: var(--color-ink);
     font-family: var(--font-sans);
-    line-height: 1.55;
+    font-optical-sizing: auto;
+    font-size: 1.0625rem;
+    line-height: 1.5;
     font-feature-settings: "kern";
     text-rendering: optimizeLegibility;
     caret-color: var(--color-brand);
@@ -141,8 +142,8 @@
   h3 {
     font-family: var(--font-display);
     font-weight: 700;
-    line-height: 1.1;
-    letter-spacing: -0.02em;
+    line-height: 1.02;
+    letter-spacing: -0.025em;
     text-wrap: balance;
   }
 
@@ -158,8 +159,8 @@
   }
 
   ::selection {
-    background: var(--color-brand-wash);
-    color: var(--color-ink);
+    background: var(--color-brand);
+    color: var(--color-on-brand);
   }
 
   ::placeholder {
@@ -173,6 +174,10 @@
   *::before,
   *::after {
     transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
     animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
   }
 }

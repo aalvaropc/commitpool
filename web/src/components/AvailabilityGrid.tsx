@@ -30,7 +30,7 @@ function Message({ a, name }: { a?: Availability; name: string }) {
   const reading = a.corrected ?? a.interpretation
   return (
     <span className={`flex flex-col items-start gap-1 ${wrap}`}>
-      <span className="text-sm text-ink-soft italic">“{a.message}”</span>
+      <span className="text-sm font-medium text-ink-soft">“{a.message}”</span>
       {a.needs_clarification && <Pill tone="attention">Needs clarifying</Pill>}
       {a.corrected && <span className="text-xs text-ink-soft">Corrected by {name}</span>}
       {reading.needs_clarification && reading.ambiguities.length > 0 && (
@@ -120,10 +120,10 @@ export default function AvailabilityGrid({ view, onOpen }: Props) {
               <caption className="sr-only">Each person’s answer for every candidate date, as Claude read it from their message</caption>
               <thead>
                 <tr>
-                  <th scope="col" className="w-40 pb-3 align-bottom text-xs font-semibold tracking-[0.06em] text-ink-soft uppercase">
+                  <th scope="col" className="w-40 pb-3 align-bottom text-sm font-semibold text-ink-soft">
                     Person
                   </th>
-                  <th scope="col" className="w-[26%] px-3 pb-3 align-bottom text-xs font-semibold tracking-[0.06em] text-ink-soft uppercase">
+                  <th scope="col" className="w-[26%] px-3 pb-3 align-bottom text-sm font-semibold text-ink-soft">
                     Their message
                   </th>
                   {columns.map((c) => (

@@ -97,7 +97,7 @@ export default function ReadingEditor({ token, availability, dates, timeZone, ed
                 <p className="font-semibold">{label(v.candidate_date_id)}</p>
                 <VerdictChip verdict={saved.verdict}>{verdictText(saved)}</VerdictChip>
               </div>
-              {saved.evidence && <p className="text-sm text-ink-soft">From your message: <span className="italic">“{saved.evidence}”</span></p>}
+              {saved.evidence && <p className="text-sm text-ink-soft">From your message: <span className="font-medium">“{saved.evidence}”</span></p>}
               {editable && (
                 <div className="flex flex-col gap-2">
                   <SegmentedControl

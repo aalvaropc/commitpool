@@ -123,7 +123,7 @@ func (s *server) routes(mux *http.ServeMux) {
 
 	api("/api/", func(http.ResponseWriter, *http.Request) error { return errNotFound })
 	mux.HandleFunc("GET /healthz", s.healthz)
-	mux.Handle("/", spaHandler(s.Dist, s.pagePreview))
+	mux.Handle("/", spaHandler(s.Dist, s.pagePreview, s.landingPreview()))
 }
 
 type handlerFunc func(w http.ResponseWriter, r *http.Request) error

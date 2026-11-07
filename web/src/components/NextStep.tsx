@@ -25,7 +25,7 @@ export default function NextStep({ view, step, onOpen }: Props) {
       <p className="max-w-prose text-ink-soft">{step.detail}</p>
       {action.kind === 'open' && (
         <div>
-          <Button variant="go" size="lg" onClick={() => onOpen(action.dateId)}>
+          <Button size="lg" onClick={() => onOpen(action.dateId)}>
             Open reservations for {action.day}
             <Icon name="arrowRight" size={20} />
           </Button>

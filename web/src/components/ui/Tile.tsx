@@ -5,7 +5,7 @@ type TileElement = 'div' | 'section' | 'article' | 'aside' | 'header' | 'li'
 
 const tones: Record<TileTone, string> = {
   surface: 'bg-surface text-ink',
-  brand: 'bg-brand text-white [&_:focus-visible]:outline-white',
+  brand: 'bg-brand text-on-brand [&_:focus-visible]:outline-on-brand',
   muted: 'bg-surface-muted text-ink',
 }
 
@@ -18,7 +18,7 @@ interface TileProps extends HTMLAttributes<HTMLElement> {
 
 export function Tile({ as: Element = 'div', tone = 'surface', padded = true, className = '', children, ...rest }: TileProps) {
   return (
-    <Element className={`rounded-tile shadow-tile ${tones[tone]} ${padded ? 'p-4 sm:p-5' : ''} ${className}`} {...rest}>
+    <Element className={`rounded-tile ${tones[tone]} ${padded ? 'p-4 sm:p-6' : ''} ${className}`} {...rest}>
       {children}
     </Element>
   )
@@ -33,7 +33,7 @@ interface TileLabelProps {
 
 export function TileLabel({ as: Element = 'p', id, children, className = '' }: TileLabelProps) {
   return (
-    <Element id={id} className={`font-sans text-xs leading-normal font-semibold tracking-[0.06em] text-ink-soft uppercase ${className}`}>
+    <Element id={id} className={`font-sans text-sm leading-normal font-semibold text-ink-soft ${className}`}>
       {children}
     </Element>
   )

@@ -4,11 +4,7 @@ import { formatMoney } from '../lib/money'
 import { count } from '../lib/plural'
 import { durationLabel, zoneName } from '../lib/time'
 import Deadline from './Deadline'
-import { Avatar, Cover, Icon, Meter, Pill, Tile, TileLabel } from './ui'
-
-export function heroSeed(view: PublicView): string {
-  return `${view.workshop.title}:${view.dates[0]?.id ?? ''}`
-}
+import { Avatar, Icon, Meter, Pill, Tile } from './ui'
 
 export function EventHero({ view, compact = false }: { view: PublicView; compact?: boolean }) {
   const w = view.workshop
@@ -18,19 +14,18 @@ export function EventHero({ view, compact = false }: { view: PublicView; compact
       tone="brand"
       className={`relative flex flex-col justify-end overflow-hidden ${compact ? 'min-h-36 sm:min-h-44 sm:p-7' : 'min-h-52 sm:min-h-64 sm:p-8'}`}
     >
-      <Cover seed={heroSeed(view)} className="text-white" />
       <div className="relative flex min-w-0 flex-col gap-3">
         {w.demo && (
-          <span className="w-fit rounded-full bg-white/15 px-3 py-1 text-xs font-semibold text-white">Demo workshop · prepared data</span>
+          <span className="w-fit rounded-full bg-on-brand/10 px-3 py-1 text-sm font-semibold text-on-brand">Demo workshop · prepared data</span>
         )}
-        <h1 className={`max-w-[18ch] leading-[1.02] font-extrabold [overflow-wrap:anywhere] hyphens-auto ${compact ? 'text-3xl sm:text-5xl' : 'text-[2.375rem] sm:text-6xl'}`}>
+        <h1 className={`shout max-w-[16ch] leading-[0.92] [overflow-wrap:anywhere] hyphens-auto ${compact ? 'text-4xl sm:text-6xl' : 'text-5xl sm:text-7xl'}`}>
           {w.title}
         </h1>
         {(w.host_name || w.location) && (
           <p className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-base font-semibold sm:text-lg">
             {w.host_name && (
               <span className="flex items-center gap-2.5">
-                <Avatar name={w.host_name} className="ring-2 ring-white/40" />
+                <Avatar name={w.host_name} className="ring-2 ring-on-brand/25" />
                 with {w.host_name}
               </span>
             )}
@@ -39,7 +34,7 @@ export function EventHero({ view, compact = false }: { view: PublicView; compact
                 ·
               </span>
             )}
-            {w.location && <span className="min-w-0 basis-full font-medium text-on-brand-soft [overflow-wrap:anywhere] sm:basis-auto">{w.location}</span>}
+            {w.location && <span className="min-w-0 basis-full font-medium text-on-brand/80 [overflow-wrap:anywhere] sm:basis-auto">{w.location}</span>}
           </p>
         )}
       </div>
@@ -62,84 +57,95 @@ export function EventDetails({ view }: { view: PublicView }) {
   const accepting = w.status === 'COLLECTING' || reserving
   const state = groupState(view)
   const summary = groupSummary(group, tally.minimum)
+  const capacity = proposal?.capacity ?? w.capacity
+  const interest = Math.max(0, ...rows.map((r) => r.canCome))
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
-      <Tile as="section" aria-labelledby="price-title" className="flex flex-col justify-between gap-2">
-        <TileLabel as="h2" id="price-title">
-          Price
-        </TileLabel>
-        <p className="font-display text-3xl font-bold tracking-tight tabular-nums">{formatMoney(proposal?.price ?? w.price)}</p>
-        <p className="text-sm text-ink-soft">{accepting ? 'Charged only if it happens' : 'Not taking reservations'}</p>
-      </Tile>
-
-      <Tile as="section" aria-labelledby="class-title" className="flex flex-col justify-between gap-2">
-        <TileLabel as="h2" id="class-title">
-          Class
-        </TileLabel>
-        <p className="font-display text-3xl font-bold tracking-tight">{durationLabel(w.duration_min)}</p>
-        <p className="text-sm text-ink-soft">{count(proposal?.capacity ?? w.capacity, 'spot')}</p>
-      </Tile>
-
-      <Tile as="section" aria-labelledby="dates-title" className="col-span-2 flex flex-col gap-3">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-3 sm:gap-4 lg:grid-cols-12">
+      <div className="flex flex-col gap-3 sm:gap-4 lg:col-span-7">
+      <section aria-labelledby="dates-title" className="flex flex-1 flex-col gap-4 bg-surface p-5 sm:p-7">
         <div className="flex items-baseline justify-between gap-3">
-          <TileLabel as="h2" id="dates-title">
+          <h2 id="dates-title" className="text-2xl">
             {proposal || rows.length === 1 ? 'The date' : accepting ? 'Pick from these dates' : 'Dates'}
-          </TileLabel>
-          <span className="text-xs text-ink-soft">{zoneName(w.timezone)}</span>
+          </h2>
+          <span className="text-sm text-ink-soft">{zoneName(w.timezone)}</span>
         </div>
         <ul className="flex flex-col gap-2">
-          {rows.map((r) => (
-            <li
-              key={r.id}
-              className={`flex min-h-14 items-center justify-between gap-3 rounded-control px-3.5 py-2.5 ${r.best || r.chosen ? 'bg-brand-wash' : 'ring-1 ring-line ring-inset'}`}
-            >
-              <span className="flex items-center gap-3">
-                <Icon name="calendar" className={r.best || r.chosen ? 'text-brand' : 'text-ink-soft'} />
-                <span className="flex flex-col leading-tight">
-                  <span className="font-semibold">{r.day}</span>
-                  <span className="text-sm text-ink-soft">{r.time}</span>
+          {rows.map((r) => {
+            const strong = r.best || r.chosen
+            return (
+              <li key={r.id} className={`flex min-h-16 items-center justify-between gap-3 px-4 py-3 ${strong ? 'bg-brand text-on-brand' : 'bg-canvas'}`}>
+                <span className="flex items-center gap-3">
+                  <Icon name="calendar" size={22} />
+                  <span className="flex flex-col leading-tight">
+                    <span className="font-display text-xl font-bold">{r.day}</span>
+                    <span className={`text-sm ${strong ? 'text-on-brand/80' : 'text-ink-soft'}`}>{r.time}</span>
+                  </span>
                 </span>
-              </span>
-              {group.answered > 0 && !proposal && (
-                <span className={`text-right text-sm font-semibold ${r.best ? 'text-brand' : 'text-ink-soft'}`}>
-                  {r.canCome} can come
-                  {r.best && <span className="block text-xs font-medium">most so far</span>}
-                </span>
-              )}
-            </li>
-          ))}
+                {group.answered > 0 && !proposal && (
+                  <span className="text-right text-sm font-semibold">
+                    {r.canCome} can come
+                    {r.best && <span className="block font-medium text-on-brand/80">most so far</span>}
+                  </span>
+                )}
+              </li>
+            )
+          })}
         </ul>
-      </Tile>
+      </section>
 
-      <Tile as="section" aria-labelledby="group-title" className="col-span-2 flex flex-col gap-3">
-        <div className="flex items-center justify-between gap-3">
-          <TileLabel as="h2" id="group-title">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4">
+      <section aria-labelledby="price-title" className="flex flex-col justify-between gap-2 bg-surface p-5 sm:p-7">
+        <h2 id="price-title" className="text-sm font-semibold text-ink-soft">
+          Price
+        </h2>
+        <p className="font-display text-4xl font-bold tracking-tight tabular-nums">{formatMoney(proposal?.price ?? w.price)}</p>
+        <p className="text-sm text-ink-soft">{accepting ? 'Charged only if it happens' : 'Not taking reservations'}</p>
+      </section>
+
+      <section aria-labelledby="class-title" className="flex flex-col justify-between gap-2 bg-surface p-5 sm:p-7">
+        <h2 id="class-title" className="text-sm font-semibold text-ink-soft">
+          Class
+        </h2>
+        <p className="font-display text-4xl font-bold tracking-tight">{durationLabel(w.duration_min)}</p>
+        <p className="text-sm text-ink-soft">{count(capacity, 'spot')}</p>
+      </section>
+
+        </div>
+      </div>
+
+      <section aria-labelledby="group-title" className="flex flex-col items-center gap-4 bg-surface p-5 text-center sm:p-7 lg:col-span-5 lg:items-start lg:text-left">
+        <div className="flex w-full items-center justify-between gap-3">
+          <h2 id="group-title" className="text-2xl">
             {reserving ? 'Who’s in' : 'The group'}
-          </TileLabel>
+          </h2>
           {reserving && <Pill tone="hold">Reservations open</Pill>}
         </div>
         {state ? (
-          <p className="text-ink">{state}</p>
+          <p className="text-lg">{state}</p>
         ) : proposal ? (
           <>
             <Meter capacity={tally.capacity} needed={tally.minimum} paid={tally.paid} reserved={tally.authorized + tally.charging} />
             {reserving && <Deadline closesAt={proposal.closes_at} timeZone={w.timezone} open />}
           </>
         ) : (
-          <p className="flex items-baseline gap-2">
-            {summary.count !== null && <span className="font-display text-3xl font-bold tabular-nums">{summary.count}</span>}
-            <span className="text-ink-soft">{summary.text}</span>
-          </p>
+          <>
+            <Meter capacity={capacity} needed={tally.minimum} paid={0} reserved={interest} interest className="w-full" />
+            <p className="text-lg">
+              {summary.count !== null && <span className="font-display text-3xl font-bold tabular-nums">{summary.count} </span>}
+              {summary.text}
+            </p>
+            {summary.count !== null && interest > 0 && <p className="text-sm text-ink-soft">{interest} can come on the best date.</p>}
+          </>
         )}
-      </Tile>
+      </section>
 
       {w.description && (
-        <Tile as="section" aria-labelledby="about-title" className="col-span-2 sm:col-span-4">
-          <TileLabel as="h2" id="about-title">
+        <section aria-labelledby="about-title" className="bg-surface p-5 sm:p-7 lg:col-span-12">
+          <h2 id="about-title" className="text-sm font-semibold text-ink-soft">
             About this class
-          </TileLabel>
-          <p className="mt-2 max-w-prose whitespace-pre-line">{w.description}</p>
-        </Tile>
+          </h2>
+          <p className="mt-2 max-w-prose whitespace-pre-line text-lg">{w.description}</p>
+        </section>
       )}
     </div>
   )

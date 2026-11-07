@@ -694,7 +694,7 @@ func TestHealthz_FailsWithinItsTimeoutWhenTheDatabaseHangs(t *testing.T) {
 
 func TestSPA_FallbackServesIndex(t *testing.T) {
 	e := newEnv(t)
-	for _, path := range []string{"/", "/owner/abc", "/p/xyz", "/w/abc", "/new", "/paypal/returned?e=1&result=authorized", "/.keep"} {
+	for _, path := range []string{"/owner/abc", "/p/xyz", "/w/abc", "/new", "/paypal/returned?e=1&result=authorized", "/.keep"} {
 		rec := e.request(http.MethodGet, path, nil)
 		if rec.Code != http.StatusOK || !strings.HasPrefix(rec.Header().Get("Content-Type"), "text/html") || rec.Body.String() != indexHTML {
 			t.Errorf("GET %s = %d %q %q, want the embedded index.html", path, rec.Code, rec.Header().Get("Content-Type"), rec.Body.String())

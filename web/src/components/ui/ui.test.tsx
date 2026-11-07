@@ -86,9 +86,8 @@ describe('Button while busy', () => {
     expect(html).toMatch(/\sdisabled=""/)
   })
 
-  it('gives a small orange button the darker orange that clears 4.5:1', () => {
-    expect(renderToStaticMarkup(<Button variant="go">Go</Button>)).toContain('bg-go-deep')
-    expect(renderToStaticMarkup(<Button variant="go" size="lg">Go</Button>)).toContain('bg-go ')
+  it('shapes every button as a pill', () => {
+    for (const size of ['sm', 'md', 'lg'] as const) expect(renderToStaticMarkup(<Button size={size}>Go</Button>)).toContain('rounded-full')
   })
 })
 
@@ -96,5 +95,12 @@ describe('Meter caption', () => {
   it('says the split between paid and reserved in words, not only in colour', () => {
     const html = renderToStaticMarkup(<Meter capacity={6} needed={3} paid={1} reserved={2} />)
     expect(html).toContain('1 paid · 2 reserved · 3 needed')
+  })
+
+  it('never speaks of reservations while it only shows who can come', () => {
+    const html = renderToStaticMarkup(<Meter capacity={6} needed={3} paid={0} reserved={4} interest />)
+    expect(html).toContain('aria-hidden="true"')
+    expect(html).not.toContain('reserved')
+    expect(html).not.toContain('bg-hold')
   })
 })

@@ -22,7 +22,7 @@ export function SegmentedControl<T extends string>({ legend, legendHidden = true
     <fieldset disabled={disabled} className="min-w-0">
       <legend className={legendHidden ? 'sr-only' : 'mb-1.5 text-sm font-semibold'}>{legend}</legend>
       <div
-        className="grid grid-cols-2 gap-1 rounded-control bg-surface-muted p-1 ring-1 ring-line ring-inset sm:grid-cols-[repeat(var(--segments),minmax(0,1fr))]"
+        className="grid grid-cols-2 gap-1 rounded-full bg-surface-muted p-1 sm:grid-cols-[repeat(var(--segments),minmax(0,1fr))]"
         style={{ '--segments': options.length } as CSSProperties}
       >
         {options.map((o) => {
@@ -32,7 +32,7 @@ export function SegmentedControl<T extends string>({ legend, legendHidden = true
               <input id={id} type="radio" name={group} value={o.value} checked={value === o.value} onChange={() => onChange(o.value)} className="peer sr-only" />
               <label
                 htmlFor={id}
-                className="flex min-h-11 cursor-pointer items-center justify-center rounded-[0.625rem] px-2 text-sm font-semibold whitespace-nowrap text-ink-soft transition-colors duration-150 peer-checked:bg-brand peer-checked:text-white peer-checked:shadow-tile peer-focus-visible:outline-3 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-brand peer-disabled:cursor-not-allowed peer-disabled:opacity-60 hover:text-ink"
+                className="flex min-h-11 cursor-pointer items-center justify-center rounded-full px-3 text-sm font-semibold whitespace-nowrap text-ink-soft transition-colors duration-150 peer-checked:bg-brand peer-checked:text-on-brand peer-focus-visible:outline-3 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-brand peer-disabled:cursor-not-allowed peer-disabled:opacity-60 hover:text-ink"
               >
                 {o.label}
               </label>

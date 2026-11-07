@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"io/fs"
 	"net/http"
 	"regexp"
 	"strings"
@@ -163,6 +164,25 @@ func (s *server) lookupPreview(ctx context.Context, shareToken string) (invitePr
 	}
 	s.previews.items[shareToken] = cachedPreview{p: p, at: now}
 	return p, nil
+}
+
+const landingImage = "og-default.png"
+
+func (s *server) landingPreview() *invitePreview {
+	if s.Dist == nil {
+		return nil
+	}
+	if _, err := fs.Stat(s.Dist, landingImage); err != nil {
+		return nil
+	}
+	base := strings.TrimRight(s.Cfg.BaseURL, "/")
+	return &invitePreview{
+		Title:       "The class happens, or nobody pays",
+		Description: "Share one link in the group chat. Claude reads when everyone can come, and PayPal charges only if enough people reserve.",
+		URL:         base + "/",
+		Image:       base + "/" + landingImage,
+		ImageAlt:    "CommitPool: the class happens, or nobody pays.",
+	}
 }
 
 func (s *server) pagePreview(ctx context.Context, shareToken string) (invitePreview, bool) {

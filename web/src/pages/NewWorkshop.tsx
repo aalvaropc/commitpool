@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useLocation, useNavigate } from 'react-router'
 import { api, ApiError, type CreateWorkshopResponse } from '../api'
 import DescribeWorkshop from '../components/DescribeWorkshop'
 import { useDemoAvailable } from '../components/TryDemo'
@@ -26,11 +27,18 @@ function withoutEdited(errors: FormErrors, key: FieldKey): FormErrors {
   return next
 }
 
+function startingText(state: unknown): string {
+  if (typeof state === 'object' && state !== null && 'text' in state && typeof state.text === 'string') return state.text
+  return ''
+}
+
 export default function NewWorkshop() {
   const demo = useDemoAvailable()
   const zone = browserTimeZone()
   const [step, setStep] = useState<Step>('describe')
-  const [text, setText] = useState('')
+  const location = useLocation()
+  const navigate = useNavigate()
+  const [text, setText] = useState(() => startingText(location.state))
   const [drafting, setDrafting] = useState(false)
   const [draftError, setDraftError] = useState<string | null>(null)
   const [form, setForm] = useState<WorkshopForm>(() => blankForm(zone, Date.now()))
@@ -44,6 +52,7 @@ export default function NewWorkshop() {
   const reviewHeading = useRef<HTMLHeadingElement>(null)
   const cameBack = useRef(false)
   const draftRun = useRef(0)
+  const draftOnArrival = useRef(text.trim() !== '')
 
   useEffect(() => {
     if (step === 'review') reviewHeading.current?.focus()
@@ -53,6 +62,13 @@ export default function NewWorkshop() {
   useEffect(() => {
     if (focusErrors) focusFirstError(errors, form.dates)
   }, [focusErrors])
+
+  useEffect(() => {
+    if (!draftOnArrival.current) return
+    draftOnArrival.current = false
+    navigate(location.pathname, { replace: true, state: null })
+    void draft()
+  }, [])
 
   function review(next: WorkshopForm, gaps: FieldKey[], message: ReviewNote | null, found: FormErrors = {}) {
     setForm(next)

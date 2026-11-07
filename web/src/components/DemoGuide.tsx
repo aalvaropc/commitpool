@@ -19,7 +19,7 @@ export default function DemoGuide({ token, view }: { token: string; view: OwnerV
     )
   }
   return (
-    <Tile as="section" aria-labelledby="demo-guide-title" className="flex flex-col gap-3 ring-2 ring-go/40 sm:p-6">
+    <Tile as="section" aria-labelledby="demo-guide-title" className="flex flex-col gap-3 ring-2 ring-brand/40 sm:p-6">
       <div className="flex flex-wrap items-center gap-2">
         <h2 id="demo-guide-title" className="text-xl">
           You are Maya now

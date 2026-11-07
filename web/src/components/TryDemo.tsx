@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { api } from '../api'
 import { rememberDemo } from '../lib/demo'
-import { Button, Icon, Notice, type ButtonSize } from './ui'
+import { Button, Icon, Notice, type ButtonSize, type ButtonVariant } from './ui'
 
 export function useDemoAvailable(): boolean | undefined {
   const [available, setAvailable] = useState<boolean>()
@@ -19,7 +19,7 @@ export function useDemoAvailable(): boolean | undefined {
   return available
 }
 
-export default function TryDemo({ size = 'lg', pending = false }: { size?: ButtonSize; pending?: boolean }) {
+export default function TryDemo({ size = 'lg', variant = 'primary', pending = false }: { size?: ButtonSize; variant?: ButtonVariant; pending?: boolean }) {
   const navigate = useNavigate()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -40,7 +40,7 @@ export default function TryDemo({ size = 'lg', pending = false }: { size?: Butto
   if (pending) {
     return (
       <div aria-hidden="true" className="invisible">
-        <Button variant="go" size={size} tabIndex={-1}>
+        <Button size={size} variant={variant} tabIndex={-1}>
           Try it as Maya
           <Icon name="arrowRight" size={20} />
         </Button>
@@ -50,7 +50,7 @@ export default function TryDemo({ size = 'lg', pending = false }: { size?: Butto
 
   return (
     <div className="flex flex-col gap-2">
-      <Button variant="go" size={size} onClick={start} busy={busy} busyLabel="Setting up Maya’s class…">
+      <Button size={size} variant={variant} onClick={start} busy={busy} busyLabel="Setting up Maya’s class…">
         Try it as Maya
         <Icon name="arrowRight" size={20} />
       </Button>

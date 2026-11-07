@@ -11,6 +11,7 @@ export default defineConfig({
       '/api': 'http://localhost:8080',
       '^/paypal/(return|cancel|webhook)(\\?|$)': 'http://localhost:8080',
       '/healthz': 'http://localhost:8080',
+      '/mcp': 'http://localhost:8080',
     },
   },
   test: {

@@ -49,6 +49,32 @@ func TestInvite_LinkPreviewNamesTheClassInTheHead(t *testing.T) {
 	}
 }
 
+func TestLanding_LinkPreviewUsesTheDefaultCard(t *testing.T) {
+	e := newEnv(t)
+	rec := e.request(http.MethodGet, "/", nil)
+	page := rec.Body.String()
+	for _, want := range []string{
+		`<title>The class happens, or nobody pays – CommitPool</title>`,
+		`<meta property="og:title" content="The class happens, or nobody pays" />`,
+		`<meta property="og:image" content="` + appBaseURL + `/og-default.png" />`,
+		`<meta property="og:url" content="` + appBaseURL + `/" />`,
+		`<meta name="twitter:card" content="summary_large_image" />`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("landing page lacks %s\n%s", want, page)
+		}
+	}
+	if strings.Count(page, `name="description"`) != 1 {
+		t.Errorf("want exactly one description:\n%s", page)
+	}
+	if got := rec.Header().Get("X-Robots-Tag"); got != "" {
+		t.Errorf("X-Robots-Tag = %q; the landing page stays indexable", got)
+	}
+	if rec := e.request(http.MethodGet, "/new", nil); rec.Body.String() != indexHTML {
+		t.Errorf("GET /new = %q, want the plain index", rec.Body.String())
+	}
+}
+
 func TestInvite_UnknownTokensGetThePlainPage(t *testing.T) {
 	e := newEnv(t)
 	token := strings.Repeat("a", 43)

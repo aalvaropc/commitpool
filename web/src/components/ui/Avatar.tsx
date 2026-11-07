@@ -9,7 +9,7 @@ const tones: Record<AvatarTone, string> = {
   peach: 'bg-avatar-peach text-avatar-peach-ink',
 }
 
-const sizes = { sm: 'size-8 text-xs', md: 'size-10 text-sm', lg: 'size-12 text-base' } as const
+const sizes = { sm: 'size-8 text-sm', md: 'size-10 text-sm', lg: 'size-12 text-base' } as const
 
 interface AvatarProps {
   name: string

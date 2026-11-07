@@ -145,7 +145,7 @@ export default function CommitmentCard({ token, view, onChange }: Props) {
             <p id="consent-action" className="text-sm text-ink-soft">
               Reserving accepts these terms and opens PayPal in this tab. PayPal holds {formatMoney(proposal.price)}; you are charged only if it happens.
             </p>
-            <Button variant="go" size="lg" block onClick={authorize} busy={busy} busyLabel="Opening PayPal…" aria-describedby="consent-action consent-text">
+            <Button size="lg" block onClick={authorize} busy={busy} busyLabel="Opening PayPal…" aria-describedby="consent-action consent-text">
               Reserve with PayPal
             </Button>
           </div>

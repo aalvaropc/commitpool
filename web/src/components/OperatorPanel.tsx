@@ -55,7 +55,7 @@ export default function OperatorPanel({ token, view, onChange }: Props) {
   }
 
   return (
-    <section aria-labelledby="operator-title" className="flex flex-col gap-4 rounded-tile bg-attention-wash p-5 shadow-tile ring-1 ring-attention/30 sm:p-6">
+    <section aria-labelledby="operator-title" className="flex flex-col gap-4 rounded-tile bg-attention-wash p-5 ring-1 ring-attention/30 sm:p-6">
       <h2 id="operator-title" className="text-2xl text-attention">
         Needs your check
       </h2>
@@ -66,7 +66,7 @@ export default function OperatorPanel({ token, view, onChange }: Props) {
       {seats.length > 0 && (
         <ul className="flex flex-col">
           {seats.map(({ e, actions }) => (
-            <li key={e.id} className="flex flex-col gap-2 border-t border-rule py-3 sm:flex-row sm:items-center sm:gap-4">
+            <li key={e.id} className="flex flex-col gap-2 border-t border-line py-3 sm:flex-row sm:items-center sm:gap-4">
               <p className="font-semibold sm:w-40 sm:shrink-0">{e.display_name}</p>
               <p className="flex-1 text-sm">{e.status_label}</p>
               <div className="flex flex-wrap gap-2">
@@ -89,7 +89,7 @@ export default function OperatorPanel({ token, view, onChange }: Props) {
         </ul>
       )}
       {workshopFlagged && (
-        <div className="flex flex-col gap-2 border-t border-rule pt-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-2 border-t border-line pt-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm">The workshop itself is flagged for a check of one of its payment actions.</p>
           <Button
             variant="secondary"

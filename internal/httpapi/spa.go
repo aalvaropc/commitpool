@@ -10,7 +10,7 @@ import (
 
 type previewLookup func(ctx context.Context, shareToken string) (invitePreview, bool)
 
-func spaHandler(dist fs.FS, preview previewLookup) http.Handler {
+func spaHandler(dist fs.FS, preview previewLookup, landing *invitePreview) http.Handler {
 	var files http.Handler
 	if dist != nil {
 		files = http.FileServerFS(dist)
@@ -43,6 +43,9 @@ func spaHandler(dist fs.FS, preview previewLookup) http.Handler {
 		}
 		if unlisted(name) {
 			w.Header().Set("X-Robots-Tag", "noindex, nofollow")
+		}
+		if name == "" && landing != nil {
+			index = injectPreview(index, *landing)
 		}
 		if token, ok := strings.CutPrefix(name, "w/"); ok && preview != nil && validToken(token) {
 			if p, ok := preview(r.Context(), token); ok {

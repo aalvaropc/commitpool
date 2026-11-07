@@ -202,8 +202,9 @@ func newEnv(t *testing.T, opts ...option) *env {
 		Cfg:        s.cfg,
 		Log:        log,
 		Dist: fstest.MapFS{
-			"index.html":    {Data: []byte(indexHTML)},
-			"assets/app.js": {Data: []byte("console.log('commitpool')")},
+			"index.html":     {Data: []byte(indexHTML)},
+			"assets/app.js":  {Data: []byte("console.log('commitpool')")},
+			"og-default.png": {Data: []byte("png")},
 		},
 	})
 	return &env{t: t, ctx: ctx, background: background, st: st, fake: fake, clock: clk, runner: runner, cfg: s.cfg, h: h, mcp: assistant.MCP(), mailer: mailer, logs: logs, explained: explained}

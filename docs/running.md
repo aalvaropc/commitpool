@@ -63,7 +63,7 @@ default.
 | `DATABASE_URL` | Required. For the local database: `postgres://commitpool:commitpool@localhost:55432/commitpool?sslmode=disable` |
 | `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` | Required unless `E2E_FAKE_PAYPAL=1`. PayPal Sandbox app credentials. |
 | `PAYPAL_WEBHOOK_ID` | Id of the Sandbox webhook pointing at `/paypal/webhook` (`scripts/register-webhook.sh` creates it). Without it the webhook endpoint answers 503 and the periodic reconcile does the work alone. |
-| `COMMITPOOL_AI_PROVIDER` | `bedrock` (default) or `fake`, a deterministic keyword interpreter for tests and demos. |
+| `COMMITPOOL_AI_PROVIDER` | `bedrock` (default) or `fake`, a deterministic keyword interpreter for tests that also plays back the scripted readings of Maya's demo cast, including Grace's answer when it follows her first message. |
 | `AWS_REGION` | Required unless `COMMITPOOL_AI_PROVIDER=fake`. |
 | `COMMITPOOL_BEDROCK_MODEL`, `COMMITPOOL_BEDROCK_FALLBACK_MODEL` | Bedrock model or inference profile IDs. The model defaults to Claude Sonnet 4.5 through the US inference profile, `us.anthropic.claude-sonnet-4-5-20250929-v1:0`. The fallback defaults to none, which turns the refusal fallback off. |
 | `COMMITPOOL_BEDROCK_EFFORT` | Effort for every Bedrock call: `none` (default; Sonnet 4.5 takes no effort), or `low`, `medium`, `high`, `xhigh` or `max` for a model that takes one. |

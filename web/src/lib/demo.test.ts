@@ -47,10 +47,12 @@ describe('demo participants', () => {
 
 describe('demoStep', () => {
   const none = { type: 'none' as const, time: '' }
-  const answer = (id: string, clarify = false) => ({
-    id: `a-${id}`,
-    participant_id: id,
-    display_name: id,
+  const cast = ['Priya Raman', 'Ben Whitaker', 'Hannah Kim', 'Grace Liu']
+  const ids: Record<string, string> = { 'Priya Raman': 'p1', 'Ben Whitaker': 'p2', 'Hannah Kim': 'p3', 'Grace Liu': 'p4', 'Joined Late': 'p9' }
+  const answer = (name: string, clarify = false) => ({
+    id: `a-${ids[name]}`,
+    participant_id: ids[name],
+    display_name: name,
     message: '',
     interpretation: { per_date: [{ candidate_date_id: 'sat', verdict: 'available' as const, condition: none, evidence: '' }], hard_constraints: [], preferences: [], ambiguities: [], needs_clarification: clarify },
     corrected: null,
@@ -65,50 +67,59 @@ describe('demoStep', () => {
         { id: 'sun', starts_at: '2026-11-22T15:00:00Z', ends_at: '2026-11-22T17:00:00Z', label: '' },
       ],
       proposal: null,
-      participants: ['p1', 'p2', 'p3', 'grace'].map((id) => ({ id, display_name: id })),
-      availabilities: [answer('p1'), answer('p2'), answer('p3'), answer('grace', true)],
+      participants: [...cast, 'Joined Late'].map((name) => ({ id: ids[name], display_name: name })),
+      availabilities: [answer('Priya Raman'), answer('Ben Whitaker'), answer('Hannah Kim'), answer('Grace Liu', true)],
       recommendation: {
         date_id: 'sat',
         meets_minimum: false,
         per_date: [
-          { date_id: 'sat', compatible: ['p1', 'p2'], blockers: { grace: 'needs clarification' } },
+          { date_id: 'sat', compatible: ['p1', 'p2'], blockers: { p3: 'ends after 11:30', p4: 'needs clarification' } },
           { date_id: 'sun', compatible: ['p3'], blockers: null },
         ],
         explanation: '',
         explanation_pending: false,
       },
-      suggestions: [
-        { kind: 'condition', participant_id: 'p3', name: 'Hannah Kim', reason: '', message: '', pending: false },
-        { kind: 'clarify', participant_id: 'grace', name: 'Grace Liu', reason: '', message: '', pending: false },
-      ],
+      suggestions: [],
       ...over,
     }) as unknown as OwnerView
 
-  it('sends the visitor to answer Claude’s question while the best date is short', () => {
-    expect(demoStep(view())).toEqual({
-      text: 'Saturday has 2 of the 3 Maya needs. Act as Grace Liu and answer Claude’s question — for example: “No problem — I swapped Saturday. Sunday I’m still at the market.”',
+  it('sends the visitor to answer Claude’s question as Grace, with her reply from the scenario', () => {
+    expect(demoStep(view(), cast)).toEqual({
+      text: 'Saturday has 2 of the 3 Maya needs. Act as Grace Liu and answer Claude’s question — for example: “No problem — I swapped Saturday. Sunday I\'m still at the market.”',
       primary: 'Grace Liu',
     })
   })
 
-  it('takes the day and the numbers from the view', () => {
+  it('offers no example for anyone else who needs clarifying, and takes the day and numbers from the view', () => {
     const v = view()
-    const sunday = view({ recommendation: { ...v.recommendation, date_id: 'sun' }, workshop: { ...v.workshop, minimum: 4, host_name: 'Ana' } })
-    expect(demoStep(sunday)?.text).toBe('Sunday has 1 of the 4 Ana needs. Act as Grace Liu and answer Claude’s question — for example: “No problem — I swapped Sunday. Saturday I’m still at the market.”')
-  })
-
-  it('says to open reservations once enough people can come', () => {
-    const v = view()
-    expect(demoStep(view({ recommendation: { ...v.recommendation, meets_minimum: true }, suggestions: [] }))).toEqual({
-      text: 'Open reservations, then reserve as someone who can come.',
-      primary: null,
+    const ben = view({
+      availabilities: [answer('Priya Raman'), answer('Ben Whitaker', true), answer('Hannah Kim'), answer('Grace Liu')],
+      recommendation: { ...v.recommendation, date_id: 'sun' },
+      workshop: { ...v.workshop, minimum: 4, host_name: 'Ana Ruiz' },
     })
+    expect(demoStep(ben, cast)).toEqual({ text: 'Sunday has 1 of the 4 Ana needs. Act as Ben Whitaker and answer Claude’s question.', primary: 'Ben Whitaker' })
   })
 
-  it('stays quiet while answers arrive, without a question to answer, and once reservations open', () => {
+  it('falls back to the first person who does not count yet when nobody has a question to answer', () => {
+    const clear = view({ availabilities: [answer('Priya Raman'), answer('Ben Whitaker'), answer('Hannah Kim'), answer('Grace Liu')] })
+    expect(demoStep(clear, cast)).toEqual({ text: 'Saturday has 2 of the 3 Maya needs. Act as Hannah Kim and answer as them, in your own words.', primary: 'Hannah Kim' })
+  })
+
+  it('says to open reservations only once enough people can come', () => {
     const v = view()
-    expect(demoStep(view({ availabilities: v.availabilities.slice(0, 2) }))).toBeNull()
-    expect(demoStep(view({ suggestions: [] }))).toBeNull()
-    expect(demoStep(view({ workshop: { ...v.workshop, status: 'FUNDING' } }))).toBeNull()
+    expect(demoStep(view({ recommendation: { ...v.recommendation, meets_minimum: true } }), cast)).toEqual({ text: 'Open reservations, then reserve as someone who can come.', primary: null })
+    expect(demoStep(v, cast)?.text).not.toContain('Open reservations')
+  })
+
+  it('waits for the cast only, not for someone who joined through the invite', () => {
+    const v = view()
+    expect(demoStep(v, cast)).not.toBeNull()
+    expect(demoStep(view({ availabilities: v.availabilities.slice(0, 2) }), cast)).toBeNull()
+    expect(demoStep(v, [])).toBeNull()
+  })
+
+  it('stays quiet once reservations open', () => {
+    const v = view()
+    expect(demoStep(view({ workshop: { ...v.workshop, status: 'FUNDING' } }), cast)).toBeNull()
   })
 })

@@ -53,7 +53,7 @@ function AnswerBox({ token, form, onSaved }: { token: string; form: AnswerForm; 
         label={form.label}
         hint={
           form.clarifying
-            ? 'Answer in your own words. Claude reads it together with your first message.'
+            ? 'Answer in your own words. Claude reads it together with your previous message.'
             : 'Write it like you’d text a friend: “Saturday works if we finish by noon; Sunday I can’t.”'
         }
         error={error ?? undefined}

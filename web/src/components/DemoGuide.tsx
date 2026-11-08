@@ -5,7 +5,7 @@ import { ButtonLink, Icon, Pill, Tile } from './ui'
 export default function DemoGuide({ token, view }: { token: string; view: OwnerView }) {
   if (!view.workshop.demo) return null
   const people = demoParticipants(token)
-  const step = demoStep(view)
+  const step = demoStep(view, people.map((p) => p.name))
   if (people.length === 0) {
     return (
       <Tile as="section" aria-labelledby="demo-guide-title" tone="muted" className="flex flex-col gap-2 shadow-none ring-1 ring-line">
@@ -31,15 +31,17 @@ export default function DemoGuide({ token, view }: { token: string; view: OwnerV
         This is the organizer page of a prepared class. Its six participants and their answers were written for the demo; watch Claude read each
         answer as it arrives. Open reservations, then reserve as a participant with a PayPal Sandbox account.
       </p>
-      {step && (
-        <p className="flex max-w-prose items-start gap-2 rounded-control bg-brand-wash px-4 py-3 font-semibold text-ink">
-          <Icon name="spark" size={20} className="mt-0.5 shrink-0 text-brand" />
-          <span>
-            <span className="sr-only">Next in the demo: </span>
-            {step.text}
-          </span>
-        </p>
-      )}
+      <div aria-live="polite">
+        {step && (
+          <p className="flex max-w-prose items-start gap-2 rounded-control bg-brand-wash px-4 py-3 font-semibold text-ink">
+            <Icon name="spark" size={20} className="mt-0.5 shrink-0 text-brand" />
+            <span>
+              <span className="sr-only">Next in the demo: </span>
+              {step.text}
+            </span>
+          </p>
+        )}
+      </div>
       <ul className="flex flex-wrap gap-2" aria-label="Open the page of a participant">
         {people.map((p) => (
           <li key={p.path}>

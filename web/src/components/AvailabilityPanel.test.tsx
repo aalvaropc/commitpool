@@ -19,7 +19,7 @@ function reading(clarify: boolean): Interpretation {
 function render(clarify: boolean): string {
   const availability: Availability = {
     id: 'a1',
-    message: 'Count me in if it’s an afternoon thing',
+    message: 'Count me in! Mornings are tricky, but I might swap one.',
     interpretation: reading(clarify),
     corrected: null,
     needs_clarification: clarify,
@@ -48,6 +48,6 @@ describe('AvailabilityPanel', () => {
     const html = render(false)
     expect(html).not.toContain('Claude asks you')
     expect(html).toContain('Update my availability')
-    expect(html).toMatch(/<textarea[^>]*>Count me in if it’s an afternoon thing<\/textarea>/)
+    expect(html).toMatch(/<textarea[^>]*>Count me in! Mornings are tricky, but I might swap one.<\/textarea>/)
   })
 })

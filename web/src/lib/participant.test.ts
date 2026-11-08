@@ -64,7 +64,7 @@ describe('answerForm', () => {
   })
   const availability = (r: Interpretation, corrected: Interpretation | null = null): Availability => ({
     id: 'a1',
-    message: 'Count me in if it’s an afternoon thing',
+    message: 'Count me in! Mornings are tricky, but I might swap one.',
     interpretation: r,
     corrected,
     needs_clarification: r.needs_clarification,
@@ -79,7 +79,7 @@ describe('answerForm', () => {
     expect(answerForm(availability(reading([])))).toEqual({
       question: null,
       label: 'When can you come?',
-      initial: 'Count me in if it’s an afternoon thing',
+      initial: 'Count me in! Mornings are tricky, but I might swap one.',
       button: 'Update my availability',
       clarifying: false,
     })

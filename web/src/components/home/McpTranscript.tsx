@@ -3,7 +3,7 @@ import { useInView } from '../../lib/inView'
 const turns = [
   { who: 'you', text: 'How is my class going?' },
   { who: 'tool', text: 'get_status' },
-  { who: 'claude', text: 'Saturday has 2 of the 3 you need. Grace wants an afternoon, but the class runs 10 AM–12 PM, so I drafted a question asking if she can make a morning.' },
+  { who: 'claude', text: 'Saturday has 2 of the 3 you need. Grace might swap a market morning but didn’t say which, so I drafted a question: the class runs 10 AM–12 PM, can she make either morning?' },
   { who: 'you', text: 'She answered. How about now?' },
   { who: 'tool', text: 'get_status' },
   { who: 'claude', text: 'Grace swapped Saturday, so it works for 3 — you need 3. Reservations can open.' },

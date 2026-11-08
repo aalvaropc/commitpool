@@ -29,6 +29,7 @@ test.describe('one-click demo', () => {
 
     const guide = page.getByRole('region', { name: 'You are Maya now' })
     await expect(guide).toContainText('Saturday has 2 of the 3 Maya needs. Act as Grace Liu and answer Claude’s question')
+    await expect(guide).toContainText("for example: “No problem — I swapped Saturday. Sunday I'm still at the market.”")
     await expectAccessible(page, 'the demo organizer page')
 
     const ownerURL = page.url()

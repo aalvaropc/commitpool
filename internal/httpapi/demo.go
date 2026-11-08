@@ -139,6 +139,12 @@ func (s *server) createDemoWorkshop(w http.ResponseWriter, r *http.Request) erro
 		ticket.refund()
 		return err
 	}
+	for _, p := range people {
+		if _, err := s.Store.KeepDemoLink(ctx, p.Token); err != nil {
+			ticket.refund()
+			return err
+		}
+	}
 	s.answerInBackground(ctx, api, people, ticket)
 	out := demoWorkshopDTO{OwnerURL: res.OwnerURL, ShareURL: res.ShareURL}
 	for _, p := range people {

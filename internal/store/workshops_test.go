@@ -293,6 +293,49 @@ func TestParticipants_CreateAndLookup(t *testing.T) {
 	}
 }
 
+func TestDemoLinks_KeptOnlyForADemoWorkshop(t *testing.T) {
+	ctx := context.Background()
+	s := storetest.New(t)
+	demo, _, _, err := s.CreateWorkshop(ctx, store.CreateWorkshopParams{
+		Title: "Wheel-throwing for beginners", DurationMin: 120, Timezone: "America/New_York", Minimum: 3, Capacity: 6,
+		PriceMinor: 4500, Currency: "USD", PaymentWindowMin: 1440, IsDemo: true,
+		Dates: []dateWindow{{StartsAt: saturday, EndsAt: saturday.Add(2 * time.Hour)}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	regular, _, _ := newWorkshop(t, s, 1, 3)
+
+	_, priya, _ := s.CreateParticipant(ctx, demo.ID, "Priya Raman")
+	_, ben, _ := s.CreateParticipant(ctx, demo.ID, "Ben Whitaker")
+	_, visitor, _ := s.CreateParticipant(ctx, demo.ID, "A visitor")
+	_, ana, _ := s.CreateParticipant(ctx, regular.ID, "Ana")
+	for _, token := range []string{priya, ben} {
+		if kept, err := s.KeepDemoLink(ctx, token); err != nil || !kept {
+			t.Fatalf("KeepDemoLink in a demo workshop = %v, %v; want kept", kept, err)
+		}
+	}
+	if kept, err := s.KeepDemoLink(ctx, ana); err != nil || kept {
+		t.Errorf("KeepDemoLink in a regular workshop = %v, %v; want refused", kept, err)
+	}
+	if kept, err := s.KeepDemoLink(ctx, "unknown"); err != nil || kept {
+		t.Errorf("KeepDemoLink(unknown) = %v, %v; want refused", kept, err)
+	}
+
+	links, err := s.DemoLinks(ctx, demo.ID)
+	want := []store.DemoLinkRow{{DisplayName: "Priya Raman", Token: priya}, {DisplayName: "Ben Whitaker", Token: ben}}
+	if err != nil || len(links) != 2 || links[0] != want[0] || links[1] != want[1] {
+		t.Errorf("DemoLinks = %+v, %v; want Priya and Ben in joining order, without the visitor %s", links, err, visitor)
+	}
+	var stored int
+	if err := s.Pool.QueryRow(ctx, `select count(*) from participants where demo_link_token is not null and workshop_id = $1`, regular.ID).Scan(&stored); err != nil || stored != 0 {
+		t.Errorf("a regular workshop stores %d plain participant links, %v", stored, err)
+	}
+	if links, err := s.DemoLinks(ctx, regular.ID); err != nil || len(links) != 0 {
+		t.Errorf("DemoLinks(regular) = %+v, %v; want none", links, err)
+	}
+}
+
 func TestAvailability_SaveCorrectAndLatest(t *testing.T) {
 	ctx := context.Background()
 	s := storetest.New(t)

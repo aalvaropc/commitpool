@@ -177,6 +177,7 @@ export interface OwnerView {
   enrollments: Enrollment[]
   suggestions: Suggestion[]
   demo: { demo_mode: boolean; sandbox_mocks: boolean }
+  act_as?: { name: string; participant_url: string }[]
 }
 
 export interface Suggestion {

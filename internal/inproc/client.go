@@ -36,6 +36,10 @@ func (e *Error) Temporary() bool {
 	return false
 }
 
+func (e *Error) Throttled() bool {
+	return e.Status == http.StatusTooManyRequests
+}
+
 func (c Client) Call(ctx context.Context, method, path string, body, out any) error {
 	if c.Handler == nil {
 		return errors.New("inproc: no handler attached")

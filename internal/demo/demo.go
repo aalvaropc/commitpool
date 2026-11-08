@@ -67,10 +67,17 @@ type Result struct {
 
 const PreparedNote = "Prepared demo data: Maya, her studio and the six participants were written for this demo."
 
-const answerAttempts = 4
+const (
+	answerAttempts    = 4
+	throttledAttempts = 30
+)
 
 type temporary interface {
 	Temporary() bool
+}
+
+type throttled interface {
+	Throttled() bool
 }
 
 type Pace func(context.Context) error
@@ -163,18 +170,27 @@ func Answer(ctx context.Context, api Caller, people []Participant, pace Pace) er
 }
 
 func answer(ctx context.Context, api Caller, p Participant, pace Pace) error {
-	var err error
-	for attempt := 1; attempt <= answerAttempts; attempt++ {
-		err = api.Call(ctx, http.MethodPost, "/api/v1/p/"+p.Token+"/availability", map[string]any{"message": p.Message}, nil)
-		var t temporary
-		if err == nil || !errors.As(err, &t) || !t.Temporary() || attempt == answerAttempts {
+	for attempt := 1; ; attempt++ {
+		err := api.Call(ctx, http.MethodPost, "/api/v1/p/"+p.Token+"/availability", map[string]any{"message": p.Message}, nil)
+		if err == nil || attempt >= attempts(err) {
 			return err
 		}
 		if werr := wait(ctx, pace, attempt); werr != nil {
 			return errors.Join(err, werr)
 		}
 	}
-	return err
+}
+
+func attempts(err error) int {
+	var th throttled
+	if errors.As(err, &th) && th.Throttled() {
+		return throttledAttempts
+	}
+	var t temporary
+	if errors.As(err, &t) && t.Temporary() {
+		return answerAttempts
+	}
+	return 1
 }
 
 func wait(ctx context.Context, pace Pace, steps int) error {

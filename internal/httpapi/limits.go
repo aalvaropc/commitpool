@@ -2,9 +2,11 @@ package httpapi
 
 import (
 	"context"
+	"math"
 	"net"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -131,6 +133,11 @@ func tryAcquire(slots chan struct{}) (release func(), ok bool) {
 	default:
 		return nil, false
 	}
+}
+
+func modelBusy(w http.ResponseWriter, wait time.Duration) error {
+	w.Header().Set("Retry-After", strconv.Itoa(max(1, int(math.Ceil(wait.Seconds())))))
+	return newError(http.StatusTooManyRequests, "ai_busy", "Claude is reading a lot of messages right now. Please try again in a few minutes.")
 }
 
 func (s *server) acquireAI(ctx context.Context) (release func(), err error) {

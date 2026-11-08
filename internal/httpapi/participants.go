@@ -132,6 +132,9 @@ func (s *server) submitAvailability(w http.ResponseWriter, r *http.Request) erro
 	})
 	if err != nil {
 		s.Log.Error("interpret availability", "workshop_id", ws.ID, "participant_id", p.ID, "error", err)
+		if wait, busy := ai.BusyWait(err); busy {
+			return modelBusy(w, wait)
+		}
 		return newError(http.StatusBadGateway, "ai_unavailable", "We could not read your message right now. Please try again in a moment.")
 	}
 	clean, problems := cleanInterpretation(in, st.dates)

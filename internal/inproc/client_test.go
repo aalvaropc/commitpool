@@ -64,3 +64,11 @@ func TestError_TemporaryOnlyForBusyOrUpstreamFailures(t *testing.T) {
 		}
 	}
 }
+
+func TestError_ThrottledOnlyForTooManyRequests(t *testing.T) {
+	for status, want := range map[int]bool{429: true, 502: false, 503: false, 400: false, 409: false} {
+		if got := (&inproc.Error{Status: status}).Throttled(); got != want {
+			t.Errorf("status %d throttled = %v, want %v", status, got, want)
+		}
+	}
+}

@@ -2,20 +2,17 @@ package mcpserver
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-)
 
-const confirmationTTL = 10 * time.Minute
+	"github.com/aalvaropc/commitpool/internal/inproc"
+)
 
 func (s *Server) addTools() {
 	readOnly := &mcp.ToolAnnotations{ReadOnlyHint: true}
@@ -40,11 +37,12 @@ func (s *Server) addTools() {
 	mcp.AddTool(s.srv, &mcp.Tool{Name: "get_status", Annotations: readOnly,
 		Description: "Read a workshop from its owner link: the recommended date and why, who can come, who has committed or paid, what would happen if payments closed now, and who the organizer could nudge, each with a message Claude drafted for the organizer to send. Nothing is sent: show the messages to the organizer and let them decide."},
 		logged(s, "get_status", s.getStatus))
-	mcp.AddTool(s.srv, &mcp.Tool{Name: "preview_open_payments", Annotations: readOnly,
-		Description: "Preview opening payments on a candidate date: the exact terms that will be locked (date, price, minimum, capacity, payment window). Nothing changes. Returns a confirmation token valid for ten minutes."},
+	additive := false
+	mcp.AddTool(s.srv, &mcp.Tool{Name: "preview_open_payments", Annotations: &mcp.ToolAnnotations{DestructiveHint: &additive, IdempotentHint: true},
+		Description: "Prepare opening payments on a candidate date: returns the exact terms that will be locked (date, price, minimum, capacity, payment window) and an approve_url for the organizer. Nothing about the workshop changes. Show the terms to the organizer and ask them to open the approve_url and tap Approve on their own page; the approval lasts thirty minutes."},
 		logged(s, "preview_open_payments", s.previewOpenPayments))
 	mcp.AddTool(s.srv, &mcp.Tool{Name: "confirm_open_payments", Annotations: &mcp.ToolAnnotations{},
-		Description: "Open payments with the confirmation token from preview_open_payments, only after the organizer has seen those terms and said yes. Refused when the token expired or the terms changed."},
+		Description: "Open payments with the approval_id from preview_open_payments. Works only after the organizer tapped Approve on the approve_url page; refused while they have not, after the approval expired or was used, or when any term changed since the preview."},
 		logged(s, "confirm_open_payments", s.confirmOpenPayments))
 }
 
@@ -370,16 +368,32 @@ type PreviewIn struct {
 }
 
 type PreviewOut struct {
-	DateID            string    `json:"date_id"`
-	Date              string    `json:"date"`
-	Price             string    `json:"price"`
-	Minimum           int       `json:"minimum"`
-	Capacity          int       `json:"capacity"`
-	PaymentWindowMin  int       `json:"payment_window_min"`
-	Compatible        int       `json:"compatible"`
-	ConfirmationToken string    `json:"confirmation_token"`
-	ExpiresAt         time.Time `json:"expires_at"`
-	Next              string    `json:"next"`
+	DateID           string    `json:"date_id"`
+	Date             string    `json:"date"`
+	Price            string    `json:"price"`
+	Minimum          int       `json:"minimum"`
+	Capacity         int       `json:"capacity"`
+	PaymentWindowMin int       `json:"payment_window_min"`
+	Compatible       int       `json:"compatible"`
+	ApprovalID       string    `json:"approval_id"`
+	ApproveURL       string    `json:"approve_url"`
+	ExpiresAt        time.Time `json:"expires_at"`
+	Next             string    `json:"next"`
+}
+
+type approvalJSON struct {
+	Approval struct {
+		ID               string    `json:"id"`
+		State            string    `json:"state"`
+		DateID           string    `json:"date_id"`
+		DateLabel        string    `json:"date_label"`
+		Price            money     `json:"price"`
+		Minimum          int       `json:"minimum"`
+		Capacity         int       `json:"capacity"`
+		PaymentWindowMin int       `json:"payment_window_min"`
+		ExpiresAt        time.Time `json:"expires_at"`
+	} `json:"approval"`
+	ApproveURL string `json:"approve_url"`
 }
 
 func (s *Server) previewOpenPayments(ctx context.Context, _ *mcp.CallToolRequest, in PreviewIn) (*mcp.CallToolResult, PreviewOut, error) {
@@ -394,34 +408,48 @@ func (s *Server) previewOpenPayments(ctx context.Context, _ *mcp.CallToolRequest
 	if v.Proposal != nil {
 		return nil, PreviewOut{}, errors.New("payments are already open for this workshop; get_status shows how they are going")
 	}
-	label := ""
+	known := false
 	for _, d := range v.Dates {
-		if d.ID == in.DateID {
-			label = d.Label
-		}
+		known = known || d.ID == in.DateID
 	}
-	if label == "" {
+	if !known {
 		return nil, PreviewOut{}, fmt.Errorf("date %q is not one of this workshop's candidate dates; get_status lists them", in.DateID)
 	}
+	var a approvalJSON
+	if err := s.call(ctx, "POST", "/api/v1/owner/"+tok+"/approvals", map[string]string{"date_id": in.DateID}, &a); err != nil {
+		return nil, PreviewOut{}, err
+	}
 	out := PreviewOut{
-		DateID: in.DateID, Date: label, Price: v.Workshop.Price.String(), Minimum: v.Workshop.Minimum,
-		Capacity: v.Workshop.Capacity, PaymentWindowMin: v.Workshop.PaymentWindowMin,
+		DateID: a.Approval.DateID, Date: a.Approval.DateLabel, Price: a.Approval.Price.String(), Minimum: a.Approval.Minimum,
+		Capacity: a.Approval.Capacity, PaymentWindowMin: a.Approval.PaymentWindowMin,
+		ApprovalID: a.Approval.ID, ApproveURL: a.ApproveURL, ExpiresAt: a.Approval.ExpiresAt,
 	}
 	for _, p := range v.Recommendation.PerDate {
 		if p.DateID == in.DateID {
 			out.Compatible = len(p.Compatible)
 		}
 	}
-	out.ExpiresAt = s.cfg.Clock.Now().Add(confirmationTTL).UTC().Truncate(time.Second)
-	out.ConfirmationToken = s.sign(tok, terms(v, in.DateID), out.ExpiresAt)
-	out.Next = fmt.Sprintf("Read these terms to the organizer: once reservations open, the date, the price of %s, the minimum of %d and the capacity of %d are locked and every participant who reserves places a PayPal hold. Call confirm_open_payments with the token only after they say yes.",
-		out.Price, out.Minimum, out.Capacity)
+	out.Next = fmt.Sprintf("Show these terms to the organizer and ask them to open this link and tap Approve; then call confirm_open_payments. "+
+		"The link is %s and it works until %s. Once reservations open, the date, the price of %s, the minimum of %d and the capacity of %d are locked and every participant who reserves places a PayPal hold; nothing is charged until enough people reserve. "+
+		"Never open the link or tap Approve yourself: the approval must be the organizer's.",
+		out.ApproveURL, out.ExpiresAt.Format(time.RFC3339), out.Price, out.Minimum, out.Capacity)
 	return nil, out, nil
 }
 
 type ConfirmIn struct {
-	OwnerLink         string `json:"owner_link" jsonschema:"the organizer's private owner link"`
-	ConfirmationToken string `json:"confirmation_token" jsonschema:"the token preview_open_payments returned"`
+	OwnerLink  string `json:"owner_link" jsonschema:"the organizer's private owner link"`
+	ApprovalID string `json:"approval_id" jsonschema:"the approval_id preview_open_payments returned"`
+}
+
+var approvalIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+var confirmRefusals = map[string]string{
+	"approval_pending": "The organizer has not approved yet — ask them to open the approve link from preview_open_payments and tap Approve, then call confirm_open_payments again. Do not approve it yourself.",
+	"approval_expired": "This approval expired before reservations opened; call preview_open_payments again and send the organizer the new approve link.",
+	"approval_used":    "This approval was already used to open reservations; get_status shows how they are going.",
+	"terms_changed":    "The workshop's terms changed since the preview, so the organizer's approval no longer applies; call preview_open_payments again and send the organizer the new approve link.",
+	"approval_closed":  "Reservations are already open or the workshop was cancelled; get_status shows where it stands.",
+	"not_found":        "That approval_id does not belong to this workshop; call preview_open_payments and use the approval_id it returns.",
 }
 
 func (s *Server) confirmOpenPayments(ctx context.Context, _ *mcp.CallToolRequest, in ConfirmIn) (*mcp.CallToolResult, StatusOut, error) {
@@ -429,59 +457,22 @@ func (s *Server) confirmOpenPayments(ctx context.Context, _ *mcp.CallToolRequest
 	if err != nil {
 		return nil, StatusOut{}, err
 	}
+	id := strings.TrimSpace(in.ApprovalID)
+	if !approvalIDPattern.MatchString(id) {
+		return nil, StatusOut{}, errors.New(confirmRefusals["not_found"])
+	}
+	if err := s.call(ctx, "POST", "/api/v1/owner/"+tok+"/approvals/"+id+"/open", nil, nil); err != nil {
+		var apiErr *inproc.Error
+		if errors.As(err, &apiErr) && confirmRefusals[apiErr.Code] != "" {
+			return nil, StatusOut{}, errors.New(confirmRefusals[apiErr.Code])
+		}
+		return nil, StatusOut{}, err
+	}
 	v, err := s.owner(ctx, tok)
 	if err != nil {
 		return nil, StatusOut{}, err
 	}
-	dateID, err := s.verify(tok, in.ConfirmationToken, v)
-	if err != nil {
-		return nil, StatusOut{}, err
-	}
-	if err := s.call(ctx, "POST", "/api/v1/owner/"+tok+"/proposal", map[string]string{"date_id": dateID}, nil); err != nil {
-		return nil, StatusOut{}, err
-	}
-	if v, err = s.owner(ctx, tok); err != nil {
-		return nil, StatusOut{}, err
-	}
 	return nil, statusOf(v), nil
-}
-
-func terms(v ownerView, dateID string) string {
-	w := v.Workshop
-	return strings.Join([]string{dateID, strconv.FormatInt(w.Price.Minor, 10), w.Price.Currency,
-		strconv.Itoa(w.Minimum), strconv.Itoa(w.Capacity), strconv.Itoa(w.PaymentWindowMin)}, "|")
-}
-
-func (s *Server) sign(ownerToken, terms string, expires time.Time) string {
-	exp := strconv.FormatInt(expires.Unix(), 10)
-	dateID := strings.SplitN(terms, "|", 2)[0]
-	return dateID + "." + exp + "." + s.mac(ownerToken, terms, exp)
-}
-
-func (s *Server) mac(ownerToken, terms, exp string) string {
-	m := hmac.New(sha256.New, s.cfg.Secret)
-	m.Write([]byte(ownerToken + "\n" + terms + "\n" + exp))
-	return base64.RawURLEncoding.EncodeToString(m.Sum(nil))
-}
-
-func (s *Server) verify(ownerToken, confirmation string, v ownerView) (string, error) {
-	mismatch := errors.New("the confirmation token does not match this workshop's current terms; call preview_open_payments again and show the organizer the terms")
-	parts := strings.Split(strings.TrimSpace(confirmation), ".")
-	if len(parts) != 3 {
-		return "", mismatch
-	}
-	dateID, exp, sum := parts[0], parts[1], parts[2]
-	if !hmac.Equal([]byte(sum), []byte(s.mac(ownerToken, terms(v, dateID), exp))) {
-		return "", mismatch
-	}
-	unix, err := strconv.ParseInt(exp, 10, 64)
-	if err != nil {
-		return "", mismatch
-	}
-	if !s.cfg.Clock.Now().Before(time.Unix(unix, 0)) {
-		return "", errors.New("this confirmation token expired; call preview_open_payments again and show the organizer the terms")
-	}
-	return dateID, nil
 }
 
 type ShareIn struct {

@@ -85,13 +85,16 @@ type mcpReading struct {
 }
 
 type mcpPreview struct {
-	ConfirmationToken string `json:"confirmation_token"`
-	Date              string `json:"date"`
-	Price             string `json:"price"`
-	Minimum           int    `json:"minimum"`
-	Capacity          int    `json:"capacity"`
-	PaymentWindowMin  int    `json:"payment_window_min"`
-	Compatible        int    `json:"compatible"`
+	ApprovalID       string    `json:"approval_id"`
+	ApproveURL       string    `json:"approve_url"`
+	ExpiresAt        time.Time `json:"expires_at"`
+	Date             string    `json:"date"`
+	Price            string    `json:"price"`
+	Minimum          int       `json:"minimum"`
+	Capacity         int       `json:"capacity"`
+	PaymentWindowMin int       `json:"payment_window_min"`
+	Compatible       int       `json:"compatible"`
+	Next             string    `json:"next"`
 }
 
 type mcpStatus struct {
@@ -141,9 +144,11 @@ func TestMCP_NoMoneyMovingTools(t *testing.T) {
 	}
 	var names []string
 	readOnly := map[string]bool{}
+	additive := map[string]bool{}
 	for _, tl := range list.Tools {
 		names = append(names, tl.Name)
 		readOnly[tl.Name] = tl.Annotations != nil && tl.Annotations.ReadOnlyHint
+		additive[tl.Name] = tl.Annotations != nil && tl.Annotations.DestructiveHint != nil && !*tl.Annotations.DestructiveHint
 		for _, word := range []string{"capture", "void", "refund", "cancel", "withdraw", "charge"} {
 			if strings.Contains(tl.Name, word) {
 				t.Errorf("tool %q can move money; an assistant must never", tl.Name)
@@ -156,10 +161,13 @@ func TestMCP_NoMoneyMovingTools(t *testing.T) {
 	if !slices.Equal(names, want) {
 		t.Errorf("tools = %v, want %v", names, want)
 	}
-	for _, name := range []string{"get_workshop", "get_my_status", "get_status", "preview_open_payments"} {
+	for _, name := range []string{"get_workshop", "get_my_status", "get_status"} {
 		if !readOnly[name] {
 			t.Errorf("tool %q is not annotated read-only", name)
 		}
+	}
+	if readOnly["preview_open_payments"] || !additive["preview_open_payments"] {
+		t.Errorf("preview_open_payments records an approval request: want it annotated as an additive write")
 	}
 }
 
@@ -188,41 +196,121 @@ func TestMCP_SubmitAvailabilityReturnsReadingForConfirmation(t *testing.T) {
 	}
 }
 
-func TestMCP_ConfirmOpenPaymentsRequiresTheBoundToken(t *testing.T) {
-	e := newEnv(t)
-	cs := e.mcpSession()
-	created, _ := e.mcpWorkshop(cs)
+func (e *env) mcpPreview(cs *mcp.ClientSession, created mcpCreated) mcpPreview {
+	e.t.Helper()
 	var status mcpStatus
 	e.tool(cs, "get_status", map[string]any{"owner_link": created.OwnerLink}, &status)
 	if status.RecommendedDateID == "" {
-		t.Fatalf("status = %+v, want a recommended date", status)
+		e.t.Fatalf("status = %+v, want a recommended date", status)
 	}
-
 	var preview mcpPreview
-	e.tool(cs, "preview_open_payments", map[string]any{"owner_link": created.OwnerLink, "date_id": status.RecommendedDateID}, &preview)
-	if preview.ConfirmationToken == "" || preview.Price != "10.00 USD" || preview.Minimum != 2 || preview.Capacity != 3 || preview.Compatible != 2 {
-		t.Fatalf("preview = %+v, want the exact terms and a confirmation token", preview)
+	if res := e.tool(cs, "preview_open_payments", map[string]any{"owner_link": created.OwnerLink, "date_id": status.RecommendedDateID}, &preview); res.IsError {
+		e.t.Fatalf("preview_open_payments = %q", resultText(res))
+	}
+	return preview
+}
+
+func (e *env) confirm(cs *mcp.ClientSession, created mcpCreated, approvalID string) (*mcp.CallToolResult, mcpStatus) {
+	e.t.Helper()
+	var status mcpStatus
+	res := e.tool(cs, "confirm_open_payments", map[string]any{"owner_link": created.OwnerLink, "approval_id": approvalID}, &status)
+	return res, status
+}
+
+func TestMCP_ConfirmOpenPaymentsNeedsTheOrganizersApproval(t *testing.T) {
+	e := newEnv(t)
+	cs := e.mcpSession()
+	created, _ := e.mcpWorkshop(cs)
+
+	preview := e.mcpPreview(cs, created)
+	if preview.ApprovalID == "" || preview.Price != "10.00 USD" || preview.Minimum != 2 || preview.Capacity != 3 || preview.Compatible != 2 ||
+		preview.PaymentWindowMin != 1440 || !preview.ExpiresAt.Equal(t0.Add(30*time.Minute)) {
+		t.Fatalf("preview = %+v, want the exact terms and an approval", preview)
+	}
+	if preview.ApproveURL != created.OwnerLink+"/approve/"+preview.ApprovalID {
+		t.Errorf("approve_url = %q, want the organizer's approve page under %s", preview.ApproveURL, created.OwnerLink)
+	}
+	for _, want := range []string{"Show these terms to the organizer and ask them to open this link and tap Approve; then call confirm_open_payments.", preview.ApproveURL, "10.00 USD"} {
+		if !strings.Contains(preview.Next, want) {
+			t.Errorf("next = %q, want it to contain %q", preview.Next, want)
+		}
 	}
 	if v := e.ownerByLink(created.OwnerLink); v.Proposal != nil {
 		t.Fatalf("a preview opened payments: %+v", v.Proposal)
 	}
 
-	tampered := preview.ConfirmationToken[:len(preview.ConfirmationToken)-2] + "xx"
-	e.wantToolError(e.tool(cs, "confirm_open_payments", map[string]any{"owner_link": created.OwnerLink, "confirmation_token": tampered}, nil), "confirmation")
-
+	res, _ := e.confirm(cs, created, preview.ApprovalID)
+	e.wantToolError(res, "The organizer has not approved yet — ask them to open the approve link")
+	res, _ = e.confirm(cs, created, "../proposal")
+	e.wantToolError(res, "does not belong to this workshop")
 	other, _ := e.mcpWorkshop(cs)
-	e.wantToolError(e.tool(cs, "confirm_open_payments", map[string]any{"owner_link": other.OwnerLink, "confirmation_token": preview.ConfirmationToken}, nil), "confirmation")
-
-	e.clock.Set(e.clock.Now().Add(11 * time.Minute))
-	e.wantToolError(e.tool(cs, "confirm_open_payments", map[string]any{"owner_link": created.OwnerLink, "confirmation_token": preview.ConfirmationToken}, nil), "expired")
+	res, _ = e.confirm(cs, other, preview.ApprovalID)
+	e.wantToolError(res, "does not belong to this workshop")
 	if v := e.ownerByLink(created.OwnerLink); v.Proposal != nil {
 		t.Fatalf("a refused confirmation opened payments: %+v", v.Proposal)
 	}
 
-	e.tool(cs, "preview_open_payments", map[string]any{"owner_link": created.OwnerLink, "date_id": status.RecommendedDateID}, &preview)
-	res := e.tool(cs, "confirm_open_payments", map[string]any{"owner_link": created.OwnerLink, "confirmation_token": preview.ConfirmationToken}, &status)
-	if res.IsError || !status.PaymentsOpen {
-		t.Fatalf("confirm = %q, status %+v; want payments open", resultText(res), status)
+	e.approveInBrowser(preview.ApproveURL)
+	res, status := e.confirm(cs, created, preview.ApprovalID)
+	if res.IsError || !status.PaymentsOpen || status.Status != "FUNDING" {
+		t.Fatalf("confirm after approval = %q, status %+v; want payments open", resultText(res), status)
+	}
+	res, _ = e.confirm(cs, created, preview.ApprovalID)
+	e.wantToolError(res, "already used")
+}
+
+func TestMCP_ConfirmRefusedWhenTermsChangeOrTheApprovalExpires(t *testing.T) {
+	e := newEnv(t)
+	cs := e.mcpSession()
+
+	changedBeforeApproval, _ := e.mcpWorkshop(cs)
+	preview := e.mcpPreview(cs, changedBeforeApproval)
+	page := e.openApprovalPage(preview.ApproveURL)
+	e.setPrice(changedBeforeApproval, 1500)
+	if shown := e.openApprovalPage(preview.ApproveURL); shown.view.Approval.State != "changed" {
+		t.Errorf("approve page after a price change = %q, want changed", shown.view.Approval.State)
+	}
+	wantRefusal(t, e.tapApprove(page, page.cookie, sameOriginPage()), http.StatusConflict, "terms_changed")
+	res, _ := e.confirm(cs, changedBeforeApproval, preview.ApprovalID)
+	e.wantToolError(res, "terms changed since the preview")
+
+	changedAfterApproval, _ := e.mcpWorkshop(cs)
+	preview = e.mcpPreview(cs, changedAfterApproval)
+	e.approveInBrowser(preview.ApproveURL)
+	e.setPrice(changedAfterApproval, 1500)
+	res, _ = e.confirm(cs, changedAfterApproval, preview.ApprovalID)
+	e.wantToolError(res, "terms changed since the preview")
+
+	expired, _ := e.mcpWorkshop(cs)
+	preview = e.mcpPreview(cs, expired)
+	e.approveInBrowser(preview.ApproveURL)
+	e.clock.Set(e.clock.Now().Add(31 * time.Minute))
+	res, _ = e.confirm(cs, expired, preview.ApprovalID)
+	e.wantToolError(res, "expired")
+
+	for _, created := range []mcpCreated{changedBeforeApproval, changedAfterApproval, expired} {
+		if v := e.ownerByLink(created.OwnerLink); v.Proposal != nil {
+			t.Fatalf("a refused confirmation opened payments: %+v", v.Proposal)
+		}
+	}
+	fresh := e.mcpPreview(cs, expired)
+	if fresh.ApprovalID == preview.ApprovalID {
+		t.Fatalf("a preview after expiry reused the expired approval %s", fresh.ApprovalID)
+	}
+	e.approveInBrowser(fresh.ApproveURL)
+	if res, status := e.confirm(cs, expired, fresh.ApprovalID); res.IsError || !status.PaymentsOpen {
+		t.Fatalf("confirm with a fresh approval = %q, %+v; want payments open", resultText(res), status)
+	}
+}
+
+func (e *env) setPrice(created mcpCreated, minor int64) {
+	e.t.Helper()
+	w, err := e.st.WorkshopByOwnerToken(e.ctx, created.OwnerLink[strings.LastIndex(created.OwnerLink, "/")+1:])
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	if _, err := e.st.Pool.Exec(e.ctx, `update workshops set price_minor = $2 where id = $1`, w.ID, minor); err != nil {
+		e.t.Fatal(err)
 	}
 }
 
@@ -230,11 +318,11 @@ func TestMCP_CheckoutLinkRequiresConsent(t *testing.T) {
 	e := newEnv(t)
 	cs := e.mcpSession()
 	created, joined := e.mcpWorkshop(cs)
-	var status mcpStatus
-	e.tool(cs, "get_status", map[string]any{"owner_link": created.OwnerLink}, &status)
-	var preview mcpPreview
-	e.tool(cs, "preview_open_payments", map[string]any{"owner_link": created.OwnerLink, "date_id": status.RecommendedDateID}, &preview)
-	e.tool(cs, "confirm_open_payments", map[string]any{"owner_link": created.OwnerLink, "confirmation_token": preview.ConfirmationToken}, nil)
+	preview := e.mcpPreview(cs, created)
+	e.approveInBrowser(preview.ApproveURL)
+	if res, status := e.confirm(cs, created, preview.ApprovalID); res.IsError || !status.PaymentsOpen {
+		t.Fatalf("confirm = %q, %+v; want payments open", resultText(res), status)
+	}
 	link := joined[0].ParticipantLink
 
 	var mine struct {

@@ -20,7 +20,7 @@ const (
 	demoHourlyCap     = 30
 	demoRunningCap    = 6
 	demoVisitorEvery  = 20 * time.Minute
-	demoVisitorBurst  = 2
+	demoVisitorBurst  = 5
 )
 
 type demoRefusal struct {

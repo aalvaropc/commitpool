@@ -61,6 +61,7 @@ type server struct {
 	drafts       *draftQuota
 	samples      *sampleQuota
 	signingKey   []byte
+	crossOrigin  *http.CrossOriginProtection
 	aiSem        chan struct{}
 }
 
@@ -82,6 +83,7 @@ func New(d Deps) http.Handler {
 	s.drafts = newDraftQuota(s.limiter != nil)
 	s.samples = newSampleQuota(s.limiter != nil)
 	s.signingKey = newSigningKey(d.Cfg.MCPSecret)
+	s.crossOrigin = http.NewCrossOriginProtection()
 	mux := http.NewServeMux()
 	s.routes(mux)
 	h := s.observe(mux)

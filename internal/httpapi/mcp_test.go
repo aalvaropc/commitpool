@@ -86,6 +86,7 @@ type mcpReading struct {
 
 type mcpPreview struct {
 	ApprovalID       string    `json:"approval_id"`
+	State            string    `json:"state"`
 	ApproveURL       string    `json:"approve_url"`
 	ExpiresAt        time.Time `json:"expires_at"`
 	Date             string    `json:"date"`
@@ -223,7 +224,7 @@ func TestMCP_ConfirmOpenPaymentsNeedsTheOrganizersApproval(t *testing.T) {
 	created, _ := e.mcpWorkshop(cs)
 
 	preview := e.mcpPreview(cs, created)
-	if preview.ApprovalID == "" || preview.Price != "10.00 USD" || preview.Minimum != 2 || preview.Capacity != 3 || preview.Compatible != 2 ||
+	if preview.ApprovalID == "" || preview.State != "pending" || preview.Price != "10.00 USD" || preview.Minimum != 2 || preview.Capacity != 3 || preview.Compatible != 2 ||
 		preview.PaymentWindowMin != 1440 || !preview.ExpiresAt.Equal(t0.Add(30*time.Minute)) {
 		t.Fatalf("preview = %+v, want the exact terms and an approval", preview)
 	}
@@ -250,10 +251,20 @@ func TestMCP_ConfirmOpenPaymentsNeedsTheOrganizersApproval(t *testing.T) {
 		t.Fatalf("a refused confirmation opened payments: %+v", v.Proposal)
 	}
 
+	unknown := appBaseURL + "/owner/" + strings.Repeat("x", 43)
+	e.wantToolError(e.tool(cs, "confirm_open_payments", map[string]any{"owner_link": unknown, "approval_id": preview.ApprovalID}, nil), "That owner link does not open any workshop")
+
+	e.clock.Set(t0.Add(25 * time.Minute))
 	e.approveInBrowser(preview.ApproveURL)
+	again := e.mcpPreview(cs, created)
+	if again.ApprovalID != preview.ApprovalID || again.State != "approved" || !again.ExpiresAt.Equal(t0.Add(55*time.Minute)) ||
+		!strings.Contains(again.Next, "The organizer already approved these terms") || strings.Contains(again.Next, "tap Approve;") {
+		t.Fatalf("preview after approval = %+v, want the approved approval and a next step to confirm", again)
+	}
+	e.clock.Set(t0.Add(40 * time.Minute))
 	res, status := e.confirm(cs, created, preview.ApprovalID)
 	if res.IsError || !status.PaymentsOpen || status.Status != "FUNDING" {
-		t.Fatalf("confirm after approval = %q, status %+v; want payments open", resultText(res), status)
+		t.Fatalf("confirm after approval, past the request's first half hour = %q, status %+v; want payments open", resultText(res), status)
 	}
 	res, _ = e.confirm(cs, created, preview.ApprovalID)
 	e.wantToolError(res, "already used")

@@ -39,7 +39,7 @@ func (s *Server) addTools() {
 		logged(s, "get_status", s.getStatus))
 	additive := false
 	mcp.AddTool(s.srv, &mcp.Tool{Name: "preview_open_payments", Annotations: &mcp.ToolAnnotations{DestructiveHint: &additive, IdempotentHint: true},
-		Description: "Prepare opening payments on a candidate date: returns the exact terms that will be locked (date, price, minimum, capacity, payment window) and an approve_url for the organizer. Nothing about the workshop changes. Show the terms to the organizer and ask them to open the approve_url and tap Approve on their own page; the approval lasts thirty minutes."},
+		Description: "Prepare opening payments on a candidate date: returns the exact terms that will be locked (date, price, minimum, capacity, payment window) and an approve_url for the organizer. Nothing about the workshop changes. Show the terms to the organizer and ask them to open the approve_url and tap Approve on their own page. They have thirty minutes to approve; once they do, you have thirty more to call confirm_open_payments. A repeated preview returns the same approval while it has ten minutes left, with its state."},
 		logged(s, "preview_open_payments", s.previewOpenPayments))
 	mcp.AddTool(s.srv, &mcp.Tool{Name: "confirm_open_payments", Annotations: &mcp.ToolAnnotations{},
 		Description: "Open payments with the approval_id from preview_open_payments. Works only after the organizer tapped Approve on the approve_url page; refused while they have not, after the approval expired or was used, or when any term changed since the preview."},
@@ -376,6 +376,7 @@ type PreviewOut struct {
 	PaymentWindowMin int       `json:"payment_window_min"`
 	Compatible       int       `json:"compatible"`
 	ApprovalID       string    `json:"approval_id"`
+	State            string    `json:"state"`
 	ApproveURL       string    `json:"approve_url"`
 	ExpiresAt        time.Time `json:"expires_at"`
 	Next             string    `json:"next"`
@@ -422,17 +423,23 @@ func (s *Server) previewOpenPayments(ctx context.Context, _ *mcp.CallToolRequest
 	out := PreviewOut{
 		DateID: a.Approval.DateID, Date: a.Approval.DateLabel, Price: a.Approval.Price.String(), Minimum: a.Approval.Minimum,
 		Capacity: a.Approval.Capacity, PaymentWindowMin: a.Approval.PaymentWindowMin,
-		ApprovalID: a.Approval.ID, ApproveURL: a.ApproveURL, ExpiresAt: a.Approval.ExpiresAt,
+		ApprovalID: a.Approval.ID, State: a.Approval.State, ApproveURL: a.ApproveURL, ExpiresAt: a.Approval.ExpiresAt,
 	}
 	for _, p := range v.Recommendation.PerDate {
 		if p.DateID == in.DateID {
 			out.Compatible = len(p.Compatible)
 		}
 	}
+	locked := fmt.Sprintf("Once reservations open, the date, the price of %s, the minimum of %d and the capacity of %d are locked and every participant who reserves places a PayPal hold; nothing is charged until enough people reserve.",
+		out.Price, out.Minimum, out.Capacity)
+	if out.State == "approved" {
+		out.Next = fmt.Sprintf("The organizer already approved these terms on their own page. Call confirm_open_payments with this approval_id before %s. %s",
+			out.ExpiresAt.Format(time.RFC3339), locked)
+		return nil, out, nil
+	}
 	out.Next = fmt.Sprintf("Show these terms to the organizer and ask them to open this link and tap Approve; then call confirm_open_payments. "+
-		"The link is %s and it works until %s. Once reservations open, the date, the price of %s, the minimum of %d and the capacity of %d are locked and every participant who reserves places a PayPal hold; nothing is charged until enough people reserve. "+
-		"Never open the link or tap Approve yourself: the approval must be the organizer's.",
-		out.ApproveURL, out.ExpiresAt.Format(time.RFC3339), out.Price, out.Minimum, out.Capacity)
+		"The link is %s and it works until %s. %s Never open the link or tap Approve yourself: the approval must be the organizer's.",
+		out.ApproveURL, out.ExpiresAt.Format(time.RFC3339), locked)
 	return nil, out, nil
 }
 
@@ -450,11 +457,19 @@ var confirmRefusals = map[string]string{
 	"terms_changed":    "The workshop's terms changed since the preview, so the organizer's approval no longer applies; call preview_open_payments again and send the organizer the new approve link.",
 	"approval_closed":  "Reservations are already open or the workshop was cancelled; get_status shows where it stands.",
 	"not_found":        "That approval_id does not belong to this workshop; call preview_open_payments and use the approval_id it returns.",
+	"unknown_owner":    "That owner link does not open any workshop; ask the organizer for the full owner link they got when they created it.",
 }
 
 func (s *Server) confirmOpenPayments(ctx context.Context, _ *mcp.CallToolRequest, in ConfirmIn) (*mcp.CallToolResult, StatusOut, error) {
 	tok, err := token(in.OwnerLink, "owner")
 	if err != nil {
+		return nil, StatusOut{}, err
+	}
+	if _, err := s.owner(ctx, tok); err != nil {
+		var apiErr *inproc.Error
+		if errors.As(err, &apiErr) && apiErr.Code == "not_found" {
+			return nil, StatusOut{}, errors.New(confirmRefusals["unknown_owner"])
+		}
 		return nil, StatusOut{}, err
 	}
 	id := strings.TrimSpace(in.ApprovalID)

@@ -7,7 +7,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -18,6 +17,7 @@ import (
 
 const (
 	approvalTTL           = 30 * time.Minute
+	approvalKeep          = 10 * time.Minute
 	approvalCookieName    = "commitpool_approval"
 	approvalCookieContext = "commitpool open approval\n"
 	uuidLength            = 36
@@ -34,7 +34,7 @@ const (
 
 var (
 	errApprovalNeedsPage = newError(http.StatusForbidden, "approval_needs_page",
-		"Approve on the approval page: open the link your assistant sent and tap Approve.")
+		"Only the organizer can approve, on the approve page in their own browser.")
 	errApprovalPending = conflict("approval_pending",
 		"The organizer has not approved these terms yet: they open the approve link and tap Approve.")
 	errApprovalExpired = conflict("approval_expired",
@@ -116,7 +116,7 @@ func (s *server) requestApproval(w http.ResponseWriter, r *http.Request) error {
 	if _, err := s.proposalOn(ctx, ws, req.DateID); err != nil {
 		return err
 	}
-	a, created, err := s.Store.RequestOpenApproval(ctx, ws, req.DateID, s.Clock.Now(), approvalTTL)
+	a, created, err := s.Store.RequestOpenApproval(ctx, ws, req.DateID, s.Clock.Now(), approvalTTL, approvalKeep)
 	if err != nil {
 		return err
 	}
@@ -166,7 +166,7 @@ func (s *server) approveOpen(w http.ResponseWriter, r *http.Request) error {
 		return errApprovalClosed
 	}
 	ctx := r.Context()
-	approved, err := s.Store.ApproveOpen(ctx, ws.ID, a.ID, ws.OpenTermsHash(a.DateID), s.Clock.Now())
+	approved, err := s.Store.ApproveOpen(ctx, ws.ID, a.ID, s.Clock.Now(), approvalTTL)
 	if err != nil {
 		return approvalErr(err)
 	}
@@ -190,8 +190,7 @@ func (s *server) openApproved(w http.ResponseWriter, r *http.Request) error {
 	if ws.Status != domain.WorkshopCollecting {
 		return errApprovalClosed
 	}
-	current := ws.OpenTermsHash(a.DateID)
-	if err := a.Check(current, s.Clock.Now()); err != nil {
+	if err := a.Check(ws.OpenTermsHash(a.DateID), s.Clock.Now()); err != nil {
 		return approvalErr(err)
 	}
 	ctx := r.Context()
@@ -199,7 +198,7 @@ func (s *server) openApproved(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	opened, err := s.Store.OpenProposalWithApproval(ctx, row, a.ID, current)
+	opened, err := s.Store.OpenProposalWithApproval(ctx, row, a.ID)
 	if err != nil && !errors.Is(err, store.ErrProposalExists) {
 		return approvalErr(err)
 	}
@@ -291,16 +290,10 @@ func (s *server) setApprovalCookie(w http.ResponseWriter, r *http.Request, a sto
 }
 
 func (s *server) fromApprovalPage(r *http.Request, a store.OpenApprovalRow) bool {
-	if r.Header.Get("Sec-Fetch-Site") != "same-origin" {
+	if r.Header.Get("Sec-Fetch-Site") == "" && r.Header.Get("Origin") == "" {
 		return false
 	}
-	origin, err := url.Parse(r.Header.Get("Origin"))
-	if err != nil || origin.Host == "" {
-		return false
-	}
-	base, err := url.Parse(s.Cfg.BaseURL)
-	sameAsBase := err == nil && origin.Scheme == base.Scheme && origin.Host == base.Host
-	if !sameAsBase && origin.Host != r.Host {
+	if s.crossOrigin.Check(r) != nil {
 		return false
 	}
 	c, err := r.Cookie(approvalCookieName)

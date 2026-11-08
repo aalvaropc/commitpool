@@ -88,6 +88,7 @@ func sameOriginPage() map[string]string {
 func (e *env) tapApprove(page approvalPage, cookie *http.Cookie, headers map[string]string) *httptest.ResponseRecorder {
 	e.t.Helper()
 	req := httptest.NewRequestWithContext(e.ctx, http.MethodPost, page.path+"/approve", nil)
+	req.Host = strings.TrimPrefix(appBaseURL, "https://")
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
@@ -114,6 +115,8 @@ func (e *env) approveInBrowser(approveURL string) approvalViewJSON {
 	return v
 }
 
+const needsPageMessage = "Only the organizer can approve, on the approve page in their own browser."
+
 func wantRefusal(t *testing.T, rec *httptest.ResponseRecorder, status int, code string) {
 	t.Helper()
 	var got errorJSON
@@ -139,9 +142,16 @@ func TestApproval_RequestCarriesTheExactTermsAndAnApproveLink(t *testing.T) {
 	if v.Workshop.Title != "Go for operators" || v.Workshop.Timezone != "America/Lima" {
 		t.Errorf("workshop = %+v", v.Workshop)
 	}
+	e.clock.Set(t0.Add(20 * time.Minute))
 	if again := e.requestApproval(h, h.satID, http.StatusOK); again.Approval.ID != a.ID {
-		t.Errorf("a second preview made approval %s, want the open one %s", again.Approval.ID, a.ID)
+		t.Errorf("a preview with 10 minutes left made approval %s, want the open one %s", again.Approval.ID, a.ID)
 	}
+	e.clock.Set(t0.Add(21 * time.Minute))
+	fresh := e.requestApproval(h, h.satID, http.StatusCreated)
+	if fresh.Approval.ID == a.ID || !fresh.Approval.ExpiresAt.Equal(t0.Add(51*time.Minute)) {
+		t.Errorf("a preview with 9 minutes left = %+v, want a new approval for 30 minutes", fresh.Approval)
+	}
+	e.clock.Set(t0)
 	if view := e.owner(h); view.Proposal != nil {
 		t.Fatalf("requesting an approval opened reservations: %+v", view.Proposal)
 	}
@@ -179,17 +189,23 @@ func TestApproval_ApproveOnlyFromTheOrganizersPage(t *testing.T) {
 		cookie  *http.Cookie
 		headers map[string]string
 	}{
-		"no cookie":                 {nil, sameOriginPage()},
-		"no fetch metadata":         {page.cookie, map[string]string{"Origin": appBaseURL}},
-		"a cross-site request":      {page.cookie, map[string]string{"Origin": appBaseURL, "Sec-Fetch-Site": "cross-site"}},
-		"another origin":            {page.cookie, map[string]string{"Origin": "https://elsewhere.example", "Sec-Fetch-Site": "same-origin"}},
-		"no origin":                 {page.cookie, map[string]string{"Sec-Fetch-Site": "same-origin"}},
-		"another approval's cookie": {otherPage.cookie, sameOriginPage()},
-		"a forged cookie":           {&http.Cookie{Name: "commitpool_approval", Value: "forged"}, sameOriginPage()},
+		"no cookie":                          {nil, sameOriginPage()},
+		"no browser headers":                 {page.cookie, nil},
+		"a cross-site request":               {page.cookie, map[string]string{"Origin": appBaseURL, "Sec-Fetch-Site": "cross-site"}},
+		"a same-site request":                {page.cookie, map[string]string{"Sec-Fetch-Site": "same-site"}},
+		"another origin from an old browser": {page.cookie, map[string]string{"Origin": "https://elsewhere.example"}},
+		"another approval's cookie":          {otherPage.cookie, sameOriginPage()},
+		"a forged cookie":                    {&http.Cookie{Name: "commitpool_approval", Value: "forged"}, sameOriginPage()},
 	}
 	for name, r := range refused {
 		t.Run(name, func(t *testing.T) {
-			wantRefusal(t, e.tapApprove(page, r.cookie, r.headers), http.StatusForbidden, "approval_needs_page")
+			rec := e.tapApprove(page, r.cookie, r.headers)
+			wantRefusal(t, rec, http.StatusForbidden, "approval_needs_page")
+			var got errorJSON
+			_ = json.Unmarshal(rec.Body.Bytes(), &got)
+			if got.Message != needsPageMessage {
+				t.Errorf("message = %q, want %q", got.Message, needsPageMessage)
+			}
 		})
 	}
 
@@ -202,9 +218,11 @@ func TestApproval_ApproveOnlyFromTheOrganizersPage(t *testing.T) {
 		t.Fatalf("after refused approvals the state is %q, want pending", again.view.Approval.State)
 	}
 
+	e.clock.Set(t0.Add(25 * time.Minute))
 	approved := e.approveInBrowser(v.ApproveURL)
-	if approved.Approval.State != "approved" || approved.Approval.ApprovedAt == nil || !approved.Approval.ApprovedAt.Equal(t0) {
-		t.Fatalf("approve = %+v, want approved now", approved.Approval)
+	if approved.Approval.State != "approved" || approved.Approval.ApprovedAt == nil || !approved.Approval.ApprovedAt.Equal(t0.Add(25*time.Minute)) ||
+		!approved.Approval.ExpiresAt.Equal(t0.Add(55*time.Minute)) {
+		t.Fatalf("approve = %+v, want approved now with 30 fresh minutes for the assistant", approved.Approval)
 	}
 	shown := e.openApprovalPage(v.ApproveURL)
 	if shown.view.Approval.State != "approved" || shown.cookie != nil {
@@ -215,6 +233,26 @@ func TestApproval_ApproveOnlyFromTheOrganizersPage(t *testing.T) {
 	}
 	if view := e.owner(h); view.Proposal != nil {
 		t.Fatalf("approving opened reservations by itself: %+v", view.Proposal)
+	}
+}
+
+func TestApproval_EveryBrowserHeaderSetApproves(t *testing.T) {
+	e := newEnv(t)
+	sets := map[string]map[string]string{
+		"fetch metadata and origin": sameOriginPage(),
+		"origin only":               {"Origin": appBaseURL},
+		"fetch metadata only":       {"Sec-Fetch-Site": "same-origin"},
+	}
+	for name, headers := range sets {
+		t.Run(name, func(t *testing.T) {
+			h := e.openableWorkshop()
+			page := e.openApprovalPage(e.requestApproval(h, h.satID, http.StatusCreated).ApproveURL)
+			rec := e.tapApprove(page, page.cookie, headers)
+			var v approvalViewJSON
+			if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &v) != nil || v.Approval.State != "approved" {
+				t.Fatalf("approve with %v = %d %s, want approved", headers, rec.Code, rec.Body.String())
+			}
+		})
 	}
 }
 
@@ -264,7 +302,9 @@ func TestApproval_OpensReservationsOnlyAfterApprovalAndOnce(t *testing.T) {
 		t.Fatalf("a refused open left reservations open: %+v", view.Proposal)
 	}
 
+	e.clock.Set(t0.Add(25 * time.Minute))
 	e.approveInBrowser(v.ApproveURL)
+	e.clock.Set(t0.Add(40 * time.Minute))
 	var opened struct {
 		Proposal proposalJSON `json:"proposal"`
 	}

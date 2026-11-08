@@ -12,7 +12,17 @@ import (
 	"github.com/aalvaropc/commitpool/internal/store/storetest"
 )
 
-const approvalTTL = 30 * time.Minute
+const (
+	approvalTTL  = 30 * time.Minute
+	approvalKeep = 10 * time.Minute
+)
+
+func setTerms(t *testing.T, s *store.Store, w store.WorkshopRow, column string, value int) {
+	t.Helper()
+	if _, err := s.Pool.Exec(context.Background(), `update workshops set `+column+` = $2 where id = $1`, w.ID, value); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func proposalFor(w store.WorkshopRow, d store.CandidateDateRow, opensAt time.Time) store.ProposalRow {
 	return store.ProposalRow{
@@ -36,7 +46,7 @@ func TestOpenApproval_RequestSnapshotsTheTermsAndReusesAnOpenOne(t *testing.T) {
 	w, _, _ := newWorkshop(t, s, 2, 6)
 	d := firstDate(t, s, w)
 
-	a, created, err := s.RequestOpenApproval(ctx, w, d.ID, baseTime, approvalTTL)
+	a, created, err := s.RequestOpenApproval(ctx, w, d.ID, baseTime, approvalTTL, approvalKeep)
 	if err != nil || !created {
 		t.Fatalf("RequestOpenApproval = %+v, created %v, %v", a, created, err)
 	}
@@ -46,14 +56,14 @@ func TestOpenApproval_RequestSnapshotsTheTermsAndReusesAnOpenOne(t *testing.T) {
 		t.Fatalf("approval = %+v, want the workshop's terms, pending, expiring in 30 minutes", a)
 	}
 
-	again, created, err := s.RequestOpenApproval(ctx, w, d.ID, baseTime.Add(time.Minute), approvalTTL)
+	again, created, err := s.RequestOpenApproval(ctx, w, d.ID, baseTime.Add(20*time.Minute), approvalTTL, approvalKeep)
 	if err != nil || created || again.ID != a.ID {
-		t.Fatalf("second request = %s, created %v, %v; want the same open approval", again.ID, created, err)
+		t.Fatalf("request with 10 minutes left = %s, created %v, %v; want the same open approval", again.ID, created, err)
 	}
 
-	later, created, err := s.RequestOpenApproval(ctx, w, d.ID, baseTime.Add(approvalTTL), approvalTTL)
-	if err != nil || !created || later.ID == a.ID {
-		t.Fatalf("request after expiry = %s, created %v, %v; want a new approval", later.ID, created, err)
+	later, created, err := s.RequestOpenApproval(ctx, w, d.ID, baseTime.Add(20*time.Minute+time.Second), approvalTTL, approvalKeep)
+	if err != nil || !created || later.ID == a.ID || !later.ExpiresAt.Equal(baseTime.Add(50*time.Minute+time.Second)) {
+		t.Fatalf("request with under 10 minutes left = %+v, created %v, %v; want a new approval for 30 minutes", later, created, err)
 	}
 
 	got, err := s.OpenApproval(ctx, w.ID, a.ID)
@@ -66,6 +76,24 @@ func TestOpenApproval_RequestSnapshotsTheTermsAndReusesAnOpenOne(t *testing.T) {
 	}
 	if _, err := s.OpenApproval(ctx, w.ID, "not-a-uuid"); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("OpenApproval(not-a-uuid): error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestOpenApproval_RequestReusesAnApprovedOneWithTimeLeft(t *testing.T) {
+	ctx := context.Background()
+	s := storetest.New(t)
+	w, _, _ := newWorkshop(t, s, 2, 6)
+	d := firstDate(t, s, w)
+	a, _, err := s.RequestOpenApproval(ctx, w, d.ID, baseTime, approvalTTL, approvalKeep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ApproveOpen(ctx, w.ID, a.ID, baseTime.Add(25*time.Minute), approvalTTL); err != nil {
+		t.Fatal(err)
+	}
+	again, created, err := s.RequestOpenApproval(ctx, w, d.ID, baseTime.Add(40*time.Minute), approvalTTL, approvalKeep)
+	if err != nil || created || again.ID != a.ID || again.ApprovedAt == nil {
+		t.Fatalf("request after approval = %+v, created %v, %v; want the approved one", again, created, err)
 	}
 }
 
@@ -97,35 +125,35 @@ func TestOpenApproval_ApproveOnlyWhilePendingAndTheTermsHold(t *testing.T) {
 	s := storetest.New(t)
 	w, _, _ := newWorkshop(t, s, 2, 6)
 	d := firstDate(t, s, w)
-	current := w.OpenTermsHash(d.ID)
 
-	a, _, err := s.RequestOpenApproval(ctx, w, d.ID, baseTime, approvalTTL)
+	a, _, err := s.RequestOpenApproval(ctx, w, d.ID, baseTime, approvalTTL, approvalKeep)
 	if err != nil {
 		t.Fatal(err)
 	}
-	changed := w
-	changed.PriceMinor++
-	if _, err := s.ApproveOpen(ctx, w.ID, a.ID, changed.OpenTermsHash(d.ID), baseTime); !errors.Is(err, store.ErrApprovalTermsChanged) {
-		t.Fatalf("approve with changed terms: error = %v, want ErrApprovalTermsChanged", err)
-	}
-	if _, err := s.ApproveOpen(ctx, w.ID, a.ID, current, baseTime.Add(approvalTTL)); !errors.Is(err, store.ErrApprovalExpired) {
+	if _, err := s.ApproveOpen(ctx, w.ID, a.ID, baseTime.Add(approvalTTL), approvalTTL); !errors.Is(err, store.ErrApprovalExpired) {
 		t.Fatalf("approve at expiry: error = %v, want ErrApprovalExpired", err)
 	}
 	other, _, _ := newWorkshop(t, s, 2, 6)
-	if _, err := s.ApproveOpen(ctx, other.ID, a.ID, current, baseTime); !errors.Is(err, store.ErrNotFound) {
+	if _, err := s.ApproveOpen(ctx, other.ID, a.ID, baseTime, approvalTTL); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("approve from another workshop: error = %v, want ErrNotFound", err)
 	}
+	setTerms(t, s, w, "price_minor", 1001)
+	if _, err := s.ApproveOpen(ctx, w.ID, a.ID, baseTime, approvalTTL); !errors.Is(err, store.ErrApprovalTermsChanged) {
+		t.Fatalf("approve after a price change: error = %v, want ErrApprovalTermsChanged", err)
+	}
+	setTerms(t, s, w, "price_minor", 1000)
 
-	approved, err := s.ApproveOpen(ctx, w.ID, a.ID, current, baseTime.Add(5*time.Minute))
-	if err != nil || approved.ApprovedAt == nil || !approved.ApprovedAt.Equal(baseTime.Add(5*time.Minute)) {
-		t.Fatalf("ApproveOpen = %+v, %v; want approved at +5m", approved, err)
+	at := baseTime.Add(25 * time.Minute)
+	approved, err := s.ApproveOpen(ctx, w.ID, a.ID, at, approvalTTL)
+	if err != nil || approved.ApprovedAt == nil || !approved.ApprovedAt.Equal(at) || !approved.ExpiresAt.Equal(at.Add(approvalTTL)) {
+		t.Fatalf("ApproveOpen = %+v, %v; want approved at +25m with 30 fresh minutes to open", approved, err)
 	}
-	again, err := s.ApproveOpen(ctx, w.ID, a.ID, current, baseTime.Add(6*time.Minute))
-	if err != nil || !again.ApprovedAt.Equal(*approved.ApprovedAt) {
-		t.Fatalf("second ApproveOpen = %+v, %v; want the first approval kept", again, err)
+	again, err := s.ApproveOpen(ctx, w.ID, a.ID, at.Add(time.Minute), approvalTTL)
+	if err != nil || !again.ApprovedAt.Equal(at) || !again.ExpiresAt.Equal(approved.ExpiresAt) {
+		t.Fatalf("second ApproveOpen = %+v, %v; want the first approval and window kept", again, err)
 	}
-	if err := approved.Check(current, baseTime.Add(6*time.Minute)); err != nil {
-		t.Fatalf("Check on an approved approval = %v, want nil", err)
+	if err := approved.Check(w.OpenTermsHash(d.ID), baseTime.Add(40*time.Minute)); err != nil {
+		t.Fatalf("Check past the request's first expiry = %v, want nil inside the fresh window", err)
 	}
 }
 
@@ -134,35 +162,38 @@ func TestOpenApproval_OpensReservationsOnceAndOnlyAfterApproval(t *testing.T) {
 	s := storetest.New(t)
 	w, _, _ := newWorkshop(t, s, 2, 6)
 	d := firstDate(t, s, w)
-	current := w.OpenTermsHash(d.ID)
-	a, _, err := s.RequestOpenApproval(ctx, w, d.ID, baseTime, approvalTTL)
+	a, _, err := s.RequestOpenApproval(ctx, w, d.ID, baseTime, approvalTTL, approvalKeep)
 	if err != nil {
 		t.Fatal(err)
 	}
-	opensAt := baseTime.Add(2 * time.Minute)
+	opensAt := baseTime.Add(40 * time.Minute)
 
-	if _, err := s.OpenProposalWithApproval(ctx, proposalFor(w, d, opensAt), a.ID, current); !errors.Is(err, store.ErrApprovalPending) {
+	if _, err := s.OpenProposalWithApproval(ctx, proposalFor(w, d, baseTime.Add(2*time.Minute)), a.ID); !errors.Is(err, store.ErrApprovalPending) {
 		t.Fatalf("open before approval: error = %v, want ErrApprovalPending", err)
 	}
 	if p, err := s.ActiveProposal(ctx, w.ID); err != nil || p != nil {
 		t.Fatalf("a refused open left a proposal: %+v, %v", p, err)
 	}
 
-	if _, err := s.ApproveOpen(ctx, w.ID, a.ID, current, baseTime.Add(time.Minute)); err != nil {
+	if _, err := s.ApproveOpen(ctx, w.ID, a.ID, baseTime.Add(25*time.Minute), approvalTTL); err != nil {
 		t.Fatal(err)
 	}
 	dates, err := s.CandidateDates(ctx, w.ID)
 	if err != nil || len(dates) < 2 {
 		t.Fatalf("CandidateDates: %v (%d dates)", err, len(dates))
 	}
-	other := dates[1]
-	if _, err := s.OpenProposalWithApproval(ctx, proposalFor(w, other, opensAt), a.ID, w.OpenTermsHash(other.ID)); !errors.Is(err, store.ErrApprovalTermsChanged) {
+	if _, err := s.OpenProposalWithApproval(ctx, proposalFor(w, dates[1], opensAt), a.ID); !errors.Is(err, store.ErrApprovalTermsChanged) {
 		t.Fatalf("open on another date: error = %v, want ErrApprovalTermsChanged", err)
 	}
+	stale := proposalFor(w, d, opensAt)
+	stale.PriceMinor = 900
+	if _, err := s.OpenProposalWithApproval(ctx, stale, a.ID); !errors.Is(err, store.ErrApprovalTermsChanged) {
+		t.Fatalf("open at another price: error = %v, want ErrApprovalTermsChanged", err)
+	}
 
-	opened, err := s.OpenProposalWithApproval(ctx, proposalFor(w, d, opensAt), a.ID, current)
+	opened, err := s.OpenProposalWithApproval(ctx, proposalFor(w, d, opensAt), a.ID)
 	if err != nil || opened.ChosenDateID != d.ID || !opened.OpensAt.Equal(opensAt) {
-		t.Fatalf("OpenProposalWithApproval = %+v, %v", opened, err)
+		t.Fatalf("OpenProposalWithApproval past the request's first expiry = %+v, %v; want it open", opened, err)
 	}
 	used, err := s.OpenApproval(ctx, w.ID, a.ID)
 	if err != nil || used.UsedAt == nil || !used.UsedAt.Equal(opensAt) {
@@ -175,10 +206,10 @@ func TestOpenApproval_OpensReservationsOnceAndOnlyAfterApproval(t *testing.T) {
 	if n := count(t, s, `select count(*) from jobs where workshop_id = $1 and kind = $2`, w.ID, store.KindClose); n != 1 {
 		t.Errorf("close jobs = %d, want 1", n)
 	}
-	if _, err := s.OpenProposalWithApproval(ctx, proposalFor(w, d, opensAt), a.ID, current); !errors.Is(err, store.ErrApprovalUsed) {
+	if _, err := s.OpenProposalWithApproval(ctx, proposalFor(w, d, opensAt), a.ID); !errors.Is(err, store.ErrApprovalUsed) {
 		t.Fatalf("reusing the approval: error = %v, want ErrApprovalUsed", err)
 	}
-	if _, err := s.ApproveOpen(ctx, w.ID, a.ID, current, opensAt); !errors.Is(err, store.ErrApprovalUsed) {
+	if _, err := s.ApproveOpen(ctx, w.ID, a.ID, opensAt, approvalTTL); !errors.Is(err, store.ErrApprovalUsed) {
 		t.Fatalf("approving a used approval: error = %v, want ErrApprovalUsed", err)
 	}
 }
@@ -188,29 +219,27 @@ func TestOpenApproval_OpenRefusedWhenExpiredOrTermsChanged(t *testing.T) {
 	s := storetest.New(t)
 	w, _, _ := newWorkshop(t, s, 2, 6)
 	d := firstDate(t, s, w)
-	current := w.OpenTermsHash(d.ID)
-	a, _, err := s.RequestOpenApproval(ctx, w, d.ID, baseTime, approvalTTL)
+	a, _, err := s.RequestOpenApproval(ctx, w, d.ID, baseTime, approvalTTL, approvalKeep)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.ApproveOpen(ctx, w.ID, a.ID, current, baseTime.Add(time.Minute)); err != nil {
+	if _, err := s.ApproveOpen(ctx, w.ID, a.ID, baseTime.Add(time.Minute), approvalTTL); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := s.OpenProposalWithApproval(ctx, proposalFor(w, d, baseTime.Add(approvalTTL)), a.ID, current); !errors.Is(err, store.ErrApprovalExpired) {
+	if _, err := s.OpenProposalWithApproval(ctx, proposalFor(w, d, baseTime.Add(time.Minute+approvalTTL)), a.ID); !errors.Is(err, store.ErrApprovalExpired) {
 		t.Fatalf("open at expiry: error = %v, want ErrApprovalExpired", err)
 	}
-	changed := w
-	changed.Capacity++
-	if _, err := s.OpenProposalWithApproval(ctx, proposalFor(changed, d, baseTime.Add(2*time.Minute)), a.ID, changed.OpenTermsHash(d.ID)); !errors.Is(err, store.ErrApprovalTermsChanged) {
-		t.Fatalf("open with changed terms: error = %v, want ErrApprovalTermsChanged", err)
+	setTerms(t, s, w, "capacity", 7)
+	if _, err := s.OpenProposalWithApproval(ctx, proposalFor(w, d, baseTime.Add(2*time.Minute)), a.ID); !errors.Is(err, store.ErrApprovalTermsChanged) {
+		t.Fatalf("open after the workshop's capacity changed: error = %v, want ErrApprovalTermsChanged", err)
 	}
 	if p, err := s.ActiveProposal(ctx, w.ID); err != nil || p != nil {
 		t.Fatalf("a refused open left a proposal: %+v, %v", p, err)
 	}
 	other, _, _ := newWorkshop(t, s, 2, 6)
 	od := firstDate(t, s, other)
-	if _, err := s.OpenProposalWithApproval(ctx, proposalFor(other, od, baseTime.Add(2*time.Minute)), a.ID, other.OpenTermsHash(od.ID)); !errors.Is(err, store.ErrNotFound) {
+	if _, err := s.OpenProposalWithApproval(ctx, proposalFor(other, od, baseTime.Add(2*time.Minute)), a.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("open another workshop with this approval: error = %v, want ErrNotFound", err)
 	}
 }

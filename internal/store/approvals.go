@@ -52,7 +52,12 @@ func (a OpenApprovalRow) Check(current []byte, now time.Time) error {
 	return nil
 }
 
-func (s *Store) RequestOpenApproval(ctx context.Context, w WorkshopRow, dateID string, now time.Time, ttl time.Duration) (OpenApprovalRow, bool, error) {
+func (a OpenApprovalRow) covers(p ProposalRow) bool {
+	return a.DateID == p.ChosenDateID && a.PriceMinor == p.PriceMinor && a.Currency == p.Currency &&
+		a.Minimum == p.Minimum && a.Capacity == p.Capacity
+}
+
+func (s *Store) RequestOpenApproval(ctx context.Context, w WorkshopRow, dateID string, now time.Time, ttl, keep time.Duration) (OpenApprovalRow, bool, error) {
 	hash := w.OpenTermsHash(dateID)
 	var out OpenApprovalRow
 	created := false
@@ -62,8 +67,8 @@ func (s *Store) RequestOpenApproval(ctx context.Context, w WorkshopRow, dateID s
 		}
 		open, err := oneOrNil[OpenApprovalRow](ctx, tx, "find open approval",
 			`select `+approvalCols+` from open_approvals
-			 where workshop_id = $1 and date_id = $2 and terms_hash = $3 and used_at is null and expires_at > $4
-			 order by created_at desc limit 1`, w.ID, dateID, hash, now)
+			 where workshop_id = $1 and date_id = $2 and terms_hash = $3 and used_at is null and expires_at >= $4
+			 order by created_at desc limit 1`, w.ID, dateID, hash, now.Add(keep))
 		if err != nil {
 			return err
 		}
@@ -97,6 +102,14 @@ func (s *Store) OpenApproval(ctx context.Context, workshopID, id string) (OpenAp
 	return a, nil
 }
 
+func lockWorkshopRow(ctx context.Context, tx pgx.Tx, id string) (WorkshopRow, error) {
+	w, err := one[WorkshopRow](ctx, tx, `select `+workshopCols+` from workshops where id = $1 for update`, id)
+	if err != nil {
+		return WorkshopRow{}, lookupErr("lock workshop", err)
+	}
+	return w, nil
+}
+
 func lockApproval(ctx context.Context, tx pgx.Tx, workshopID, id string) (OpenApprovalRow, error) {
 	a, err := one[OpenApprovalRow](ctx, tx,
 		`select `+approvalCols+` from open_approvals where id = $1 and workshop_id = $2 for update`, id, workshopID)
@@ -106,14 +119,18 @@ func lockApproval(ctx context.Context, tx pgx.Tx, workshopID, id string) (OpenAp
 	return a, nil
 }
 
-func (s *Store) ApproveOpen(ctx context.Context, workshopID, id string, current []byte, now time.Time) (OpenApprovalRow, error) {
+func (s *Store) ApproveOpen(ctx context.Context, workshopID, id string, now time.Time, ttl time.Duration) (OpenApprovalRow, error) {
 	var out OpenApprovalRow
 	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+		w, err := lockWorkshopRow(ctx, tx, workshopID)
+		if err != nil {
+			return err
+		}
 		a, err := lockApproval(ctx, tx, workshopID, id)
 		if err != nil {
 			return err
 		}
-		if err := a.Check(current, now); err != nil && !errors.Is(err, ErrApprovalPending) {
+		if err := a.Check(w.OpenTermsHash(a.DateID), now); err != nil && !errors.Is(err, ErrApprovalPending) {
 			return err
 		}
 		if a.ApprovedAt != nil {
@@ -121,7 +138,7 @@ func (s *Store) ApproveOpen(ctx context.Context, workshopID, id string, current 
 			return nil
 		}
 		row, err := one[OpenApprovalRow](ctx, tx,
-			`update open_approvals set approved_at = $2 where id = $1 returning `+approvalCols, id, now)
+			`update open_approvals set approved_at = $2, expires_at = $3 where id = $1 returning `+approvalCols, id, now, now.Add(ttl))
 		if err != nil {
 			return wrap("approve open", err)
 		}
@@ -134,21 +151,22 @@ func (s *Store) ApproveOpen(ctx context.Context, workshopID, id string, current 
 	return out, nil
 }
 
-func (s *Store) OpenProposalWithApproval(ctx context.Context, p ProposalRow, approvalID string, current []byte) (ProposalRow, error) {
+func (s *Store) OpenProposalWithApproval(ctx context.Context, p ProposalRow, approvalID string) (ProposalRow, error) {
 	var opened ProposalRow
 	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
-		if _, err := lockWorkshop(ctx, tx, p.WorkshopID); err != nil {
+		w, err := lockWorkshopRow(ctx, tx, p.WorkshopID)
+		if err != nil {
 			return err
 		}
 		a, err := lockApproval(ctx, tx, p.WorkshopID, approvalID)
 		if err != nil {
 			return err
 		}
-		if a.DateID != p.ChosenDateID {
-			return ErrApprovalTermsChanged
-		}
-		if err := a.Check(current, p.OpensAt); err != nil {
+		if err := a.Check(w.OpenTermsHash(a.DateID), p.OpensAt); err != nil {
 			return err
+		}
+		if !a.covers(p) {
+			return ErrApprovalTermsChanged
 		}
 		row, err := openProposal(ctx, tx, p)
 		if err != nil {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { readSample } from './sampleReader'
+import { HOURS_QUESTION, readSample } from './sampleReader'
 
 describe('readSample', () => {
   it('reads a yes for one day and a no for the other', () => {
@@ -27,8 +27,12 @@ describe('readSample', () => {
     expect(readSample('Both days work for me.')).toEqual({ sat: 'available', sun: 'available', limits: {}, ask: null })
   })
 
-  it('does not guess when someone is vague, and asks which hours', () => {
-    expect(readSample('maybe? ideally in the afternoon')).toEqual({ sat: 'unknown', sun: 'unknown', limits: {}, ask: 'Which hours in the afternoon work for you?' })
+  it('asks about the class hours, not about hours the class does not have', () => {
+    expect(HOURS_QUESTION).toBe('The class runs 10 AM–12 PM on Saturday and Sunday — can you make either morning, and which?')
+  })
+
+  it('does not guess when someone is vague, and asks about the class hours', () => {
+    expect(readSample('maybe? ideally in the afternoon')).toEqual({ sat: 'unknown', sun: 'unknown', limits: {}, ask: HOURS_QUESTION })
   })
 
   it('downgrades a yes that comes with a vague time of day', () => {
@@ -36,7 +40,7 @@ describe('readSample', () => {
       sat: 'unknown',
       sun: 'unknown',
       limits: {},
-      ask: 'Which hours in the afternoon work for you?',
+      ask: HOURS_QUESTION,
     })
   })
 
@@ -97,7 +101,7 @@ describe('readSample', () => {
   })
 
   it('asks about hours only when a day comes with a vague time of day', () => {
-    expect(readSample('Saturday, in the afternoon').ask).toBe('Which hours in the afternoon work for you?')
+    expect(readSample('Saturday, in the afternoon').ask).toBe(HOURS_QUESTION)
     expect(readSample('Saturday works, I can’t do Sunday evening').ask).toBeNull()
     expect(readSample('Sunday morning is perfect').ask).toBeNull()
   })

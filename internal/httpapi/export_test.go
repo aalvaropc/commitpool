@@ -33,3 +33,9 @@ func SetLimits(t testing.TB, participants, submissions, slots int, wait time.Dur
 		maxParticipantsPerWorkshop, maxSubmissionsPerParticipant, aiSlots, aiWait = oldP, oldS, oldSlots, oldWait
 	})
 }
+
+func SetSampleTimeout(t testing.TB, d time.Duration) {
+	old := sampleTimeout
+	sampleTimeout = d
+	t.Cleanup(func() { sampleTimeout = old })
+}

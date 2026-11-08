@@ -32,6 +32,10 @@ func BusyWait(err error) (time.Duration, bool) {
 	return 0, false
 }
 
+type Capacity interface {
+	Room(calls int) time.Duration
+}
+
 type BudgetConfig struct {
 	Hourly int
 	Daily  int
@@ -46,7 +50,10 @@ type Budget struct {
 	daily  window
 }
 
-var _ Interpreter = (*Budget)(nil)
+var (
+	_ Interpreter = (*Budget)(nil)
+	_ Capacity    = (*Budget)(nil)
+)
 
 type window struct {
 	limit int
@@ -67,23 +74,42 @@ func NewBudget(next Interpreter, cfg BudgetConfig) *Budget {
 	}
 }
 
-func (w *window) wait(now time.Time) time.Duration {
+func readingShare(limit int) int {
+	return limit
+}
+
+func textShare(limit int) int {
+	return limit - limit/4
+}
+
+func (w *window) wait(now time.Time, calls int, share func(int) int) time.Duration {
 	expired := 0
 	for expired < len(w.calls) && !now.Before(w.calls[expired].Add(w.span)) {
 		expired++
 	}
 	w.calls = slices.Delete(w.calls, 0, expired)
-	if w.limit <= 0 || len(w.calls) < w.limit {
+	if w.limit <= 0 {
 		return 0
 	}
-	return w.calls[len(w.calls)-w.limit].Add(w.span).Sub(now)
+	over := len(w.calls) + calls - share(w.limit)
+	switch {
+	case over <= 0:
+		return 0
+	case over > len(w.calls):
+		return w.span
+	}
+	return w.calls[over-1].Add(w.span).Sub(now)
 }
 
-func (b *Budget) take() error {
+func (b *Budget) waitFor(now time.Time, calls int, share func(int) int) time.Duration {
+	return max(b.hourly.wait(now, calls, share), b.daily.wait(now, calls, share))
+}
+
+func (b *Budget) take(share func(int) int) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	now := b.clock.Now()
-	if wait := max(b.hourly.wait(now), b.daily.wait(now)); wait > 0 {
+	if wait := b.waitFor(now, 1, share); wait > 0 {
 		return &BusyError{Wait: wait}
 	}
 	b.hourly.calls = append(b.hourly.calls, now)
@@ -91,29 +117,35 @@ func (b *Budget) take() error {
 	return nil
 }
 
+func (b *Budget) Room(calls int) time.Duration {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.waitFor(b.clock.Now(), calls, readingShare)
+}
+
 func (b *Budget) Interpret(ctx context.Context, in InterpretInput) (domain.Interpretation, Meta, error) {
-	if err := b.take(); err != nil {
+	if err := b.take(readingShare); err != nil {
 		return domain.Interpretation{}, Meta{}, err
 	}
 	return b.next.Interpret(ctx, in)
 }
 
 func (b *Budget) Explain(ctx context.Context, in ExplainInput) (string, Meta, error) {
-	if err := b.take(); err != nil {
+	if err := b.take(textShare); err != nil {
 		return "", Meta{}, err
 	}
 	return b.next.Explain(ctx, in)
 }
 
 func (b *Budget) Draft(ctx context.Context, in DraftInput) (Draft, Meta, error) {
-	if err := b.take(); err != nil {
+	if err := b.take(textShare); err != nil {
 		return Draft{}, Meta{}, err
 	}
 	return b.next.Draft(ctx, in)
 }
 
 func (b *Budget) Suggest(ctx context.Context, in SuggestInput) (string, Meta, error) {
-	if err := b.take(); err != nil {
+	if err := b.take(textShare); err != nil {
 		return "", Meta{}, err
 	}
 	return b.next.Suggest(ctx, in)

@@ -115,35 +115,66 @@ func TestBudget_RefusesPastTheDailyCapOverASlidingDay(t *testing.T) {
 	wantBusy(t, err, 2*time.Hour)
 }
 
-func TestBudget_CountsEveryKindOfCall(t *testing.T) {
+func background(b *ai.Budget) map[string]func() error {
+	ctx := context.Background()
+	return map[string]func() error{
+		"explain": func() error { _, _, err := b.Explain(ctx, ai.ExplainInput{}); return err },
+		"draft": func() error {
+			_, _, err := b.Draft(ctx, ai.DraftInput{Text: "pottery", Timezone: "UTC", Today: budgetStart})
+			return err
+		},
+		"suggest": func() error { _, _, err := b.Suggest(ctx, ai.SuggestInput{Kind: "share"}); return err },
+	}
+}
+
+func TestBudget_TextsUseAtMostThreeQuartersOfTheHour(t *testing.T) {
+	for name := range background(nil) {
+		t.Run(name, func(t *testing.T) {
+			model := &countingModel{}
+			clk := &clock.Fake{T: budgetStart}
+			b := ai.NewBudget(model, ai.BudgetConfig{Hourly: 8, Daily: 100, Clock: clk})
+			call := background(b)[name]
+			for i := range 6 {
+				clk.Set(budgetStart.Add(time.Duration(i) * time.Minute))
+				if err := call(); err != nil {
+					t.Fatalf("%s %d of 6: %v", name, i+1, err)
+				}
+			}
+			clk.Set(budgetStart.Add(10 * time.Minute))
+			wantBusy(t, call(), 50*time.Minute)
+			for i := range 2 {
+				if _, _, err := b.Interpret(context.Background(), budgetInput()); err != nil {
+					t.Fatalf("reading %d in the quarter kept for readings: %v", i+1, err)
+				}
+			}
+			_, _, err := b.Interpret(context.Background(), budgetInput())
+			wantBusy(t, err, 50*time.Minute)
+			wantBusy(t, call(), 52*time.Minute)
+			if n := model.calls.Load(); n != 8 {
+				t.Errorf("model calls = %d, want 8", n)
+			}
+		})
+	}
+}
+
+func TestBudget_TextsUseAtMostThreeQuartersOfTheDay(t *testing.T) {
 	model := &countingModel{}
 	clk := &clock.Fake{T: budgetStart}
-	b := ai.NewBudget(model, ai.BudgetConfig{Hourly: 4, Daily: 10, Clock: clk})
-	ctx := context.Background()
-	if _, _, err := b.Interpret(ctx, budgetInput()); err != nil {
-		t.Fatal(err)
+	b := ai.NewBudget(model, ai.BudgetConfig{Hourly: 100, Daily: 4, Clock: clk})
+	calls := background(b)
+	for i, name := range []string{"explain", "draft", "suggest"} {
+		clk.Set(budgetStart.Add(time.Duration(i) * time.Hour))
+		if err := calls[name](); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
 	}
-	if _, _, err := b.Explain(ctx, ai.ExplainInput{}); err != nil {
-		t.Fatal(err)
+	clk.Set(budgetStart.Add(5 * time.Hour))
+	wantBusy(t, calls["explain"](), 19*time.Hour)
+	if _, _, err := b.Interpret(context.Background(), budgetInput()); err != nil {
+		t.Fatalf("a reading in the quarter of the day kept for readings: %v", err)
 	}
-	if _, _, err := b.Draft(ctx, ai.DraftInput{Text: "pottery", Timezone: "UTC", Today: budgetStart}); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := b.Suggest(ctx, ai.SuggestInput{Kind: "share"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := b.Explain(ctx, ai.ExplainInput{}); !errors.Is(err, ai.ErrBusy) {
-		t.Errorf("explain past the cap: %v, want ai.ErrBusy", err)
-	}
-	if _, _, err := b.Draft(ctx, ai.DraftInput{Text: "pottery", Timezone: "UTC", Today: budgetStart}); !errors.Is(err, ai.ErrBusy) {
-		t.Errorf("draft past the cap: %v, want ai.ErrBusy", err)
-	}
-	if _, _, err := b.Suggest(ctx, ai.SuggestInput{Kind: "share"}); !errors.Is(err, ai.ErrBusy) {
-		t.Errorf("suggest past the cap: %v, want ai.ErrBusy", err)
-	}
-	if n := model.calls.Load(); n != 4 {
-		t.Errorf("model calls = %d, want 4", n)
-	}
+	_, _, err := b.Interpret(context.Background(), budgetInput())
+	wantBusy(t, err, 19*time.Hour)
 }
 
 func TestBudget_AFailedCallStillCounts(t *testing.T) {
@@ -178,5 +209,62 @@ func TestBudget_HoldsUnderConcurrentCalls(t *testing.T) {
 func TestBusyWait_IgnoresOtherErrors(t *testing.T) {
 	if _, ok := ai.BusyWait(errors.New("bedrock answered 500")); ok {
 		t.Error("BusyWait matched an unrelated error")
+	}
+}
+
+func TestBudget_RoomSaysWhenThereIsSpaceForMoreCalls(t *testing.T) {
+	model := &countingModel{}
+	clk := &clock.Fake{T: budgetStart}
+	b := ai.NewBudget(model, ai.BudgetConfig{Hourly: 12, Daily: 20, Clock: clk})
+	var c ai.Capacity = b
+	if wait := c.Room(10); wait != 0 {
+		t.Fatalf("Room(10) on a fresh budget = %v, want 0", wait)
+	}
+	for i := range 3 {
+		clk.Set(budgetStart.Add(time.Duration(i) * 5 * time.Minute))
+		if _, _, err := b.Interpret(context.Background(), budgetInput()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	clk.Set(budgetStart.Add(15 * time.Minute))
+	if wait := c.Room(9); wait != 0 {
+		t.Errorf("Room(9) with 9 calls left this hour = %v, want 0", wait)
+	}
+	if wait := c.Room(10); wait != 45*time.Minute {
+		t.Errorf("Room(10) with 9 calls left this hour = %v, want 45m until the first call is an hour old", wait)
+	}
+	if wait := c.Room(11); wait != 50*time.Minute {
+		t.Errorf("Room(11) = %v, want 50m until the second call is an hour old", wait)
+	}
+	if wait := c.Room(30); wait != 24*time.Hour {
+		t.Errorf("Room(30) beyond the daily cap = %v, want a day", wait)
+	}
+	clk.Set(budgetStart.Add(2 * time.Hour))
+	for range 8 {
+		if _, _, err := b.Interpret(context.Background(), budgetInput()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if wait := c.Room(10); wait != 22*time.Hour {
+		t.Errorf("Room(10) with 9 calls left today = %v, want 22h until the first call is a day old", wait)
+	}
+	if n := model.calls.Load(); n != 11 {
+		t.Errorf("model calls = %d, want 11: Room never counts a call", n)
+	}
+}
+
+func TestMemo_PassesTheBudgetsRoomThrough(t *testing.T) {
+	clk := &clock.Fake{T: budgetStart}
+	b := ai.NewBudget(&countingModel{}, ai.BudgetConfig{Hourly: 2, Daily: 10, Clock: clk})
+	var m ai.Interpreter = ai.NewMemo(b, ai.MemoSize)
+	c, ok := m.(ai.Capacity)
+	if !ok {
+		t.Fatal("the memo hides the budget's room")
+	}
+	if wait := c.Room(3); wait != time.Hour {
+		t.Errorf("Room(3) through the memo = %v, want an hour", wait)
+	}
+	if wait := ai.NewMemo(ai.Fake{}, ai.MemoSize).Room(100); wait != 0 {
+		t.Errorf("Room on a memo without a budget = %v, want 0", wait)
 	}
 }

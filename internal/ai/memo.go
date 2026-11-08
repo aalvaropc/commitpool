@@ -33,20 +33,17 @@ type Memo struct {
 	items map[memoKey]*list.Element
 }
 
-var _ Interpreter = (*Memo)(nil)
+var (
+	_ Interpreter = (*Memo)(nil)
+	_ Capacity    = (*Memo)(nil)
+)
 
 func NewMemo(next Interpreter, size int) *Memo {
 	return &Memo{next: next, size: max(size, 1), order: list.New(), items: map[memoKey]*list.Element{}}
 }
 
 func (m *Memo) Interpret(ctx context.Context, in InterpretInput) (domain.Interpretation, Meta, error) {
-	ids, back := positions(in.Dates, "#")
-	norm := in
-	norm.Dates = renameOptions(in.Dates, ids)
-	return memoize(m, "interpret", norm,
-		func() (domain.Interpretation, Meta, error) { return m.next.Interpret(ctx, in) },
-		func(out domain.Interpretation) domain.Interpretation { return renameVerdicts(out, ids) },
-		func(out domain.Interpretation) domain.Interpretation { return renameVerdicts(out, back) })
+	return m.next.Interpret(ctx, in)
 }
 
 func (m *Memo) Explain(ctx context.Context, in ExplainInput) (string, Meta, error) {
@@ -65,6 +62,13 @@ func (m *Memo) Draft(ctx context.Context, in DraftInput) (Draft, Meta, error) {
 func (m *Memo) Suggest(ctx context.Context, in SuggestInput) (string, Meta, error) {
 	return memoize(m, "suggest", in,
 		func() (string, Meta, error) { return m.next.Suggest(ctx, in) }, same[string], same[string])
+}
+
+func (m *Memo) Room(calls int) time.Duration {
+	if c, ok := m.next.(Capacity); ok {
+		return c.Room(calls)
+	}
+	return 0
 }
 
 func memoize[T any](m *Memo, op string, key any, call func() (T, Meta, error), save, load func(T) T) (T, Meta, error) {
@@ -121,14 +125,12 @@ func copyDraft(d Draft) Draft {
 	return d
 }
 
-func positions(dates []DateOption, prefix string) (ids, back map[string]string) {
-	ids = make(map[string]string, len(dates))
-	back = make(map[string]string, len(dates))
+func positions(dates []DateOption) map[string]string {
+	ids := make(map[string]string, len(dates))
 	for i, d := range dates {
-		pos := prefix + strconv.Itoa(i)
-		ids[d.ID], back[pos] = pos, d.ID
+		ids[d.ID] = "#" + strconv.Itoa(i)
 	}
-	return ids, back
+	return ids
 }
 
 func rename(names map[string]string, id string) string {
@@ -150,20 +152,8 @@ func renameOptions(dates []DateOption, ids map[string]string) []DateOption {
 	return out
 }
 
-func renameVerdicts(in domain.Interpretation, ids map[string]string) domain.Interpretation {
-	out := in
-	out.PerDate = slices.Clone(in.PerDate)
-	for i := range out.PerDate {
-		out.PerDate[i].CandidateDateID = rename(ids, out.PerDate[i].CandidateDateID)
-	}
-	out.HardConstraints = slices.Clone(in.HardConstraints)
-	out.Preferences = slices.Clone(in.Preferences)
-	out.Ambiguities = slices.Clone(in.Ambiguities)
-	return out
-}
-
 func normalExplain(in ExplainInput) ExplainInput {
-	dates, _ := positions(in.Dates, "#")
+	dates := positions(in.Dates)
 	ids := slices.SortedFunc(maps.Keys(in.Names), func(a, b string) int {
 		return cmp.Or(cmp.Compare(in.Names[a], in.Names[b]), cmp.Compare(a, b))
 	})

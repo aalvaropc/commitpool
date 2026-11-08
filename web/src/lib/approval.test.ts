@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ApprovalView } from '../api'
-import { approvalMessage, approvalOutcome, approvalTerms, refusedState } from './approval'
+import { approvalMessage, approvalOutcome, approvalTerms, approveFailure, confirmDeadline, refusedState } from './approval'
 
 const view: ApprovalView = {
   approve_url: 'https://commitpool.example/owner/t/approve/a',
@@ -81,5 +81,28 @@ describe('approvalTerms', () => {
       ['Needed to happen', '3'],
       ['Spots', '8'],
     ])
+  })
+})
+
+describe('confirmDeadline', () => {
+  it('tells the organizer until when the assistant can open reservations', () => {
+    const approved = { ...view, approval: { ...view.approval, state: 'approved' as const, expires_at: '2026-11-08T17:00:00Z' } }
+    expect(confirmDeadline(approved)).toBe('Your assistant has until Sun, Nov 8 · 12 PM to open them; after that it needs your approval again.')
+  })
+})
+
+describe('approveFailure', () => {
+  it('refreshes the page once when the approval needs the page again', () => {
+    expect(approveFailure(403, 'approval_needs_page', 'x', false)).toEqual({ refresh: true, message: 'This page had to refresh before approving. Tap Approve again.' })
+  })
+
+  it('stops refreshing when the browser still cannot approve', () => {
+    const second = approveFailure(403, 'approval_needs_page', 'x', true)
+    expect(second.refresh).toBe(false)
+    expect(second.message).toContain('This browser could not confirm the tap came from this page')
+  })
+
+  it('shows any other failure as it came', () => {
+    expect(approveFailure(0, 'network_error', 'CommitPool could not be reached.', false)).toEqual({ refresh: false, message: 'CommitPool could not be reached.' })
   })
 })

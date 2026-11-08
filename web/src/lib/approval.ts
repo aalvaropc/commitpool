@@ -1,7 +1,7 @@
 import type { ApprovalState, ApprovalView } from '../api'
 import type { Tone } from './status'
 import { lockedTerms, type TermItem } from './terms'
-import { formatDateRange } from './time'
+import { formatDateRange, formatMoment } from './time'
 
 export type ApprovalOutcome = Exclude<ApprovalState, 'pending'> | 'declined'
 
@@ -79,4 +79,24 @@ export function approvalTerms(v: ApprovalView): TermItem[] {
     minimum: a.minimum,
     capacity: a.capacity,
   })
+}
+
+export function confirmDeadline(v: ApprovalView): string {
+  return `Your assistant has until ${formatMoment(v.approval.expires_at, v.workshop.timezone)} to open them; after that it needs your approval again.`
+}
+
+export interface ApproveFailure {
+  refresh: boolean
+  message: string
+}
+
+export function approveFailure(status: number, code: string, message: string, retried: boolean): ApproveFailure {
+  if (status === 403 && code === 'approval_needs_page') {
+    if (!retried) return { refresh: true, message: 'This page had to refresh before approving. Tap Approve again.' }
+    return {
+      refresh: false,
+      message: 'This browser could not confirm the tap came from this page, so nothing was approved. Open the link in an up-to-date browser with cookies allowed for this site.',
+    }
+  }
+  return { refresh: false, message }
 }

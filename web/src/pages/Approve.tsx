@@ -4,7 +4,7 @@ import { api, ApiError, type ApprovalView } from '../api'
 import { Loading, LoadError } from '../components/PageState'
 import { TermsList } from '../components/Terms'
 import { Button, ButtonLink, Icon, Notice, Page, Tile, toneText, toneWash, type IconName } from '../components/ui'
-import { approvalMessage, approvalOutcome, approvalTerms, refusedState, type ApprovalOutcome } from '../lib/approval'
+import { approvalMessage, approvalOutcome, approvalTerms, approveFailure, confirmDeadline, refusedState, type ApprovalOutcome } from '../lib/approval'
 import { useResource } from '../lib/hooks'
 import { count } from '../lib/plural'
 import { formatMoment, zoneName } from '../lib/time'
@@ -46,9 +46,6 @@ function Ask({ view, busy, error, onApprove, onDecline }: { view: ApprovalView; 
           {error}
         </Notice>
       )}
-      <p role="status" className="sr-only">
-        {busy ? 'Approving…' : ''}
-      </p>
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         <Button variant="secondary" size="lg" onClick={onDecline} disabled={busy}>
           Not now
@@ -69,6 +66,7 @@ export default function Approve() {
   const [declined, setDeclined] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const refreshed = useRef(false)
   const resultTitle = useRef<HTMLHeadingElement>(null)
   const focusResult = useRef(false)
   const d = shown ?? view.data
@@ -99,9 +97,13 @@ export default function Approve() {
         focusResult.current = true
         setShown({ ...d, approval: { ...d.approval, state } })
       } else {
-        setShown(null)
-        await view.reload()
-        setError(e instanceof ApiError && e.status === 403 ? 'This page had to refresh before approving. Tap Approve again.' : e instanceof Error ? e.message : 'The approval did not go through.')
+        const failure = e instanceof ApiError ? approveFailure(e.status, e.code, e.message, refreshed.current) : { refresh: false, message: 'The approval did not go through.' }
+        if (failure.refresh) {
+          refreshed.current = true
+          setShown(null)
+          await view.reload()
+        }
+        setError(failure.message)
       }
     } finally {
       setBusy(false)
@@ -134,14 +136,17 @@ export default function Approve() {
 
       {outcome && message ? (
         <Tile as="section" aria-labelledby="result-title" className="flex flex-col items-start gap-5 sm:p-8">
-          <div role="status" className="flex flex-col gap-3">
+          <div className="flex flex-col gap-3">
             <span aria-hidden="true" className={`grid size-12 place-items-center rounded-full ${toneWash[message.tone]} ${toneText[message.tone]}`}>
               <Icon name={outcomeIcons[outcome]} size={24} />
             </span>
-            <h2 id="result-title" ref={resultTitle} tabIndex={-1} className="text-2xl sm:text-3xl">
+            <h2 id="result-title" ref={resultTitle} tabIndex={-1} aria-describedby="result-body" className="text-2xl sm:text-3xl">
               {message.title}
             </h2>
-            <p className="max-w-prose text-ink-soft">{message.body}</p>
+            <div id="result-body" className="flex max-w-prose flex-col gap-2">
+              {outcome === 'approved' && <p className="font-semibold">{confirmDeadline(d)}</p>}
+              <p className="text-ink-soft">{message.body}</p>
+            </div>
           </div>
           {(outcome === 'approved' || outcome === 'declined') && <TermsList items={approvalTerms(d)} />}
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">

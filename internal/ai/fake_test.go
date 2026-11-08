@@ -257,3 +257,17 @@ func TestFake_FallsBackToKeywordsOutsideTheScript(t *testing.T) {
 		t.Errorf("unscripted message = %+v (%+v), want the keyword reading %+v", got, meta, want)
 	}
 }
+
+func TestFake_ScriptMatchesWhateverDashTheReplyUses(t *testing.T) {
+	f := scriptedFake()
+	earlier := &ai.EarlierAnswer{Message: "Count me in if it's an afternoon thing."}
+	for _, reply := range []string{"No problem - I swapped Saturday.", "No problem -- I swapped Saturday.", "No problem–I swapped Saturday.", "No problem — I swapped Saturday."} {
+		in, _, err := f.Interpret(context.Background(), ai.InterpretInput{Dates: dates, Message: reply, Earlier: earlier})
+		if err != nil {
+			t.Fatalf("Interpret(%q): %v", reply, err)
+		}
+		if verdictFor(t, in, "sat").Verdict != domain.VerdictAvailable || verdictFor(t, in, "sun").Verdict != domain.VerdictUnavailable {
+			t.Errorf("%q = %+v, want the scripted reply", reply, in.PerDate)
+		}
+	}
+}

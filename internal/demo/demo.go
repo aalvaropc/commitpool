@@ -51,7 +51,7 @@ func unsure(evidence string) domain.DateVerdict {
 
 func verdicts(v ...domain.DateVerdict) []domain.DateVerdict { return v }
 
-const graceMessage = "Count me in if it's an afternoon thing — mornings I'm usually at the market, though I might be able to swap one."
+const graceMessage = "Count me in! Mornings are tricky — I'm usually at the market — but I might be able to swap one. Not sure which day yet."
 
 var Maya = Scenario{
 	Title:       "Wheel-throwing for beginners",
@@ -95,10 +95,9 @@ var Maya = Scenario{
 		{
 			Name: "Grace Liu", Message: graceMessage,
 			Expect: ai.Scripted{
-				Verdicts:        verdicts(unsure("mornings I'm usually at the market"), unsure("mornings I'm usually at the market")),
-				Question:        "The class runs 10 AM–12 PM on Saturday and Sunday — can you make either morning, and which?",
-				Why:             "She asked for an afternoon but might swap one market morning, and the class only runs in the morning.",
-				HardConstraints: []string{"afternoons, unless she swaps a market morning"},
+				Verdicts: verdicts(unsure("Mornings are tricky — I'm usually at the market"), unsure("Not sure which day yet")),
+				Question: "The class runs 10 AM–12 PM on Saturday and Sunday — can you make either morning, and which?",
+				Why:      "She might swap one market morning but has not said which, and the class only runs in the morning.",
 			},
 		},
 	},

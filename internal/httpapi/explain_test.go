@@ -37,14 +37,34 @@ func TestNamesAnotherDate(t *testing.T) {
 		{"Nov 15 is another option.", true},
 		{"Saturday 21 November could also work.", true},
 		{"Nov 14 works; 115 Nov is not a date.", false},
+		{"Monday would suit Ana better.", true},
+		{"Or Tues, if the studio is free.", true},
+		{"Nov 20 is open too.", true},
+		{"The 3rd of December works.", true},
+		{"Saturday, Nov. 14 it is.", false},
 	}
+	sat := []time.Time{dates[0].StartsAt}
 	for _, c := range cases {
-		if got := namesAnotherDate(c.text, "sat", dates, lima); got != c.want {
+		if got := namesAnotherDate(c.text, sat, lima); got != c.want {
 			t.Errorf("namesAnotherDate(%q) = %v, want %v", c.text, got, c.want)
 		}
 	}
-	if namesAnotherDate("Sunday", "missing", dates, lima) {
-		t.Error("an unknown recommended date flagged the text")
+	if namesAnotherDate("Sunday", nil, lima) {
+		t.Error("with no date to compare, the text was flagged")
+	}
+	weekend := []time.Time{dates[0].StartsAt, dates[1].StartsAt}
+	for text, want := range map[string]bool{
+		"The class runs Sat, Nov 14 or Sun, Nov 15 — which one?": false,
+		"Saturday or Sunday, 10 AM–12 PM.":                       false,
+		"Could you do Monday, Nov 16 instead?":                   true,
+	} {
+		if got := namesAnotherDate(text, weekend, lima); got != want {
+			t.Errorf("namesAnotherDate(%q, both dates) = %v, want %v", text, got, want)
+		}
+	}
+	deadline := time.Date(2026, 11, 13, 23, 0, 0, 0, time.UTC)
+	if namesAnotherDate("Sat, Nov 14 is on; reserve by Fri, Nov 13 at 6 PM.", []time.Time{dates[0].StartsAt, deadline}, lima) {
+		t.Error("naming the deadline was flagged although it is allowed")
 	}
 }
 

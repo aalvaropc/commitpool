@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -75,7 +76,7 @@ func (s *server) writeExplanation(ctx context.Context, st workshopState, in ai.E
 	case err != nil:
 		s.Log.Error("explain recommendation", "workshop_id", st.w.ID, "error", err)
 		return ai.PlainExplanation(in), s.Clock.Now().Add(explanationRetryAfter)
-	case namesAnotherDate(text, in.Recommendation.DateID, st.dates, st.loc):
+	case namesAnotherDate(text, datesStarting(st.dates, func(d store.CandidateDateRow) bool { return d.ID == in.Recommendation.DateID }), st.loc):
 		s.Log.Warn("explanation named a date the server did not recommend; using the plain explanation",
 			"workshop_id", st.w.ID, "model", meta.Model)
 		return ai.PlainExplanation(in), time.Time{}
@@ -83,66 +84,73 @@ func (s *server) writeExplanation(ctx context.Context, st workshopState, in ai.E
 	return text, time.Time{}
 }
 
+func datesStarting(dates []store.CandidateDateRow, keep func(store.CandidateDateRow) bool) []time.Time {
+	var out []time.Time
+	for _, d := range dates {
+		if keep(d) {
+			out = append(out, d.StartsAt)
+		}
+	}
+	return out
+}
+
 func explanationKey(workshopID string, in ai.ExplainInput) [sha256.Size]byte {
 	return sha256.Sum256([]byte(workshopID + "\n" + ai.ExplainFacts(in)))
 }
 
-func namesAnotherDate(text, recommendedID string, dates []store.CandidateDateRow, loc *time.Location) bool {
-	var rec time.Time
-	found := false
-	for _, d := range dates {
-		if d.ID == recommendedID {
-			rec, found = d.StartsAt.In(loc), true
-		}
-	}
-	if !found {
+var (
+	monthName      = `(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)`
+	monthThenDay   = regexp.MustCompile(`\b` + monthName + `\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b`)
+	dayThenMonth   = regexp.MustCompile(`\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?` + monthName + `\b`)
+	weekdayAliases = map[time.Weekday][]string{time.Tuesday: {"tues"}, time.Wednesday: {"weds"}, time.Thursday: {"thur", "thurs"}}
+)
+
+func namesAnotherDate(text string, allowed []time.Time, loc *time.Location) bool {
+	if len(allowed) == 0 {
 		return false
 	}
+	weekdays := map[time.Weekday]bool{}
+	days := map[[2]int]bool{}
+	for _, t := range allowed {
+		local := t.In(loc)
+		weekdays[local.Weekday()] = true
+		days[[2]int{int(local.Month()), local.Day()}] = true
+	}
 	lower := strings.ToLower(text)
-	for _, d := range dates {
-		if d.ID == recommendedID {
+	for wd := time.Sunday; wd <= time.Saturday; wd++ {
+		if weekdays[wd] {
 			continue
 		}
-		start := d.StartsAt.In(loc)
-		var forms []string
-		if y, m, day := start.Date(); y != rec.Year() || m != rec.Month() || day != rec.Day() {
-			forms = append(forms, dayOfMonthForms(start)...)
-		}
-		if start.Weekday() != rec.Weekday() {
-			weekday := start.Weekday().String()
-			forms = append(forms, weekday, weekday[:3])
-		}
-		for _, f := range forms {
-			if containsWord(lower, strings.ToLower(f)) {
+		name := strings.ToLower(wd.String())
+		for _, form := range append([]string{name, name[:3]}, weekdayAliases[wd]...) {
+			if containsWord(lower, form) {
 				return true
 			}
+		}
+	}
+	for _, m := range monthThenDay.FindAllStringSubmatch(lower, -1) {
+		if !allowedDay(days, m[1], m[2]) {
+			return true
+		}
+	}
+	for _, m := range dayThenMonth.FindAllStringSubmatch(lower, -1) {
+		if !allowedDay(days, m[2], m[1]) {
+			return true
 		}
 	}
 	return false
 }
 
-func dayOfMonthForms(t time.Time) []string {
-	nth := ordinal(t.Day())
-	return []string{
-		t.Format("2 Jan"), t.Format("Jan 2"), t.Format("2 January"), t.Format("January 2"),
-		nth + " " + t.Format("Jan"), t.Format("Jan") + " " + nth,
-		nth + " " + t.Format("January"), t.Format("January") + " " + nth, nth + " of " + t.Format("January"),
+func allowedDay(days map[[2]int]bool, month, day string) bool {
+	t, err := time.Parse("Jan", strings.ToUpper(month[:1])+month[1:3])
+	if err != nil {
+		return true
 	}
-}
-
-func ordinal(day int) string {
-	suffix := "th"
-	if day%100 < 11 || day%100 > 13 {
-		switch day % 10 {
-		case 1:
-			suffix = "st"
-		case 2:
-			suffix = "nd"
-		case 3:
-			suffix = "rd"
-		}
+	n, err := strconv.Atoi(day)
+	if err != nil {
+		return true
 	}
-	return strconv.Itoa(day) + suffix
+	return days[[2]int{int(t.Month()), n}]
 }
 
 func containsWord(text, phrase string) bool {

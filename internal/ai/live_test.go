@@ -185,3 +185,32 @@ func TestBedrock_LiveMaya(t *testing.T) {
 		checkLiveReading(t, r.Name+"'s reply", r.Expect, got)
 	}
 }
+
+func TestBedrock_LiveAsksAboutTheClassHoursOfAnyClass(t *testing.T) {
+	b, ctx := liveBedrock(t)
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tue := time.Date(2026, 11, 17, 18, 0, 0, 0, ny)
+	var dates []ai.DateOption
+	for i, id := range []string{"tue", "thu"} {
+		start := tue.AddDate(0, 0, 2*i)
+		dates = append(dates, ai.DateOption{ID: id, Label: present.DateLabel(start, start.Add(2*time.Hour), ny), StartsAt: start})
+	}
+	in, meta, err := b.Interpret(ctx, ai.InterpretInput{
+		WorkshopTitle: "Evening sketching", Timezone: "America/New_York", Dates: dates,
+		Message: "Count me in! Evenings are tricky with the kids, but I might get a sitter one night. Not sure which yet.",
+	})
+	if err != nil {
+		t.Fatalf("Interpret: %v", err)
+	}
+	t.Logf("reading %+v (%s)", in, meta.Model)
+	if !in.NeedsClarification || len(in.Ambiguities) == 0 {
+		t.Fatalf("reading = %+v, want a question", in)
+	}
+	q := in.Ambiguities[0].Question
+	if !strings.Contains(q, "6") || !strings.Contains(q, "8") || strings.Contains(q, "10") || strings.Contains(q, "12") {
+		t.Errorf("question %q does not name this class's hours, 6–8 PM", q)
+	}
+}

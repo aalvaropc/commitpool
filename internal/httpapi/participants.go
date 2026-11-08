@@ -120,10 +120,7 @@ func (s *server) submitAvailability(w http.ResponseWriter, r *http.Request) erro
 	if sent >= maxSubmissionsPerParticipant {
 		return conflict("too_many_submissions", "You have sent your availability many times already; correct the reading instead.")
 	}
-	earlier, err := s.earlierAnswer(ctx, p.ID)
-	if err != nil {
-		return err
-	}
+	earlier := s.openQuestion(ctx, ws.ID, p.ID)
 	release, err := s.acquireAI(ctx)
 	if err != nil {
 		return err
@@ -164,24 +161,26 @@ func (s *server) submitAvailability(w http.ResponseWriter, r *http.Request) erro
 	return nil
 }
 
-func (s *server) earlierAnswer(ctx context.Context, participantID string) (*ai.EarlierAnswer, error) {
+func (s *server) openQuestion(ctx context.Context, workshopID, participantID string) *ai.EarlierAnswer {
 	a, err := s.Store.LatestAvailabilityByParticipant(ctx, participantID)
-	if err != nil || a == nil {
-		return nil, err
+	var in domain.Interpretation
+	if err == nil && a != nil {
+		in, err = inForce(*a)
 	}
-	in, err := inForce(*a)
 	if err != nil {
-		return nil, err
+		s.Log.Warn("could not load the earlier answer; reading the new message alone", "workshop_id", workshopID, "participant_id", participantID, "error", err)
+		return nil
+	}
+	if a == nil || !in.NeedsClarification {
+		return nil
 	}
 	out := &ai.EarlierAnswer{Message: a.RawMessage, Questions: []string{}}
-	if in.NeedsClarification {
-		for _, q := range in.Ambiguities {
-			if q.Question != "" {
-				out.Questions = append(out.Questions, q.Question)
-			}
+	for _, q := range in.Ambiguities {
+		if q.Question != "" {
+			out.Questions = append(out.Questions, q.Question)
 		}
 	}
-	return out, nil
+	return out
 }
 
 func (s *server) correctAvailability(w http.ResponseWriter, r *http.Request) error {

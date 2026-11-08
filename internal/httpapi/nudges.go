@@ -204,20 +204,15 @@ func (s *server) writeNudge(ctx context.Context, st workshopState, in ai.Suggest
 		s.Log.Warn("suggest a nudge; using the plain message", "workshop_id", st.w.ID, "error", err)
 		return plain, s.Clock.Now().Add(explanationRetryAfter)
 	}
-	if in.Kind == string(domain.SuggestClarify) {
-		return text, time.Time{}
+	allowed := datesStarting(st.dates, func(d store.CandidateDateRow) bool {
+		return in.Kind == string(domain.SuggestClarify) || present.Day(d.StartsAt, st.loc) == in.Date
+	})
+	if len(allowed) > 0 && !closes.IsZero() {
+		allowed = append(allowed, closes)
 	}
-	others := make([]store.CandidateDateRow, 0, len(st.dates))
-	for _, d := range st.dates {
-		if closes.IsZero() || present.Day(d.StartsAt, st.loc) != present.Day(closes, st.loc) {
-			others = append(others, d)
-		}
-	}
-	for _, d := range others {
-		if present.Day(d.StartsAt, st.loc) == in.Date && namesAnotherDate(text, d.ID, others, st.loc) {
-			s.Log.Warn("nudge named another date; using the plain message", "workshop_id", st.w.ID, "model", meta.Model)
-			return plain, time.Time{}
-		}
+	if namesAnotherDate(text, allowed, st.loc) {
+		s.Log.Warn("nudge named another date; using the plain message", "workshop_id", st.w.ID, "model", meta.Model)
+		return plain, time.Time{}
 	}
 	return text, time.Time{}
 }

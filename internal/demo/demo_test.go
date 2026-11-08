@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -83,6 +85,9 @@ func TestMaya_IsTheDemoPersona(t *testing.T) {
 	}
 	if len(m.People) != 6 || m.People[len(m.People)-1].Name != "Grace Liu" || m.People[len(m.People)-1].Expect.Question == "" {
 		t.Errorf("people = %+v, want six with Grace's unclear answer last", m.People)
+	}
+	if grace := m.People[len(m.People)-1].Message; strings.Contains(grace, "afternoon") || !strings.Contains(grace, "might be able to swap one") || !strings.Contains(grace, "Not sure which day") {
+		t.Errorf("Grace's message %q should leave open which morning she can make, without a firm limit", grace)
 	}
 	if len(m.Replies) != 1 || m.Replies[0].Name != "Grace Liu" || m.Replies[0].Expect.Follows != m.People[len(m.People)-1].Message {
 		t.Errorf("replies = %+v, want Grace's answer to Claude's question", m.Replies)
@@ -288,5 +293,16 @@ func TestAnswer_StopsWhenTheTimeIsUp(t *testing.T) {
 	err := demo.Answer(ctx, api, []demo.Participant{{Name: "Priya", Token: "P1"}}, func(ctx context.Context) error { return ctx.Err() })
 	if !errors.Is(err, context.Canceled) || len(api.calls) != 0 {
 		t.Errorf("err %v with %d calls, want cancelled before any call", err, len(api.calls))
+	}
+}
+
+func TestMaya_TheWebGuideQuotesGracesReply(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "web", "src", "lib", "demo.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply := demo.Maya.Replies[0]
+	if !strings.Contains(string(raw), `"`+reply.Message+`"`) || !strings.Contains(string(raw), `'`+reply.Name+`'`) {
+		t.Errorf("web/src/lib/demo.ts does not quote %s's reply %q; the guide's example must be the scenario's reply", reply.Name, reply.Message)
 	}
 }

@@ -85,8 +85,44 @@ func TestAvailability_TheInterpreterSeesTheEarlierAnswerAndItsQuestions(t *testi
 	if !reflect.DeepEqual(got[1], want) {
 		t.Errorf("the reply came with %+v, want %+v", got[1], want)
 	}
-	if got[2] == nil || got[2].Message != "Yes, Saturday works" || len(got[2].Questions) != 0 {
-		t.Errorf("an update after a clear answer came with %+v, want that answer and no questions", got[2])
+	if got[2] != nil {
+		t.Errorf("an update after a clear answer came with %+v, want the new message alone", got[2])
+	}
+}
+
+func TestAvailability_ACorrectedReadingIsNotReopened(t *testing.T) {
+	rec := &recordingAI{}
+	e := newEnv(t, withAI(rec))
+	h := e.createWorkshop()
+	grace := e.join(h, "Grace Liu")
+	first := e.say(grace, "I can make it either day, ideally in the afternoon.")
+	corrected := first.Interpretation
+	corrected.NeedsClarification, corrected.Ambiguities = false, []domain.Ambiguity{}
+	for i := range corrected.PerDate {
+		corrected.PerDate[i].Verdict, corrected.PerDate[i].Condition = domain.VerdictAvailable, domain.Condition{Type: domain.ConditionNone}
+	}
+	e.call(http.MethodPut, grace.path+"/availability/"+first.ID, map[string]any{"corrected": corrected}, http.StatusOK, nil)
+	e.say(grace, "Sunday too")
+	if got := rec.earlier(); len(got) != 2 || got[1] != nil {
+		t.Errorf("after the person corrected the reading, the next message came with %+v, want it alone", got)
+	}
+}
+
+func TestAvailability_AnUnreadableEarlierAnswerDoesNotStopTheNewOne(t *testing.T) {
+	rec := &recordingAI{}
+	e := newEnv(t, withAI(rec))
+	h := e.createWorkshop()
+	grace := e.join(h, "Grace Liu")
+	first := e.say(grace, "I can make it either day, ideally in the afternoon.")
+	if _, err := e.st.Pool.Exec(e.ctx, `update availabilities set interpretation = '"broken"'::jsonb where id = $1`, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	second := e.say(grace, "Saturday works")
+	if got := rec.earlier(); len(got) != 2 || got[1] != nil || second.ID == "" {
+		t.Errorf("after an unreadable earlier reading: earlier %+v, saved %+v; want the new message read alone and saved", got, second)
+	}
+	if logs := e.logs.String(); !strings.Contains(logs, "level=WARN") || !strings.Contains(logs, "earlier answer") {
+		t.Errorf("log does not warn about the earlier answer:\n%s", logs)
 	}
 }
 
@@ -106,6 +142,21 @@ func TestSuggestions_ClaudeMayNameEveryDateWhenItAsksAQuestion(t *testing.T) {
 	clarify := rec.suggested("clarify")
 	if len(clarify) == 0 || clarify[0].Options != "Sat, Nov 14, 3 PM–6 PM or Sun, Nov 15, 10 AM–1 PM" {
 		t.Errorf("clarify facts = %+v, want both dates with their hours as the options", clarify)
+	}
+}
+
+func TestSuggestions_AQuestionNamingADayThatIsNotADateFallsBack(t *testing.T) {
+	rec := &recordingAI{nudge: "Hi {name}! Could you come on Monday instead, or on Nov 20?"}
+	e := newEnv(t, withAI(rec))
+	h := e.createWorkshop()
+	e.joinAndSay(h, "Ana", "I can't do Sunday, but Saturday is fine")
+	e.joinAndSay(h, "Grace Liu", "I can make it either day, ideally in the afternoon.")
+	v := e.settledOwner(h)
+	if len(v.Suggestions) != 1 || v.Suggestions[0].Kind != "clarify" {
+		t.Fatalf("suggestions = %+v, want one question for Grace", v.Suggestions)
+	}
+	if got := v.Suggestions[0].Message; strings.Contains(got, "Monday") || got != ai.PlainSuggestion(rec.suggested("clarify")[0]) {
+		t.Errorf("clarify message = %q, want the plain message instead of one naming a day that is not a candidate", got)
 	}
 }
 

@@ -31,10 +31,14 @@ const (
 	scriptModel  = "script-v1"
 )
 
-var straightQuotes = strings.NewReplacer("’", "'", "‘", "'", "“", `"`, "”", `"`)
+var (
+	plainPunctuation = strings.NewReplacer("’", "'", "‘", "'", "“", `"`, "”", `"`, "‐", "-", "‑", "-", "‒", "-", "–", "-", "—", "-", "―", "-", "−", "-")
+	dashRun          = regexp.MustCompile(`\s*-+\s*`)
+)
 
 func scriptKey(message string) string {
-	return strings.Join(strings.Fields(straightQuotes.Replace(message)), " ")
+	plain := dashRun.ReplaceAllString(plainPunctuation.Replace(message), " - ")
+	return strings.Join(strings.Fields(plain), " ")
 }
 
 func (f Fake) scripted(in InterpretInput) (Scripted, bool) {

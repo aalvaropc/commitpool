@@ -61,8 +61,12 @@ affect.
   the text and ask.
 - **Opening payments is two-step.** The confirmation token is an HMAC over the
   date, price, currency, minimum, capacity, payment window and expiry, signed
-  with `COMMITPOOL_MCP_SECRET` (or a random key per process). The assistant
-  cannot open payments on terms the organizer has not seen.
+  with `COMMITPOOL_MCP_SECRET` (or a random key per process). It proves only
+  that the assistant called `preview_open_payments` for those exact terms in
+  the last 10 minutes, and it opens payments on those terms and no others. It
+  cannot prove that the organizer saw them: the preview tells the assistant to
+  read the terms to the organizer and ask, and the assistant must do so before
+  it calls `confirm_open_payments`.
 - **One set of rules.** Every tool calls the same JSON API the web app uses,
   in process, so validation, limits, capability checks and the payment rules
   are shared. Requests to `/mcp` are rate-limited per client address like any

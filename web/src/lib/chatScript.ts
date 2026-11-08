@@ -1,8 +1,12 @@
+import type { SampleDates } from './sampleDates'
 import type { Day, SampleReading } from './sampleReader'
+
+export type Counted = Record<Day, boolean>
 
 export interface Voice {
   name: string
   message: string
+  reading: SampleReading
 }
 
 export const HOST = 'Maya Okafor'
@@ -10,22 +14,43 @@ export const NEEDED = 3
 export const PRICE = 45
 export const STUDIO = 120
 export const CLASS_HOURS = { start: 10, end: 12 }
-
-export const OPENING = 'Wheel-throwing for beginners! Sat Nov 14 or Sun Nov 15, 10 AM–12 PM. The studio costs me $120, so I need 3 of you at $45 each.'
+export const YOU = 'You'
 
 export const CROWD: Voice[] = [
-  { name: 'Priya Raman', message: 'Saturday works for me, Sunday I can’t.' },
-  { name: 'Ben Whitaker', message: 'either day, but Sat only if we finish before six' },
-  { name: 'Lucía Torres', message: 'I can’t do Saturday; Sunday morning is perfect.' },
-  { name: 'Hannah Kim', message: 'Count me in on Saturday. Sunday is no good for me.' },
-  { name: 'Tomás Silva', message: 'Both days work for me.' },
+  {
+    name: 'Priya Raman',
+    message: "Saturday works for me, Sunday I can't.",
+    reading: { sat: 'available', sun: 'unavailable', limits: {}, ask: null },
+  },
+  {
+    name: 'Ben Whitaker',
+    message: "The first date works if we're done before 6; the second one I'm away.",
+    reading: { sat: 'conditional', sun: 'unavailable', limits: { sat: { type: 'end_before', hour: 18 } }, ask: null },
+  },
+  {
+    name: 'Lucía Torres',
+    message: 'El sábado no puedo, pero el domingo me viene perfecto.',
+    reading: { sat: 'unavailable', sun: 'available', limits: {}, ask: null },
+  },
+  {
+    name: 'Hannah Kim',
+    message: "Saturday only if we're done by 11:30 — I have a lunch at noon. Sunday is out.",
+    reading: { sat: 'conditional', sun: 'unavailable', limits: { sat: { type: 'end_before', hour: 11.5 } }, ask: null },
+  },
+  {
+    name: 'Tomás Silva',
+    message: "Sunday's good. Saturday I'm driving my daughter to a tournament all day.",
+    reading: { sat: 'unavailable', sun: 'available', limits: {}, ask: null },
+  },
 ]
 
-export const SUGGESTIONS = ['Saturday works for me', 'Both days, but only if it ends by six', 'maybe? ideally in the afternoon']
+export const SUGGESTIONS = ['No problem — Saturday works!', 'El domingo sí puedo', 'The first one, if we’re done by 11']
+
+export const ANSWERS = ['Saturday morning works', 'Sunday morning works', 'Neither morning, sorry']
 
 export interface Read {
   name: string
-  reading: SampleReading
+  counted: Counted
 }
 
 export interface Tally {
@@ -42,35 +67,58 @@ export function fits(reading: SampleReading, day: Day): boolean {
   return limit.type === 'end_before' ? CLASS_HOURS.end <= limit.hour : CLASS_HOURS.start >= limit.hour
 }
 
+export function countedBy(reading: SampleReading): Counted {
+  return { sat: fits(reading, 'sat'), sun: fits(reading, 'sun') }
+}
+
+export const CROWD_READS: Read[] = CROWD.map((v) => ({ name: v.name, counted: countedBy(v.reading) }))
+
 export function tally(reads: Read[]): Tally {
   return {
-    sat: reads.filter((r) => fits(r.reading, 'sat')).length,
-    sun: reads.filter((r) => fits(r.reading, 'sun')).length,
+    sat: reads.filter((r) => r.counted.sat).length,
+    sun: reads.filter((r) => r.counted.sun).length,
   }
 }
 
-export interface Recommendation {
-  day: 'Sat, Nov 14' | 'Sun, Nov 15'
-  key: 'sat' | 'sun'
-  count: number
-  enough: boolean
+export function leader(t: Tally): Day {
+  return t.sun > t.sat ? 'sun' : 'sat'
+}
+
+export function opening(dates: SampleDates): string {
+  return `Wheel-throwing for beginners! Saturday or Sunday, ${dates.sat.hours} (${dates.sat.label} or ${dates.sun.label}). The studio costs me $${STUDIO}, so I need ${NEEDED} of you at $${PRICE} each.`
+}
+
+export function crowdTally(dates: SampleDates): string {
+  const t = tally(CROWD_READS)
+  return `${dates.sat.weekday}: ${t.sat} can come. ${dates.sun.weekday}: ${t.sun}. Maya needs ${NEEDED} on one day, so she needs one more — you could be the third.`
+}
+
+export interface Outcome {
+  key: Day | null
+  counts: Tally
   text: string
 }
 
-export function recommend(t: Tally): Recommendation {
-  const key = t.sun > t.sat ? 'sun' : 'sat'
-  const day = key === 'sat' ? 'Sat, Nov 14' : 'Sun, Nov 15'
-  const count = t[key]
-  const enough = count >= NEEDED
+export function outcome(you: Counted, dates: SampleDates, unanswered: boolean): Outcome {
+  const counts = tally([...CROWD_READS, { name: YOU, counted: you }])
+  const key = leader(counts)
+  if (counts[key] >= NEEDED) {
+    const day = dates[key]
+    const text =
+      you.sat && you.sun
+        ? `You’re counted for both days, so each has ${NEEDED}. On a tie the earlier date wins: ${day.label}. Maya opens reservations.`
+        : `You’re counted for ${day.weekday}: that makes ${counts[key]}, enough for Maya. She opens reservations for ${day.label}.`
+    return { key, counts, text }
+  }
+  const why = unanswered ? 'There’s still a question for you, so you aren’t counted yet.' : 'From what you wrote, you aren’t counted for either day.'
   return {
-    day,
-    key,
-    count,
-    enough,
-    text: enough ? `${day} works for ${count} — you need ${NEEDED}.` : `${count} can come on ${day} — you need ${NEEDED}. Keep the answers coming.`,
+    key: null,
+    counts,
+    text: `${why} ${dates.sat.weekday} has ${counts.sat} and ${dates.sun.weekday} has ${counts.sun}: Maya still needs one more, so nothing opens and nobody pays.`,
   }
 }
 
 export function reservers(reads: Read[], key: Day): string[] {
-  return reads.filter((r) => fits(r.reading, key)).map((r) => r.name)
+  const counted = reads.filter((r) => r.counted[key]).map((r) => r.name)
+  return [...counted.filter((n) => n === YOU), ...counted.filter((n) => n !== YOU)]
 }

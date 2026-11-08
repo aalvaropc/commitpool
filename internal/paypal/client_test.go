@@ -470,7 +470,7 @@ func TestClient_CreateOrderBodyMatchesContract(t *testing.T) {
 			"amount": {"currency_code": "USD", "value": "10.00"}
 		}],
 		"payment_source": {"paypal": {"experience_context": {
-			"user_action": "PAY_NOW",
+			"user_action": "CONTINUE",
 			"shipping_preference": "NO_SHIPPING",
 			"return_url": "https://app.example/paypal/return",
 			"cancel_url": "https://app.example/paypal/cancel"

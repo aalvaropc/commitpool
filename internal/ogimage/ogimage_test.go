@@ -7,6 +7,7 @@ import (
 	"image/color"
 	"image/png"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -20,6 +21,23 @@ func maya() ogimage.Card {
 		Place: "Maya's studio · Greenpoint, Brooklyn", When: "Sat, Nov 14 or Sun, Nov 15 · 10 AM–12 PM",
 		Price: "$45", Needed: 3, Capacity: 6,
 	}
+}
+
+func samples() map[string]ogimage.Card {
+	open := maya()
+	open.Status, open.Tone, open.When, open.Reserved = "Reservations open", ogimage.ToneHold, "Sat, Nov 14 · 10 AM–12 PM", 2
+	on := open
+	on.Status, on.Tone, on.Paid, on.Reserved = "It’s on", ogimage.ToneOn, 4, 0
+	long := maya()
+	long.Title = "Sourdough, focaccia and pizza al taglio for absolute beginners who never baked bread"
+	long.Host, long.Place = "Bartholomew Featherstonehaugh-Winterbottom", "The community kitchen on the second floor of the old library annex"
+	long.When, long.Price, long.Paid, long.Reserved = "4 possible dates from Sat, Nov 14", "$1,250.50", 1, 1
+	cancelled := maya()
+	cancelled.Status, cancelled.Tone, cancelled.Title, cancelled.Host, cancelled.Place = "Cancelled", ogimage.ToneCancelled, "Café crème · Dvořák", "", ""
+	overflow := long
+	overflow.Title = strings.Repeat("Sourdough, pizza and focaccia for absolute beginners ", 4)
+	overflow.When, overflow.Price, overflow.Status, overflow.Tone = "Sat, Nov 14 or Sun, Nov 15 · 10:30 AM–12:45 PM", "1,250.00 EUR", "Reservations closed", ogimage.ToneNeutral
+	return map[string]ogimage.Card{"collecting": maya(), "open": open, "on": on, "long": long, "cancelled": cancelled, "overflow": overflow}
 }
 
 func decode(t *testing.T, raw []byte) image.Image {
@@ -43,34 +61,68 @@ func near(a, b color.Color) bool {
 	return d(ar, br) < 0x0800 && d(ag, bg) < 0x0800 && d(ab, bb) < 0x0800
 }
 
-func TestRender_IsALinkPreviewInTheBrand(t *testing.T) {
-	raw, err := ogimage.Render(maya())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if path := os.Getenv("OGIMAGE_OUT"); path != "" {
-		_ = os.WriteFile(path, raw, 0o600)
-	}
-	img := decode(t, raw)
-	if b := img.Bounds(); b.Dx() != ogimage.Width || b.Dy() != ogimage.Height {
-		t.Fatalf("size = %v, want 1200×630", b)
-	}
-	if !near(img.At(10, 10), color.RGBA{0xf3, 0xf2, 0xf7, 0xff}) {
-		t.Errorf("canvas at the corner = %v", img.At(10, 10))
-	}
-	if !near(img.At(100, 300), color.RGBA{0x5b, 0x21, 0xb6, 0xff}) {
-		t.Errorf("title tile = %v, want the brand violet", img.At(100, 300))
-	}
-	var light int
-	for x := 88; x < 650; x++ {
-		for y := 380; y < 480; y++ {
-			if r, g, b, _ := img.At(x, y).RGBA(); r > 0xe000 && g > 0xe000 && b > 0xe000 {
-				light++
+func count(img image.Image, area image.Rectangle, want color.Color) int {
+	n := 0
+	for x := area.Min.X; x < area.Max.X; x++ {
+		for y := area.Min.Y; y < area.Max.Y; y++ {
+			if near(img.At(x, y), want) {
+				n++
 			}
 		}
 	}
-	if light < 2000 {
-		t.Errorf("only %d light pixels where the title goes", light)
+	return n
+}
+
+var (
+	canvas = color.RGBA{0x14, 0x10, 0x0d, 0xff}
+	bone   = color.RGBA{0xf4, 0xec, 0xe0, 0xff}
+	ember  = color.RGBA{0xff, 0x6a, 0x3d, 0xff}
+	white  = color.RGBA{0xff, 0xff, 0xff, 0xff}
+)
+
+func TestRender_IsALinkPreviewInTheKilnIdentity(t *testing.T) {
+	dir := os.Getenv("OGIMAGE_OUT")
+	for name, card := range samples() {
+		raw, err := ogimage.Render(card)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if dir != "" {
+			_ = os.WriteFile(filepath.Join(dir, name+".png"), raw, 0o600)
+		}
+		img := decode(t, raw)
+		if b := img.Bounds(); b.Dx() != ogimage.Width || b.Dy() != ogimage.Height {
+			t.Fatalf("%s: size = %v, want 1200×630", name, b)
+		}
+		for _, p := range []image.Point{{4, 4}, {1195, 4}, {4, 625}, {1195, 625}} {
+			if !near(img.At(p.X, p.Y), canvas) {
+				t.Errorf("%s: canvas at %v = %v, want the warm charcoal", name, p, img.At(p.X, p.Y))
+			}
+		}
+		if n := count(img, image.Rect(60, 130, 1140, 360), bone); n < 4000 {
+			t.Errorf("%s: only %d bone pixels where the title goes", name, n)
+		}
+		if n := count(img, image.Rect(60, 40, 130, 110), ember); n < 400 {
+			t.Errorf("%s: only %d ember pixels in the bowl mark", name, n)
+		}
+		if n := count(img, img.Bounds(), white); n > 0 {
+			t.Errorf("%s: %d pure white pixels; the ink is bone", name, n)
+		}
+	}
+}
+
+func TestRender_ItsOnIsDarkTextOnEmber(t *testing.T) {
+	raw, err := ogimage.Render(samples()["on"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	img := decode(t, raw)
+	pill := image.Rect(900, 44, 1136, 106)
+	if n := count(img, pill, ember); n < 4000 {
+		t.Errorf("only %d ember pixels in the status pill", n)
+	}
+	if n := count(img, pill, color.RGBA{0x1a, 0x0d, 0x07, 0xff}); n < 300 {
+		t.Errorf("only %d dark pixels for the label on ember", n)
 	}
 }
 
@@ -80,18 +132,28 @@ func TestRender_IsDeterministic(t *testing.T) {
 	if !bytes.Equal(a, b) {
 		t.Error("the same card renders differently")
 	}
+	c := maya()
+	c.Reserved = 1
+	if d, _ := ogimage.Render(c); bytes.Equal(a, d) {
+		t.Error("a reservation does not change the card")
+	}
 }
 
 func TestRender_SurvivesLongAndMissingText(t *testing.T) {
 	c := maya()
 	c.Title = strings.Repeat("Sourdough, pizza and focaccia for absolute beginners ", 4)
 	c.When = strings.Repeat("Sat, Nov 14 · ", 10)
+	c.Price = "1,250,000.00 EUR"
 	c.Place, c.Host, c.Status = "", "", ""
 	c.Paid, c.Reserved = 2, 9
 	if _, err := ogimage.Render(c); err != nil {
 		t.Fatal(err)
 	}
-	c.Capacity, c.Needed = 0, 0
+	c.Capacity, c.Needed, c.Title, c.When, c.Price = 0, 0, "", "", ""
+	if _, err := ogimage.Render(c); err != nil {
+		t.Fatal(err)
+	}
+	c.Title = strings.Repeat("W", 80)
 	if _, err := ogimage.Render(c); err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +185,7 @@ func TestRender_ManyAtOnce(t *testing.T) {
 
 func TestRender_DrawsTitlesOutsideTheBrandFont(t *testing.T) {
 	c := maya()
-	c.Title = "🍞 Dvořák & Łódź bread — 面包"
+	c.Title = "🍞 Пекарня & Łódź bread — 面包"
 	if _, err := ogimage.Render(c); err != nil {
 		t.Fatal(err)
 	}

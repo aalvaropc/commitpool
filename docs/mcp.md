@@ -6,10 +6,13 @@ their own AI assistant: create it, answer for a participant, see who can come,
 open payments and get the PayPal link.
 
 The assistant prepares; the person decides. No tool moves money. A hold is
-placed only when the person approves it on PayPal's own page, reservations
-open only after the organizer taps Approve on their own CommitPool page, and
-captures, voids and refunds stay with the payment worker, under the same rules
-as the web app.
+placed only when the person approves it on PayPal's own page, and captures,
+voids and refunds stay with the payment worker, under the same rules as the
+web app. The MCP tools alone cannot open reservations: that needs the
+organizer's approval on their own CommitPool page. Anyone holding the owner
+link can still open reservations from the organizer page, and a script could
+forge a browser's headers; [the safety notes](#safety-by-design) say exactly
+what is and is not guaranteed.
 
 ## Connect
 
@@ -35,7 +38,7 @@ For the organizer:
 | --- | --- |
 | `create_workshop` | Creates a paid workshop with one or more candidate dates, the organizer's name and the place. An optional studio cost stays private to the organizer. Returns the owner link (private) and the share link (for participants). |
 | `get_status` | From the owner link: the recommended date and why, who can come, who committed or paid, how many paid seats cover the studio cost before fees, what closing payments now would do, and who CommitPool suggests nudging, each with a message Claude drafted for the organizer to send. Read-only; nothing is sent. |
-| `preview_open_payments` | Prepares opening payments on a date: returns the exact terms that lock (date, price, minimum, capacity and payment window), an `approval_id` and an `approve_url` for the organizer, valid for thirty minutes. The workshop does not change. |
+| `preview_open_payments` | Prepares opening payments on a date: returns the exact terms that lock (date, price, minimum, capacity and payment window), an `approval_id`, its `state` and an `approve_url` for the organizer. The organizer has thirty minutes to approve; once they do, the assistant has thirty more to confirm. The workshop does not change. |
 | `confirm_open_payments` | Opens payments with that `approval_id`, only once the organizer has tapped Approve on the `approve_url` page. Refused while they have not, after the approval expired or was used, and when any term changed since the preview. |
 
 For a participant:
@@ -76,9 +79,14 @@ PayPal: the assistant prepares, the person taps.
    approved yet — ask them to open the approve link".
 
 An approval belongs to one workshop and one set of terms (date, price,
-currency, minimum, capacity and payment window, hashed when it is requested),
-lasts thirty minutes and opens reservations once. A second preview of the same
-terms returns the same open approval. The organizer page's own **Open
+currency, minimum, capacity and payment window, hashed when it is requested)
+and opens reservations once. The organizer has thirty minutes to approve it;
+approving starts a fresh thirty minutes for the assistant to confirm, and the
+approve page shows that deadline. A second preview of the same terms returns
+the same approval while it has at least ten minutes left (with `state`
+`approved` if the organizer already tapped, and a `next` that says to
+confirm), and a new one otherwise. Confirming checks the terms against the
+workshop row it locks, in the same transaction that opens reservations. The organizer page's own **Open
 reservations** button is unchanged: the organizer is already the one tapping.
 
 | Endpoint | Who calls it |
@@ -106,12 +114,17 @@ reservations** button is unchanged: the organizer is already the one tapping.
   them too, so the MCP tools alone cannot open payments.
 - **Approve has to come from the browser page.** Opening the approve page sets
   an `HttpOnly`, `SameSite=Strict` cookie (`Secure` over HTTPS) scoped to that
-  approval's path, whose value is an HMAC of the approval id keyed by
-  `COMMITPOOL_MCP_SECRET` (or a random key per process). The approve request
-  needs that cookie, `Sec-Fetch-Site: same-origin` and an `Origin` of this
-  site, so another site cannot make the organizer's browser approve, and an
-  assistant posting to the endpoint with its HTTP tool is refused with
-  `approval_needs_page`. **The honest limit:** these headers are what a
+  approval's path, whose value is an HMAC of the workshop id and the approval
+  id keyed by `COMMITPOOL_MCP_SECRET` (or a random key per process, so set it
+  when running more than one instance). The approve request needs that cookie
+  and browser headers that pass Go's cross-origin protection:
+  `Sec-Fetch-Site: same-origin`, or, from a browser without it, an `Origin`
+  that matches the host. A request with neither header is refused, so another
+  site cannot make the organizer's browser approve, and an assistant posting
+  to the endpoint with its HTTP tool gets `approval_needs_page` ("Only the
+  organizer can approve, on the approve page in their own browser."). If the
+  page's cookie is gone it refreshes once and asks for another tap, then says
+  the browser could not approve rather than looping. **The honest limit:** these headers are what a
   browser sends; a program that fetches the page's API and forges them, or an
   assistant driving a real browser with the owner link, could still tap
   Approve. The owner link is also the organizer's key to their own page, so

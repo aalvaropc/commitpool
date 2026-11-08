@@ -57,8 +57,8 @@ uses a shadow: depth comes from the surface steps. Easing: `--ease-out`
   `clamp(1.25rem, 1.1rem + 0.6vw, 1.5rem)` / 1.3.
 - **`shout`**: 800 weight, 75% width, tracking -0.02em, uppercase. Used for the
   landing headlines (`text-display`, `text-head`), the event title on the brand
-  tile and the "It's on" moment. `display`, `wide` and `semiwide` are defined
-  for tighter display tracking.
+  tile and the "It's on" moment. `display` (-0.03em) and `wide` (-0.02em) set
+  the display family with tighter tracking; `semiwide` sets only the family.
 - Prices, counts and times use `tabular-nums`.
 
 ## Components
@@ -146,18 +146,23 @@ Product compositions built from them:
   drawn in Go by `internal/ogimage` in the same family: canvas, bowl and
   wordmark, a status pill (neutral "Finding the date" and "Reservations
   closed", hold "Reservations open", ember "It's on", no "Cancelled"), the
-  title in `shout` (120px down to 60px, up to three lines, then an ellipsis),
-  "with {host} · {place}", and three tiles: the dates or the chosen date, the
-  price in ember with "a spot", and a meter with "{n} needed · {m} spots",
-  "{n} reserved · {m} needed" or "{n} paid · {m} spots". It never shows
-  participant names.
+  title in `shout` (120px down to 60px, up to three lines, then an ellipsis;
+  "A class on CommitPool" if nothing in it can be drawn), "with {host} ·
+  {place}" (left out when the host cannot be drawn), and three tiles: the
+  dates or the chosen date, the price in ember with "a spot", and a meter with
+  "{n} needed · {m} spots", "{n} reserved · {m} needed" or "{n} paid · {m}
+  spots". The dates tile is never narrower than 456px and only breaks between
+  dates; the caption steps down to 24px and the price down to 34px before an
+  absurdly long price is cut. It never shows participant names.
 - The image fonts are static Bricolage instances made with fontTools from the
   google/fonts variable font (ExtraBold at 75% width for the title, price and
   "It's on"; SemiBold and Medium at 100% for text; an ExtraBold wordmark
-  subset), Latin and Latin Extended-A, with the OFL next to them. Characters
-  Bricolage lacks fall back to the Go fonts; anything neither draws is left
-  out.
+  subset) covering Latin-1, Latin Extended-A, Romanian comma letters,
+  Vietnamese, № and ≈ ≠ ≤ ≥, with the OFL next to them. Text is NFC-normalised
+  and drawn one character at a time: each character Bricolage lacks comes from
+  the Go fonts, and a character neither has becomes a space.
 - `og:image` carries `?v=` (12 hex characters of a SHA-256 over
   `ogimage.Revision` and the card). The versioned URL is cached for a year as
   immutable, the bare URL for five minutes. Bump `ogimage.Revision` whenever
-  the drawing changes so chats fetch the new card.
+  the drawing changes so chats fetch the new card; a golden test of the sample
+  cards' pixels fails until you do.

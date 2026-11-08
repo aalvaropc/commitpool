@@ -9,8 +9,8 @@ const turns = [
   { who: 'claude', text: 'Grace swapped Saturday, so it works for 3 — you need 3. Reservations can open.' },
   { who: 'you', text: 'Open reservations on Saturday.' },
   { who: 'tool', text: 'preview_open_payments' },
-  { who: 'claude', text: 'Here are the exact terms: $45 held per person, charged only if 3 reserve. Open them?' },
-  { who: 'you', text: 'yes' },
+  { who: 'claude', text: 'Here are the exact terms: $45 held per person, charged only if 3 reserve. Tap Approve on this link and I’ll open them.' },
+  { who: 'you', text: 'Approved.' },
   { who: 'tool', text: 'confirm_open_payments' },
   { who: 'claude', text: 'Reservations are open. Each person approves their own hold at PayPal.' },
 ] as const

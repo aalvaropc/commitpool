@@ -269,6 +269,30 @@ export interface EnrollResponse {
   status_label: string
 }
 
+export type ApprovalState = 'pending' | 'approved' | 'used' | 'expired' | 'changed' | 'closed'
+
+export interface OpenApproval {
+  id: string
+  state: ApprovalState
+  date_id: string
+  date_label: string
+  starts_at: string
+  ends_at: string
+  price: Money
+  minimum: number
+  capacity: number
+  payment_window_min: number
+  expires_at: string
+  approved_at: string | null
+  used_at: string | null
+}
+
+export interface ApprovalView {
+  approval: OpenApproval
+  workshop: Workshop
+  approve_url: string
+}
+
 export class ApiError extends Error {
   readonly status: number
   readonly code: string
@@ -330,6 +354,8 @@ export const api = {
   owner: (token: string) => request<OwnerView>('GET', `/api/v1/owner/${seg(token)}`),
   openProposal: (token: string, dateId: string) =>
     request<{ proposal: Proposal }>('POST', `/api/v1/owner/${seg(token)}/proposal`, { date_id: dateId }),
+  approval: (token: string, id: string) => request<ApprovalView>('GET', `/api/v1/owner/${seg(token)}/approvals/${seg(id)}`),
+  approveOpen: (token: string, id: string) => request<ApprovalView>('POST', `/api/v1/owner/${seg(token)}/approvals/${seg(id)}/approve`),
   cancelWorkshop: (token: string, reason: string) =>
     request<{ workshop: Workshop }>('POST', `/api/v1/owner/${seg(token)}/cancel`, reason ? { reason } : {}),
   operatorReconcile: (token: string, enrollmentId: string) =>

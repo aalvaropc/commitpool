@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/aalvaropc/commitpool/internal/domain"
+	"github.com/aalvaropc/commitpool/internal/inproc"
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
@@ -145,7 +146,13 @@ var proposalRefusals = []struct {
 	{domain.ErrNotEnoughCompatible, "not_enough_compatible", "Fewer people can come on this date than the workshop needs."},
 }
 
+var errOpenNeedsApproval = newError(http.StatusForbidden, "approval_required",
+	"An assistant opens reservations only after the organizer approves the terms on their own page: preview them, then confirm with the approval.")
+
 func (s *server) openProposal(w http.ResponseWriter, r *http.Request) error {
+	if inproc.Is(r.Context()) {
+		return errOpenNeedsApproval
+	}
 	ws, err := s.ownerWorkshop(r)
 	if err != nil {
 		return err
@@ -157,30 +164,39 @@ func (s *server) openProposal(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	ctx := r.Context()
-	st, err := s.loadState(ctx, ws)
+	row, err := s.proposalOn(ctx, ws, req.DateID)
 	if err != nil {
 		return err
 	}
+	opened, err := s.Store.OpenProposal(ctx, row)
+	return s.writeOpened(ctx, w, ws, opened, err)
+}
+
+func (s *server) proposalOn(ctx context.Context, ws store.WorkshopRow, dateID string) (store.ProposalRow, error) {
+	st, err := s.loadState(ctx, ws)
+	if err != nil {
+		return store.ProposalRow{}, err
+	}
 	var date *store.CandidateDateRow
 	for i := range st.dates {
-		if st.dates[i].ID == req.DateID {
+		if st.dates[i].ID == dateID {
 			date = &st.dates[i]
 		}
 	}
 	if date == nil {
-		return badRequest("invalid_date", "Choose one of this workshop's candidate dates.")
+		return store.ProposalRow{}, badRequest("invalid_date", "Choose one of this workshop's candidate dates.")
 	}
 	if ws.Status != domain.WorkshopCollecting {
-		return s.alreadyOpen(ctx, st.proposal)
+		return store.ProposalRow{}, s.alreadyOpen(ctx, st.proposal)
 	}
 
 	avails, err := s.Store.AvailabilitiesByWorkshop(ctx, ws.ID)
 	if err != nil {
-		return err
+		return store.ProposalRow{}, err
 	}
 	rec, err := st.recommend(avails)
 	if err != nil {
-		return err
+		return store.ProposalRow{}, err
 	}
 	compatible := 0
 	for _, d := range rec.PerDate {
@@ -201,19 +217,18 @@ func (s *server) openProposal(w http.ResponseWriter, r *http.Request) error {
 	}
 	if err := domain.ValidateProposal(dw, p, domain.CandidateDate{ID: date.ID, StartsAt: date.StartsAt, EndsAt: date.EndsAt}, compatible); err != nil {
 		if errors.Is(err, domain.ErrWorkshopNotCollecting) {
-			return s.alreadyOpen(ctx, st.proposal)
+			return store.ProposalRow{}, s.alreadyOpen(ctx, st.proposal)
 		}
 		for _, refusal := range proposalRefusals {
 			if errors.Is(err, refusal.err) {
 				e := conflict("proposal_invalid", refusal.message)
 				e.reason = refusal.reason
-				return e
+				return store.ProposalRow{}, e
 			}
 		}
-		return err
+		return store.ProposalRow{}, err
 	}
-
-	opened, err := s.Store.OpenProposal(ctx, store.ProposalRow{
+	return store.ProposalRow{
 		WorkshopID:   ws.ID,
 		ChosenDateID: date.ID,
 		PriceMinor:   p.Price.Minor,
@@ -223,7 +238,10 @@ func (s *server) openProposal(w http.ResponseWriter, r *http.Request) error {
 		OpensAt:      p.OpensAt,
 		ClosesAt:     p.ClosesAt,
 		StartsAt:     p.StartsAt,
-	})
+	}, nil
+}
+
+func (s *server) writeOpened(ctx context.Context, w http.ResponseWriter, ws store.WorkshopRow, opened store.ProposalRow, err error) error {
 	if errors.Is(err, store.ErrProposalExists) {
 		current, err := s.Store.ActiveProposal(ctx, ws.ID)
 		if err != nil {
@@ -235,7 +253,7 @@ func (s *server) openProposal(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	ws.Status = domain.WorkshopFunding
-	writeJSON(w, http.StatusCreated, map[string]*proposalDTO{"proposal": ownerProposalView(&opened, ws, now)})
+	writeJSON(w, http.StatusCreated, map[string]*proposalDTO{"proposal": ownerProposalView(&opened, ws, opened.OpensAt)})
 	return nil
 }
 

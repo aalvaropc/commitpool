@@ -140,7 +140,7 @@ func sampleReserve(dailyCap int) int {
 	return max(minSampleReserve, dailyCap/sampleReserveDivisor)
 }
 
-func newQuestionKey(secret []byte) []byte {
+func newSigningKey(secret []byte) []byte {
 	if len(secret) > 0 {
 		return secret
 	}
@@ -150,7 +150,7 @@ func newQuestionKey(secret []byte) []byte {
 }
 
 func (s *server) questionSig(question string) string {
-	m := hmac.New(sha256.New, s.questionKey)
+	m := hmac.New(sha256.New, s.signingKey)
 	m.Write([]byte(questionSigContext + question))
 	return base64.RawURLEncoding.EncodeToString(m.Sum(nil))
 }

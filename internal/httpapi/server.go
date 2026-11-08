@@ -60,7 +60,8 @@ type server struct {
 	self         http.Handler
 	drafts       *draftQuota
 	samples      *sampleQuota
-	questionKey  []byte
+	signingKey   []byte
+	crossOrigin  *http.CrossOriginProtection
 	aiSem        chan struct{}
 }
 
@@ -81,7 +82,8 @@ func New(d Deps) http.Handler {
 	s.demoQuota = newDemoQuota(s.limiter != nil)
 	s.drafts = newDraftQuota(s.limiter != nil)
 	s.samples = newSampleQuota(s.limiter != nil)
-	s.questionKey = newQuestionKey(d.Cfg.MCPSecret)
+	s.signingKey = newSigningKey(d.Cfg.MCPSecret)
+	s.crossOrigin = http.NewCrossOriginProtection()
 	mux := http.NewServeMux()
 	s.routes(mux)
 	h := s.observe(mux)
@@ -109,6 +111,10 @@ func (s *server) routes(mux *http.ServeMux) {
 
 	api("GET /api/v1/owner/{token}", s.ownerView)
 	api("POST /api/v1/owner/{token}/proposal", s.openProposal)
+	api("POST /api/v1/owner/{token}/approvals", s.requestApproval)
+	api("GET /api/v1/owner/{token}/approvals/{id}", s.showApproval)
+	api("POST /api/v1/owner/{token}/approvals/{id}/approve", s.approveOpen)
+	api("POST /api/v1/owner/{token}/approvals/{id}/open", s.openApproved)
 	api("POST /api/v1/owner/{token}/cancel", s.cancelWorkshop)
 	api("POST /api/v1/owner/{token}/operator/reconcile", s.operatorReconcile)
 	api("POST /api/v1/owner/{token}/operator/retry-refund", s.operatorRetryRefund)

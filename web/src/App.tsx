@@ -1,5 +1,6 @@
 import { Route, Routes } from 'react-router'
 import Shell from './components/Shell'
+import Approve from './pages/Approve'
 import Home from './pages/Home'
 import NewWorkshop from './pages/NewWorkshop'
 import NotFound from './pages/NotFound'
@@ -17,6 +18,7 @@ export default function App() {
         <Route path="w/:share" element={<Share />} />
         <Route path="p/:token" element={<Participant />} />
         <Route path="owner/:token" element={<Owner />} />
+        <Route path="owner/:token/approve/:id" element={<Approve />} />
         <Route path="paypal/returned" element={<Returned />} />
         <Route path="*" element={<NotFound />} />
       </Route>

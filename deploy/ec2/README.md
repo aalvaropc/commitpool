@@ -101,7 +101,8 @@ export AWS_REGION=us-east-1
   Terraform ignores the boot template after the first boot, so an `apply`
   never replaces the VM (and its database) for it.
 - Optional parameters, read on every deploy: `/commitpool/mcp_secret` (a
-  long random string) keeps MCP confirmation tokens valid across restarts;
+  long random string) keeps open organizer approve pages working across
+  restarts;
   `/commitpool/mail_from`, a sender verified in Amazon SES, turns email on
   (the instance role may send with `ses:SendEmail`). While the SES account is
   in its sandbox, only verified recipients get mail. Without it,

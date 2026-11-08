@@ -140,35 +140,40 @@ func (s *Store) OpenProposal(ctx context.Context, p ProposalRow) (ProposalRow, e
 		if _, err := lockWorkshop(ctx, tx, p.WorkshopID); err != nil {
 			return err
 		}
-		moved, err := transitionWorkshop(ctx, tx, p.WorkshopID,
-			[]domain.WorkshopStatus{domain.WorkshopCollecting}, nil, domain.WorkshopFunding, domain.ResolutionOpen)
-		if err != nil {
-			return err
-		}
-		if !moved {
-			return ErrProposalExists
-		}
-		row, err := one[ProposalRow](ctx, tx,
-			`insert into proposals (workshop_id, version, chosen_date_id, price_minor, currency, minimum, capacity, opens_at, closes_at, starts_at)
-			values ($1, 1, $2, $3, $4, $5, $6, $7, $8, $9)
-			returning `+proposalCols,
-			p.WorkshopID, p.ChosenDateID, p.PriceMinor, p.Currency, p.Minimum, p.Capacity, p.OpensAt, p.ClosesAt, p.StartsAt)
-		if err != nil {
-			return wrap("insert proposal", err)
-		}
-		if _, err := tx.Exec(ctx,
-			`insert into jobs (kind, idempotency_key, workshop_id, run_at) values ($1, $2, $3, $4)
-			 on conflict (idempotency_key) do nothing`,
-			KindClose, JobKey(KindClose, row.ID), p.WorkshopID, row.ClosesAt); err != nil {
-			return wrap("schedule close", err)
-		}
+		row, err := openProposal(ctx, tx, p)
 		opened = row
-		return nil
+		return err
 	})
 	if err != nil {
 		return ProposalRow{}, err
 	}
 	return opened, nil
+}
+
+func openProposal(ctx context.Context, tx pgx.Tx, p ProposalRow) (ProposalRow, error) {
+	moved, err := transitionWorkshop(ctx, tx, p.WorkshopID,
+		[]domain.WorkshopStatus{domain.WorkshopCollecting}, nil, domain.WorkshopFunding, domain.ResolutionOpen)
+	if err != nil {
+		return ProposalRow{}, err
+	}
+	if !moved {
+		return ProposalRow{}, ErrProposalExists
+	}
+	row, err := one[ProposalRow](ctx, tx,
+		`insert into proposals (workshop_id, version, chosen_date_id, price_minor, currency, minimum, capacity, opens_at, closes_at, starts_at)
+		values ($1, 1, $2, $3, $4, $5, $6, $7, $8, $9)
+		returning `+proposalCols,
+		p.WorkshopID, p.ChosenDateID, p.PriceMinor, p.Currency, p.Minimum, p.Capacity, p.OpensAt, p.ClosesAt, p.StartsAt)
+	if err != nil {
+		return ProposalRow{}, wrap("insert proposal", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`insert into jobs (kind, idempotency_key, workshop_id, run_at) values ($1, $2, $3, $4)
+		 on conflict (idempotency_key) do nothing`,
+		KindClose, JobKey(KindClose, row.ID), p.WorkshopID, row.ClosesAt); err != nil {
+		return ProposalRow{}, wrap("schedule close", err)
+	}
+	return row, nil
 }
 
 func (s *Store) ShortenPaymentWindow(ctx context.Context, proposalID string, closesAt time.Time) (ProposalRow, error) {

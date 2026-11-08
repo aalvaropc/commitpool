@@ -87,7 +87,7 @@ func run(log *slog.Logger) error {
 		Addr: ":" + cfg.Port,
 		Handler: httpapi.New(httpapi.Deps{
 			Store: st, Worker: runner, PayPal: pp, AI: interpreter, Clock: clk, Cfg: cfg, Log: log, Dist: dist, Background: &background,
-			MCP: mcpserver.New(mcpserver.Config{Secret: cfg.MCPSecret, Clock: clk, Log: log, Version: version()}),
+			MCP: mcpserver.New(mcpserver.Config{Log: log, Version: version()}),
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,

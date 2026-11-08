@@ -189,7 +189,7 @@ func newEnv(t *testing.T, opts ...option) *env {
 	log := slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	mailer := &mail.Memory{}
 	runner := worker.New(worker.Deps{Store: st, PayPal: api, Clock: clk, Cfg: s.cfg, Log: log, Mailer: mailer})
-	assistant := mcpserver.New(mcpserver.Config{Secret: []byte("test-confirmation-secret"), Clock: clk, Log: log})
+	assistant := mcpserver.New(mcpserver.Config{Log: log})
 	background := &sync.WaitGroup{}
 	t.Cleanup(background.Wait)
 	h := httpapi.New(httpapi.Deps{

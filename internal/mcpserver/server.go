@@ -3,7 +3,6 @@ package mcpserver
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"fmt"
 	"io"
 	"log/slog"
@@ -15,13 +14,10 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/aalvaropc/commitpool/internal/clock"
 	"github.com/aalvaropc/commitpool/internal/inproc"
 )
 
 type Config struct {
-	Secret  []byte
-	Clock   clock.Clock
 	Log     *slog.Logger
 	Version string
 }
@@ -33,13 +29,6 @@ type Server struct {
 }
 
 func New(cfg Config) *Server {
-	if cfg.Secret == nil {
-		cfg.Secret = make([]byte, 32)
-		_, _ = rand.Read(cfg.Secret)
-	}
-	if cfg.Clock == nil {
-		cfg.Clock = clock.Real{}
-	}
 	if cfg.Log == nil {
 		cfg.Log = slog.Default()
 	}
@@ -87,9 +76,11 @@ An organizer proposes candidate dates; participants say in plain words when they
 reads that, recommends a date, and once the organizer opens payments each participant authorizes a
 PayPal hold. Holds are charged only when the minimum is reached; otherwise every hold is released and
 every charge refunded. Links are capabilities: an owner link controls the workshop and a participant
-link is a person's seat, so keep both private. You can prepare everything, but money moves only when
-the person approves at PayPal, and you must show terms to the person and get their yes before
-confirm_open_payments or get_checkout_link.`
+link is a person's seat, so keep both private. You can prepare everything, but people approve for
+themselves: to open payments, call preview_open_payments, show the organizer the terms and send them
+the approve_url to tap Approve on their own page, then call confirm_open_payments; a participant
+approves their own hold at PayPal after accepting the consent text, before get_checkout_link. Never
+open an approve link or tap Approve on a person's behalf.`
 
 func (s *Server) call(ctx context.Context, method, path string, body, out any) error {
 	return s.api.Call(ctx, method, path, body, out)

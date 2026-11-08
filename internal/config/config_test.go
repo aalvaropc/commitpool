@@ -324,3 +324,80 @@ func TestLoad_DemoPace(t *testing.T) {
 		t.Errorf("negative pace: err = %v, want an error naming COMMITPOOL_DEMO_PACE_MS", err)
 	}
 }
+
+func TestLoad_PayPalIsExactlyTheSandboxUnlessLiveIsAllowed(t *testing.T) {
+	cases := []struct {
+		name, url    string
+		live, mocks  bool
+		refusalNames string
+	}{
+		{"the default", "", false, false, ""},
+		{"the sandbox", "https://api-m.sandbox.paypal.com", false, true, ""},
+		{"the sandbox with a trailing slash", "https://api-m.sandbox.paypal.com/", false, true, ""},
+		{"a host that only starts like the sandbox", "https://api-m.sandbox.paypal.com.evil.test", false, false, "COMMITPOOL_ALLOW_LIVE_PAYPAL"},
+		{"mocks on a host that only starts like the sandbox", "https://api-m.sandbox.paypal.com.evil.test", false, true, "COMMITPOOL_SANDBOX_MOCKS"},
+		{"the sandbox over plain http", "http://api-m.sandbox.paypal.com", false, false, "COMMITPOOL_ALLOW_LIVE_PAYPAL"},
+		{"plain http even when live is allowed", "http://api-m.paypal.com", true, false, "https"},
+		{"live without the flag", "https://api-m.paypal.com", false, false, "COMMITPOOL_ALLOW_LIVE_PAYPAL"},
+		{"live with the flag", "https://api-m.paypal.com", true, false, ""},
+		{"live with the flag and mocks", "https://api-m.paypal.com", true, true, "COMMITPOOL_SANDBOX_MOCKS"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			env := baseEnv()
+			if tc.url != "" {
+				env["PAYPAL_BASE_URL"] = tc.url
+			}
+			if tc.live {
+				env["COMMITPOOL_ALLOW_LIVE_PAYPAL"] = "1"
+			}
+			if tc.mocks {
+				env["COMMITPOOL_SANDBOX_MOCKS"] = "1"
+			}
+			cfg, err := load(env)
+			if tc.refusalNames != "" {
+				if err == nil || !strings.Contains(err.Error(), "PAYPAL_BASE_URL") || !strings.Contains(err.Error(), tc.refusalNames) {
+					t.Fatalf("PAYPAL_BASE_URL=%q: err = %v, want a refusal naming PAYPAL_BASE_URL and %s", tc.url, err, tc.refusalNames)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("PAYPAL_BASE_URL=%q: %v", tc.url, err)
+			}
+			if cfg.AllowLivePayPal != tc.live {
+				t.Errorf("AllowLivePayPal = %v, want %v", cfg.AllowLivePayPal, tc.live)
+			}
+			if want := strings.TrimSuffix(tc.url, "/"); want != "" && cfg.PayPalBaseURL != want {
+				t.Errorf("PayPalBaseURL = %q, want %q", cfg.PayPalBaseURL, want)
+			}
+		})
+	}
+}
+
+func TestLoad_AICaps(t *testing.T) {
+	cfg, err := load(baseEnv())
+	if err != nil || cfg.AIHourlyCap != 200 || cfg.AIDailyCap != 1500 {
+		t.Fatalf("default caps = %d an hour, %d a day, %v; want 200 and 1500", cfg.AIHourlyCap, cfg.AIDailyCap, err)
+	}
+	env := baseEnv()
+	env["COMMITPOOL_AI_HOURLY_CAP"] = "50"
+	env["COMMITPOOL_AI_DAILY_CAP"] = "400"
+	if cfg, err := load(env); err != nil || cfg.AIHourlyCap != 50 || cfg.AIDailyCap != 400 {
+		t.Errorf("caps = %d, %d, %v; want 50 and 400", cfg.AIHourlyCap, cfg.AIDailyCap, err)
+	}
+	for _, name := range []string{"COMMITPOOL_AI_HOURLY_CAP", "COMMITPOOL_AI_DAILY_CAP"} {
+		for _, bad := range []string{"0", "-3", "lots", "1.5"} {
+			env := baseEnv()
+			env[name] = bad
+			if _, err := load(env); err == nil || !strings.Contains(err.Error(), name) {
+				t.Errorf("%s=%s: err = %v, want a refusal naming it", name, bad, err)
+			}
+		}
+	}
+	env = baseEnv()
+	env["COMMITPOOL_AI_HOURLY_CAP"] = "300"
+	env["COMMITPOOL_AI_DAILY_CAP"] = "250"
+	if _, err := load(env); err == nil || !strings.Contains(err.Error(), "COMMITPOOL_AI_HOURLY_CAP cannot be above COMMITPOOL_AI_DAILY_CAP") {
+		t.Errorf("an hourly cap above the daily one: err = %v", err)
+	}
+}

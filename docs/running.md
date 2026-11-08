@@ -35,11 +35,13 @@ participant, and needs no credentials. `go run ./cmd/seed -h` lists the flags:
 
 With `COMMITPOOL_DEMO_MODE=1`, the landing page offers **Try it as Maya**:
 - `GET /api/v1/demo` says demo workshops are on.
-- `POST /api/v1/demo/workshops` creates a workshop for Maya. It answers with the organizer link, the invite link and one link per participant. Then it sends the six answers in the background, one every `COMMITPOOL_DEMO_PACE_MS`.
+- `POST /api/v1/demo/workshops` creates a workshop for Maya. It answers with the organizer link, the invite link and one link per participant. Then it sends the six answers in the background, one every `COMMITPOOL_DEMO_PACE_MS`. An answer refused because Claude is capped waits as long as the `Retry-After` says, within the three minutes the answers have.
+- The organizer view of a demo workshop lists those six participant links as `act_as`, so **Act as** works from any device that has the organizer link. Only the participants the demo created are listed, and only on a demo workshop; the plain links are kept for them alone (`participants.demo_link_token`). The MCP `get_status` never carries them.
 
 Limits on starting demos:
-- One address can start two demos, then one every 20 minutes. This applies only while the rate limit is on.
+- One address can start five demos, then one every 20 minutes. This applies only while the rate limit is on.
 - At most 30 demos start in any hour, and 6 fill in at once.
+- A demo starts only when the Bedrock caps leave room for about 10 more calls. Otherwise it answers 429 `demo_resting` with `Retry-After` and says when to try again.
 
 Both endpoints answer 404 outside demo mode. The demo also adds the
 organizer's **Close reservations now** control.
@@ -60,16 +62,19 @@ default.
 | `PORT` | HTTP port the service listens on (default `8080`). With compose, `COMMITPOOL_PORT` set in the shell picks the host port. |
 | `COMMITPOOL_BASE_URL` | Required. Public URL of the deployment, no trailing slash; PayPal sends buyers back to it. |
 | `DATABASE_URL` | Required. For the local database: `postgres://commitpool:commitpool@localhost:55432/commitpool?sslmode=disable` |
+| `PAYPAL_BASE_URL` | Defaults to the Sandbox, `https://api-m.sandbox.paypal.com`, and must be exactly that unless `COMMITPOOL_ALLOW_LIVE_PAYPAL=1`. |
+| `COMMITPOOL_ALLOW_LIVE_PAYPAL` | `1` accepts a `PAYPAL_BASE_URL` other than the Sandbox, such as the live `https://api-m.paypal.com`; it must still be https. Default `0`. Refused next to `COMMITPOOL_DEMO_MODE=1` or `COMMITPOOL_SANDBOX_MOCKS=1`, which are Sandbox-only. |
 | `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` | Required unless `E2E_FAKE_PAYPAL=1`. PayPal Sandbox app credentials. |
 | `PAYPAL_WEBHOOK_ID` | Id of the Sandbox webhook pointing at `/paypal/webhook` (`scripts/register-webhook.sh` creates it). Without it the webhook endpoint answers 503 and the periodic reconcile does the work alone. |
 | `COMMITPOOL_AI_PROVIDER` | `bedrock` (default) or `fake`, a deterministic keyword interpreter for tests and demos. |
 | `AWS_REGION` | Required unless `COMMITPOOL_AI_PROVIDER=fake`. |
 | `COMMITPOOL_BEDROCK_MODEL`, `COMMITPOOL_BEDROCK_FALLBACK_MODEL` | Bedrock model or inference profile IDs. The model defaults to Claude Sonnet 4.5 through the US inference profile, `us.anthropic.claude-sonnet-4-5-20250929-v1:0`. The fallback defaults to none, which turns the refusal fallback off. |
+| `COMMITPOOL_AI_HOURLY_CAP`, `COMMITPOOL_AI_DAILY_CAP` | Most Bedrock calls in any sliding hour (default `200`) and in any sliding 24 hours (default `1500`). They count model calls as the app makes them; the SDK may retry a failed call up to twice, and that is still one call. Readings of availability may use the whole cap; explanations, nudges and drafts only three quarters of it, so they never starve readings. Past its share, a reading answers 429 `ai_capped` with `Retry-After` and a message that says when to try again, and the others fall back to plain text or an empty draft until the wait is over. Every reading calls Claude; an explanation, nudge or draft identical to one of the last 512 reuses that answer and is not counted. Setting only the daily cap lowers the hourly default to it. The fake provider has no cap. |
 | `COMMITPOOL_BEDROCK_EFFORT` | Effort for every Bedrock call: `none` (default; Sonnet 4.5 takes no effort), or `low`, `medium`, `high`, `xhigh` or `max` for a model that takes one. |
 | `COMMITPOOL_SEAT_TTL_MIN` | Minutes a reserved seat is held while the buyer approves at PayPal (default `30`). |
 | `COMMITPOOL_DEMO_MODE` | `1` enables **Try it as Maya** and **Close reservations now**. |
 | `COMMITPOOL_DEMO_PACE_MS` | Milliseconds between the answers of a demo workshop (default `2000`; the end-to-end script uses `50`). |
-| `COMMITPOOL_SANDBOX_MOCKS` | `1` enables **Fail next charge** and the `PayPal-Mock-Response` header. Refused unless `PAYPAL_BASE_URL` is a sandbox URL. |
+| `COMMITPOOL_SANDBOX_MOCKS` | `1` enables **Fail next charge** and the `PayPal-Mock-Response` header. Refused unless `PAYPAL_BASE_URL` is exactly the Sandbox URL. |
 | `COMMITPOOL_MAILER`, `COMMITPOOL_MAIL_FROM` | `log` (default) logs notifications with a masked address and does not send them. `ses` sends them with Amazon SES v2 and the default AWS credentials, from `COMMITPOOL_MAIL_FROM`. That must be a verified sender identity, optionally with a name: `CommitPool <hello@example.com>`. |
 | `COMMITPOOL_RATE_LIMIT` | How many writes (POST, PUT) one client address may send a minute, in bursts of half that. `off` turns it off. Default `120`. Reads are never limited. |
 | `COMMITPOOL_MCP_SECRET` | Signs the MCP server's confirmation tokens. Without it a random key per process is used, so a preview made before a restart must be made again. |
@@ -189,7 +194,7 @@ Compiler and linter directives are allowed. The scripts are described in
 ## Limits
 
 - **Size.** A workshop takes at most 200 participants, and a participant at most 20 availability messages.
-- **Model calls.** At most 7 run at once: 4 for readings and explanations, 2 for drafts and 1 for nudges.
+- **Model calls.** At most 7 run at once: 4 for readings and explanations, 2 for drafts and 1 for nudges. On Bedrock, `COMMITPOOL_AI_HOURLY_CAP` and `COMMITPOOL_AI_DAILY_CAP` bound how many are made, with a quarter kept for readings; past them, a message answers 429 `ai_capped` with `Retry-After`. The 503 `ai_busy` answer is different: every slot was taken for 10 seconds.
 - **Drafts.** A draft answers 200 with an empty draft when Claude fails or every drafting slot is taken. Past the per-visitor or hourly quota it answers 429 with `Retry-After`.
 - **Refunds.** A paid seat cannot refund itself. Only a cancellation refunds it, so the minimum the organizer relies on cannot drop after the fact.
 - **Emails.** They are delivered at least once: after a crash between sending and recording, one may arrive twice. While the SES account is in its sandbox, only verified addresses receive mail.

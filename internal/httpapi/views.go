@@ -12,12 +12,12 @@ import (
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
-const ConsentVersion = "consent-v3"
+const ConsentVersion = "consent-v4"
 
 const ConsentText = "Reserving your spot places a temporary hold for the price on your PayPal account. Nothing is charged yet. " +
 	"Holds are charged once enough people have reserved, and the workshop is on when the minimum number of payments has gone through. " +
 	"If the minimum is not reached by the deadline, the workshop is cancelled: every hold is released and any charge already made is refunded. " +
-	"You can leave and have your hold released until you are charged; after that, your payment is refunded only if the workshop is cancelled, including when the organizer cancels it. " +
+	"You can leave and have your hold released until charging starts; after that, your payment is refunded only if the workshop is cancelled, including when the organizer cancels it. " +
 	"Refunds can take a few days, and you can follow yours on your page."
 
 type labelState struct {

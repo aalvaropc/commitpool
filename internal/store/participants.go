@@ -49,6 +49,28 @@ func (s *Store) ParticipantsByWorkshop(ctx context.Context, workshopID string) (
 		`select `+participantCols+` from participants where workshop_id = $1 order by created_at, id`, workshopID)
 }
 
+type DemoLinkRow struct{ DisplayName, Token string }
+
+func (s *Store) KeepDemoLink(ctx context.Context, token string) (bool, error) {
+	tag, err := s.Pool.Exec(ctx,
+		`update participants p set demo_link_token = $1
+		from workshops w
+		where p.access_token_hash = $2 and w.id = p.workshop_id and w.is_demo`,
+		token, HashToken(token))
+	if err != nil {
+		return false, wrap("keep demo link", err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+func (s *Store) DemoLinks(ctx context.Context, workshopID string) ([]DemoLinkRow, error) {
+	return many[DemoLinkRow](ctx, s.Pool, "demo links",
+		`select p.display_name, p.demo_link_token
+		from participants p join workshops w on w.id = p.workshop_id
+		where p.workshop_id = $1 and w.is_demo and p.demo_link_token is not null
+		order by p.created_at, p.id`, workshopID)
+}
+
 func (s *Store) SaveAvailability(ctx context.Context, a AvailabilityRow) (AvailabilityRow, error) {
 	saved, err := one[AvailabilityRow](ctx, s.Pool,
 		`insert into availabilities (participant_id, raw_message, interpretation, corrected, needs_clarification, model_meta)

@@ -171,6 +171,10 @@ func (s *server) writeNudge(ctx context.Context, st workshopState, in ai.Suggest
 	}
 	defer release()
 	text, meta, err := s.AI.Suggest(ctx, in)
+	if wait, capped := ai.BusyWait(err); capped {
+		s.Log.Info("suggest a nudge: Claude is capped; using the plain message", "workshop_id", st.w.ID, "retry_after", wait)
+		return plain, s.Clock.Now().Add(max(explanationRetryAfter, wait))
+	}
 	if err != nil {
 		s.Log.Warn("suggest a nudge; using the plain message", "workshop_id", st.w.ID, "error", err)
 		return plain, s.Clock.Now().Add(explanationRetryAfter)

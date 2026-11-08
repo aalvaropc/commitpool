@@ -22,6 +22,11 @@ type demoDTO struct {
 	SandboxMocks bool `json:"sandbox_mocks"`
 }
 
+type actAsDTO struct {
+	Name           string `json:"name"`
+	ParticipantURL string `json:"participant_url"`
+}
+
 type ownerViewDTO struct {
 	ShareURL       string            `json:"share_url"`
 	Workshop       workshopDTO       `json:"workshop"`
@@ -34,6 +39,7 @@ type ownerViewDTO struct {
 	Enrollments    []enrollmentDTO   `json:"enrollments"`
 	Suggestions    []suggestionDTO   `json:"suggestions"`
 	Demo           demoDTO           `json:"demo"`
+	ActAs          *[]actAsDTO       `json:"act_as,omitempty"`
 }
 
 func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
@@ -88,6 +94,19 @@ func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
 	recommendation := recommendationView(rec)
 	recommendation.Explanation, recommendation.ExplanationPending = s.explanation(ctx, st, rec, names, len(avails))
 
+	var actAs *[]actAsDTO
+	if ws.IsDemo {
+		links, err := s.Store.DemoLinks(ctx, ws.ID)
+		if err != nil {
+			return err
+		}
+		people := make([]actAsDTO, len(links))
+		for i, l := range links {
+			people[i] = actAsDTO{Name: l.DisplayName, ParticipantURL: s.Cfg.BaseURL + "/p/" + l.Token}
+		}
+		actAs = &people
+	}
+
 	shareURL := ""
 	if ws.ShareToken != "" {
 		shareURL = s.Cfg.BaseURL + "/w/" + ws.ShareToken
@@ -104,6 +123,7 @@ func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
 		Enrollments:    enrollments,
 		Suggestions:    s.suggestions(ctx, st, rec, readings, names, shareURL),
 		Demo:           demoDTO{DemoMode: s.Cfg.DemoMode, SandboxMocks: s.Cfg.SandboxMocks},
+		ActAs:          actAs,
 	})
 	return nil
 }

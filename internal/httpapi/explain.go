@@ -71,6 +71,10 @@ func (s *server) writeExplanation(ctx context.Context, st workshopState, in ai.E
 	}
 	defer release()
 	text, meta, err := s.AI.Explain(ctx, in)
+	if wait, capped := ai.BusyWait(err); capped {
+		s.Log.Info("explain recommendation: Claude is capped; using the plain explanation", "workshop_id", st.w.ID, "retry_after", wait)
+		return ai.PlainExplanation(in), s.Clock.Now().Add(max(explanationRetryAfter, wait))
+	}
 	switch {
 	case err != nil:
 		s.Log.Error("explain recommendation", "workshop_id", st.w.ID, "error", err)

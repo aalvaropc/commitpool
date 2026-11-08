@@ -2,9 +2,9 @@ import type { OwnerView } from '../api'
 import { demoParticipants } from '../lib/demo'
 import { ButtonLink, Icon, Pill, Tile } from './ui'
 
-export default function DemoGuide({ token, view }: { token: string; view: OwnerView }) {
+export default function DemoGuide({ view }: { view: OwnerView }) {
   if (!view.workshop.demo) return null
-  const people = demoParticipants(token)
+  const people = demoParticipants(view)
   if (people.length === 0) {
     return (
       <Tile as="section" aria-labelledby="demo-guide-title" tone="muted" className="flex flex-col gap-2 shadow-none ring-1 ring-line">

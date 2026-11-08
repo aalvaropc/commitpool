@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -22,10 +23,26 @@ type busy struct{}
 func (busy) Error() string   { return "every reader is busy" }
 func (busy) Temporary() bool { return true }
 
+type throttled struct{}
+
+func (throttled) Error() string   { return "Claude is reading a lot of messages right now" }
+func (throttled) Temporary() bool { return true }
+func (throttled) Throttled() bool { return true }
+
+type capped struct{ wait time.Duration }
+
+func (capped) Error() string               { return "Claude has read a lot of messages this hour" }
+func (capped) Temporary() bool             { return true }
+func (capped) Throttled() bool             { return true }
+func (c capped) RetryAfter() time.Duration { return c.wait }
+
 type fakeAPI struct {
-	calls  []call
-	fail   string
-	busyOn map[string]int
+	calls       []call
+	fail        string
+	busyOn      map[string]int
+	throttledOn map[string]int
+	cappedOn    map[string]int
+	cappedFor   time.Duration
 }
 
 func (f *fakeAPI) Call(_ context.Context, method, path string, body, out any) error {
@@ -40,6 +57,18 @@ func (f *fakeAPI) Call(_ context.Context, method, path string, body, out any) er
 		if strings.Contains(path, key) && left > 0 {
 			f.busyOn[key] = left - 1
 			return busy{}
+		}
+	}
+	for key, left := range f.throttledOn {
+		if strings.Contains(path, key) && left > 0 {
+			f.throttledOn[key] = left - 1
+			return throttled{}
+		}
+	}
+	for key, left := range f.cappedOn {
+		if strings.Contains(path, key) && left > 0 {
+			f.cappedOn[key] = left - 1
+			return capped{wait: f.cappedFor}
 		}
 	}
 	var answer any
@@ -168,5 +197,80 @@ func TestAnswer_StopsWhenTheTimeIsUp(t *testing.T) {
 	err := demo.Answer(ctx, api, []demo.Participant{{Name: "Priya", Token: "P1"}}, func(ctx context.Context) error { return ctx.Err() })
 	if !errors.Is(err, context.Canceled) || len(api.calls) != 0 {
 		t.Errorf("err %v with %d calls, want cancelled before any call", err, len(api.calls))
+	}
+}
+
+func TestAnswer_KeepsWaitingWhileClaudeIsThrottled(t *testing.T) {
+	people := []demo.Participant{{Name: "Priya", Message: "a", Token: "P1"}, {Name: "Ben", Message: "b", Token: "P2"}}
+	api := &fakeAPI{throttledOn: map[string]int{"/p/P1/": 9}}
+	var paced int
+	if err := demo.Answer(context.Background(), api, people, func(context.Context) error { paced++; return nil }); err != nil {
+		t.Fatalf("err = %v, want every answer through once Claude has room", err)
+	}
+	if got := api.answers(); len(got) != 11 || got[9] != "a" || got[10] != "b" {
+		t.Errorf("answers = %v, want Priya ten times, then Ben", got)
+	}
+	if want := 2 + 9*10/2; paced != want {
+		t.Errorf("paced %d times, want %d: one step per person and a longer wait after each refusal", paced, want)
+	}
+}
+
+func TestAnswer_StopsWaitingForClaudeWhenTheTimeIsUp(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	api := &fakeAPI{throttledOn: map[string]int{"/p/P1/": 1000}}
+	calls := 0
+	err := demo.Answer(ctx, api, []demo.Participant{{Name: "Priya", Message: "a", Token: "P1"}}, func(ctx context.Context) error {
+		if calls++; calls > 20 {
+			cancel()
+		}
+		return ctx.Err()
+	})
+	if !errors.Is(err, context.Canceled) || len(api.answers()) > 20 {
+		t.Errorf("err %v after %d tries, want the deadline to end the wait", err, len(api.answers()))
+	}
+}
+
+func TestAnswer_GivesUpOnAThrottledReaderAfterManyTries(t *testing.T) {
+	api := &fakeAPI{throttledOn: map[string]int{"/p/P1/": 1000}}
+	err := demo.Answer(context.Background(), api, []demo.Participant{{Name: "Priya", Message: "a", Token: "P1"}}, nil)
+	if err == nil || len(api.answers()) != 30 {
+		t.Errorf("err %v after %d tries, want an error after 30", err, len(api.answers()))
+	}
+}
+
+func TestAnswer_WaitsAsLongAsTheAPIAsks(t *testing.T) {
+	var slept []time.Duration
+	demo.SetSleep(t, func(_ context.Context, d time.Duration) error {
+		slept = append(slept, d)
+		return nil
+	})
+	people := []demo.Participant{{Name: "Priya", Message: "a", Token: "P1"}, {Name: "Ben", Message: "b", Token: "P2"}}
+	api := &fakeAPI{cappedOn: map[string]int{"/p/P1/": 3}, cappedFor: 90 * time.Second}
+	var paced int
+	if err := demo.Answer(context.Background(), api, people, func(context.Context) error { paced++; return nil }); err != nil {
+		t.Fatalf("err = %v, want every answer through", err)
+	}
+	if got := api.answers(); len(got) != 5 {
+		t.Errorf("answers = %v, want Priya four times, then Ben", got)
+	}
+	if want := []time.Duration{90 * time.Second, 90 * time.Second, 90 * time.Second}; !reflect.DeepEqual(slept, want) {
+		t.Errorf("slept %v, want the 90 seconds the API asked for after each refusal", slept)
+	}
+	if paced != 2 {
+		t.Errorf("paced %d times, want one step per person and no backoff on top of the asked wait", paced)
+	}
+}
+
+func TestAnswer_DoesNotWaitPastItsTime(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	api := &fakeAPI{cappedOn: map[string]int{"/p/P1/": 1}, cappedFor: time.Hour}
+	start := time.Now()
+	err := demo.Answer(ctx, api, []demo.Participant{{Name: "Priya", Message: "a", Token: "P1"}}, nil)
+	if !errors.Is(err, context.DeadlineExceeded) || len(api.answers()) != 1 {
+		t.Errorf("err %v after %d tries, want to give up at once when the wait outlasts the time left", err, len(api.answers()))
+	}
+	if waited := time.Since(start); waited > 5*time.Second {
+		t.Errorf("waited %v for an answer that could not arrive in time", waited)
 	}
 }

@@ -28,7 +28,7 @@ import (
 const consentText = "Reserving your spot places a temporary hold for the price on your PayPal account. Nothing is charged yet. " +
 	"Holds are charged once enough people have reserved, and the workshop is on when the minimum number of payments has gone through. " +
 	"If the minimum is not reached by the deadline, the workshop is cancelled: every hold is released and any charge already made is refunded. " +
-	"You can leave and have your hold released until you are charged; after that, your payment is refunded only if the workshop is cancelled, including when the organizer cancels it. " +
+	"You can leave and have your hold released until charging starts; after that, your payment is refunded only if the workshop is cancelled, including when the organizer cancels it. " +
 	"Refunds can take a few days, and you can follow yours on your page."
 
 var tokenShape = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
@@ -259,7 +259,7 @@ func TestEnrollment_ReturnsApproveURLAndIsIdempotentPerParticipant(t *testing.T)
 	}
 	en, err := e.st.EnrollmentByID(e.ctx, first.EnrollmentID)
 	if err != nil || en.ConsentVersion != httpapi.ConsentVersion || !en.ConsentAt.Equal(t0) || !en.SeatExpiresAt.Equal(t0.Add(30*time.Minute)) {
-		t.Errorf("enrollment = %+v, %v; want consent-v3 at t0 and a 30-minute seat", en, err)
+		t.Errorf("enrollment = %+v, %v; want consent-v4 at t0 and a 30-minute seat", en, err)
 	}
 }
 

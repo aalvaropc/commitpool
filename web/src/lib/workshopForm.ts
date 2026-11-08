@@ -136,7 +136,7 @@ export function breakEven(price: string, venueCost: string): { seats: number; te
   const v = cents(venueCost)
   if (p <= 0 || v <= 0) return null
   const seats = Math.ceil(v / p)
-  return { seats, text: `${seats} × ${usd(p)} = ${usd(seats * p)} covers your ${usd(v)} studio` }
+  return { seats, text: `${seats} × ${usd(p)} = ${usd(seats * p)} covers your ${usd(v)} studio before fees` }
 }
 
 export function firstInvalid(errors: FormErrors, dates: DateSlot[]): FieldKey | null {

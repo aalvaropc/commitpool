@@ -76,13 +76,14 @@ func TestDemo_AnswersArriveAfterTheVisitorLeaves(t *testing.T) {
 	}
 }
 
-func TestDemo_AVisitorStartsTwoThenWaits(t *testing.T) {
+func TestDemo_AVisitorStartsFiveThenWaits(t *testing.T) {
 	e := newEnv(t, withDemoMode(), withRateLimit(120))
-	e.call(http.MethodPost, "/api/v1/demo/workshops", nil, http.StatusCreated, nil)
-	e.call(http.MethodPost, "/api/v1/demo/workshops", nil, http.StatusCreated, nil)
+	for range 5 {
+		e.call(http.MethodPost, "/api/v1/demo/workshops", nil, http.StatusCreated, nil)
+	}
 	rec := e.request(http.MethodPost, "/api/v1/demo/workshops", nil)
 	if rec.Code != http.StatusTooManyRequests || !strings.Contains(rec.Body.String(), "demo_rate_limited") {
-		t.Fatalf("third demo = %d %s, want 429 demo_rate_limited", rec.Code, rec.Body)
+		t.Fatalf("sixth demo = %d %s, want 429 demo_rate_limited", rec.Code, rec.Body)
 	}
 	if wait, _ := strconv.Atoi(rec.Header().Get("Retry-After")); wait < 1100 || wait > 1200 {
 		t.Errorf("Retry-After = %q, want about 20 minutes", rec.Header().Get("Retry-After"))

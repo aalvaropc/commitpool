@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aalvaropc/commitpool/internal/ai"
 	"github.com/aalvaropc/commitpool/internal/demo"
 	"github.com/aalvaropc/commitpool/internal/inproc"
 )
@@ -20,7 +21,8 @@ const (
 	demoHourlyCap     = 30
 	demoRunningCap    = 6
 	demoVisitorEvery  = 20 * time.Minute
-	demoVisitorBurst  = 2
+	demoVisitorBurst  = 5
+	demoModelCalls    = 10
 )
 
 type demoRefusal struct {
@@ -55,6 +57,17 @@ func minutes(d time.Duration) string {
 		return "a minute"
 	}
 	return strconv.Itoa(n) + " minutes"
+}
+
+func demoResting(wait time.Duration) string {
+	if wait < time.Hour {
+		return "Claude has read many messages this hour. Try the demo again in " + minutes(wait) + ", or create your own workshop."
+	}
+	hours := "an hour"
+	if n := int(math.Ceil(wait.Hours())); n > 1 {
+		hours = strconv.Itoa(n) + " hours"
+	}
+	return "Claude has read many messages today. Try the demo again in about " + hours + ", or create your own workshop."
 }
 
 func (q *demoQuota) start(addr string, now time.Time) (*demoTicket, *demoRefusal) {
@@ -121,6 +134,12 @@ func (s *server) createDemoWorkshop(w http.ResponseWriter, r *http.Request) erro
 	if !s.Cfg.DemoMode {
 		return errNotFound
 	}
+	if c, ok := s.AI.(ai.Capacity); ok {
+		if wait := c.Room(demoModelCalls); wait > 0 {
+			retryAfter(w, wait)
+			return newError(http.StatusTooManyRequests, "demo_resting", demoResting(wait))
+		}
+	}
 	ticket, refused := s.demoQuota.start(clientAddr(r), s.Clock.Now())
 	if refused != nil {
 		w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(refused.wait.Seconds()))))
@@ -138,6 +157,12 @@ func (s *server) createDemoWorkshop(w http.ResponseWriter, r *http.Request) erro
 	if err != nil {
 		ticket.refund()
 		return err
+	}
+	for _, p := range people {
+		if _, err := s.Store.KeepDemoLink(ctx, p.Token); err != nil {
+			ticket.refund()
+			return err
+		}
 	}
 	s.answerInBackground(ctx, api, people, ticket)
 	out := demoWorkshopDTO{OwnerURL: res.OwnerURL, ShareURL: res.ShareURL}

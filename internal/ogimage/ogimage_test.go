@@ -2,12 +2,18 @@ package ogimage_test
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"image"
 	"image/color"
+	"image/draw"
 	"image/png"
+	"maps"
 	"os"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -37,7 +43,20 @@ func samples() map[string]ogimage.Card {
 	overflow := long
 	overflow.Title = strings.Repeat("Sourdough, pizza and focaccia for absolute beginners ", 4)
 	overflow.When, overflow.Price, overflow.Status, overflow.Tone = "Sat, Nov 14 or Sun, Nov 15 · 10:30 AM–12:45 PM", "1,250.00 EUR", "Reservations closed", ogimage.ToneNeutral
-	return map[string]ogimage.Card{"collecting": maya(), "open": open, "on": on, "long": long, "cancelled": cancelled, "overflow": overflow}
+	vietnamese := maya()
+	vietnamese.Title, vietnamese.Host, vietnamese.Place = "Phở & bánh mì từ đầu", "Lê Thị Hương", "Bếp nhà Hương · Quận 1"
+	romanian := open
+	romanian.Title, romanian.Host, romanian.Place = "Țesut și ceramică pentru începători", "Ștefan Țurcanu", "Atelierul din Iași"
+	cjkHost := maya()
+	cjkHost.Title, cjkHost.Host, cjkHost.Place = "Pottery ♥ night 陶艺", "王小明", "Studio 3 · 上海"
+	huge := open
+	huge.Price = "$92,233,720,368,547,758.07"
+	crowded := open
+	crowded.When, crowded.Price, crowded.Needed, crowded.Capacity, crowded.Reserved = "Wed, Sep 30 or Wed, Dec 30 · 10:30 AM–12:45 PM", "$1,234,567.89", 250, 500, 499
+	return map[string]ogimage.Card{
+		"collecting": maya(), "open": open, "on": on, "long": long, "cancelled": cancelled, "overflow": overflow,
+		"vietnamese": vietnamese, "romanian": romanian, "cjk-host": cjkHost, "huge-price": huge, "crowded": crowded,
+	}
 }
 
 func decode(t *testing.T, raw []byte) image.Image {
@@ -188,5 +207,54 @@ func TestRender_DrawsTitlesOutsideTheBrandFont(t *testing.T) {
 	c.Title = "🍞 Пекарня & Łódź bread — 面包"
 	if _, err := ogimage.Render(c); err != nil {
 		t.Fatal(err)
+	}
+}
+
+const goldenRevision = "kiln-1"
+
+var goldenPixels = map[string]string{
+	"cancelled":  "36aee1d3c66417404cab28fd21b64dd3e4924461740e982eb5761ce991659e52",
+	"cjk-host":   "61b5318ebcaaadccdfda31c597149eddc545b80d9bfe09cebfe813168779de8e",
+	"collecting": "dbe7f7521cb2682174fe6720a61241ec0b81cfc904534bffb2b0a143f843a8b0",
+	"crowded":    "8121387c5327a1ed8708c59986eeb7ada0919da028b1d9e14c43d91d6343f95f",
+	"huge-price": "69c1d5d2bb0b1cca34a14dfc4b46a777aa9ff5ce02362b48d2c677225e0e131b",
+	"long":       "c087b637fa0ad74a907d226ae186d8198c97608b9ec4d74f68551726e2425090",
+	"on":         "abd0d23de774f27f36d75c2c85ba059d0638d27bf63c9e26c9c96b8fe4e7289f",
+	"open":       "db6c6c11dd6abffbb33c10c7cc65db3f83692dcdd68cfc824f93dde793c040f9",
+	"overflow":   "a950eaac65d6707ed1ecbd29e56791a1185a543426a26bbd82f41b779a6798c7",
+	"romanian":   "9f3cf30ac892299de66b6f6071b4e74bc0efbddae046bceeaf93b82997839b38",
+	"vietnamese": "9e80ab5b1c056d0759c75c01c3debe29df94d694e61d19e6c012e946bc43b178",
+}
+
+func pixels(t *testing.T, raw []byte) string {
+	t.Helper()
+	img := decode(t, raw)
+	rgba := image.NewRGBA(img.Bounds())
+	draw.Draw(rgba, rgba.Bounds(), img, img.Bounds().Min, draw.Src)
+	sum := sha256.Sum256(rgba.Pix)
+	return hex.EncodeToString(sum[:])
+}
+
+func TestRender_SampleCardsChangeOnlyWithTheRevision(t *testing.T) {
+	if runtime.GOARCH != "amd64" {
+		t.Skip("the golden pixels are recorded on amd64, where the rasterizer does not fuse multiply-adds")
+	}
+	got := map[string]string{}
+	for name, card := range samples() {
+		raw, err := ogimage.Render(card)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got[name] = pixels(t, raw)
+	}
+	var want strings.Builder
+	for _, name := range slices.Sorted(maps.Keys(got)) {
+		fmt.Fprintf(&want, "\t%q: %q,\n", name, got[name])
+	}
+	if ogimage.Revision != goldenRevision {
+		t.Fatalf("ogimage.Revision is %q but the golden pixels are for %q; set goldenRevision to it and goldenPixels to:\n%s", ogimage.Revision, goldenRevision, want.String())
+	}
+	if !maps.Equal(got, goldenPixels) {
+		t.Fatalf("the sample cards render differently under revision %q. Bump ogimage.Revision so chats fetch the new image instead of the cached one, then record:\n%s", goldenRevision, want.String())
 	}
 }

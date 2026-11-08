@@ -19,7 +19,7 @@ test.describe('create a workshop', () => {
     await expect(page.getByLabel('Time zone')).toHaveValue('America/New_York')
     await expect(page.getByLabel('Day 1')).not.toHaveValue('')
     await expect(page.getByLabel('Starts at').first()).toHaveValue('10:00')
-    await expect(page.getByText('3 × $45 = $135 covers your $120 studio.')).toBeVisible()
+    await expect(page.getByText('3 × $45 = $135 covers your $120 studio before fees.')).toBeVisible()
     await expectAccessible(page, 'the drafted form')
 
     await page.getByRole('button', { name: 'Create workshop' }).click()

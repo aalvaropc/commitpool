@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { api } from '../api'
-import { rememberDemo } from '../lib/demo'
 import { Button, Icon, Notice, type ButtonSize, type ButtonVariant } from './ui'
 
 export function useDemoAvailable(): boolean | undefined {
@@ -29,7 +28,6 @@ export default function TryDemo({ size = 'lg', variant = 'primary', pending = fa
     setError(null)
     try {
       const demo = await api.createDemo()
-      rememberDemo(demo.owner_url, demo.participants)
       navigate(new URL(demo.owner_url).pathname)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'The demo could not start right now.')

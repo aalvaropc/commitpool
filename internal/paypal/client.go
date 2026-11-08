@@ -95,7 +95,7 @@ func (c *Client) CreateOrder(ctx context.Context, p CreateOrderParams) (Order, e
 		PurchaseUnits: []createOrderUnit{{ReferenceID: p.ReferenceID, CustomID: p.CustomID, Amount: p.Amount}},
 	}
 	body.PaymentSource.PayPal.ExperienceContext = experienceContext{
-		UserAction:         "PAY_NOW",
+		UserAction:         "CONTINUE",
 		ShippingPreference: "NO_SHIPPING",
 		ReturnURL:          p.ReturnURL,
 		CancelURL:          p.CancelURL,

@@ -123,7 +123,7 @@ export function studioCovered(v: OwnerView): Coverage | null {
   const price = v.proposal?.price ?? v.workshop.price
   const covered = v.tally.paid * price.minor
   const money = (minor: number) => usd(minor, cost.currency)
-  const text = covered >= cost.minor ? `Your ${money(cost.minor)} studio is covered, with ${money(covered - cost.minor)} to spare` : `${money(covered)} of your ${money(cost.minor)} studio covered`
+  const text = covered >= cost.minor ? `Your ${money(cost.minor)} studio is covered before fees, with ${money(covered - cost.minor)} to spare` : `${money(covered)} toward your ${money(cost.minor)} studio (before fees)`
   return { covered, cost: cost.minor, text }
 }
 

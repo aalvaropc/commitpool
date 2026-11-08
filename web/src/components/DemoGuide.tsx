@@ -2,9 +2,9 @@ import type { OwnerView } from '../api'
 import { demoParticipants, demoStep } from '../lib/demo'
 import { ButtonLink, Icon, Pill, Tile } from './ui'
 
-export default function DemoGuide({ token, view }: { token: string; view: OwnerView }) {
+export default function DemoGuide({ view }: { view: OwnerView }) {
   if (!view.workshop.demo) return null
-  const people = demoParticipants(token)
+  const people = demoParticipants(view)
   const step = demoStep(view, people.map((p) => p.name))
   if (people.length === 0) {
     return (

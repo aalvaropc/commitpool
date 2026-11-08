@@ -140,10 +140,21 @@ type Result struct {
 
 const PreparedNote = "Prepared demo data: Maya, her studio and the six participants were written for this demo."
 
-const answerAttempts = 4
+const (
+	answerAttempts    = 4
+	throttledAttempts = 30
+)
 
 type temporary interface {
 	Temporary() bool
+}
+
+type throttled interface {
+	Throttled() bool
+}
+
+type retryAfter interface {
+	RetryAfter() time.Duration
 }
 
 type Pace func(context.Context) error
@@ -253,18 +264,49 @@ func Reply(ctx context.Context, api Caller, people []Participant, replies []Pers
 }
 
 func answer(ctx context.Context, api Caller, p Participant, pace Pace) error {
-	var err error
-	for attempt := 1; attempt <= answerAttempts; attempt++ {
-		err = api.Call(ctx, http.MethodPost, "/api/v1/p/"+p.Token+"/availability", map[string]any{"message": p.Message}, nil)
-		var t temporary
-		if err == nil || !errors.As(err, &t) || !t.Temporary() || attempt == answerAttempts {
+	for attempt := 1; ; attempt++ {
+		err := api.Call(ctx, http.MethodPost, "/api/v1/p/"+p.Token+"/availability", map[string]any{"message": p.Message}, nil)
+		if err == nil || attempt >= attempts(err) {
 			return err
 		}
-		if werr := wait(ctx, pace, attempt); werr != nil {
+		if werr := backoff(ctx, err, pace, attempt); werr != nil {
 			return errors.Join(err, werr)
 		}
 	}
-	return err
+}
+
+func backoff(ctx context.Context, err error, pace Pace, attempt int) error {
+	var asked retryAfter
+	if errors.As(err, &asked) && asked.RetryAfter() > 0 {
+		return sleep(ctx, asked.RetryAfter())
+	}
+	return wait(ctx, pace, attempt)
+}
+
+var sleep = func(ctx context.Context, d time.Duration) error {
+	if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < d {
+		return fmt.Errorf("the %s the API asked to wait outlasts the time left: %w", d, context.DeadlineExceeded)
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func attempts(err error) int {
+	var th throttled
+	if errors.As(err, &th) && th.Throttled() {
+		return throttledAttempts
+	}
+	var t temporary
+	if errors.As(err, &t) && t.Temporary() {
+		return answerAttempts
+	}
+	return 1
 }
 
 func wait(ctx context.Context, pace Pace, steps int) error {

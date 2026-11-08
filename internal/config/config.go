@@ -14,6 +14,8 @@ const (
 	defaultPayPalBaseURL = "https://api-m.sandbox.paypal.com"
 	defaultSeatTTLMin    = 30
 	defaultDemoPaceMS    = 2000
+	defaultAIHourlyCap   = 200
+	defaultAIDailyCap    = 1500
 
 	DefaultBedrockModel         = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
 	DefaultBedrockFallbackModel = ""
@@ -44,6 +46,9 @@ type Config struct {
 	SandboxMocks         bool
 	SeatTTL              time.Duration
 	FakePayPal           bool
+	AllowLivePayPal      bool
+	AIHourlyCap          int
+	AIDailyCap           int
 }
 
 func Load(getenv func(string) string) (Config, error) {
@@ -80,6 +85,7 @@ func Load(getenv func(string) string) (Config, error) {
 		DemoMode:             flag("COMMITPOOL_DEMO_MODE"),
 		SandboxMocks:         flag("COMMITPOOL_SANDBOX_MOCKS"),
 		FakePayPal:           flag("E2E_FAKE_PAYPAL"),
+		AllowLivePayPal:      flag("COMMITPOOL_ALLOW_LIVE_PAYPAL"),
 	}
 	switch raw := strings.ToLower(strings.TrimSpace(str("COMMITPOOL_RATE_LIMIT", "120"))); raw {
 	case "off", "0":
@@ -127,6 +133,26 @@ func Load(getenv func(string) string) (Config, error) {
 		}
 	}
 	cfg.DemoPace = time.Duration(pace) * time.Millisecond
+	positive := func(name string, def int) int {
+		raw := strings.TrimSpace(getenv(name))
+		if raw == "" {
+			return def
+		}
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 {
+			problems = append(problems, name+" must be a positive number of model calls")
+			return def
+		}
+		return n
+	}
+	cfg.AIHourlyCap = positive("COMMITPOOL_AI_HOURLY_CAP", defaultAIHourlyCap)
+	cfg.AIDailyCap = positive("COMMITPOOL_AI_DAILY_CAP", defaultAIDailyCap)
+	if cfg.AIHourlyCap > cfg.AIDailyCap {
+		if strings.TrimSpace(getenv("COMMITPOOL_AI_HOURLY_CAP")) != "" {
+			problems = append(problems, "COMMITPOOL_AI_HOURLY_CAP cannot be above COMMITPOOL_AI_DAILY_CAP")
+		}
+		cfg.AIHourlyCap = cfg.AIDailyCap
+	}
 	if strings.EqualFold(cfg.BedrockFallbackModel, "none") {
 		cfg.BedrockFallbackModel = ""
 	}
@@ -175,8 +201,23 @@ func Load(getenv func(string) string) (Config, error) {
 		}
 	}
 
-	if cfg.SandboxMocks && !strings.Contains(cfg.PayPalBaseURL, "sandbox") {
-		problems = append(problems, "COMMITPOOL_SANDBOX_MOCKS=1 requires PAYPAL_BASE_URL to be a PayPal sandbox URL")
+	if cfg.AllowLivePayPal {
+		if cfg.DemoMode {
+			problems = append(problems, "COMMITPOOL_DEMO_MODE=1 runs only on the PayPal Sandbox; unset COMMITPOOL_ALLOW_LIVE_PAYPAL")
+		}
+		if cfg.SandboxMocks {
+			problems = append(problems, "COMMITPOOL_SANDBOX_MOCKS=1 runs only on the PayPal Sandbox; unset COMMITPOOL_ALLOW_LIVE_PAYPAL")
+		}
+	}
+	sandbox := cfg.PayPalBaseURL == defaultPayPalBaseURL
+	switch {
+	case sandbox:
+	case cfg.SandboxMocks:
+		problems = append(problems, "COMMITPOOL_SANDBOX_MOCKS=1 requires PAYPAL_BASE_URL to be "+defaultPayPalBaseURL)
+	case !cfg.AllowLivePayPal:
+		problems = append(problems, "PAYPAL_BASE_URL must be "+defaultPayPalBaseURL+"; set COMMITPOOL_ALLOW_LIVE_PAYPAL=1 to use another PayPal host")
+	case !httpsURL(cfg.PayPalBaseURL):
+		problems = append(problems, "PAYPAL_BASE_URL must be an https URL")
 	}
 
 	if len(problems) > 0 {
@@ -205,6 +246,9 @@ func (c Config) LogValue() slog.Value {
 		slog.Bool("sandbox_mocks", c.SandboxMocks),
 		slog.Duration("seat_ttl", c.SeatTTL),
 		slog.Bool("fake_paypal", c.FakePayPal),
+		slog.Bool("allow_live_paypal", c.AllowLivePayPal),
+		slog.Int("ai_hourly_cap", c.AIHourlyCap),
+		slog.Int("ai_daily_cap", c.AIDailyCap),
 	)
 }
 
@@ -229,6 +273,11 @@ func redactURL(raw string) string {
 		u.RawQuery = q.Encode()
 	}
 	return u.Redacted()
+}
+
+func httpsURL(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && u.Scheme == "https" && u.Host != "" && u.User == nil
 }
 
 func localURL(raw string) bool {

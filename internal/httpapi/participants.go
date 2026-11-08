@@ -132,6 +132,10 @@ func (s *server) submitAvailability(w http.ResponseWriter, r *http.Request) erro
 		WorkshopTitle: ws.Title, Timezone: ws.Timezone, Dates: st.dateOptions(), Message: message, Earlier: earlier,
 	})
 	if err != nil {
+		if wait, capped := ai.BusyWait(err); capped {
+			s.Log.Warn("interpret availability: Claude is capped", "workshop_id", ws.ID, "participant_id", p.ID, "retry_after", wait)
+			return modelCapped(w, wait, s.Clock.Now(), st.loc)
+		}
 		s.Log.Error("interpret availability", "workshop_id", ws.ID, "participant_id", p.ID, "error", err)
 		return newError(http.StatusBadGateway, "ai_unavailable", "We could not read your message right now. Please try again in a moment.")
 	}

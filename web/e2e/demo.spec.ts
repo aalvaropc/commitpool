@@ -50,4 +50,23 @@ test.describe('one-click demo', () => {
     await expect(page.getByRole('button', { name: /Open reservations for Sat/ })).toBeVisible()
     await expect(page.getByRole('region', { name: 'You are Maya now' })).toContainText('Open reservations, then reserve as someone who can come.')
   })
+
+  test('the organizer link brings the act-as links to another device', async ({ page, browser }) => {
+    await page.goto('/')
+    await page.getByRole('button', { name: 'Try it as Maya' }).first().click()
+    await expect(page.getByRole('heading', { name: 'You are Maya now' })).toBeVisible()
+    const links = page.getByRole('link', { name: /^Act as / })
+    await expect(links.first()).toBeVisible()
+    const names = await links.allTextContents()
+
+    const elsewhere = await browser.newContext()
+    try {
+      const other = await elsewhere.newPage()
+      await other.goto(page.url())
+      await expect(other.getByRole('heading', { name: 'You are Maya now' })).toBeVisible()
+      await expect(other.getByRole('link', { name: /^Act as / })).toHaveText(names)
+    } finally {
+      await elsewhere.close()
+    }
+  })
 })

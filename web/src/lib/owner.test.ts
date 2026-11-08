@@ -81,8 +81,8 @@ describe('nextStep', () => {
 
 describe('studioCovered', () => {
   it('says how much of the studio the payments cover', () => {
-    expect(studioCovered(view({ tally: { ...view().tally, paid: 2 } }))).toEqual({ covered: 9000, cost: 12000, text: '$90 of your $120 studio covered' })
-    expect(studioCovered(view({ tally: { ...view().tally, paid: 3 } }))?.text).toBe('Your $120 studio is covered, with $15 to spare')
+    expect(studioCovered(view({ tally: { ...view().tally, paid: 2 } }))).toEqual({ covered: 9000, cost: 12000, text: '$90 toward your $120 studio (before fees)' })
+    expect(studioCovered(view({ tally: { ...view().tally, paid: 3 } }))?.text).toBe('Your $120 studio is covered before fees, with $15 to spare')
   })
 
   it('is absent without a studio cost', () => {

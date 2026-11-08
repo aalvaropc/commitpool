@@ -128,6 +128,10 @@ func (s *server) draft(r *http.Request, in ai.DraftInput) (ai.Draft, bool) {
 	ctx, cancel := context.WithTimeout(r.Context(), draftTimeout)
 	defer cancel()
 	d, meta, err := s.AI.Draft(ctx, in)
+	if wait, capped := ai.BusyWait(err); capped {
+		s.Log.Warn("draft workshop: Claude is capped; answering with an empty draft", "retry_after", wait)
+		return ai.Draft{}, false
+	}
 	if err != nil {
 		s.Log.Error("draft workshop", "error", err, "provider", meta.Provider, "model", meta.Model)
 		return ai.Draft{}, false

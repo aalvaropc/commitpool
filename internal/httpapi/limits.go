@@ -2,9 +2,11 @@ package httpapi
 
 import (
 	"context"
+	"math"
 	"net"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -131,6 +133,22 @@ func tryAcquire(slots chan struct{}) (release func(), ok bool) {
 	default:
 		return nil, false
 	}
+}
+
+func retryAfter(w http.ResponseWriter, wait time.Duration) {
+	w.Header().Set("Retry-After", strconv.Itoa(max(1, int(math.Ceil(wait.Seconds())))))
+}
+
+func modelCapped(w http.ResponseWriter, wait time.Duration, now time.Time, loc *time.Location) error {
+	retryAfter(w, wait)
+	if wait < time.Hour {
+		return newError(http.StatusTooManyRequests, "ai_capped", "Claude has read a lot of messages this hour. Please try again in "+minutes(wait)+".")
+	}
+	when := "tomorrow"
+	if now.In(loc).Format(time.DateOnly) == now.Add(wait).In(loc).Format(time.DateOnly) {
+		when = "later today"
+	}
+	return newError(http.StatusTooManyRequests, "ai_capped", "Claude has read a lot of messages today. Please try again "+when+".")
 }
 
 func (s *server) acquireAI(ctx context.Context) (release func(), err error) {

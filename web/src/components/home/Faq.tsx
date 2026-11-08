@@ -9,7 +9,7 @@ const faq = [
   },
   {
     q: 'Can I leave after reserving?',
-    a: 'Yes, until you are charged: give up your spot and PayPal releases your hold. After that, payments are refunded only if the class is cancelled, so the group the organizer counted on stays whole.',
+    a: 'Yes, until charging starts: give up your spot and PayPal releases your hold. After that, payments are refunded only if the class is cancelled, so the group the organizer counted on stays whole.',
   },
   {
     q: 'Does anyone need an account?',

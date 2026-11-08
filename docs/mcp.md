@@ -33,7 +33,7 @@ For the organizer:
 | Tool | What it does |
 | --- | --- |
 | `create_workshop` | Creates a paid workshop with one or more candidate dates, the organizer's name and the place. An optional studio cost stays private to the organizer. Returns the owner link (private) and the share link (for participants). |
-| `get_status` | From the owner link: the recommended date and why, who can come, who committed or paid, how many paid seats cover the studio cost, what closing payments now would do, and who CommitPool suggests nudging, each with a message Claude drafted for the organizer to send. Read-only; nothing is sent. |
+| `get_status` | From the owner link: the recommended date and why, who can come, who committed or paid, how many paid seats cover the studio cost before fees, what closing payments now would do, and who CommitPool suggests nudging, each with a message Claude drafted for the organizer to send. Read-only; nothing is sent. |
 | `preview_open_payments` | Shows the exact terms that opening payments on a date locks: date, price, minimum, capacity and payment window. Changes nothing. Returns a confirmation token valid for ten minutes. |
 | `confirm_open_payments` | Opens payments with that token, after the organizer has seen the terms and said yes. Refused when the token expired or any term changed since the preview. |
 
@@ -61,8 +61,12 @@ affect.
   the text and ask.
 - **Opening payments is two-step.** The confirmation token is an HMAC over the
   date, price, currency, minimum, capacity, payment window and expiry, signed
-  with `COMMITPOOL_MCP_SECRET` (or a random key per process). The assistant
-  cannot open payments on terms the organizer has not seen.
+  with `COMMITPOOL_MCP_SECRET` (or a random key per process). It proves only
+  that the assistant called `preview_open_payments` for those exact terms in
+  the last 10 minutes, and it opens payments on those terms and no others. It
+  cannot prove that the organizer saw them: the preview tells the assistant to
+  read the terms to the organizer and ask, and the assistant must do so before
+  it calls `confirm_open_payments`.
 - **One set of rules.** Every tool calls the same JSON API the web app uses,
   in process, so validation, limits, capability checks and the payment rules
   are shared. Requests to `/mcp` are rate-limited per client address like any

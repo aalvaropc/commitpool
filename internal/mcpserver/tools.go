@@ -20,7 +20,7 @@ const confirmationTTL = 10 * time.Minute
 func (s *Server) addTools() {
 	readOnly := &mcp.ToolAnnotations{ReadOnlyHint: true}
 	mcp.AddTool(s.srv, &mcp.Tool{Name: "create_workshop", Annotations: &mcp.ToolAnnotations{},
-		Description: "Create a paid workshop with one or more candidate dates, the organizer's name and the place. An optional studio cost stays private and lets get_status say how many paid seats cover it. Returns the private owner link (keep it secret: it controls the workshop) and the share link to send to participants."},
+		Description: "Create a paid workshop with one or more candidate dates, the organizer's name and the place. An optional studio cost stays private and lets get_status say how many paid seats cover it before fees. Returns the private owner link (keep it secret: it controls the workshop) and the share link to send to participants."},
 		logged(s, "create_workshop", s.createWorkshop))
 	mcp.AddTool(s.srv, &mcp.Tool{Name: "get_workshop", Annotations: readOnly,
 		Description: "Read a workshop from its share link: terms, candidate dates, whether payments are open and how many committed."},

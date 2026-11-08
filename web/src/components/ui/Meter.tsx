@@ -2,10 +2,11 @@ import { meter, type MeterInput } from '../../lib/meter'
 
 interface MeterProps extends MeterInput {
   interest?: boolean
+  caption?: boolean
   className?: string
 }
 
-export function Meter({ interest = false, className = '', ...input }: MeterProps) {
+export function Meter({ interest = false, caption = true, className = '', ...input }: MeterProps) {
   const m = meter(input)
   const filled = m.paidPct + m.reservedPct
   return (
@@ -17,7 +18,8 @@ export function Meter({ interest = false, className = '', ...input }: MeterProps
         </div>
         <span className="absolute -inset-y-1.5 w-[3px] -translate-x-1/2 rounded-full bg-ink" style={{ left: `${m.neededPct}%` }} />
       </div>
-      {!interest && (
+      {!interest && !caption && <figcaption className="sr-only">{m.summary}</figcaption>}
+      {!interest && caption && (
         <figcaption className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
           <span className="font-display text-xl font-bold">{m.caption}</span>
           <span className="sr-only">{m.summary}</span>

@@ -71,7 +71,7 @@ export async function openPayments(owner: Page, workshop: Workshop, canCome: num
   await expect(next).toContainText(`works for ${canCome}`)
   await next.getByRole('button', { name: /^Open reservations for / }).click()
   await owner.getByRole('dialog').getByRole('button', { name: 'Open reservations', exact: true }).click()
-  await expect(owner.getByRole('heading', { name: 'Reservations open' })).toBeVisible()
+  await expect(owner.getByRole('heading', { name: 'Terms people agreed to' })).toBeVisible()
   await expect(headline(owner)).toHaveText('Reservations open')
 }
 

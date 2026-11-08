@@ -13,6 +13,13 @@ describe('Meter', () => {
     expect(html).toContain('2 more and it’s on')
     expect(html).toContain('0 paid and 1 reserved of 6 spots; 3 needed to happen.')
   })
+
+  it('keeps only the words for screen readers when the caption is left to the page', () => {
+    const html = renderToStaticMarkup(<Meter capacity={6} needed={3} paid={0} reserved={1} caption={false} />)
+    expect(html).not.toContain('2 more and it’s on')
+    expect(html).not.toContain('0 paid · 1 reserved')
+    expect(html).toMatch(/<figcaption class="sr-only">0 paid and 1 reserved of 6 spots; 3 needed to happen.<\/figcaption>/)
+  })
 })
 
 describe('VerdictChip', () => {

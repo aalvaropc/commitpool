@@ -73,6 +73,10 @@ export function returnCheckSettled(input: { enrollment: EnrollmentStatus | null;
 
 const RETRYABLE: ReadonlySet<EnrollmentStatus> = new Set(['SEAT_RESERVED', 'RELEASED', 'CAPTURE_FAILED'])
 
+export function freeToReserveAgain(e: { status: EnrollmentStatus; needs_attention?: boolean }): boolean {
+  return RETRYABLE.has(e.status) && e.status !== 'SEAT_RESERVED' && !e.needs_attention
+}
+
 export function canStartCheckout(paymentsOpen: boolean, status: EnrollmentStatus | null | undefined, authPending = false): boolean {
   return paymentsOpen && !authPending && (!status || RETRYABLE.has(status))
 }
@@ -139,7 +143,7 @@ function fundingHeadline(e: EnrollmentStatus | null | undefined, paymentsOpen: b
     case 'NEEDS_ATTENTION':
       return 'Needs a check'
   }
-  return 'Reservations open'
+  return paymentsOpen ? 'Reservations open' : 'Reservations closed'
 }
 
 function confirmedHeadline(e: EnrollmentStatus | null | undefined, paymentsOpen: boolean): string {

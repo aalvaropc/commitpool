@@ -1,39 +1,76 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router'
-import { api } from '../api'
+import { api, type OwnerView } from '../api'
 import AvailabilityGrid from '../components/AvailabilityGrid'
 import AddToCalendar from '../components/AddToCalendar'
 import CancelWorkshop from '../components/CancelWorkshop'
 import ClaudeRead from '../components/ClaudeRead'
 import ClaudeSuggests from '../components/ClaudeSuggests'
-import Deadline from '../components/Deadline'
+import Decision, { InviteLink } from '../components/Decision'
 import DemoControls from '../components/DemoControls'
 import DemoGuide from '../components/DemoGuide'
 import EnrollmentList from '../components/EnrollmentList'
-import NextStep, { InviteLink } from '../components/NextStep'
 import OpenReservationsDialog from '../components/OpenReservationsDialog'
 import OperatorPanel from '../components/OperatorPanel'
 import { Loading, LoadError, RefreshError } from '../components/PageState'
 import SpotsTile from '../components/SpotsTile'
-import StatusBanner from '../components/StatusBanner'
 import { TermsList } from '../components/Terms'
 import { Icon, Page, Tile, TileLabel } from '../components/ui'
 import { usePolling, useResource } from '../lib/hooks'
-import { cancellationDetail, nextStep, ownerRefresh } from '../lib/owner'
-import { count } from '../lib/plural'
-import { headline, heldAny, refundsAny, releasesAny, tone } from '../lib/status'
+import { nextStep, ownerRefresh } from '../lib/owner'
 import { lockedTerms, workshopTerms } from '../lib/terms'
 import { formatDateRange, windowLabel, zoneName } from '../lib/time'
 
 const STALLED_AFTER_MS = 20000
+
+function AgreedTerms({ view }: { view: OwnerView }) {
+  const w = view.workshop
+  const p = view.proposal
+  if (!p) return null
+  const chosen = view.dates.find((x) => x.id === p.date_id)
+  return (
+    <Tile as="section" aria-labelledby="locked-title" className="flex flex-col gap-2 sm:p-6">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <h2 id="locked-title" className="text-xl">
+          Terms people agreed to
+        </h2>
+        <span className="flex items-center gap-1.5 text-sm text-ink-soft">
+          <Icon name="lock" size={16} />
+          Locked
+        </span>
+      </div>
+      <details className="group">
+        <summary className="-mx-2 flex min-h-11 w-fit cursor-pointer list-none items-center gap-2 rounded-control px-2 font-semibold text-brand [&::-webkit-details-marker]:hidden">
+          <Icon name="arrowRight" size={18} className="shrink-0 transition-transform duration-200 group-open:rotate-90" />
+          All the terms
+        </summary>
+        <TermsList
+          className="mt-3 mb-2"
+          items={lockedTerms({
+            timeZone: w.timezone,
+            dateLabel: chosen ? formatDateRange(chosen.starts_at, chosen.ends_at, w.timezone) : undefined,
+            price: p.price,
+            durationMin: w.duration_min,
+            minimum: p.minimum,
+            capacity: p.capacity,
+            opensAt: p.opens_at,
+            closesAt: p.closes_at,
+            paymentsOpen: p.payments_open,
+          })}
+        />
+      </details>
+      {w.status !== 'CANCELLED' && <AddToCalendar path={p.calendar_path} />}
+    </Tile>
+  )
+}
 
 export default function Owner() {
   const { token = '' } = useParams()
   const view = useResource(() => api.owner(token), token)
   const [opening, setOpening] = useState<string | null>(null)
   const pendingSince = useRef<number | null>(null)
-  const lockedTitle = useRef<HTMLHeadingElement>(null)
-  const focusLocked = useRef(false)
+  const decisionTitle = useRef<HTMLHeadingElement>(null)
+  const focusDecision = useRef(false)
   const d = view.data
   const pending = d?.recommendation.explanation_pending ?? false
   if (!pending) pendingSince.current = null
@@ -51,13 +88,13 @@ export default function Owner() {
   usePolling(view.reload, refresh ?? 0, refresh !== null)
   const proposalId = d?.proposal?.date_id
   useEffect(() => {
-    if (!focusLocked.current || !proposalId) return
-    focusLocked.current = false
-    lockedTitle.current?.focus()
+    if (!focusDecision.current || !proposalId) return
+    focusDecision.current = false
+    decisionTitle.current?.focus()
   }, [proposalId])
 
   const openedReservations = () => {
-    focusLocked.current = true
+    focusDecision.current = true
     return view.reload()
   }
 
@@ -67,10 +104,8 @@ export default function Owner() {
   }
 
   const w = d.workshop
-  const t = d.tally
   const step = nextStep(d)
   const stalled = pendingSince.current !== null && Date.now() - pendingSince.current > STALLED_AFTER_MS
-  const chosen = d.proposal ? d.dates.find((x) => x.id === d.proposal?.date_id) : undefined
   return (
     <Page wide>
       <title>{`${w.title} – organizer – CommitPool`}</title>
@@ -85,50 +120,18 @@ export default function Owner() {
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-5">
         <div className="flex min-w-0 flex-col gap-4 lg:gap-5">
-          <DemoGuide view={d} />
-          <OperatorPanel token={token} view={d} onChange={view.reload} />
-          <StatusBanner headline={headline({ status: w.status, resolution: w.resolution, refunds: refundsAny(d.enrollments), held: heldAny(d.enrollments), releases: releasesAny(d.enrollments) })} tone={tone(w.status, w.resolution)}>
-            {d.proposal && d.proposal.payments_open && <Deadline closesAt={d.proposal.closes_at} timeZone={w.timezone} open />}
-            {w.status === 'CANCELLED' && <p>{cancellationDetail(d)}</p>}
-            {w.status === 'CONFIRMED' && <p>{count(t.paid, 'payment')} reached the {t.minimum} needed.</p>}
-          </StatusBanner>
           {view.error && <RefreshError polling={refresh !== null} onRetry={() => void view.reload()} />}
-          <NextStep view={d} step={step} onOpen={setOpening} />
+          <Decision view={d} step={step} onOpen={setOpening} titleRef={decisionTitle} />
+          <OperatorPanel token={token} view={d} onChange={view.reload} />
+          <DemoGuide view={d} />
           <ClaudeSuggests suggestions={d.suggestions} />
           <ClaudeRead view={d} stalled={stalled} onCheck={() => void view.reload()} />
-
-          {d.proposal && (
-            <Tile as="section" aria-labelledby="locked-title" className="flex flex-col gap-4 sm:p-6">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h2 id="locked-title" ref={lockedTitle} tabIndex={-1} className="text-2xl">
-                  {d.proposal.payments_open ? 'Reservations open' : 'Reservations closed'}
-                </h2>
-                <span className="flex items-center gap-1.5 text-sm text-ink-soft">
-                  <Icon name="lock" size={16} />
-                  Terms locked
-                </span>
-              </div>
-              {chosen && <p className="font-display text-xl font-bold tabular-nums">{formatDateRange(chosen.starts_at, chosen.ends_at, w.timezone)}</p>}
-              {w.status !== 'CANCELLED' && <AddToCalendar path={d.proposal.calendar_path} />}
-              <TermsList
-                items={lockedTerms({
-                  timeZone: w.timezone,
-                  price: d.proposal.price,
-                  durationMin: w.duration_min,
-                  minimum: d.proposal.minimum,
-                  capacity: d.proposal.capacity,
-                  opensAt: d.proposal.opens_at,
-                  closesAt: d.proposal.closes_at,
-                  paymentsOpen: d.proposal.payments_open,
-                })}
-              />
-            </Tile>
-          )}
           {d.proposal && <EnrollmentList token={token} view={d} onChange={view.reload} />}
+          <AgreedTerms view={d} />
         </div>
 
-        <aside aria-label="Workshop summary">
-          <div className="lg:sticky lg:top-4">
+        <aside aria-label="Workshop summary" className="hidden lg:block">
+          <div className="sticky top-4">
             <SpotsTile view={d} />
           </div>
         </aside>

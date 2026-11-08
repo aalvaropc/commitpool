@@ -30,14 +30,41 @@ function saveButton(html: string): string {
   return m[0]
 }
 
-const render = (r: Interpretation) =>
-  renderToStaticMarkup(<ReadingEditor token="t" availability={availability(r)} timeZone="America/New_York" dates={dates} editable onSaved={async () => undefined} />)
+const render = (r: Interpretation, editable = true) =>
+  renderToStaticMarkup(<ReadingEditor token="t" availability={availability(r)} timeZone="America/New_York" dates={dates} editable={editable} onSaved={async () => undefined} />)
+
+function disclosure(html: string): string {
+  const m = /<details[^>]*>/.exec(html)
+  if (!m) throw new Error('no Edit reading disclosure in:\n' + html)
+  return m[0]
+}
 
 describe('ReadingEditor', () => {
   it('lets a correct reading that needs clarification be confirmed without changes', () => {
     const button = saveButton(render(reading(true)))
     expect(button).toContain('Confirm reading')
     expect(button).not.toMatch(/\sdisabled=/)
+  })
+
+  it('shows the reading per date and keeps the corrections behind a closed Edit reading', () => {
+    const html = render(reading(false))
+    expect(html).toContain('Saturday works')
+    expect(html.indexOf('Saturday works')).toBeLessThan(html.indexOf('Edit reading'))
+    expect(html).toMatch(/<summary[^>]*>Edit reading/)
+    expect(disclosure(html)).not.toMatch(/\sopen/)
+    expect(html.indexOf('Edit reading')).toBeLessThan(html.indexOf('Can you come on'))
+  })
+
+  it('keeps Edit reading closed even when the reading needs clarification, one click below the question', () => {
+    const html = render(reading(true))
+    expect(disclosure(html)).not.toMatch(/\sopen/)
+    expect(html).toContain('Check each date under Edit reading')
+  })
+
+  it('offers no corrections once answers are closed, but still shows the reading', () => {
+    const html = render(reading(false), false)
+    expect(html).toContain('Saturday works')
+    expect(html).not.toContain('Edit reading')
   })
 
   it('keeps the button disabled for a clear, unchanged reading', () => {

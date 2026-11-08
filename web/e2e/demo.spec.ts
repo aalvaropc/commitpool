@@ -1,5 +1,5 @@
 import { expectAccessible } from './a11y'
-import { expect, test } from './helpers'
+import { expect, headline, test } from './helpers'
 
 const GRACE_REPLY = 'No problem — I swapped Saturday. Sunday I’m still at the market.'
 
@@ -49,6 +49,25 @@ test.describe('one-click demo', () => {
     await expect(page.getByRole('region', { name: 'Next step' })).toContainText('works for 3 — you need 3')
     await expect(page.getByRole('button', { name: /Open reservations for Sat/ })).toBeVisible()
     await expect(page.getByRole('region', { name: 'You are Maya now' })).toContainText('Open reservations, then reserve as someone who can come.')
+
+    await page.getByRole('region', { name: 'Next step' }).getByRole('button', { name: /^Open reservations for Sat/ }).click()
+    await page.getByRole('dialog').getByRole('button', { name: 'Open reservations', exact: true }).click()
+    await expect(headline(page)).toHaveText('Reservations open')
+    await expect(page.getByRole('region', { name: 'Next step' }).getByRole('heading', { name: '0 of 3 reserved — 3 more and it’s on.' })).toBeFocused()
+    await expect(page.getByRole('region', { name: 'You are Maya now' })).toContainText('Reserve as someone who can come: act as Priya Raman and reserve with PayPal.')
+    const nudges = page.getByRole('region', { name: 'Claude suggests' })
+    await expect(nudges).toContainText('3 people can come but haven’t reserved: ')
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+    for (const name of ['Priya Raman', 'Ben Whitaker', 'Grace Liu']) {
+      const first = name.split(' ')[0]
+      await nudges.getByRole('button', { name: `Copy message for ${name}` }).click()
+      await expect(nudges.getByRole('status')).toHaveText(`Copied the message for ${name}. Paste it where you talk to them.`)
+      await expect(nudges).toContainText(`Message for ${first} — each one is written for that person`)
+      expect(String(await page.evaluate('navigator.clipboard.readText()'))).toMatch(new RegExp(`^Hi ${first}! Reservations for Wheel-throwing for beginners`))
+    }
+    await expect(page.getByRole('heading', { name: 'Terms people agreed to' })).toBeVisible()
+    await expect(page.getByRole('region', { name: 'Who can come, by date' })).not.toContainText('Reservations open')
+    await expectAccessible(page, 'the demo organizer page with reservations open')
   })
 
   test('the organizer link brings the act-as links to another device', async ({ page, browser }) => {

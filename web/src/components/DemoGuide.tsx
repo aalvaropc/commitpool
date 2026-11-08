@@ -1,6 +1,61 @@
+import { useState } from 'react'
 import type { OwnerView } from '../api'
-import { demoParticipants, demoStep } from '../lib/demo'
+import { demoParticipants, demoStep, type DemoParticipant, type DemoStep } from '../lib/demo'
 import { ButtonLink, Icon, Pill, Tile } from './ui'
+
+function Guide({ step, people, guided }: { step: DemoStep | null; people: DemoParticipant[]; guided: boolean }) {
+  const [openAtFirst] = useState(guided)
+  return (
+    <Tile as="section" aria-labelledby="demo-guide-title" className="flex flex-col gap-2 ring-2 ring-brand/40 sm:p-6">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <h2 id="demo-guide-title" className="text-xl">
+          You are Maya now
+        </h2>
+        <Pill tone="attention">Demo workshop · prepared data</Pill>
+      </div>
+      <details open={openAtFirst || undefined} className="group">
+        <summary className="-mx-2 flex min-h-11 w-fit cursor-pointer list-none items-center gap-2 rounded-control px-2 font-semibold text-brand [&::-webkit-details-marker]:hidden">
+          <Icon name="arrowRight" size={18} className="shrink-0 transition-transform duration-200 group-open:rotate-90" />
+          Demo steps
+        </summary>
+        <div className="mt-2 flex flex-col gap-3">
+          <div aria-live="polite">
+            {step && (
+              <p className="flex max-w-prose items-start gap-2 rounded-control bg-brand-wash px-4 py-3 font-semibold text-ink">
+                <Icon name="spark" size={20} className="mt-0.5 shrink-0 text-brand" />
+                <span>
+                  <span className="sr-only">Next in the demo: </span>
+                  {step.text}
+                </span>
+              </p>
+            )}
+          </div>
+          <div className="flex flex-col gap-2">
+            <p aria-hidden="true" className="text-sm font-semibold text-ink-soft">
+              Act as
+            </p>
+            <ul className="flex flex-wrap gap-2" aria-label="Open the page of a participant">
+              {people.map((p) => (
+                <li key={p.path}>
+                  <ButtonLink to={p.path} target="_blank" rel="noopener" variant={step?.primary === p.name ? 'primary' : 'secondary'} size="sm">
+                    <span className="sr-only">Act as </span>
+                    {p.name}
+                    <span className="sr-only"> (opens in a new tab)</span>
+                    <Icon name="arrowRight" size={16} />
+                  </ButtonLink>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <p className="max-w-prose text-sm text-ink-soft">
+            A prepared class: its six participants and their answers were written for the demo, and Claude reads each answer as it arrives. Open
+            reservations, then reserve as a participant with a PayPal Sandbox account.
+          </p>
+        </div>
+      </details>
+    </Tile>
+  )
+}
 
 export default function DemoGuide({ view }: { view: OwnerView }) {
   if (!view.workshop.demo) return null
@@ -19,40 +74,6 @@ export default function DemoGuide({ view }: { view: OwnerView }) {
       </Tile>
     )
   }
-  return (
-    <Tile as="section" aria-labelledby="demo-guide-title" className="flex flex-col gap-3 ring-2 ring-brand/40 sm:p-6">
-      <div className="flex flex-wrap items-center gap-2">
-        <h2 id="demo-guide-title" className="text-xl">
-          You are Maya now
-        </h2>
-        <Pill tone="attention">Demo workshop · prepared data</Pill>
-      </div>
-      <p className="max-w-prose text-ink-soft">
-        This is the organizer page of a prepared class. Its six participants and their answers were written for the demo; watch Claude read each
-        answer as it arrives. Open reservations, then reserve as a participant with a PayPal Sandbox account.
-      </p>
-      <div aria-live="polite">
-        {step && (
-          <p className="flex max-w-prose items-start gap-2 rounded-control bg-brand-wash px-4 py-3 font-semibold text-ink">
-            <Icon name="spark" size={20} className="mt-0.5 shrink-0 text-brand" />
-            <span>
-              <span className="sr-only">Next in the demo: </span>
-              {step.text}
-            </span>
-          </p>
-        )}
-      </div>
-      <ul className="flex flex-wrap gap-2" aria-label="Open the page of a participant">
-        {people.map((p) => (
-          <li key={p.path}>
-            <ButtonLink to={p.path} target="_blank" rel="noopener" variant={step?.primary === p.name ? 'primary' : 'secondary'} size="sm">
-              Act as {p.name}
-              <span className="sr-only"> (opens in a new tab)</span>
-              <Icon name="arrowRight" size={16} />
-            </ButtonLink>
-          </li>
-        ))}
-      </ul>
-    </Tile>
-  )
+  const guided = step !== null || (view.workshop.status === 'COLLECTING' && !view.proposal)
+  return <Guide step={step} people={people} guided={guided} />
 }

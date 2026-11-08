@@ -97,8 +97,44 @@ describe('demoStep', () => {
     expect(demoStep(v, [])).toBeNull()
   })
 
-  it('stays quiet once reservations open', () => {
+  describe('once reservations open', () => {
     const v = view()
-    expect(demoStep(view({ workshop: { ...v.workshop, status: 'FUNDING' } }), cast)).toBeNull()
+    const seat = (participant_id: string, status: string, needs_attention = false) => ({ id: `e-${participant_id}`, participant_id, status, needs_attention })
+    const funding = (enrollments: ReturnType<typeof seat>[], over: Partial<OwnerView> = {}) =>
+      view({
+        workshop: { ...v.workshop, status: 'FUNDING' },
+        proposal: { date_id: 'sat', payments_open: true, minimum: 3 },
+        tally: { minimum: 3, paid: 0, authorized: enrollments.length, capturing: 0, pending: 0 },
+        enrollments,
+        ...over,
+      } as unknown as Partial<OwnerView>)
+
+    it('sends the visitor to reserve as the first person who can come and has not reserved', () => {
+      expect(demoStep(funding([]), cast)).toEqual({ text: 'Reserve as someone who can come: act as Priya Raman and reserve with PayPal.', primary: 'Priya Raman' })
+      expect(demoStep(funding([seat('p1', 'AUTHORIZED')]), cast)).toEqual({ text: 'Reserve as someone who can come: act as Ben Whitaker and reserve with PayPal.', primary: 'Ben Whitaker' })
+    })
+
+    it('follows the order people are listed in, not the order the date summary names them', () => {
+      const shuffled = { ...v.recommendation, per_date: [{ date_id: 'sat', compatible: ['p2', 'p1'], blockers: null }] }
+      expect(demoStep(funding([], { recommendation: shuffled }), cast)?.primary).toBe('Priya Raman')
+    })
+
+    it('points again at someone who can reserve again, as the nudges do', () => {
+      expect(demoStep(funding([seat('p1', 'RELEASED')]), cast)?.primary).toBe('Priya Raman')
+      expect(demoStep(funding([seat('p1', 'CAPTURE_FAILED')]), cast)?.primary).toBe('Priya Raman')
+    })
+
+    it('skips someone who withdrew, holds a spot, or has a seat flagged for a check', () => {
+      expect(demoStep(funding([seat('p1', 'VOIDED')]), cast)?.primary).toBe('Ben Whitaker')
+      expect(demoStep(funding([seat('p1', 'SEAT_RESERVED')]), cast)?.primary).toBe('Ben Whitaker')
+      expect(demoStep(funding([seat('p1', 'CAPTURE_FAILED', true)]), cast)?.primary).toBe('Ben Whitaker')
+    })
+
+    it('stays quiet once enough people reserved, once reservations close, or when nobody is left to act as', () => {
+      expect(demoStep(funding([seat('p1', 'AUTHORIZED'), seat('p2', 'AUTHORIZED'), seat('p9', 'AUTHORIZED')]), cast)).toBeNull()
+      expect(demoStep(funding([], { proposal: { date_id: 'sat', payments_open: false, minimum: 3 } } as unknown as Partial<OwnerView>), cast)).toBeNull()
+      expect(demoStep(funding([seat('p1', 'PAID'), seat('p2', 'SEAT_RESERVED')], { tally: { minimum: 3, paid: 1, authorized: 0, capturing: 0, pending: 0 } } as unknown as Partial<OwnerView>), cast)).toBeNull()
+      expect(demoStep(view({ workshop: { ...v.workshop, status: 'CONFIRMED' }, proposal: { date_id: 'sat', payments_open: true } } as unknown as Partial<OwnerView>), cast)).toBeNull()
+    })
   })
 })

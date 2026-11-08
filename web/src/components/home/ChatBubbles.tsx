@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
+import { READ_LABEL, type ReadBy, type Reader } from '../../lib/liveReading'
 import type { Day, SampleLimit, SampleReading, SampleVerdict } from '../../lib/sampleReader'
-import { Avatar, Icon, Pill, VerdictChip } from '../ui'
+import { Avatar, Icon, Pill, VerdictChip, type IconName } from '../ui'
 
 const verdictWords: Record<SampleVerdict, string> = {
   available: 'Can come',
@@ -37,10 +38,10 @@ export function Dots() {
   )
 }
 
-export function ClaudeMark() {
+export function Mark({ icon }: { icon: IconName }) {
   return (
     <span aria-hidden="true" className="inline-grid size-10 shrink-0 place-items-center rounded-full bg-brand-wash text-brand">
-      <Icon name="spark" size={20} />
+      <Icon name={icon} size={20} />
     </span>
   )
 }
@@ -92,45 +93,58 @@ export function SaidByYou({ text }: { text: string }) {
   )
 }
 
-export function Reading({ reading }: { reading: SampleReading | null }) {
+export function Reading({ reading, by, live = false }: { reading: SampleReading | null; by: Reader; live?: boolean }) {
   if (reading === null) {
+    if (!live) return null
     return (
-      <div aria-hidden="true" className="rise flex items-center gap-2 pl-[3.125rem] text-sm text-ink-soft">
+      <div className="rise flex items-center gap-2 pl-[3.125rem] text-sm text-ink-soft">
         <Icon name="spark" size={16} className="text-brand" />
-        Claude is reading
+        Claude is reading…
         <Dots />
       </div>
     )
   }
   return (
     <div className="rise flex flex-col gap-1.5 pl-[3.125rem]">
+      <span className="flex items-center gap-1.5 text-sm text-ink-soft">
+        <Icon name={by === 'claude' ? 'spark' : by === 'prepared' ? 'quote' : 'check'} size={16} className={by === 'claude' ? 'text-brand' : undefined} />
+        {READ_LABEL[by]}
+      </span>
       <span className="flex flex-wrap items-center gap-1.5">
-        <Icon name="spark" size={16} className="text-brand" />
-        <span className="sr-only">Read as:</span>
         <VerdictChip verdict={reading.sat}>{`Sat · ${dayWords(reading, 'sat')}`}</VerdictChip>
         <VerdictChip verdict={reading.sun}>{`Sun · ${dayWords(reading, 'sun')}`}</VerdictChip>
       </span>
-      {reading.ask && (
-        <span className="flex items-start gap-1.5 text-sm text-maybe">
-          <Icon name="help" size={16} className="mt-0.5 shrink-0" />
-          Needs clarifying: {reading.ask}
-        </span>
-      )}
     </div>
   )
 }
 
-export function ClaudeSays({ text }: { text: string }) {
+function Signed({ name, role, icon, wash, children }: { name: string; role: string; icon: IconName; wash: boolean; children: string }) {
   return (
     <Row>
-      <ClaudeMark />
+      <Mark icon={icon} />
       <div className="flex min-w-0 flex-col gap-1">
         <span className="px-1 text-sm text-ink-soft">
-          Claude <span className="text-brand">· reads for Maya</span>
+          {name} <span className="text-brand">· {role}</span>
         </span>
-        <p className={`max-w-[28rem] rounded-bl-md bg-brand-wash ${bubble}`}>{text}</p>
+        <p className={`max-w-[28rem] rounded-bl-md ${wash ? 'bg-brand-wash' : 'bg-surface-muted'} ${bubble}`}>{children}</p>
       </div>
     </Row>
+  )
+}
+
+export function CommitPoolSays({ text }: { text: string }) {
+  return (
+    <Signed name="CommitPool" role="counts for Maya" icon="users" wash>
+      {text}
+    </Signed>
+  )
+}
+
+export function Asks({ by, text }: { by: ReadBy; text: string }) {
+  return (
+    <Signed name={by === 'claude' ? 'Claude' : 'Simple rules'} role="asks you" icon={by === 'claude' ? 'spark' : 'help'} wash={false}>
+      {text}
+    </Signed>
   )
 }
 
@@ -147,6 +161,7 @@ export function ItsOn({ text }: { text: string }) {
     <div className="rise flex flex-col gap-1 rounded-3xl bg-brand p-5 text-on-brand">
       <p className="shout text-5xl leading-none">It’s on</p>
       <p className="text-lg font-semibold">{text}</p>
+      <p className="text-sm">Simulated here: no money moved.</p>
     </div>
   )
 }

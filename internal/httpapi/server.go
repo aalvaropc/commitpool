@@ -59,6 +59,8 @@ type server struct {
 	previews     previewCache
 	self         http.Handler
 	drafts       *draftQuota
+	samples      *sampleQuota
+	questionKey  []byte
 	aiSem        chan struct{}
 }
 
@@ -78,6 +80,8 @@ func New(d Deps) http.Handler {
 	}
 	s.demoQuota = newDemoQuota(s.limiter != nil)
 	s.drafts = newDraftQuota(s.limiter != nil)
+	s.samples = newSampleQuota(s.limiter != nil)
+	s.questionKey = newQuestionKey(d.Cfg.MCPSecret)
 	mux := http.NewServeMux()
 	s.routes(mux)
 	h := s.observe(mux)
@@ -96,6 +100,7 @@ func (s *server) routes(mux *http.ServeMux) {
 	api("GET /api/v1/demo", s.demoInfo)
 	api("POST /api/v1/demo/workshops", s.createDemoWorkshop)
 	api("POST /api/v1/workshop-drafts", s.draftWorkshop)
+	api("POST /api/v1/sample-reading", s.sampleReading)
 	api("GET /api/v1/w/{token}", s.publicWorkshop)
 	api("GET /api/v1/w/{token}/og.png", s.inviteImage)
 	api("GET /api/v1/w/{token}/calendar.ics", s.inviteCalendar)

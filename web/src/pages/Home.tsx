@@ -49,7 +49,7 @@ export default function Home() {
             </div>
             <p className="text-sm text-ink-soft">Doodle meets Kickstarter, for small paid classes. Runs on the PayPal Sandbox: no real money moves.</p>
           </div>
-          <ChatDemo />
+          <ChatDemo demo={demo} />
         </section>
 
         <section aria-labelledby="agent-title" className="grid grid-cols-[minmax(0,1fr)] gap-10 lg:grid-cols-2 lg:gap-16">

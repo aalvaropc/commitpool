@@ -199,7 +199,7 @@ func newInterpreter(ctx context.Context, cfg config.Config, log *slog.Logger) (a
 		return ai.NewMemo(ai.NewBudget(b, ai.BudgetConfig{Hourly: cfg.AIHourlyCap, Daily: cfg.AIDailyCap, Clock: clock.Real{}}), ai.MemoSize), nil
 	case config.AIProviderFake:
 		log.Warn("using the deterministic fake interpreter, scripted for the demo cast")
-		return ai.Fake{Script: demo.Script(demo.Maya)}, nil
+		return ai.Fake{Script: demo.FakeScript()}, nil
 	default:
 		return nil, fmt.Errorf("ai: unknown provider %q; set COMMITPOOL_AI_PROVIDER to bedrock or fake", cfg.AIProvider)
 	}

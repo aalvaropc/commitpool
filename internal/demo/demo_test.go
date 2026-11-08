@@ -409,3 +409,27 @@ func TestAnswer_DoesNotWaitPastItsTime(t *testing.T) {
 		t.Errorf("waited %v for an answer that could not arrive in time", waited)
 	}
 }
+
+func TestFakeScript_ReadsTheLandingQuickRepliesAsClaudeDoes(t *testing.T) {
+	dates, options, ny := mayaDates(t)
+	fake := ai.Fake{Script: demo.FakeScript()}
+	want := map[string][2]bool{
+		"No problem — Saturday works!":       {true, false},
+		"El domingo sí puedo":                {false, true},
+		"The first one, if we’re done by 11": {false, false},
+	}
+	for message, counted := range want {
+		in, meta, err := fake.Interpret(context.Background(), ai.InterpretInput{Dates: options, Message: message})
+		if err != nil || meta.Model != "script-v1" {
+			t.Fatalf("Interpret(%q) = %+v, %v; want the scripted reading", message, meta, err)
+		}
+		for i, d := range dates {
+			if ok, _ := domain.Compatible(in, d, ny); ok != counted[i] {
+				t.Errorf("%q counted on %s = %v, want %v (%+v)", message, d.ID, ok, counted[i], in.PerDate)
+			}
+		}
+	}
+	if len(demo.FakeScript()) != len(demo.Script(demo.Maya))+len(demo.Landing) {
+		t.Errorf("FakeScript has %d answers, want Maya's and the landing's", len(demo.FakeScript()))
+	}
+}

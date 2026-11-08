@@ -1,3 +1,5 @@
+import { CLASS_HOURS_WORDS } from './sampleDates'
+
 export type SampleVerdict = 'available' | 'conditional' | 'unavailable' | 'unknown'
 
 export type Day = 'sat' | 'sun'
@@ -15,6 +17,8 @@ export interface SampleReading {
 }
 
 const DAYS: Day[] = ['sat', 'sun']
+
+export const HOURS_QUESTION = `The class runs ${CLASS_HOURS_WORDS} on Saturday and Sunday — can you make either morning, and which?`
 
 const UNSURE = /\b(maybe|not sure|unsure|might|perhaps|possibly|probably|don't know|no idea|we'll see|tbd)\b/
 const FINE = /\b(not busy|not a problem|no problem|no worries|no plans)\b/
@@ -113,7 +117,7 @@ export function readSample(message: string): SampleReading {
     const verdict = verdictOf(clause)
     const limit = verdict === 'conditional' ? limitOf(clause) : null
     const window = CLOCK.test(clause) || verdict === 'unavailable' ? undefined : OFF_HOURS.exec(clause)?.[1]
-    if (window) reading.ask = `Which hours in the ${window} work for you?`
+    if (window) reading.ask = HOURS_QUESTION
     if (days.length > 0) {
       pending = pending.filter((d) => !days.includes(d))
       if (window) {

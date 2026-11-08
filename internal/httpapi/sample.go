@@ -19,6 +19,8 @@ import (
 
 const (
 	maxSampleMessage   = 160
+	maxSampleQuestions = 3
+	maxSampleQuestion  = 200
 	sampleVisitorEvery = 20 * time.Second
 	sampleVisitorBurst = 3
 	sampleHourlyCap    = 60
@@ -87,16 +89,43 @@ func sampleDays(now time.Time, loc *time.Location) []sampleDay {
 	return out
 }
 
-type sampleRequest struct {
-	Message string `json:"message"`
+type sampleEarlier struct {
+	Message   string   `json:"message"`
+	Questions []string `json:"questions"`
 }
 
-func sampleInput(message string, days []sampleDay, loc *time.Location) ai.InterpretInput {
+type sampleRequest struct {
+	Message string         `json:"message"`
+	Earlier *sampleEarlier `json:"earlier"`
+}
+
+func sampleContext(e *sampleEarlier) (*ai.EarlierAnswer, error) {
+	if e == nil {
+		return nil, nil
+	}
+	invalid := badRequest("invalid_earlier", "Send the earlier answer in 1 to %d characters, with at most %d questions of up to %d characters each.",
+		maxSampleMessage, maxSampleQuestions, maxSampleQuestion)
+	message := strings.TrimSpace(e.Message)
+	if n := utf8.RuneCountInString(message); n == 0 || n > maxSampleMessage || len(e.Questions) > maxSampleQuestions {
+		return nil, invalid
+	}
+	out := &ai.EarlierAnswer{Message: message, Questions: make([]string, 0, len(e.Questions))}
+	for _, q := range e.Questions {
+		q = strings.TrimSpace(q)
+		if n := utf8.RuneCountInString(q); n == 0 || n > maxSampleQuestion {
+			return nil, invalid
+		}
+		out.Questions = append(out.Questions, q)
+	}
+	return out, nil
+}
+
+func sampleInput(message string, earlier *ai.EarlierAnswer, days []sampleDay, loc *time.Location) ai.InterpretInput {
 	dates := make([]ai.DateOption, len(days))
 	for i, d := range days {
 		dates[i] = ai.DateOption{ID: d.key, Label: present.DateLabel(d.start, d.end, loc), StartsAt: d.start}
 	}
-	return ai.InterpretInput{WorkshopTitle: demo.Maya.Title, Timezone: demoTimezone, Dates: dates, Message: message}
+	return ai.InterpretInput{WorkshopTitle: demo.Maya.Title, Timezone: demoTimezone, Dates: dates, Message: message, Earlier: earlier}
 }
 
 type sampleDateDTO struct {
@@ -129,6 +158,10 @@ func (s *server) sampleReading(w http.ResponseWriter, r *http.Request) error {
 	if length == 0 || length > maxSampleMessage {
 		return badRequest("invalid_message", "Write your answer in 1 to %d characters.", maxSampleMessage)
 	}
+	earlier, err := sampleContext(req.Earlier)
+	if err != nil {
+		return err
+	}
 	loc, err := time.LoadLocation(demoTimezone)
 	if err != nil {
 		return err
@@ -156,7 +189,7 @@ func (s *server) sampleReading(w http.ResponseWriter, r *http.Request) error {
 	days := sampleDays(now, loc)
 	ctx, cancel := context.WithTimeout(r.Context(), sampleTimeout)
 	defer cancel()
-	in, meta, err := s.AI.Interpret(ctx, sampleInput(message, days, loc))
+	in, meta, err := s.AI.Interpret(ctx, sampleInput(message, earlier, days, loc))
 	if err != nil {
 		if wait, capped := ai.BusyWait(err); capped {
 			s.samples.refund(now)
@@ -167,7 +200,7 @@ func (s *server) sampleReading(w http.ResponseWriter, r *http.Request) error {
 		return newError(http.StatusServiceUnavailable, "ai_unavailable", "Claude could not read this answer right now.")
 	}
 	out := s.sampleAnswer(in, days, loc)
-	s.Log.Info("sample reading", "length", length, "read_by", out.ReadBy, "asked", out.Question != "",
+	s.Log.Info("sample reading", "length", length, "follows_up", earlier != nil, "read_by", out.ReadBy, "asked", out.Question != "",
 		"counted_sat", out.PerDate["sat"].Counted, "counted_sun", out.PerDate["sun"].Counted,
 		"provider", meta.Provider, "model", meta.Model, "input_tokens", meta.InputTokens, "output_tokens", meta.OutputTokens)
 	writeJSON(w, http.StatusOK, out)

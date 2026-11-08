@@ -49,8 +49,8 @@ interface ServerReading {
 
 const VERDICTS: SampleVerdict[] = ['available', 'conditional', 'unavailable', 'unknown']
 
-export function readingRequest(turn: Turn): { message: string } {
-  return { message: turn.message }
+export function readingRequest(turn: Turn): { message: string; earlier?: Earlier } {
+  return turn.earlier ? { message: turn.message, earlier: turn.earlier } : { message: turn.message }
 }
 
 function isVerdict(v: unknown): v is ServerVerdict {

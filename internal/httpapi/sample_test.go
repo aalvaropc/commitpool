@@ -13,6 +13,7 @@ import (
 
 	"github.com/aalvaropc/commitpool/internal/ai"
 	"github.com/aalvaropc/commitpool/internal/config"
+	"github.com/aalvaropc/commitpool/internal/demo"
 	"github.com/aalvaropc/commitpool/internal/domain"
 	"github.com/aalvaropc/commitpool/internal/httpapi"
 )
@@ -344,6 +345,7 @@ func TestSample_NeverTakesTheReadersParticipantsNeed(t *testing.T) {
 
 func TestSample_NeverLogsTheAnswer(t *testing.T) {
 	const secret = "Saturday works, ask for zebra-umbrella-42"
+	earlier := map[string]any{"message": "afternoons, says quokka-lantern-7", "questions": []string{"Which morning, asks marmot-kettle-9?"}}
 	models := map[string]ai.Interpreter{
 		"read":   ai.Fake{},
 		"failed": &cannedReadingAI{err: errors.New("bedrock: throttled")},
@@ -353,13 +355,79 @@ func TestSample_NeverLogsTheAnswer(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			e := newEnv(t, withAI(model))
 			e.request(http.MethodPost, samplePath, sampleBody(secret))
+			e.request(http.MethodPost, samplePath, map[string]any{"message": secret, "earlier": earlier})
 			logs := e.logs.String()
 			if !strings.Contains(logs, "sample reading") || !strings.Contains(logs, "length=") {
 				t.Fatalf("no sample reading line with its length; the check would be vacuous:\n%s", logs)
 			}
-			if strings.Contains(logs, "zebra") || strings.Contains(logs, "umbrella") {
+			if !strings.Contains(logs, "follows_up=true") && name == "read" {
+				t.Errorf("the answer to a question is not logged as one:\n%s", logs)
+			}
+			if strings.Contains(logs, "zebra") || strings.Contains(logs, "umbrella") || strings.Contains(logs, "quokka") || strings.Contains(logs, "marmot") {
 				t.Errorf("log contains the visitor's answer:\n%s", logs)
 			}
 		})
+	}
+}
+
+func TestSample_ReadsAnAnswerToAQuestionWithTheEarlierAnswerAsData(t *testing.T) {
+	model := &cannedReadingAI{}
+	e := newEnv(t, withAI(model))
+	e.call(http.MethodPost, samplePath, sampleBody("Saturday works"), http.StatusOK, nil)
+	e.call(http.MethodPost, samplePath, map[string]any{
+		"message": "Saturday morning works",
+		"earlier": map[string]any{"message": "  ideally afternoons  ", "questions": []string{" The class runs 10 AM–12 PM — can you make a morning? "}},
+	}, http.StatusOK, nil)
+	if model.calls() != 2 {
+		t.Fatalf("Interpret called %d times, want 2", model.calls())
+	}
+	if model.got[0].Earlier != nil {
+		t.Errorf("a first answer carries earlier context %+v", model.got[0].Earlier)
+	}
+	want := &ai.EarlierAnswer{Message: "ideally afternoons", Questions: []string{"The class runs 10 AM–12 PM — can you make a morning?"}}
+	if got := model.got[1]; got.Message != "Saturday morning works" || !reflect.DeepEqual(got.Earlier, want) {
+		t.Errorf("second answer = %q with earlier %+v, want the new message alone and %+v as context", got.Message, got.Earlier, want)
+	}
+}
+
+func TestSample_TheDemoCastsReplyIsReadInContext(t *testing.T) {
+	grace := demo.Maya.People[len(demo.Maya.People)-1]
+	reply := demo.Maya.Replies[0]
+	e := newEnv(t)
+	var alone, inContext sampleJSON
+	e.call(http.MethodPost, samplePath, sampleBody(reply.Message), http.StatusOK, &alone)
+	e.call(http.MethodPost, samplePath, map[string]any{
+		"message": reply.Message,
+		"earlier": map[string]any{"message": grace.Message, "questions": []string{grace.Expect.Question}},
+	}, http.StatusOK, &inContext)
+	if !inContext.PerDate["sat"].Counted || inContext.PerDate["sun"].Counted {
+		t.Errorf("reply read in context = %+v, want Saturday counted and Sunday not", inContext.PerDate)
+	}
+	if reflect.DeepEqual(alone.PerDate, inContext.PerDate) {
+		t.Errorf("the earlier answer changed nothing: %+v", alone.PerDate)
+	}
+}
+
+func TestSample_RefusesAnEarlierAnswerOutOfBounds(t *testing.T) {
+	model := &cannedReadingAI{}
+	e := newEnv(t, withAI(model))
+	question := "Which morning?"
+	cases := map[string]map[string]any{
+		"empty message":      {"message": " ", "questions": []string{question}},
+		"long message":       {"message": strings.Repeat("a", 161), "questions": []string{question}},
+		"too many questions": {"message": "afternoons", "questions": []string{question, question, question, question}},
+		"long question":      {"message": "afternoons", "questions": []string{strings.Repeat("q", 201)}},
+		"blank question":     {"message": "afternoons", "questions": []string{" "}},
+	}
+	for name, earlier := range cases {
+		got := e.wantError(http.MethodPost, samplePath, map[string]any{"message": "Saturday", "earlier": earlier}, http.StatusBadRequest, "invalid_earlier")
+		if !strings.Contains(got.Message, "160") || !strings.Contains(got.Message, "200") {
+			t.Errorf("%s: message = %q, want the limits", name, got.Message)
+		}
+	}
+	ok := map[string]any{"message": strings.Repeat("é", 160), "questions": []string{strings.Repeat("q", 200), question, question}}
+	e.call(http.MethodPost, samplePath, map[string]any{"message": "Saturday", "earlier": ok}, http.StatusOK, nil)
+	if model.calls() != 1 {
+		t.Errorf("Interpret called %d times, want only the valid request read", model.calls())
 	}
 }

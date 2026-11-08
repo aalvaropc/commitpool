@@ -99,6 +99,20 @@ describe('readingRequest', () => {
   it('sends only the message on a first answer', () => {
     expect(readingRequest({ message: 'Saturday works', earlier: null })).toEqual({ message: 'Saturday works' })
   })
+
+  it('sends the earlier answer and the question with an answer to it', () => {
+    const earlier = { message: 'ideally afternoons', questions: ['Can you make a morning?'] }
+    expect(readingRequest({ message: 'Saturday morning works', earlier })).toEqual({ message: 'Saturday morning works', earlier })
+  })
+})
+
+describe('readLive on an answer to a question', () => {
+  it('posts the earlier answer as context', async () => {
+    const fetch = respond(200, answer('claude'))
+    const earlier = { message: 'ideally afternoons', questions: ['Can you make a morning?'] }
+    await readLive({ message: 'Saturday morning works', earlier }, local)
+    expect(fetch).toHaveBeenCalledWith(LIVE_PATH, expect.objectContaining({ body: JSON.stringify({ message: 'Saturday morning works', earlier }) }))
+  })
 })
 
 describe('READ_LABEL', () => {

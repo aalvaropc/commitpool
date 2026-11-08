@@ -90,7 +90,7 @@ function Short({ demo }: { demo: boolean | undefined }) {
   return (
     <div className="rise flex flex-col gap-3 rounded-3xl bg-surface-muted p-4">
       <p className="font-display text-lead leading-tight font-bold">Maya still needs one more</p>
-      <p className="text-ink-soft">Until one day reaches {NEEDED}, nothing opens and nobody pays. The real flow runs the same way, with Maya deciding and PayPal holding the money.</p>
+      <p className="text-ink-soft">Until one day reaches {NEEDED}, nothing opens and nobody pays. The real flow works the same way: Claude reads every answer, Maya decides, and the PayPal Sandbox holds the money.</p>
       {demo === false ? (
         <ButtonLink to="/new" variant="primary">
           Create a workshop

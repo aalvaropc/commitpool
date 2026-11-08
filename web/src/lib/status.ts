@@ -73,6 +73,10 @@ export function returnCheckSettled(input: { enrollment: EnrollmentStatus | null;
 
 const RETRYABLE: ReadonlySet<EnrollmentStatus> = new Set(['SEAT_RESERVED', 'RELEASED', 'CAPTURE_FAILED'])
 
+export function freeToReserveAgain(e: { status: EnrollmentStatus; needs_attention?: boolean }): boolean {
+  return RETRYABLE.has(e.status) && e.status !== 'SEAT_RESERVED' && !e.needs_attention
+}
+
 export function canStartCheckout(paymentsOpen: boolean, status: EnrollmentStatus | null | undefined, authPending = false): boolean {
   return paymentsOpen && !authPending && (!status || RETRYABLE.has(status))
 }

@@ -95,7 +95,7 @@ export async function failNextCharge(owner: Page, name: string): Promise<void> {
 }
 
 export function headline(page: Page): Locator {
-  return page.getByRole('region', { name: 'Workshop status' }).getByRole('status').first()
+  return page.getByRole('region', { name: 'Workshop status' }).getByRole('status')
 }
 
 export function enrollmentRow(owner: Page, name: string): Locator {

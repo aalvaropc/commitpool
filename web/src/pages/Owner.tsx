@@ -29,22 +29,23 @@ function AgreedTerms({ view }: { view: OwnerView }) {
   if (!p) return null
   const chosen = view.dates.find((x) => x.id === p.date_id)
   return (
-    <Tile as="section" aria-labelledby="locked-title" className="flex flex-col gap-4 sm:p-6">
+    <Tile as="section" aria-labelledby="locked-title" className="flex flex-col gap-2 sm:p-6">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <h2 id="locked-title" className="text-xl">
+          Terms people agreed to
+        </h2>
+        <span className="flex items-center gap-1.5 text-sm text-ink-soft">
+          <Icon name="lock" size={16} />
+          Locked
+        </span>
+      </div>
       <details className="group">
-        <summary className="-m-2 flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-control p-2 [&::-webkit-details-marker]:hidden">
-          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <h2 id="locked-title" className="text-xl">
-              Terms people agreed to
-            </h2>
-            <span className="flex items-center gap-1.5 text-sm text-ink-soft">
-              <Icon name="lock" size={16} />
-              Locked
-            </span>
-          </span>
-          <Icon name="arrowRight" className="shrink-0 text-brand transition-transform duration-200 group-open:rotate-90" />
+        <summary className="-mx-2 flex min-h-11 w-fit cursor-pointer list-none items-center gap-2 rounded-control px-2 font-semibold text-brand [&::-webkit-details-marker]:hidden">
+          <Icon name="arrowRight" size={18} className="shrink-0 transition-transform duration-200 group-open:rotate-90" />
+          All the terms
         </summary>
         <TermsList
-          className="mt-4"
+          className="mt-3 mb-2"
           items={lockedTerms({
             timeZone: w.timezone,
             dateLabel: chosen ? formatDateRange(chosen.starts_at, chosen.ends_at, w.timezone) : undefined,

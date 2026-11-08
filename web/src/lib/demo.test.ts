@@ -99,7 +99,7 @@ describe('demoStep', () => {
 
   describe('once reservations open', () => {
     const v = view()
-    const seat = (participant_id: string, status: string) => ({ id: `e-${participant_id}`, participant_id, status })
+    const seat = (participant_id: string, status: string, needs_attention = false) => ({ id: `e-${participant_id}`, participant_id, status, needs_attention })
     const funding = (enrollments: ReturnType<typeof seat>[], over: Partial<OwnerView> = {}) =>
       view({
         workshop: { ...v.workshop, status: 'FUNDING' },
@@ -119,8 +119,15 @@ describe('demoStep', () => {
       expect(demoStep(funding([], { recommendation: shuffled }), cast)?.primary).toBe('Priya Raman')
     })
 
-    it('lets someone whose hold lapsed reserve again', () => {
+    it('points again at someone who can reserve again, as the nudges do', () => {
       expect(demoStep(funding([seat('p1', 'RELEASED')]), cast)?.primary).toBe('Priya Raman')
+      expect(demoStep(funding([seat('p1', 'CAPTURE_FAILED')]), cast)?.primary).toBe('Priya Raman')
+    })
+
+    it('skips someone who withdrew, holds a spot, or has a seat flagged for a check', () => {
+      expect(demoStep(funding([seat('p1', 'VOIDED')]), cast)?.primary).toBe('Ben Whitaker')
+      expect(demoStep(funding([seat('p1', 'SEAT_RESERVED')]), cast)?.primary).toBe('Ben Whitaker')
+      expect(demoStep(funding([seat('p1', 'CAPTURE_FAILED', true)]), cast)?.primary).toBe('Ben Whitaker')
     })
 
     it('stays quiet once enough people reserved, once reservations close, or when nobody is left to act as', () => {

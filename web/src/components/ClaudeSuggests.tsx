@@ -1,19 +1,16 @@
 import { useState } from 'react'
 import type { Suggestion } from '../api'
-import { groupSuggestions } from '../lib/suggest'
+import { firstName, groupSuggestions, groupTitle, previewLabel } from '../lib/suggest'
 import { Avatar, Button, Icon, Tile } from './ui'
 
-type Copied = { who: string; ok: boolean } | null
-
 function useCopy() {
-  const [copied, setCopied] = useState<Copied>(null)
+  const [copied, setCopied] = useState<boolean | null>(null)
   async function copy(s: Suggestion) {
-    const who = s.name ?? 'the group'
     try {
       await navigator.clipboard.writeText(s.message)
-      setCopied({ who, ok: true })
+      setCopied(true)
     } catch {
-      setCopied({ who, ok: false })
+      setCopied(false)
     }
   }
   return { copied, copy }
@@ -37,35 +34,49 @@ function SuggestionItem({ s }: { s: Suggestion }) {
           Copy message<span className="sr-only"> for {s.name ?? 'the group'}</span>
         </Button>
         <span role="status" className="text-sm text-ink-soft">
-          {copied?.ok ? 'Copied. Paste it where you talk to them.' : copied ? 'Copying is blocked here; select the message and copy it.' : s.pending ? 'Claude is rewording this message…' : ''}
+          {copied ? 'Copied. Paste it where you talk to them.' : copied === false ? 'Copying is blocked here; select the message and copy it.' : s.pending ? 'Claude is rewording this message…' : ''}
         </span>
       </div>
     </li>
   )
 }
 
-function SuggestionGroup({ people, reason, pending }: { people: Suggestion[]; reason: string | null; pending: boolean }) {
-  const { copied, copy } = useCopy()
-  const first = people[0]
-  const firstName = (first.name ?? '').trim().split(/\s+/)[0]
+const personKey = (s: Suggestion) => s.participant_id ?? s.name ?? ''
+
+function SuggestionGroup({ people, pending }: { people: Suggestion[]; pending: boolean }) {
+  const [shown, setShown] = useState<string | null>(null)
+  const [copied, setCopied] = useState<{ key: string; ok: boolean } | null>(null)
+  const preview = people.find((p) => personKey(p) === shown) ?? people[0]
+  const copiedPerson = copied ? people.find((p) => personKey(p) === copied.key) : undefined
+  const many = people.length > 1
+
+  async function copy(s: Suggestion) {
+    setShown(personKey(s))
+    try {
+      await navigator.clipboard.writeText(s.message)
+      setCopied({ key: personKey(s), ok: true })
+    } catch {
+      setCopied({ key: personKey(s), ok: false })
+    }
+  }
+
   return (
     <li className={card}>
-      <div className="flex flex-col gap-1">
-        <p className="flex items-center gap-2.5 font-semibold">
-          <Icon name="users" className="shrink-0 text-brand" />
-          One message for {people.length} people
-        </p>
-        {reason && <p className="text-sm text-ink-soft [overflow-wrap:anywhere]">{reason}</p>}
+      <p className="flex min-w-0 items-center gap-2.5 font-semibold">
+        {many ? <Icon name="users" className="shrink-0 text-brand" /> : <Avatar name={people[0].name ?? '?'} size="sm" />}
+        <span className="min-w-0 [overflow-wrap:anywhere]">{groupTitle(people)}</span>
+      </p>
+      <div className="flex flex-col gap-1.5">
+        {many && <p className="text-sm font-semibold text-ink-soft [overflow-wrap:anywhere]">{previewLabel(preview)}</p>}
+        <p className={bubble}>{preview.message}</p>
       </div>
-      <p className={bubble}>{first.message}</p>
-      <p className="text-sm text-ink-soft">Shown with {firstName}’s name; each copy carries that person’s own name.</p>
       <div className="flex flex-col gap-2">
         <p aria-hidden="true" className="text-sm font-semibold text-ink-soft">
           Copy it for
         </p>
         <ul aria-label="Copy the message for each person" className="flex flex-wrap gap-2">
           {people.map((s) => (
-            <li key={s.participant_id ?? s.name}>
+            <li key={personKey(s)}>
               <Button variant="secondary" size="sm" onClick={() => void copy(s)} className="pl-2">
                 <Avatar name={s.name ?? '?'} size="sm" />
                 <span className="sr-only">Copy message for </span>
@@ -77,12 +88,12 @@ function SuggestionGroup({ people, reason, pending }: { people: Suggestion[]; re
         </ul>
       </div>
       <span role="status" className="text-sm text-ink-soft">
-        {copied?.ok
-          ? `Copied the message for ${copied.who}. Paste it where you talk to them.`
-          : copied
-            ? 'Copying is blocked here; select the message and copy it.'
+        {copiedPerson && copied?.ok
+          ? `Copied the message for ${copiedPerson.name}. Paste it where you talk to them.`
+          : copiedPerson
+            ? `Copying is blocked here; select the message for ${firstName(copiedPerson.name ?? '')} above and copy it.`
             : pending
-              ? 'Claude is rewording these messages…'
+              ? `Claude is rewording ${many ? 'these messages' : 'this message'}…`
               : ''}
       </span>
     </li>
@@ -102,7 +113,7 @@ export default function ClaudeSuggests({ suggestions }: { suggestions: Suggestio
       </div>
       <ul className="flex flex-col gap-3">
         {groupSuggestions(suggestions).map((c) =>
-          c.kind === 'single' ? <SuggestionItem key={c.key} s={c.suggestion} /> : <SuggestionGroup key={c.key} people={c.people} reason={c.reason} pending={c.pending} />,
+          c.kind === 'single' ? <SuggestionItem key={c.key} s={c.suggestion} /> : <SuggestionGroup key={c.key} people={c.people} pending={c.pending} />,
         )}
       </ul>
     </Tile>

@@ -2,7 +2,7 @@ import type { Availability, DateSummary, OwnerView, Verdict } from '../api'
 import { dateNames } from './event'
 import { formatMoney } from './money'
 import { count } from './plural'
-import { shouldPollOwner } from './status'
+import { heldAny, shouldPollOwner } from './status'
 import { verdictText } from './reading'
 import { formatTimeRange } from './time'
 
@@ -67,12 +67,12 @@ function funding(v: OwnerView): NextStep {
   if (!p?.payments_open) {
     if (more > 0) {
       return {
-        title: `Reservations closed with ${committed} of the ${t.minimum} needed.`,
+        title: `Only ${committed} of the ${t.minimum} needed reserved.`,
         detail: 'The class is being cancelled: holds are released and any payment refunded.',
         action: { kind: 'none' },
       }
     }
-    return { title: `${committed} reserved — confirming payments.`, detail: 'Reservations have closed; the result follows in a moment.', action: { kind: 'none' } }
+    return { title: `${committed} reserved — confirming payments.`, detail: 'The result follows in a moment.', action: { kind: 'none' } }
   }
   if (more === 0) return { title: `${committed} reserved — confirming payments.`, detail: 'Holds are being charged.', action: { kind: 'share' } }
   return { title: `${committed} of ${t.minimum} reserved — ${more} more and it’s on.`, detail: 'Share the invite again.', action: { kind: 'share' } }
@@ -80,10 +80,11 @@ function funding(v: OwnerView): NextStep {
 
 function settling(v: OwnerView): NextStep {
   const none: NextAction = { kind: 'none' }
+  if (v.enrollments.length === 0) return { title: 'Nothing to settle.', detail: 'Nobody had reserved, so nothing was held or charged.', action: none }
+  if (!heldAny(v.enrollments)) return { title: 'Nothing to settle.', detail: 'No hold or payment went through, so nothing was charged.', action: none }
   if (v.workshop.resolution !== 'SETTLED') {
     return { title: 'PayPal is returning the money.', detail: 'Holds are released and payments refunded on their own. This page updates as each one completes.', action: none }
   }
-  if (v.enrollments.length === 0) return { title: 'Nothing to settle.', detail: 'Nobody had reserved, so nothing was held or charged.', action: none }
   return { title: 'Everything is settled.', detail: 'There is nothing else to do.', action: none }
 }
 
@@ -110,15 +111,54 @@ export function nextStep(v: OwnerView): NextStep {
   }
 }
 
-export type DecisionCounts = { kind: 'interest'; can: number; needed: number; capacity: number } | { kind: 'seats'; paid: number; reserved: number; needed: number; capacity: number }
+export type DecisionBar = { kind: 'interest'; can: number } | { kind: 'seats'; paid: number; reserved: number; taken: number }
 
-export function decisionCounts(v: OwnerView): DecisionCounts | null {
+export interface DecisionCounts {
+  bar: DecisionBar | null
+  needed: number
+  capacity: number
+  joined: number
+  charging: number
+  failed: number
+}
+
+function decisionBar(v: OwnerView): DecisionBar | null {
   const { workshop: w, tally: t, recommendation: rec } = v
   if (w.status === 'CANCELLED') return null
-  if (v.proposal) return { kind: 'seats', paid: t.paid, reserved: t.authorized + t.capturing + t.pending, needed: t.minimum, capacity: t.capacity }
+  if (v.proposal) return { kind: 'seats', paid: t.paid, reserved: t.authorized + t.capturing + t.pending, taken: t.seats_taken }
   if (v.availabilities.length === 0 || !rec.date_id) return null
-  const can = rec.per_date?.find((d) => d.date_id === rec.date_id)?.compatible?.length ?? 0
-  return { kind: 'interest', can, needed: w.minimum, capacity: w.capacity }
+  return { kind: 'interest', can: rec.per_date?.find((d) => d.date_id === rec.date_id)?.compatible?.length ?? 0 }
+}
+
+export function decisionCounts(v: OwnerView): DecisionCounts {
+  const { workshop: w, tally: t } = v
+  return {
+    bar: decisionBar(v),
+    needed: v.proposal ? t.minimum : w.minimum,
+    capacity: v.proposal ? t.capacity : w.capacity,
+    joined: t.interested,
+    charging: t.capturing + t.pending,
+    failed: t.failed,
+  }
+}
+
+export function countFacts(c: DecisionCounts): string[] {
+  const facts = [`${c.joined} joined`]
+  if (c.bar?.kind === 'seats') facts.push(`${c.bar.taken} of ${count(c.capacity, 'spot')} taken`)
+  if (c.charging) facts.push(`${count(c.charging, 'charge')} in progress`)
+  if (c.failed) facts.push(`${c.failed} failed`)
+  return facts
+}
+
+export function studioPlan(v: OwnerView): string | null {
+  const { workshop: w } = v
+  const cost = w.venue_cost
+  if (!cost || v.proposal || w.status !== 'COLLECTING' || w.price.minor <= 0) return null
+  const seats = w.break_even_seats || Math.ceil(cost.minor / w.price.minor)
+  const money = (minor: number, currency: string) => usd(minor, currency)
+  const studio = `Your studio costs ${money(cost.minor, cost.currency)}`
+  const price = money(w.price.minor, w.price.currency)
+  return seats <= w.capacity ? `${studio} — ${seats} × ${price} covers it before fees` : `${studio} — even ${w.capacity} × ${price} falls short before fees`
 }
 
 export interface Coverage {

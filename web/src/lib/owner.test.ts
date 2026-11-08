@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { OwnerView } from '../api'
-import { cancellationDetail, cellNotes, cellStatus, dateColumns, decisionCounts, nextStep, ownerRefresh, studioCovered } from './owner'
+import { cancellationDetail, cellNotes, cellStatus, dateColumns, countFacts, decisionCounts, nextStep, ownerRefresh, studioCovered, studioPlan } from './owner'
 
 const usd = (minor: number) => ({ minor, currency: 'USD', value: (minor / 100).toFixed(2) })
 
@@ -82,29 +82,57 @@ describe('nextStep', () => {
 describe('decisionCounts', () => {
   const proposal = { id: 'p', version: 1, date_id: 'sat', price: usd(4500), minimum: 3, capacity: 6, opens_at: '', closes_at: '2026-11-13T23:00:00Z', starts_at: '2026-11-14T15:00:00Z', payments_open: true }
 
-  it('shows nothing before anyone answered', () => {
-    expect(decisionCounts(view())).toBeNull()
+  it('still counts who joined before anyone answered', () => {
+    expect(decisionCounts(view({ tally: { ...view().tally, interested: 2 } }))).toEqual({ bar: null, needed: 3, capacity: 6, joined: 2, charging: 0, failed: 0 })
   })
 
   it('counts who can come on the best date while the date is open', () => {
     const v = view({
       availabilities: answered(['p1', 'p2']),
       recommendation: { date_id: 'sat', meets_minimum: false, per_date: [{ date_id: 'sat', compatible: ['p1', 'p2'], blockers: null }], explanation: '', explanation_pending: false },
+      tally: { ...view().tally, interested: 6 },
     })
-    expect(decisionCounts(v)).toEqual({ kind: 'interest', can: 2, needed: 3, capacity: 6 })
+    expect(decisionCounts(v)).toEqual({ bar: { kind: 'interest', can: 2 }, needed: 3, capacity: 6, joined: 6, charging: 0, failed: 0 })
   })
 
-  it('counts holds and payments once reservations open, with the terms people agreed to', () => {
+  it('counts holds, payments, charges in progress and failures once reservations open, with the terms people agreed to', () => {
     const v = view({
       workshop: { ...view().workshop, status: 'FUNDING' },
       proposal: { ...proposal, minimum: 4, capacity: 8 },
-      tally: { ...view().tally, authorized: 1, capturing: 1, pending: 1, paid: 1, minimum: 4, capacity: 8 },
+      tally: { ...view().tally, interested: 7, authorized: 1, capturing: 1, pending: 1, paid: 1, failed: 1, seats_taken: 5, minimum: 4, capacity: 8 },
     })
-    expect(decisionCounts(v)).toEqual({ kind: 'seats', paid: 1, reserved: 3, needed: 4, capacity: 8 })
+    expect(decisionCounts(v)).toEqual({ bar: { kind: 'seats', paid: 1, reserved: 3, taken: 5 }, needed: 4, capacity: 8, joined: 7, charging: 2, failed: 1 })
   })
 
-  it('shows nothing once cancelled', () => {
-    expect(decisionCounts(view({ workshop: { ...view().workshop, status: 'CANCELLED' }, proposal: { ...proposal, payments_open: false } }))).toBeNull()
+  it('drops the bar once cancelled but keeps the counts', () => {
+    const v = view({ workshop: { ...view().workshop, status: 'CANCELLED' }, proposal: { ...proposal, payments_open: false }, tally: { ...view().tally, interested: 4, pending: 1 } })
+    expect(decisionCounts(v)).toEqual({ bar: null, needed: 3, capacity: 6, joined: 4, charging: 1, failed: 0 })
+  })
+})
+
+describe('countFacts', () => {
+  it('lists who joined and the spots taken, and charges in progress or failures only when there are some', () => {
+    const base = { needed: 3, capacity: 6, joined: 6, charging: 0, failed: 0 }
+    expect(countFacts({ ...base, bar: { kind: 'interest', can: 2 } })).toEqual(['6 joined'])
+    expect(countFacts({ ...base, bar: { kind: 'seats', paid: 1, reserved: 1, taken: 2 } })).toEqual(['6 joined', '2 of 6 spots taken'])
+    expect(countFacts({ ...base, joined: 1, charging: 1, failed: 2, bar: { kind: 'seats', paid: 0, reserved: 1, taken: 1 } })).toEqual(['1 joined', '1 of 6 spots taken', '1 charge in progress', '2 failed'])
+  })
+})
+
+describe('studioPlan', () => {
+  it('says how many payments cover the studio while the date is still open', () => {
+    expect(studioPlan(view())).toBe('Your studio costs $120 — 3 × $45 covers it before fees')
+    expect(studioPlan(view({ workshop: { ...view().workshop, break_even_seats: undefined, price: usd(2500) } }))).toBe('Your studio costs $120 — 5 × $25 covers it before fees')
+  })
+
+  it('says when even a full class falls short', () => {
+    expect(studioPlan(view({ workshop: { ...view().workshop, capacity: 2, break_even_seats: 3 } }))).toBe('Your studio costs $120 — even 2 × $45 falls short before fees')
+  })
+
+  it('is absent without a studio cost, without a price, or once a date is chosen', () => {
+    expect(studioPlan(view({ workshop: { ...view().workshop, venue_cost: undefined } }))).toBeNull()
+    expect(studioPlan(view({ workshop: { ...view().workshop, price: usd(0), break_even_seats: undefined } }))).toBeNull()
+    expect(studioPlan(view({ workshop: { ...view().workshop, status: 'FUNDING' }, proposal: { id: 'p', version: 1, date_id: 'sat', price: usd(4500), minimum: 3, capacity: 6, opens_at: '', closes_at: '', starts_at: '', payments_open: true } }))).toBeNull()
   })
 })
 
@@ -144,12 +172,13 @@ describe('nextStep never gets ahead of the money', () => {
     expect(nextStep(funding({ authorized: 0, capturing: 3 })).title).toBe('3 reserved — confirming payments.')
   })
 
-  it('says the class falls short once reservations closed below the minimum', () => {
+  it('says the class falls short once reservations closed below the minimum, without repeating that they closed', () => {
     expect(nextStep(funding({ authorized: 1 }, false))).toEqual({
-      title: 'Reservations closed with 1 of the 3 needed.',
+      title: 'Only 1 of the 3 needed reserved.',
       detail: 'The class is being cancelled: holds are released and any payment refunded.',
       action: { kind: 'none' },
     })
+    expect(nextStep(funding({ authorized: 3 }, false))).toEqual({ title: '3 reserved — confirming payments.', detail: 'The result follows in a moment.', action: { kind: 'none' } })
   })
 
   it('puts a payment that needs a check first', () => {
@@ -173,6 +202,12 @@ describe('nextStep never gets ahead of the money', () => {
       action: { kind: 'none' },
     })
     expect(cancelled('SETTLED', [])).toEqual({ title: 'Nothing to settle.', detail: 'Nobody had reserved, so nothing was held or charged.', action: { kind: 'none' } })
+    expect(cancelled('RESOLVING', [])).toEqual({ title: 'Nothing to settle.', detail: 'Nobody had reserved, so nothing was held or charged.', action: { kind: 'none' } })
+    expect(cancelled('RESOLVING', [e('SEAT_RESERVED'), e('RELEASED')])).toEqual({
+      title: 'Nothing to settle.',
+      detail: 'No hold or payment went through, so nothing was charged.',
+      action: { kind: 'none' },
+    })
   })
 
   it('says when nobody can make any date yet', () => {

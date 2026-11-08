@@ -4,25 +4,21 @@ import { demoParticipants, demoStep, type DemoParticipant, type DemoStep } from 
 import { ButtonLink, Icon, Pill, Tile } from './ui'
 
 function Guide({ step, people, guided }: { step: DemoStep | null; people: DemoParticipant[]; guided: boolean }) {
-  const [open, setOpen] = useState(guided)
-  const [was, setWas] = useState(guided)
-  if (was !== guided) {
-    setWas(guided)
-    setOpen(guided)
-  }
+  const [openAtFirst] = useState(guided)
   return (
-    <Tile as="section" aria-labelledby="demo-guide-title" className="ring-2 ring-brand/40 sm:p-6">
-      <details open={open} onToggle={(e) => setOpen(e.currentTarget.open)} className="group">
-        <summary className="-m-2 flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-control p-2 [&::-webkit-details-marker]:hidden">
-          <span className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-            <h2 id="demo-guide-title" className="text-xl">
-              You are Maya now
-            </h2>
-            <Pill tone="attention">Demo workshop · prepared data</Pill>
-          </span>
-          <Icon name="arrowRight" className="shrink-0 text-brand transition-transform duration-200 group-open:rotate-90" />
+    <Tile as="section" aria-labelledby="demo-guide-title" className="flex flex-col gap-2 ring-2 ring-brand/40 sm:p-6">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <h2 id="demo-guide-title" className="text-xl">
+          You are Maya now
+        </h2>
+        <Pill tone="attention">Demo workshop · prepared data</Pill>
+      </div>
+      <details open={openAtFirst || undefined} className="group">
+        <summary className="-mx-2 flex min-h-11 w-fit cursor-pointer list-none items-center gap-2 rounded-control px-2 font-semibold text-brand [&::-webkit-details-marker]:hidden">
+          <Icon name="arrowRight" size={18} className="shrink-0 transition-transform duration-200 group-open:rotate-90" />
+          Demo steps
         </summary>
-        <div className="mt-4 flex flex-col gap-3">
+        <div className="mt-2 flex flex-col gap-3">
           <div aria-live="polite">
             {step && (
               <p className="flex max-w-prose items-start gap-2 rounded-control bg-brand-wash px-4 py-3 font-semibold text-ink">

@@ -63,10 +63,10 @@ claude mcp add --transport http commitpool https://3-209-60-155.sslip.io/mcp
 ```
 
 What each side's assistant can do:
-- **Organizer:** create a class, ask who can come and why, and open reservations after previewing the exact terms.
+- **Organizer:** create a class, ask who can come and why, and open reservations once the organizer taps Approve on the exact terms, on their own page.
 - **Participant:** join, pass on when they can come, and get their PayPal link.
 
-No tool moves money: only the person's own approval at PayPal places a hold. See [docs/mcp.md](docs/mcp.md).
+No tool moves money or approves anything: only the person's own approval at PayPal places a hold, and only the organizer's tap opens reservations. See [docs/mcp.md](docs/mcp.md).
 
 ## Architecture
 

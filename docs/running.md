@@ -78,7 +78,7 @@ default.
 | `COMMITPOOL_SANDBOX_MOCKS` | `1` enables **Fail next charge** and the `PayPal-Mock-Response` header. Refused unless `PAYPAL_BASE_URL` is exactly the Sandbox URL. |
 | `COMMITPOOL_MAILER`, `COMMITPOOL_MAIL_FROM` | `log` (default) logs notifications with a masked address and does not send them. `ses` sends them with Amazon SES v2 and the default AWS credentials, from `COMMITPOOL_MAIL_FROM`. That must be a verified sender identity, optionally with a name: `CommitPool <hello@example.com>`. |
 | `COMMITPOOL_RATE_LIMIT` | How many writes (POST, PUT) one client address may send a minute, in bursts of half that. `off` turns it off. Default `120`. Reads are never limited. |
-| `COMMITPOOL_MCP_SECRET` | Signs the MCP server's confirmation tokens. Without it a random key per process is used, so a preview made before a restart must be made again. |
+| `COMMITPOOL_MCP_SECRET` | Signs the organizer approval cookie and the landing chat's questions. Without it a random key per process is used, so an approve page opened before a restart must be reloaded before Approve works. |
 | `E2E_FAKE_PAYPAL` | `1` runs an in-process fake PayPal for the end-to-end tests. Only a binary built with `-tags e2e` carries it (`scripts/e2e.sh` builds one). It is refused next to real PayPal credentials or with a `COMMITPOOL_BASE_URL` that is not localhost. |
 
 ## Sandbox accounts

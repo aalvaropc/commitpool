@@ -31,6 +31,7 @@ type Meta struct {
 	InputTokens  int64  `json:"input_tokens"`
 	OutputTokens int64  `json:"output_tokens"`
 	Fallback     bool   `json:"fallback"`
+	Cached       bool   `json:"cached,omitempty"`
 }
 
 type ExplainInput struct {

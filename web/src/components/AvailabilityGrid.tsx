@@ -1,6 +1,5 @@
 import type { Availability, DateSummary, OwnerView, ParticipantRef } from '../api'
-import { cellNotes, dateColumns, type DateColumn } from '../lib/owner'
-import { verdictText } from '../lib/reading'
+import { cellNotes, cellStatus, dateColumns, type DateColumn } from '../lib/owner'
 import { Avatar, Button, Pill, Tile, VerdictChip } from './ui'
 
 interface Props {
@@ -12,15 +11,17 @@ const markTone = (c: DateColumn, meets: boolean) => (c.mark === 'Recommended' ? 
 const wrap = 'min-w-0 [overflow-wrap:anywhere]'
 
 function Cell({ a, dateId, summary }: { a: Availability; dateId: string; summary?: DateSummary }) {
+  const status = cellStatus(a, dateId)
+  if (!status.chip && !status.pill) return <span className="text-sm text-ink-soft">Not mentioned</span>
   const v = (a.corrected ?? a.interpretation).per_date.find((x) => x.candidate_date_id === dateId)
-  if (!v) return <span className="text-sm text-ink-soft">Not mentioned</span>
   const notes = cellNotes(a, dateId, summary)
   return (
     <span className="flex flex-col items-start gap-1">
-      <VerdictChip verdict={v.verdict}>{verdictText(v)}</VerdictChip>
+      {status.chip ? <VerdictChip verdict={status.chip.verdict}>{status.chip.text}</VerdictChip> : <Pill tone="attention">{status.pill}</Pill>}
+      {status.readAs && <span className="text-xs text-ink-soft">{status.readAs}</span>}
       {notes.fit && <span className="text-xs font-semibold text-ink">{notes.fit}</span>}
       {notes.claudeRead && <span className="text-xs text-ink-soft">{notes.claudeRead}</span>}
-      {v.evidence && <span className={`text-xs text-ink-soft ${wrap}`}>“{v.evidence}”</span>}
+      {v?.evidence && <span className={`text-xs text-ink-soft ${wrap}`}>“{v.evidence}”</span>}
     </span>
   )
 }

@@ -6,6 +6,7 @@ import {
   formatClock,
   formatDateRange,
   formatDay,
+  formatWeekday,
   formatMoment,
   formatTimeRange,
   timeLeft,
@@ -122,5 +123,13 @@ describe('earlier', () => {
   it('picks the instant that comes first', () => {
     expect(earlier('2026-10-27T21:12:00Z', '2026-10-27T20:57:00Z')).toBe('2026-10-27T20:57:00Z')
     expect(earlier('2026-10-27T20:00:00-05:00', '2026-10-28T02:00:00Z')).toBe('2026-10-27T20:00:00-05:00')
+  })
+})
+
+describe('formatWeekday', () => {
+  it('names the day of the week in the workshop’s time zone', () => {
+    expect(formatWeekday('2026-11-14T15:00:00Z', 'America/New_York')).toBe('Saturday')
+    expect(formatWeekday('2026-11-15T03:00:00Z', 'America/Los_Angeles')).toBe('Saturday')
+    expect(formatWeekday('2026-11-15T03:00:00Z', 'Europe/London')).toBe('Sunday')
   })
 })

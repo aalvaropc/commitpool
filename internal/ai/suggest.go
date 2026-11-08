@@ -36,6 +36,7 @@ type SuggestInput struct {
 	Missing       int
 	Question      string
 	Condition     string
+	Options       string
 }
 
 func firstName(name string) string {
@@ -50,10 +51,14 @@ func PlainSuggestion(in SuggestInput) string {
 	switch in.Kind {
 	case "clarify":
 		q := in.Question
-		if q == "" || HasContact(q) || len([]rune(q)) > 160 {
-			q = "Which of the dates and times work for you?"
+		if q == "" || HasContact(q) || len([]rune(q)) > 200 {
+			q = "Can you make one of the dates, and which?"
 		}
-		return hi + q + " Answer on your CommitPool page and it updates the plan."
+		when := ""
+		if in.Options != "" && (in.Hours == "" || !strings.Contains(q, in.Hours)) {
+			when = " The class runs " + in.Options + "."
+		}
+		return hi + q + when + " Answer on your CommitPool page."
 	case "condition":
 		return fmt.Sprintf("%s%s runs %s, and you said you could come %s. Is there any way you could make it?", hi, in.Date, in.Hours, in.Condition)
 	case "reserve":
@@ -87,6 +92,9 @@ func SuggestFacts(in SuggestInput) string {
 	}
 	if in.Missing > 0 {
 		fmt.Fprintf(&sb, "More people needed: %d\n", in.Missing)
+	}
+	if in.Options != "" {
+		fmt.Fprintf(&sb, "Dates and hours the class can run: %s\n", jsonString(in.Options))
 	}
 	if in.Question != "" {
 		fmt.Fprintf(&sb, "Open question: %s\n", jsonString(in.Question))

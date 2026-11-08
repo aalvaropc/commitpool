@@ -100,6 +100,13 @@ export function formatDay(iso: string, timeZone: string): string {
   return dayText(wallClock(Date.parse(iso), timeZone))
 }
 
+const WEEKDAYS: Record<string, string> = { Mon: 'Monday', Tue: 'Tuesday', Wed: 'Wednesday', Thu: 'Thursday', Fri: 'Friday', Sat: 'Saturday', Sun: 'Sunday' }
+
+export function formatWeekday(iso: string, timeZone: string): string {
+  const short = wallClock(Date.parse(iso), timeZone).weekday
+  return WEEKDAYS[short] ?? short
+}
+
 export function formatClock(iso: string, timeZone: string): string {
   const w = wallClock(Date.parse(iso), timeZone)
   return clockText(w.hour, w.minute)

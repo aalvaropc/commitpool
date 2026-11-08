@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { api, type Availability, type CandidateDate, type ConditionType, type DateVerdict, type Verdict } from '../api'
 import { correctedReading, saveButton, verdictText } from '../lib/reading'
 import { formatDateRange } from '../lib/time'
-import { Button, Notice, Pill, SegmentedControl, VerdictChip, inputClass, type Segment } from './ui'
+import { Button, Icon, Notice, Pill, SegmentedControl, VerdictChip, inputClass, type Segment } from './ui'
 
 interface Props {
   token: string
@@ -79,7 +79,7 @@ export default function ReadingEditor({ token, availability, dates, timeZone, ed
       {reading.needs_clarification &&
         (asked ? (
           <Notice tone="attention" title="One detail is unclear">
-            <p>Answer Claude’s question above, or set each date below yourself and confirm it.</p>
+            <p>Answer Claude’s question above, or set each date yourself under Edit reading and confirm it.</p>
           </Notice>
         ) : (
           <Notice tone="attention" title="One detail is unclear">
@@ -90,74 +90,80 @@ export default function ReadingEditor({ token, availability, dates, timeZone, ed
                 ))}
               </ul>
             )}
-            <p>Until it is answered your message counts for no date. Check each date below and confirm it, or rewrite your message.</p>
+            <p>Until it is answered your message counts for no date.{editable ? ' Check each date under Edit reading and confirm it, or rewrite your message.' : ''}</p>
           </Notice>
         ))}
 
-      <ul className="flex flex-col gap-3">
-        {draft.map((v, i) => {
-          const saved = reading.per_date.find((x) => x.candidate_date_id === v.candidate_date_id) ?? v
-          return (
-            <li key={v.candidate_date_id} className="flex flex-col gap-3 rounded-control p-3.5 ring-1 ring-line ring-inset sm:p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="font-semibold">{label(v.candidate_date_id)}</p>
-                <VerdictChip verdict={saved.verdict}>{verdictText(saved)}</VerdictChip>
-              </div>
-              {saved.evidence && <p className="text-sm text-ink-soft">From your message: <span className="font-medium">“{saved.evidence}”</span></p>}
-              {editable && (
-                <div className="flex flex-col gap-2">
-                  <SegmentedControl
-                    legend={`Can you come on ${label(v.candidate_date_id)}?`}
-                    name={`verdict-${v.candidate_date_id}`}
-                    value={v.verdict}
-                    options={VERDICTS}
-                    onChange={(verdict) => setVerdict(i, verdict)}
-                  />
-                  {v.verdict === 'conditional' && (
-                    <div className="flex flex-wrap items-center gap-2">
-                      <label htmlFor={`condition-${v.candidate_date_id}`} className="sr-only">
-                        Condition for {label(v.candidate_date_id)}
-                      </label>
-                      <select
-                        id={`condition-${v.candidate_date_id}`}
-                        value={v.condition.type}
-                        onChange={(e) => update(i, { condition: { ...v.condition, type: e.target.value as ConditionType } })}
-                        className={`${inputClass} w-auto`}
-                      >
-                        <option value="end_before">if it ends by</option>
-                        <option value="start_after">if it starts at or after</option>
-                      </select>
-                      <label htmlFor={`time-${v.candidate_date_id}`} className="sr-only">
-                        Time for {label(v.candidate_date_id)}
-                      </label>
-                      <input
-                        id={`time-${v.candidate_date_id}`}
-                        type="time"
-                        required
-                        value={v.condition.time}
-                        onChange={(e) => update(i, { condition: { ...v.condition, time: e.target.value } })}
-                        className={`${inputClass} w-36`}
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
-            </li>
-          )
-        })}
+      <ul className="flex flex-col gap-3" aria-label="Your answer for each date">
+        {reading.per_date.map((v) => (
+          <li key={v.candidate_date_id} className="flex flex-col gap-2 rounded-control p-3.5 ring-1 ring-line ring-inset sm:p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="font-semibold">{label(v.candidate_date_id)}</p>
+              <VerdictChip verdict={v.verdict}>{verdictText(v)}</VerdictChip>
+            </div>
+            {v.evidence && <p className="text-sm text-ink-soft">From your message: <span className="font-medium">“{v.evidence}”</span></p>}
+          </li>
+        ))}
       </ul>
 
       {editable && (
-        <div className="flex flex-col items-start gap-3">
-          <Button variant={reading.needs_clarification && !asked ? 'primary' : 'secondary'} onClick={save} disabled={!button.enabled} busy={busy} busyLabel="Saving…">
-            {button.label}
-          </Button>
-          {error && (
-            <Notice tone="attention" role="alert">
-              {error}
-            </Notice>
-          )}
-        </div>
+        <details open={reading.needs_clarification || undefined} className="group rounded-control ring-1 ring-line ring-inset">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-control px-4 py-2.5 font-semibold [&::-webkit-details-marker]:hidden">
+            Edit reading
+            <Icon name="arrowRight" size={18} className="shrink-0 text-brand transition-transform duration-200 group-open:rotate-90" />
+          </summary>
+          <div className="flex flex-col gap-4 px-4 pt-1 pb-4">
+            {draft.map((v, i) => (
+              <div key={v.candidate_date_id} className="flex flex-col gap-2">
+                <SegmentedControl
+                  legend={`Can you come on ${label(v.candidate_date_id)}?`}
+                  legendHidden={false}
+                  name={`verdict-${v.candidate_date_id}`}
+                  value={v.verdict}
+                  options={VERDICTS}
+                  onChange={(verdict) => setVerdict(i, verdict)}
+                />
+                {v.verdict === 'conditional' && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label htmlFor={`condition-${v.candidate_date_id}`} className="sr-only">
+                      Condition for {label(v.candidate_date_id)}
+                    </label>
+                    <select
+                      id={`condition-${v.candidate_date_id}`}
+                      value={v.condition.type}
+                      onChange={(e) => update(i, { condition: { ...v.condition, type: e.target.value as ConditionType } })}
+                      className={`${inputClass} w-auto`}
+                    >
+                      <option value="end_before">if it ends by</option>
+                      <option value="start_after">if it starts at or after</option>
+                    </select>
+                    <label htmlFor={`time-${v.candidate_date_id}`} className="sr-only">
+                      Time for {label(v.candidate_date_id)}
+                    </label>
+                    <input
+                      id={`time-${v.candidate_date_id}`}
+                      type="time"
+                      required
+                      value={v.condition.time}
+                      onChange={(e) => update(i, { condition: { ...v.condition, time: e.target.value } })}
+                      className={`${inputClass} w-36`}
+                    />
+                  </div>
+                )}
+              </div>
+            ))}
+            <div className="flex flex-col items-start gap-3">
+              <Button variant={reading.needs_clarification && !asked ? 'primary' : 'secondary'} onClick={save} disabled={!button.enabled} busy={busy} busyLabel="Saving…">
+                {button.label}
+              </Button>
+              {error && (
+                <Notice tone="attention" role="alert">
+                  {error}
+                </Notice>
+              )}
+            </div>
+          </div>
+        </details>
       )}
     </div>
   )

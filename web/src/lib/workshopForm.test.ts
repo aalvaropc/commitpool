@@ -132,9 +132,9 @@ describe('date slots', () => {
 
 describe('breakEven', () => {
   it('suggests how many people cover the studio', () => {
-    expect(breakEven('45', '120')).toEqual({ seats: 3, text: '3 × $45 = $135 covers your $120 studio' })
-    expect(breakEven('40', '120')).toEqual({ seats: 3, text: '3 × $40 = $120 covers your $120 studio' })
-    expect(breakEven('12.50', '100')).toEqual({ seats: 8, text: '8 × $12.50 = $100 covers your $100 studio' })
+    expect(breakEven('45', '120')).toEqual({ seats: 3, text: '3 × $45 = $135 covers your $120 studio before fees' })
+    expect(breakEven('40', '120')).toEqual({ seats: 3, text: '3 × $40 = $120 covers your $120 studio before fees' })
+    expect(breakEven('12.50', '100')).toEqual({ seats: 8, text: '8 × $12.50 = $100 covers your $100 studio before fees' })
   })
 
   it('only suggests what the spots allow', () => {

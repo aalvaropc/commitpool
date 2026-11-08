@@ -72,7 +72,7 @@ export default function Home() {
                 The money comes last.
               </h2>
               <p className="max-w-[34rem] text-lead text-ink-soft">
-                Reserving is a hold on PayPal and nothing is charged. When enough people have reserved, every hold is charged. Not enough by the deadline? Every hold is released.
+                Reserving is a hold on PayPal and nothing is charged. When enough people have reserved, every hold is charged. Not enough by the deadline? Every hold is released and any charge refunded.
               </p>
             </div>
             <div className="grid gap-8 sm:grid-cols-2">

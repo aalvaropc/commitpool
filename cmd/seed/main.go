@@ -46,7 +46,7 @@ func main() {
 	flag.StringVar(&opts.Price, "price", "", "price per person in USD (default: the scenario's 45.00)")
 	flag.StringVar(&opts.Timezone, "timezone", "America/New_York", "IANA time zone of the workshop")
 	flag.IntVar(&opts.WindowMin, "window-min", 1440, "minutes reservations stay open, counted from when they open")
-	flag.BoolVar(&opts.OpenPayments, "open-payments", false, "also open reservations on the recommended date")
+	flag.BoolVar(&opts.OpenPayments, "open-payments", false, "also answer Claude's questions and open reservations on the recommended date")
 	flag.Parse()
 	opts.Now = time.Now()
 
@@ -102,6 +102,15 @@ func run(ctx context.Context, client *http.Client, opts options, out io.Writer) 
 	for _, p := range people {
 		res.Participants = append(res.Participants, participant{Name: p.Name, Message: p.Message, URL: p.URL})
 		fmt.Fprintf(out, "  %-12s %q\n               %s\n", p.Name, p.Message, p.URL)
+	}
+	if opts.OpenPayments && len(sc.Replies) > 0 {
+		if err := demo.Reply(ctx, api, people, sc.Replies, nil); err != nil {
+			return res, err
+		}
+		fmt.Fprintln(out, "\nAnswers to Claude's questions, sent so the date can open:")
+		for _, r := range sc.Replies {
+			fmt.Fprintf(out, "  %-12s %q\n", r.Name, r.Message)
+		}
 	}
 
 	var view struct {

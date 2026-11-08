@@ -89,6 +89,7 @@ func (s *server) suggestions(ctx context.Context, st workshopState, rec domain.R
 			if r := readings[sg.ParticipantID]; len(r.Ambiguities) > 0 {
 				in.Question = r.Ambiguities[0].Question
 			}
+			in.Options = classOptions(st.dates, st.loc)
 			reason = name + "’s message needs clarifying."
 		case domain.SuggestCondition:
 			in.Condition = conditionText(sg.Blocker)
@@ -107,6 +108,34 @@ func (s *server) suggestions(ctx context.Context, st workshopState, rec domain.R
 		out = append(out, suggestionDTO{Kind: string(sg.Kind), ParticipantID: sg.ParticipantID, Name: name, Reason: reason, Message: message, Pending: pending})
 	}
 	return out
+}
+
+func classOptions(dates []store.CandidateDateRow, loc *time.Location) string {
+	if len(dates) == 0 {
+		return ""
+	}
+	hours := func(d store.CandidateDateRow) string {
+		return present.Clock(d.StartsAt.In(loc)) + "–" + present.Clock(d.EndsAt.In(loc))
+	}
+	same := true
+	for _, d := range dates[1:] {
+		same = same && hours(d) == hours(dates[0])
+	}
+	days := make([]string, len(dates))
+	for i, d := range dates {
+		days[i] = present.Day(d.StartsAt, loc)
+		if !same {
+			days[i] += ", " + hours(d)
+		}
+	}
+	list := days[len(days)-1]
+	if len(days) > 1 {
+		list = strings.Join(days[:len(days)-1], "; ") + " or " + list
+	}
+	if same {
+		list += ", " + hours(dates[0])
+	}
+	return list
 }
 
 func plural(n int, one, many string) string {
@@ -174,6 +203,9 @@ func (s *server) writeNudge(ctx context.Context, st workshopState, in ai.Suggest
 	if err != nil {
 		s.Log.Warn("suggest a nudge; using the plain message", "workshop_id", st.w.ID, "error", err)
 		return plain, s.Clock.Now().Add(explanationRetryAfter)
+	}
+	if in.Kind == string(domain.SuggestClarify) {
+		return text, time.Time{}
 	}
 	others := make([]store.CandidateDateRow, 0, len(st.dates))
 	for _, d := range st.dates {

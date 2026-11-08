@@ -120,6 +120,10 @@ func (s *server) submitAvailability(w http.ResponseWriter, r *http.Request) erro
 	if sent >= maxSubmissionsPerParticipant {
 		return conflict("too_many_submissions", "You have sent your availability many times already; correct the reading instead.")
 	}
+	earlier, err := s.earlierAnswer(ctx, p.ID)
+	if err != nil {
+		return err
+	}
 	release, err := s.acquireAI(ctx)
 	if err != nil {
 		return err
@@ -128,7 +132,7 @@ func (s *server) submitAvailability(w http.ResponseWriter, r *http.Request) erro
 	actx, cancel := context.WithTimeout(ctx, interpretTimeout)
 	defer cancel()
 	in, meta, err := s.AI.Interpret(actx, ai.InterpretInput{
-		WorkshopTitle: ws.Title, Timezone: ws.Timezone, Dates: st.dateOptions(), Message: message,
+		WorkshopTitle: ws.Title, Timezone: ws.Timezone, Dates: st.dateOptions(), Message: message, Earlier: earlier,
 	})
 	if err != nil {
 		s.Log.Error("interpret availability", "workshop_id", ws.ID, "participant_id", p.ID, "error", err)
@@ -158,6 +162,26 @@ func (s *server) submitAvailability(w http.ResponseWriter, r *http.Request) erro
 	}
 	writeJSON(w, http.StatusCreated, map[string]availabilityDTO{"availability": availabilityView(saved, clean)})
 	return nil
+}
+
+func (s *server) earlierAnswer(ctx context.Context, participantID string) (*ai.EarlierAnswer, error) {
+	a, err := s.Store.LatestAvailabilityByParticipant(ctx, participantID)
+	if err != nil || a == nil {
+		return nil, err
+	}
+	in, err := inForce(*a)
+	if err != nil {
+		return nil, err
+	}
+	out := &ai.EarlierAnswer{Message: a.RawMessage, Questions: []string{}}
+	if in.NeedsClarification {
+		for _, q := range in.Ambiguities {
+			if q.Question != "" {
+				out.Questions = append(out.Questions, q.Question)
+			}
+		}
+	}
+	return out, nil
 }
 
 func (s *server) correctAvailability(w http.ResponseWriter, r *http.Request) error {

@@ -18,11 +18,17 @@ type DateOption struct {
 	StartsAt time.Time
 }
 
+type EarlierAnswer struct {
+	Message   string
+	Questions []string
+}
+
 type InterpretInput struct {
 	WorkshopTitle string
 	Timezone      string
 	Dates         []DateOption
 	Message       string
+	Earlier       *EarlierAnswer
 }
 
 type Meta struct {

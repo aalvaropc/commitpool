@@ -10,9 +10,13 @@ import (
 
 	"github.com/aalvaropc/commitpool/internal/ai"
 	"github.com/aalvaropc/commitpool/internal/config"
+	"github.com/aalvaropc/commitpool/internal/demo"
+	"github.com/aalvaropc/commitpool/internal/domain"
+	"github.com/aalvaropc/commitpool/internal/present"
 )
 
-func TestBedrock_Live(t *testing.T) {
+func liveBedrock(t *testing.T) (*ai.Bedrock, context.Context) {
+	t.Helper()
 	if os.Getenv("COMMITPOOL_LIVE_AI") != "1" {
 		t.Skip("set COMMITPOOL_LIVE_AI=1, AWS_REGION and AWS credentials to call Bedrock for real")
 	}
@@ -26,8 +30,8 @@ func TestBedrock_Live(t *testing.T) {
 	if effort == "none" {
 		effort = ""
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	t.Cleanup(cancel)
 
 	b, err := ai.NewBedrock(ctx, ai.BedrockConfig{
 		Region: region, Model: model, FallbackModel: fallback, Effort: effort,
@@ -36,6 +40,11 @@ func TestBedrock_Live(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewBedrock: %v", err)
 	}
+	return b, ctx
+}
+
+func TestBedrock_Live(t *testing.T) {
+	b, ctx := liveBedrock(t)
 
 	in, meta, err := b.Interpret(ctx, ai.InterpretInput{
 		WorkshopTitle: "Go for operators",
@@ -95,4 +104,84 @@ func envOr(name, def string) string {
 		return v
 	}
 	return def
+}
+
+func mayaDates(t *testing.T) []ai.DateOption {
+	t.Helper()
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sat := time.Date(2026, 11, 21, demo.Maya.StartHour, 0, 0, 0, ny)
+	var out []ai.DateOption
+	for i, id := range []string{"sat", "sun"} {
+		start := sat.AddDate(0, 0, i)
+		end := start.Add(time.Duration(demo.Maya.DurationMin) * time.Minute)
+		out = append(out, ai.DateOption{ID: id, Label: present.DateLabel(start, end, ny), StartsAt: start})
+	}
+	return out
+}
+
+func checkLiveReading(t *testing.T, who string, want ai.Scripted, got domain.Interpretation) {
+	t.Helper()
+	if want.Question != "" {
+		if !got.NeedsClarification || len(got.Ambiguities) == 0 {
+			t.Errorf("%s: reading %+v, want a question before counting them", who, got)
+			return
+		}
+		q := got.Ambiguities[0].Question
+		if !strings.Contains(q, "10") || !strings.Contains(q, "12") {
+			t.Errorf("%s: question %q does not name the class hours 10 AM–12 PM", who, q)
+		}
+		return
+	}
+	if got.NeedsClarification {
+		t.Errorf("%s: reading needs clarification (%+v), want a clear one", who, got.Ambiguities)
+	}
+	for i, w := range want.Verdicts {
+		if i >= len(got.PerDate) {
+			t.Errorf("%s: no verdict for date %d in %+v", who, i, got.PerDate)
+			continue
+		}
+		v := got.PerDate[i]
+		cond := w.Condition
+		if cond.Type == "" {
+			cond.Type = domain.ConditionNone
+		}
+		if v.Verdict != w.Verdict || v.Condition != cond {
+			t.Errorf("%s: date %d = %s %+v, want %s %+v", who, i, v.Verdict, v.Condition, w.Verdict, cond)
+		}
+	}
+}
+
+func TestBedrock_LiveMaya(t *testing.T) {
+	b, ctx := liveBedrock(t)
+	dates := mayaDates(t)
+	read := func(message string, earlier *ai.EarlierAnswer) domain.Interpretation {
+		t.Helper()
+		in, meta, err := b.Interpret(ctx, ai.InterpretInput{WorkshopTitle: demo.Maya.Title, Timezone: "America/New_York", Dates: dates, Message: message, Earlier: earlier})
+		if err != nil {
+			t.Fatalf("Interpret(%q): %v", message, err)
+		}
+		t.Logf("%q -> %+v (%s)", message, in, meta.Model)
+		return in
+	}
+	questions := map[string][]string{}
+	for _, p := range demo.Maya.People {
+		got := read(p.Message, nil)
+		checkLiveReading(t, p.Name, p.Expect, got)
+		for _, a := range got.Ambiguities {
+			questions[p.Name] = append(questions[p.Name], a.Question)
+		}
+	}
+	for _, r := range demo.Maya.Replies {
+		var first string
+		for _, p := range demo.Maya.People {
+			if p.Name == r.Name {
+				first = p.Message
+			}
+		}
+		got := read(r.Message, &ai.EarlierAnswer{Message: first, Questions: questions[r.Name]})
+		checkLiveReading(t, r.Name+"'s reply", r.Expect, got)
+	}
 }

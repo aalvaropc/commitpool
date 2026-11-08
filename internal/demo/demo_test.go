@@ -5,11 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/aalvaropc/commitpool/internal/ai"
 	"github.com/aalvaropc/commitpool/internal/demo"
+	"github.com/aalvaropc/commitpool/internal/domain"
+	"github.com/aalvaropc/commitpool/internal/present"
 )
 
 type call struct {
@@ -72,11 +77,126 @@ func mayaOptions() demo.Options {
 
 func TestMaya_IsTheDemoPersona(t *testing.T) {
 	m := demo.Maya
-	if m.HostName != "Maya Okafor" || m.Title != "Wheel-throwing for beginners" || m.Price != "45.00" || m.VenueCost != "120.00" || m.Minimum != 3 || m.Capacity != 6 {
+	if m.HostName != "Maya Okafor" || m.Title != "Wheel-throwing for beginners" || m.Price != "45.00" || m.VenueCost != "120.00" || m.Minimum != 3 || m.Capacity != 6 ||
+		m.StartHour != 10 || m.DurationMin != 120 {
 		t.Errorf("Maya = %+v", m)
 	}
-	if len(m.People) != 6 || !strings.Contains(m.People[len(m.People)-1].Message, "afternoon") {
-		t.Errorf("people = %+v, want six with the vague answer last", m.People)
+	if len(m.People) != 6 || m.People[len(m.People)-1].Name != "Grace Liu" || m.People[len(m.People)-1].Expect.Question == "" {
+		t.Errorf("people = %+v, want six with Grace's unclear answer last", m.People)
+	}
+	if len(m.Replies) != 1 || m.Replies[0].Name != "Grace Liu" || m.Replies[0].Expect.Follows != m.People[len(m.People)-1].Message {
+		t.Errorf("replies = %+v, want Grace's answer to Claude's question", m.Replies)
+	}
+	for _, p := range append(slices.Clone(m.People), m.Replies...) {
+		if len(p.Expect.Verdicts) != 2 {
+			t.Errorf("%s expects %d verdicts, want one for Saturday and one for Sunday", p.Name, len(p.Expect.Verdicts))
+		}
+	}
+}
+
+func mayaDates(t *testing.T) ([]domain.CandidateDate, []ai.DateOption, *time.Location) {
+	t.Helper()
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sat := demo.FirstSaturday(mayaOptions().Now, mayaOptions().WindowMin, demo.Maya.StartHour, ny)
+	var dates []domain.CandidateDate
+	var options []ai.DateOption
+	for i, id := range []string{"sat", "sun"} {
+		start := sat.AddDate(0, 0, i)
+		end := start.Add(time.Duration(demo.Maya.DurationMin) * time.Minute)
+		dates = append(dates, domain.CandidateDate{ID: id, StartsAt: start, EndsAt: end})
+		options = append(options, ai.DateOption{ID: id, Label: present.DateLabel(start, end, ny), StartsAt: start})
+	}
+	return dates, options, ny
+}
+
+func count(rec domain.Recommendation) map[string][]string {
+	out := map[string][]string{}
+	for _, d := range rec.PerDate {
+		out[d.DateID] = d.Compatible
+	}
+	return out
+}
+
+func TestMaya_SaturdayIsOneShortUntilGraceAnswers(t *testing.T) {
+	dates, options, ny := mayaDates(t)
+	w := domain.Workshop{Minimum: demo.Maya.Minimum, Capacity: demo.Maya.Capacity}
+	readings := map[string]domain.Interpretation{}
+	for _, p := range demo.Maya.People {
+		readings[p.Name] = p.Expect.Reading(options)
+	}
+	rec := domain.Recommend(w, dates, readings, ny)
+	got := count(rec)
+	if !slices.Equal(got["sat"], []string{"Ben Whitaker", "Priya Raman"}) || !slices.Equal(got["sun"], []string{"Lucía Torres", "Tomás Silva"}) {
+		t.Fatalf("compatible = %v, want Ben and Priya on Saturday, Lucía and Tomás on Sunday", got)
+	}
+	if rec.DateID != "sat" || rec.MeetsMinimum {
+		t.Errorf("recommendation = %s meeting the minimum %v, want Saturday, the earlier of a tie, one short", rec.DateID, rec.MeetsMinimum)
+	}
+	sat := rec.PerDate[0]
+	if sat.Blockers["Hannah Kim"] != "ends after 11:30" || sat.Blockers["Grace Liu"] != "needs clarification" {
+		t.Errorf("Saturday blockers = %v, want Hannah's 11:30 limit and Grace's open question", sat.Blockers)
+	}
+	collecting := w
+	collecting.Status, collecting.PaymentWindow = domain.WorkshopCollecting, 24*time.Hour
+	now := mayaOptions().Now
+	proposal := domain.Proposal{Minimum: demo.Maya.Minimum, Capacity: demo.Maya.Capacity, OpensAt: now, ClosesAt: now.Add(24 * time.Hour), StartsAt: dates[0].StartsAt}
+	if err := domain.ValidateProposal(collecting, proposal, dates[0], len(sat.Compatible)); !errors.Is(err, domain.ErrNotEnoughCompatible) {
+		t.Errorf("opening Saturday with %d compatible = %v, want refused for lack of people", len(sat.Compatible), err)
+	}
+
+	for _, r := range demo.Maya.Replies {
+		readings[r.Name] = r.Expect.Reading(options)
+	}
+	rec = domain.Recommend(w, dates, readings, ny)
+	if got := count(rec); rec.DateID != "sat" || !rec.MeetsMinimum || len(got["sat"]) != 3 || len(got["sun"]) != 2 {
+		t.Errorf("after Grace's answer: %s meets %v with %v, want Saturday with 3", rec.DateID, rec.MeetsMinimum, got)
+	}
+}
+
+func TestScript_PlaysEveryAnswerAndTheReplyInContext(t *testing.T) {
+	_, options, _ := mayaDates(t)
+	fake := ai.Fake{Script: demo.Script(demo.Maya)}
+	read := func(message string, earlier *ai.EarlierAnswer) domain.Interpretation {
+		t.Helper()
+		in, meta, err := fake.Interpret(context.Background(), ai.InterpretInput{Dates: options, Message: message, Earlier: earlier})
+		if err != nil || meta.Provider != "fake" {
+			t.Fatalf("Interpret(%q) = %+v, %v", message, meta, err)
+		}
+		return in
+	}
+	for _, p := range demo.Maya.People {
+		if got := read(p.Message, nil); !reflect.DeepEqual(got, p.Expect.Reading(options)) {
+			t.Errorf("%s read as %+v, want %+v", p.Name, got, p.Expect.Reading(options))
+		}
+	}
+	grace := demo.Maya.People[len(demo.Maya.People)-1]
+	if q := grace.Expect.Question; !strings.Contains(q, "10 AM–12 PM") || !strings.Contains(q, "Saturday") || !strings.Contains(q, "Sunday") {
+		t.Errorf("Grace's question %q does not name the class hours and both days", q)
+	}
+	reply := demo.Maya.Replies[0]
+	earlier := &ai.EarlierAnswer{Message: grace.Message, Questions: []string{grace.Expect.Question}}
+	if got := read(reply.Message, earlier); !reflect.DeepEqual(got, reply.Expect.Reading(options)) || got.NeedsClarification {
+		t.Errorf("Grace's reply read as %+v, want %+v", got, reply.Expect.Reading(options))
+	}
+	if got := read(reply.Message, nil); reflect.DeepEqual(got, reply.Expect.Reading(options)) {
+		t.Errorf("Grace's reply without her earlier message was read as if in context: %+v", got)
+	}
+}
+
+func TestReply_SendsEachReplyAsItsPerson(t *testing.T) {
+	api := &fakeAPI{}
+	people := []demo.Participant{{Name: "Priya Raman", Token: "P1"}, {Name: "Grace Liu", Token: "P6"}}
+	if err := demo.Reply(context.Background(), api, people, demo.Maya.Replies, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(api.calls) != 1 || api.calls[0].Path != "/api/v1/p/P6/availability" || api.answers()[0] != demo.Maya.Replies[0].Message {
+		t.Errorf("calls = %+v, want Grace's reply on her page", api.calls)
+	}
+	if err := demo.Reply(context.Background(), &fakeAPI{}, people[:1], demo.Maya.Replies, nil); err == nil || !strings.Contains(err.Error(), "Grace Liu") {
+		t.Errorf("err = %v, want Grace named as missing", err)
 	}
 }
 

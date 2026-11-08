@@ -10,14 +10,78 @@ import (
 	"github.com/aalvaropc/commitpool/internal/domain"
 )
 
-type Fake struct{}
+type Fake struct {
+	Script map[string]Scripted
+}
+
+type Scripted struct {
+	Verdicts        []domain.DateVerdict
+	Question        string
+	Why             string
+	HardConstraints []string
+	Preferences     []string
+	Follows         string
+}
 
 var _ Interpreter = Fake{}
 
 const (
 	fakeProvider = "fake"
 	fakeModel    = "keywords-v1"
+	scriptModel  = "script-v1"
 )
+
+var straightQuotes = strings.NewReplacer("’", "'", "‘", "'", "“", `"`, "”", `"`)
+
+func scriptKey(message string) string {
+	return strings.Join(strings.Fields(straightQuotes.Replace(message)), " ")
+}
+
+func (f Fake) scripted(in InterpretInput) (Scripted, bool) {
+	key := scriptKey(in.Message)
+	for message, s := range f.Script {
+		if scriptKey(message) != key {
+			continue
+		}
+		if s.Follows != "" && (in.Earlier == nil || scriptKey(in.Earlier.Message) != scriptKey(s.Follows)) {
+			continue
+		}
+		return s, true
+	}
+	return Scripted{}, false
+}
+
+func (s Scripted) Reading(dates []DateOption) domain.Interpretation {
+	out := domain.Interpretation{
+		PerDate:         make([]domain.DateVerdict, len(dates)),
+		HardConstraints: append([]string{}, s.HardConstraints...),
+		Preferences:     append([]string{}, s.Preferences...),
+		Ambiguities:     []domain.Ambiguity{},
+	}
+	for i, d := range dates {
+		v := domain.DateVerdict{Verdict: domain.VerdictUnknown}
+		if i < len(s.Verdicts) {
+			v = s.Verdicts[i]
+		}
+		v.CandidateDateID = d.ID
+		if v.Verdict == "" {
+			v.Verdict = domain.VerdictUnknown
+		}
+		if v.Verdict != domain.VerdictConditional {
+			v.Condition = domain.Condition{Type: domain.ConditionNone}
+		}
+		out.PerDate[i] = v
+	}
+	if s.Question != "" {
+		why := s.Why
+		if why == "" {
+			why = "The answer decides which dates count."
+		}
+		out.NeedsClarification = true
+		out.Ambiguities = append(out.Ambiguities, domain.Ambiguity{Question: s.Question, Why: why})
+	}
+	return out
+}
 
 var (
 	clauseBreak = regexp.MustCompile(`(?i)[,;.!?]|\bbut\b`)
@@ -52,7 +116,10 @@ func (r reading) rank() int {
 	return 0
 }
 
-func (Fake) Interpret(_ context.Context, in InterpretInput) (domain.Interpretation, Meta, error) {
+func (f Fake) Interpret(_ context.Context, in InterpretInput) (domain.Interpretation, Meta, error) {
+	if s, ok := f.scripted(in); ok {
+		return s.Reading(in.Dates), Meta{Provider: fakeProvider, Model: scriptModel}, nil
+	}
 	meta := Meta{Provider: fakeProvider, Model: fakeModel}
 	out := domain.Interpretation{
 		PerDate:         make([]domain.DateVerdict, 0, len(in.Dates)),
@@ -67,7 +134,7 @@ func (Fake) Interpret(_ context.Context, in InterpretInput) (domain.Interpretati
 		if clause == "" {
 			continue
 		}
-		r := readClause(clause)
+		r := readClause(clause, in.Dates)
 		switch {
 		case r.ambiguity != nil:
 			out.NeedsClarification = true
@@ -97,7 +164,7 @@ func (Fake) Interpret(_ context.Context, in InterpretInput) (domain.Interpretati
 	return out, meta, nil
 }
 
-func readClause(clause string) reading {
+func readClause(clause string, dates []DateOption) reading {
 	lower := strings.ToLower(clause)
 	r := reading{verdict: domain.VerdictAvailable, condition: domain.Condition{Type: domain.ConditionNone}, evidence: clause}
 	if negation.MatchString(lower) {
@@ -117,11 +184,29 @@ func readClause(clause string) reading {
 	if m := vagueTime.FindString(lower); m != "" {
 		r.verdict = domain.VerdictUnknown
 		r.ambiguity = &domain.Ambiguity{
-			Question: "Which hours in the " + m + " work for you?",
-			Why:      `"` + m + `" does not name a time.`,
+			Question: hoursQuestion(dates),
+			Why:      `"` + m + `" does not say whether the class hours work for them.`,
 		}
 	}
 	return r
+}
+
+func hoursQuestion(dates []DateOption) string {
+	labels := make([]string, len(dates))
+	for i, d := range dates {
+		labels[i] = d.Label
+	}
+	if len(labels) <= 1 {
+		return "The class runs " + strings.Join(labels, "") + ". Can you make it then?"
+	}
+	return "The class runs " + orList(labels) + ". Can you make it then, and on which date?"
+}
+
+func orList(items []string) string {
+	if len(items) <= 1 {
+		return strings.Join(items, "")
+	}
+	return strings.Join(items[:len(items)-1], "; ") + " or " + items[len(items)-1]
 }
 
 func clockTime(value, meridiem string) (string, bool) {

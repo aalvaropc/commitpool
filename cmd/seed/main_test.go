@@ -90,7 +90,7 @@ func newApp(t *testing.T, edits ...func(*config.Config)) *httptest.Server {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	runner := worker.New(worker.Deps{Store: st, PayPal: pp, Clock: clk, Cfg: cfg, Log: log})
 	srv.Config.Handler = httpapi.New(httpapi.Deps{
-		Store: st, Worker: runner, PayPal: pp, AI: ai.Fake{}, Clock: clk, Cfg: cfg, Log: log,
+		Store: st, Worker: runner, PayPal: pp, AI: ai.Fake{Script: demo.Script(demo.Maya)}, Clock: clk, Cfg: cfg, Log: log,
 		Dist: fstest.MapFS{"index.html": {Data: []byte("<!doctype html><title>CommitPool</title>")}},
 	})
 	srv.Start()
@@ -168,21 +168,21 @@ func TestRun_SeedsTheDemoWorkshopWithItsCast(t *testing.T) {
 	}
 
 	rec := view.Recommendation
-	if rec.DateID != view.Dates[0].ID || !rec.MeetsMinimum {
-		t.Fatalf("recommendation = %+v, want the Saturday meeting the minimum", rec)
+	if rec.DateID != view.Dates[0].ID || rec.MeetsMinimum {
+		t.Fatalf("recommendation = %+v, want the Saturday, one short of the minimum", rec)
 	}
 	compatible := map[string]int{}
 	for _, d := range rec.PerDate {
 		compatible[d.DateID] = len(d.Compatible)
 	}
-	if compatible[view.Dates[0].ID] != 4 || compatible[view.Dates[1].ID] != 3 {
-		t.Errorf("compatible = %v, want 4 on Saturday and 3 on Sunday", compatible)
+	if compatible[view.Dates[0].ID] != 2 || compatible[view.Dates[1].ID] != 2 {
+		t.Errorf("compatible = %v, want 2 on Saturday and 2 on Sunday", compatible)
 	}
-	if res.Recommended != wantLabels[0] || res.CanCome != 4 {
-		t.Errorf("result recommended %q for %d, want %q for 4", res.Recommended, res.CanCome, wantLabels[0])
+	if res.Recommended != wantLabels[0] || res.CanCome != 2 {
+		t.Errorf("result recommended %q for %d, want %q for 2", res.Recommended, res.CanCome, wantLabels[0])
 	}
 
-	for _, want := range []string{res.OwnerURL, res.ShareURL, wantLabels[0], "4 can come"} {
+	for _, want := range []string{res.OwnerURL, res.ShareURL, wantLabels[0], "2 can come, does not meet the minimum"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}
@@ -204,6 +204,18 @@ func TestRun_OpenPaymentsFixesTheRecommendedDate(t *testing.T) {
 	}
 	if !res.PaymentsOpened || !strings.Contains(out, "Reservations are open") {
 		t.Errorf("result/output do not say payments opened: %+v\n%s", res, out)
+	}
+	if view.Recommendation.DateID != view.Dates[0].ID || res.CanCome != 3 || !strings.Contains(out, "3 can come, meets the minimum") {
+		t.Errorf("opened %s with %d; want Saturday with 3 once Grace answered:\n%s", view.Proposal.DateID, res.CanCome, out)
+	}
+	reply := demo.Maya.Replies[0]
+	if !strings.Contains(out, reply.Name) || !strings.Contains(out, reply.Message) {
+		t.Errorf("output does not show %s's answer to Claude's question:\n%s", reply.Name, out)
+	}
+	for _, a := range view.Availabilities {
+		if a.NeedsClarification {
+			t.Errorf("%q still needs clarifying after the reply", a.Message)
+		}
 	}
 }
 

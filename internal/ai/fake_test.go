@@ -2,6 +2,7 @@ package ai_test
 
 import (
 	"context"
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -156,5 +157,103 @@ func TestFake_ExplainNamesTheDateAndPeople(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Errorf("explanation %q does not mention %q", text, want)
 		}
+	}
+}
+
+func TestFake_AsksWhetherThePersonCanMakeTheClassHours(t *testing.T) {
+	vague := interpret(t, "Saturday evening maybe")
+	if len(vague.Ambiguities) != 1 {
+		t.Fatalf("ambiguities = %+v, want one question", vague.Ambiguities)
+	}
+	q := vague.Ambiguities[0].Question
+	for _, want := range []string{dates[0].Label, dates[1].Label, "Can you make it"} {
+		if !strings.Contains(q, want) {
+			t.Errorf("question %q does not contain %q", q, want)
+		}
+	}
+	if strings.Contains(q, "Which hours") {
+		t.Errorf("question %q asks for another time; the class hours are fixed", q)
+	}
+}
+
+const (
+	scriptedVague = "Count me in if it's an afternoon thing."
+	scriptedReply = "No problem — I swapped Saturday."
+)
+
+func scriptedFake() ai.Fake {
+	none := domain.Condition{Type: domain.ConditionNone}
+	return ai.Fake{Script: map[string]ai.Scripted{
+		scriptedVague: {
+			Verdicts:        []domain.DateVerdict{{Verdict: domain.VerdictUnknown, Evidence: "if it's an afternoon thing"}, {Verdict: domain.VerdictUnknown}},
+			Question:        "The class runs 3 PM–6 PM on Saturday and 10 AM–1 PM on Sunday. Can you make either?",
+			Why:             "An afternoon wish against fixed hours.",
+			HardConstraints: []string{"afternoons only"},
+		},
+		scriptedReply: {
+			Verdicts: []domain.DateVerdict{{Verdict: domain.VerdictAvailable, Condition: none, Evidence: "I swapped Saturday"}, {Verdict: domain.VerdictUnavailable}},
+			Follows:  scriptedVague,
+		},
+	}}
+}
+
+func TestFake_PlaysTheScriptForTheExactMessage(t *testing.T) {
+	f := scriptedFake()
+	in, meta, err := f.Interpret(context.Background(), ai.InterpretInput{Dates: dates, Message: "  Count me in if it’s an afternoon thing.\n"})
+	if err != nil {
+		t.Fatalf("Interpret: %v", err)
+	}
+	if meta.Provider != "fake" || !strings.Contains(meta.Model, "script") {
+		t.Errorf("meta = %+v, want the fake provider naming its script", meta)
+	}
+	if !in.NeedsClarification || len(in.Ambiguities) != 1 || in.Ambiguities[0].Question != f.Script[scriptedVague].Question || in.Ambiguities[0].Why == "" {
+		t.Errorf("reading = %+v, want the scripted question", in)
+	}
+	for i, v := range in.PerDate {
+		if v.CandidateDateID != dates[i].ID || v.Verdict != domain.VerdictUnknown || v.Condition.Type != domain.ConditionNone {
+			t.Errorf("per_date[%d] = %+v, want unknown for %s with no condition", i, v, dates[i].ID)
+		}
+	}
+	if !reflect.DeepEqual(in.HardConstraints, []string{"afternoons only"}) || in.Preferences == nil {
+		t.Errorf("constraints = %v, preferences = %v", in.HardConstraints, in.Preferences)
+	}
+	raw, _ := json.Marshal(in)
+	if _, err := ai.ParseInterpretation(raw, dateIDs); err != nil {
+		t.Errorf("the scripted reading does not match the schema: %v", err)
+	}
+}
+
+func TestFake_ScriptedReplyNeedsItsEarlierMessage(t *testing.T) {
+	f := scriptedFake()
+	read := func(earlier *ai.EarlierAnswer) domain.Interpretation {
+		in, _, err := f.Interpret(context.Background(), ai.InterpretInput{Dates: dates, Message: scriptedReply, Earlier: earlier})
+		if err != nil {
+			t.Fatalf("Interpret: %v", err)
+		}
+		return in
+	}
+	withContext := read(&ai.EarlierAnswer{Message: "Count me in if it’s an afternoon thing.", Questions: []string{"Can you make either?"}})
+	if sat, sun := verdictFor(t, withContext, "sat"), verdictFor(t, withContext, "sun"); sat.Verdict != domain.VerdictAvailable || sun.Verdict != domain.VerdictUnavailable || withContext.NeedsClarification {
+		t.Errorf("reply with its earlier message = %+v, want Saturday yes, Sunday no", withContext)
+	}
+	alone := read(nil)
+	if verdictFor(t, alone, "sat").Verdict != domain.VerdictUnavailable {
+		t.Errorf("reply without its earlier message = %+v, want the keyword reading of a bare %q", alone, scriptedReply)
+	}
+	other := read(&ai.EarlierAnswer{Message: "Something else entirely"})
+	if reflect.DeepEqual(other, withContext) {
+		t.Errorf("reply after another message played the script: %+v", other)
+	}
+}
+
+func TestFake_FallsBackToKeywordsOutsideTheScript(t *testing.T) {
+	f := scriptedFake()
+	got, meta, err := f.Interpret(context.Background(), ai.InterpretInput{Dates: dates, Message: "Saturday works if we finish before six"})
+	if err != nil {
+		t.Fatalf("Interpret: %v", err)
+	}
+	want := interpret(t, "Saturday works if we finish before six")
+	if !reflect.DeepEqual(got, want) || meta.Model != "keywords-v1" {
+		t.Errorf("unscripted message = %+v (%+v), want the keyword reading %+v", got, meta, want)
 	}
 }

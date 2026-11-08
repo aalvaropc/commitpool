@@ -55,8 +55,10 @@ describe('ReadingEditor', () => {
     expect(html.indexOf('Edit reading')).toBeLessThan(html.indexOf('Can you come on'))
   })
 
-  it('opens Edit reading when the reading needs clarification', () => {
-    expect(disclosure(render(reading(true)))).toMatch(/\sopen/)
+  it('keeps Edit reading closed even when the reading needs clarification, one click below the question', () => {
+    const html = render(reading(true))
+    expect(disclosure(html)).not.toMatch(/\sopen/)
+    expect(html).toContain('Check each date under Edit reading')
   })
 
   it('offers no corrections once answers are closed, but still shows the reading', () => {

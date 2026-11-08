@@ -107,7 +107,7 @@ export default function ReadingEditor({ token, availability, dates, timeZone, ed
       </ul>
 
       {editable && (
-        <details open={reading.needs_clarification || undefined} className="group rounded-control ring-1 ring-line ring-inset">
+        <details className="group rounded-control ring-1 ring-line ring-inset">
           <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-control px-4 py-2.5 font-semibold [&::-webkit-details-marker]:hidden">
             Edit reading
             <Icon name="arrowRight" size={18} className="shrink-0 text-brand transition-transform duration-200 group-open:rotate-90" />

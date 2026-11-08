@@ -110,6 +110,9 @@ func TestInvite_ImageIsALinkPreviewPNG(t *testing.T) {
 	if err != nil || img.Bounds().Dx() != 1200 || img.Bounds().Dy() != 630 {
 		t.Fatalf("og.png is not a 1200×630 PNG: %v", err)
 	}
+	if r, g, b, _ := img.At(4, 4).RGBA(); r>>8 != 0x14 || g>>8 != 0x10 || b>>8 != 0x0d {
+		t.Errorf("og.png canvas = %v, want the warm charcoal #14100d", img.At(4, 4))
+	}
 	again := e.request(http.MethodGet, h.sharePath+"/og.png", nil)
 	if !bytes.Equal(again.Body.Bytes(), rec.Body.Bytes()) {
 		t.Error("the same invite rendered two different images")

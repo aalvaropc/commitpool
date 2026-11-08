@@ -43,7 +43,7 @@ type invitePreview struct {
 }
 
 func cardVersion(c ogimage.Card) string {
-	sum := sha256.Sum256(fmt.Appendf(nil, "%#v", c))
+	sum := sha256.Sum256(fmt.Appendf(nil, "%s %#v", ogimage.Revision, c))
 	return hex.EncodeToString(sum[:6])
 }
 
@@ -55,8 +55,10 @@ func previewOf(st workshopState, baseURL string, now time.Time) invitePreview {
 	}
 	t := st.tally()
 	c := st.counts()
+	status, tone := inviteStatus(st, now)
 	card := ogimage.Card{
-		Status:   inviteStatus(st, now),
+		Status:   status,
+		Tone:     tone,
 		Title:    w.Title,
 		Host:     w.HostName,
 		Place:    w.Location,
@@ -81,21 +83,21 @@ func previewOf(st workshopState, baseURL string, now time.Time) invitePreview {
 	}
 }
 
-func inviteStatus(st workshopState, now time.Time) string {
+func inviteStatus(st workshopState, now time.Time) (string, ogimage.Tone) {
 	switch st.w.Status {
 	case domain.WorkshopCollecting:
-		return "Finding the date"
+		return "Finding the date", ogimage.ToneNeutral
 	case domain.WorkshopFunding:
 		if paymentsOpen(st.w, st.proposal, now) {
-			return "Reservations open"
+			return "Reservations open", ogimage.ToneHold
 		}
-		return "Reservations closed"
+		return "Reservations closed", ogimage.ToneNeutral
 	case domain.WorkshopConfirmed:
-		return "It’s on"
+		return "It’s on", ogimage.ToneOn
 	case domain.WorkshopCancelled:
-		return "Cancelled"
+		return "Cancelled", ogimage.ToneCancelled
 	}
-	return ""
+	return "", ogimage.ToneNeutral
 }
 
 func whenText(st workshopState) string {

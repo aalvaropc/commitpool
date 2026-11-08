@@ -22,14 +22,15 @@ For frontend work, run `pnpm -C web dev`. Vite proxies `/api`, `/paypal`,
 
 With the service running, `make seed` creates Maya's demo workshop through the
 HTTP API on the next free weekend: 3 needed of 6 spots at US$45. Its six
-participants have already sent their availability messages, and one of them is
-deliberately vague, so the organizer sees a clarification request.
+participants have already sent their availability messages. Saturday has 2 of
+the 3 needed: Grace's message leaves open whether she can make a morning, so
+Claude asks her about the class hours, and her answer is what lets Saturday open.
 
 `make seed` prints the organizer link, the invite link and one link per
 participant, and needs no credentials. `go run ./cmd/seed -h` lists the flags:
 - `-base` for another base URL;
 - the price, time zone and payment window;
-- `-open-payments` to open payments on the recommended date right away.
+- `-open-payments` to send Grace's answer to Claude's question and open payments on the recommended date right away.
 
 ### Demo mode
 

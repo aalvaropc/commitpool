@@ -10,8 +10,8 @@ const options = [
 ]
 
 const people: Record<Scenario, string[]> = {
-  enough: ['Priya Raman', 'Hannah Kim', 'Tomás Silva'],
-  short: ['Priya Raman', 'Hannah Kim'],
+  enough: ['Priya Raman', 'Ben Whitaker', 'Grace Liu'],
+  short: ['Priya Raman', 'Ben Whitaker'],
 }
 
 export default function MoneyFlow() {

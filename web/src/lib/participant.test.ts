@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { joinedAs, rememberJoin, rememberParticipant, tokenFromParticipantURL } from './participant'
+import { answerForm, joinedAs, rememberJoin, rememberParticipant, tokenFromParticipantURL } from './participant'
+import type { Availability, Interpretation } from '../api'
 
 describe('tokenFromParticipantURL', () => {
   it('takes the token from the participant URL the server returns', () => {
@@ -49,5 +50,48 @@ describe('joinedAs', () => {
   it('is null without storage', () => {
     vi.stubGlobal('sessionStorage', undefined)
     expect(joinedAs('share-1')).toBeNull()
+  })
+})
+
+describe('answerForm', () => {
+  const none = { type: 'none' as const, time: '' }
+  const reading = (questions: string[]): Interpretation => ({
+    per_date: [{ candidate_date_id: 'sat', verdict: questions.length ? 'unknown' : 'available', condition: none, evidence: '' }],
+    hard_constraints: [],
+    preferences: [],
+    ambiguities: questions.map((question) => ({ question, why: '' })),
+    needs_clarification: questions.length > 0,
+  })
+  const availability = (r: Interpretation, corrected: Interpretation | null = null): Availability => ({
+    id: 'a1',
+    message: 'Count me in if it’s an afternoon thing',
+    interpretation: r,
+    corrected,
+    needs_clarification: r.needs_clarification,
+    created_at: '',
+  })
+
+  it('asks when they can come before they answered', () => {
+    expect(answerForm(null)).toEqual({ question: null, label: 'When can you come?', initial: '', button: 'Send my availability', clarifying: false })
+  })
+
+  it('offers the sent message for an update once the reading is clear', () => {
+    expect(answerForm(availability(reading([])))).toEqual({
+      question: null,
+      label: 'When can you come?',
+      initial: 'Count me in if it’s an afternoon thing',
+      button: 'Update my availability',
+      clarifying: false,
+    })
+  })
+
+  it('puts Claude’s question above an empty box while the reading needs clarifying', () => {
+    const q = 'The class runs 10 AM–12 PM on Saturday and Sunday — can you make either morning, and which?'
+    expect(answerForm(availability(reading([q])))).toEqual({ question: q, label: 'Your answer to Claude’s question', initial: '', button: 'Send my answer', clarifying: true })
+    expect(answerForm(availability(reading([q, 'And which one?']))).question).toBe(`${q} And which one?`)
+  })
+
+  it('stops asking once the person corrected the reading themselves', () => {
+    expect(answerForm(availability(reading(['Which?']), reading([]))).clarifying).toBe(false)
   })
 })

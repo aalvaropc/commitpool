@@ -1,4 +1,4 @@
-import type { Availability, DateSummary, OwnerView } from '../api'
+import type { Availability, DateSummary, OwnerView, Verdict } from '../api'
 import { dateNames } from './event'
 import { formatMoney } from './money'
 import { count } from './plural'
@@ -182,14 +182,33 @@ export interface CellNotes {
 
 export function cellNotes(a: Availability, dateId: string, summary: DateSummary | undefined): CellNotes {
   const find = (r: Availability['interpretation']) => r.per_date.find((x) => x.candidate_date_id === dateId)
-  const current = find(a.corrected ?? a.interpretation)
+  const reading = a.corrected ?? a.interpretation
+  const current = find(reading)
   const original = a.corrected ? find(a.interpretation) : undefined
   const id = a.participant_id ?? ''
   let fit: string | null = null
-  if (current?.verdict === 'conditional') {
+  if (current?.verdict === 'conditional' && !reading.needs_clarification) {
     if (summary?.compatible?.includes(id)) fit = 'Fits this time'
     else if (summary?.blockers?.[id]) fit = 'Doesn’t fit this time'
   }
   const claudeRead = original && current && verdictText(original) !== verdictText(current) ? `Claude read: ${verdictText(original)}` : null
   return { fit, claudeRead }
+}
+
+export interface CellStatus {
+  chip: { verdict: Verdict; text: string } | null
+  pill: string | null
+  readAs: string | null
+}
+
+export const NOT_COUNTED = 'Not counted — needs clarifying'
+
+export function cellStatus(a: Availability, dateId: string): CellStatus {
+  const reading = a.corrected ?? a.interpretation
+  const v = reading.per_date.find((x) => x.candidate_date_id === dateId)
+  if (reading.needs_clarification) {
+    return { chip: null, pill: NOT_COUNTED, readAs: v && v.verdict !== 'unknown' ? `Read as: ${verdictText(v)}` : null }
+  }
+  if (!v) return { chip: null, pill: null, readAs: null }
+  return { chip: { verdict: v.verdict, text: verdictText(v) }, pill: null, readAs: null }
 }

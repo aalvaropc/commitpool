@@ -10,6 +10,7 @@ interface Props {
   dates: CandidateDate[]
   timeZone: string
   editable: boolean
+  asked?: boolean
   onSaved: () => Promise<unknown>
 }
 
@@ -20,7 +21,7 @@ const VERDICTS: Segment<Verdict>[] = [
   { value: 'unknown', label: 'Not sure' },
 ]
 
-export default function ReadingEditor({ token, availability, dates, timeZone, editable, onSaved }: Props) {
+export default function ReadingEditor({ token, availability, dates, timeZone, editable, asked = false, onSaved }: Props) {
   const reading = availability.corrected ?? availability.interpretation
   const [draft, setDraft] = useState<DateVerdict[]>(reading.per_date)
   const [busy, setBusy] = useState(false)
@@ -75,18 +76,23 @@ export default function ReadingEditor({ token, availability, dates, timeZone, ed
         </p>
       </div>
 
-      {reading.needs_clarification && (
-        <Notice tone="attention" title="One detail is unclear">
-          {reading.ambiguities.length > 0 && (
-            <ul className="list-disc pl-5">
-              {reading.ambiguities.map((a, i) => (
-                <li key={i}>{a.question}</li>
-              ))}
-            </ul>
-          )}
-          <p>Until it is answered your message counts for no date. Check each date below and confirm it, or rewrite your message.</p>
-        </Notice>
-      )}
+      {reading.needs_clarification &&
+        (asked ? (
+          <Notice tone="attention" title="One detail is unclear">
+            <p>Answer Claude’s question above, or set each date below yourself and confirm it.</p>
+          </Notice>
+        ) : (
+          <Notice tone="attention" title="One detail is unclear">
+            {reading.ambiguities.length > 0 && (
+              <ul className="list-disc pl-5">
+                {reading.ambiguities.map((a, i) => (
+                  <li key={i}>{a.question}</li>
+                ))}
+              </ul>
+            )}
+            <p>Until it is answered your message counts for no date. Check each date below and confirm it, or rewrite your message.</p>
+          </Notice>
+        ))}
 
       <ul className="flex flex-col gap-3">
         {draft.map((v, i) => {
@@ -143,7 +149,7 @@ export default function ReadingEditor({ token, availability, dates, timeZone, ed
 
       {editable && (
         <div className="flex flex-col items-start gap-3">
-          <Button variant={reading.needs_clarification ? 'primary' : 'secondary'} onClick={save} disabled={!button.enabled} busy={busy} busyLabel="Saving…">
+          <Button variant={reading.needs_clarification && !asked ? 'primary' : 'secondary'} onClick={save} disabled={!button.enabled} busy={busy} busyLabel="Saving…">
             {button.label}
           </Button>
           {error && (

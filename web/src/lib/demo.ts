@@ -1,6 +1,7 @@
-import type { DemoWorkshop } from '../api'
+import type { DemoWorkshop, OwnerView } from '../api'
 import { tokenFromParticipantURL } from './participant'
 import { readSession, writeSession } from './session'
+import { formatWeekday } from './time'
 
 const KEY = 'cp.demo'
 
@@ -38,4 +39,24 @@ export function demoParticipants(owner: string): DemoParticipant[] {
   } catch {
     return []
   }
+}
+
+export interface DemoStep {
+  text: string
+  primary: string | null
+}
+
+export function demoStep(v: OwnerView): DemoStep | null {
+  const { workshop: w, recommendation: rec } = v
+  if (w.status !== 'COLLECTING' || v.proposal || !rec.date_id || v.availabilities.length < v.participants.length) return null
+  if (rec.meets_minimum) return { text: 'Open reservations, then reserve as someone who can come.', primary: null }
+  const ask = v.suggestions.find((s) => s.kind === 'clarify' && s.name)
+  const best = v.dates.find((d) => d.id === rec.date_id)
+  if (!ask?.name || !best) return null
+  const day = formatWeekday(best.starts_at, w.timezone)
+  const other = v.dates.find((d) => d.id !== rec.date_id)
+  const can = rec.per_date?.find((d) => d.date_id === rec.date_id)?.compatible?.length ?? 0
+  const host = w.host_name?.trim().split(/\s+/)[0] || 'the organizer'
+  const example = other ? `No problem — I swapped ${day}. ${formatWeekday(other.starts_at, w.timezone)} I’m still at the market.` : `No problem — I swapped ${day}.`
+  return { text: `${day} has ${can} of the ${w.minimum} ${host} needs. Act as ${ask.name} and answer Claude’s question — for example: “${example}”`, primary: ask.name }
 }

@@ -80,6 +80,10 @@ type throttled interface {
 	Throttled() bool
 }
 
+type retryAfter interface {
+	RetryAfter() time.Duration
+}
+
 type Pace func(context.Context) error
 
 func FirstSaturday(now time.Time, windowMin, startHour int, loc *time.Location) time.Time {
@@ -175,9 +179,31 @@ func answer(ctx context.Context, api Caller, p Participant, pace Pace) error {
 		if err == nil || attempt >= attempts(err) {
 			return err
 		}
-		if werr := wait(ctx, pace, attempt); werr != nil {
+		if werr := backoff(ctx, err, pace, attempt); werr != nil {
 			return errors.Join(err, werr)
 		}
+	}
+}
+
+func backoff(ctx context.Context, err error, pace Pace, attempt int) error {
+	var asked retryAfter
+	if errors.As(err, &asked) && asked.RetryAfter() > 0 {
+		return sleep(ctx, asked.RetryAfter())
+	}
+	return wait(ctx, pace, attempt)
+}
+
+var sleep = func(ctx context.Context, d time.Duration) error {
+	if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < d {
+		return fmt.Errorf("the %s the API asked to wait outlasts the time left: %w", d, context.DeadlineExceeded)
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 

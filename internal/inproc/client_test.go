@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/aalvaropc/commitpool/internal/inproc"
 )
@@ -69,6 +70,23 @@ func TestError_ThrottledOnlyForTooManyRequests(t *testing.T) {
 	for status, want := range map[int]bool{429: true, 502: false, 503: false, 400: false, 409: false} {
 		if got := (&inproc.Error{Status: status}).Throttled(); got != want {
 			t.Errorf("status %d throttled = %v, want %v", status, got, want)
+		}
+	}
+}
+
+func TestClient_KeepsTheRetryAfterTheHandlerAsked(t *testing.T) {
+	for header, want := range map[string]time.Duration{"90": 90 * time.Second, "": 0, "soon": 0, "-5": 0} {
+		h := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			if header != "" {
+				w.Header().Set("Retry-After", header)
+			}
+			w.WriteHeader(http.StatusTooManyRequests)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "ai_capped", "message": "later"})
+		})
+		err := inproc.Client{Handler: h}.Call(context.Background(), http.MethodPost, "/x", nil, nil)
+		var e *inproc.Error
+		if !errors.As(err, &e) || e.RetryAfter() != want {
+			t.Errorf("Retry-After %q: err = %v, want a wait of %v", header, err, want)
 		}
 	}
 }

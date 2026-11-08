@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
+	"time"
 )
 
 type Client struct {
@@ -15,10 +17,11 @@ type Client struct {
 }
 
 type Error struct {
-	Status  int
-	Code    string `json:"error"`
-	Message string `json:"message"`
-	Reason  string `json:"reason"`
+	Status     int
+	Code       string `json:"error"`
+	Message    string `json:"message"`
+	Reason     string `json:"reason"`
+	retryAfter time.Duration
 }
 
 func (e *Error) Error() string {
@@ -38,6 +41,10 @@ func (e *Error) Temporary() bool {
 
 func (e *Error) Throttled() bool {
 	return e.Status == http.StatusTooManyRequests
+}
+
+func (e *Error) RetryAfter() time.Duration {
+	return e.retryAfter
 }
 
 func (c Client) Call(ctx context.Context, method, path string, body, out any) error {
@@ -63,6 +70,9 @@ func (c Client) Call(ctx context.Context, method, path string, body, out any) er
 	c.Handler.ServeHTTP(rec, req)
 	if rec.status >= 400 {
 		e := &Error{Status: rec.status}
+		if seconds, err := strconv.Atoi(rec.header.Get("Retry-After")); err == nil && seconds > 0 {
+			e.retryAfter = time.Duration(seconds) * time.Second
+		}
 		if err := json.Unmarshal(rec.body.Bytes(), e); err != nil || e.Message == "" {
 			e.Code, e.Message = fmt.Sprintf("http_%d", rec.status), http.StatusText(rec.status)
 		}

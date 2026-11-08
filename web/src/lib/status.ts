@@ -139,7 +139,7 @@ function fundingHeadline(e: EnrollmentStatus | null | undefined, paymentsOpen: b
     case 'NEEDS_ATTENTION':
       return 'Needs a check'
   }
-  return 'Reservations open'
+  return paymentsOpen ? 'Reservations open' : 'Reservations closed'
 }
 
 function confirmedHeadline(e: EnrollmentStatus | null | undefined, paymentsOpen: boolean): string {

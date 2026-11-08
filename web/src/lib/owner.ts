@@ -4,7 +4,7 @@ import { formatMoney } from './money'
 import { count } from './plural'
 import { shouldPollOwner } from './status'
 import { verdictText } from './reading'
-import { formatMoment, formatTimeRange } from './time'
+import { formatTimeRange } from './time'
 
 export type NextAction = { kind: 'share' } | { kind: 'open'; dateId: string; day: string } | { kind: 'none' }
 
@@ -61,7 +61,7 @@ function collecting(v: OwnerView): NextStep {
 }
 
 function funding(v: OwnerView): NextStep {
-  const { workshop: w, tally: t, proposal: p } = v
+  const { tally: t, proposal: p } = v
   const committed = t.paid + t.authorized + t.capturing + t.pending
   const more = Math.max(t.minimum - committed, 0)
   if (!p?.payments_open) {
@@ -74,9 +74,8 @@ function funding(v: OwnerView): NextStep {
     }
     return { title: `${committed} reserved — confirming payments.`, detail: 'Reservations have closed; the result follows in a moment.', action: { kind: 'none' } }
   }
-  const closes = `reservations close ${formatMoment(p.closes_at, w.timezone)}`
-  if (more === 0) return { title: `${committed} reserved — confirming payments.`, detail: `Holds are being charged; ${closes}.`, action: { kind: 'share' } }
-  return { title: `${committed} of ${t.minimum} reserved — ${more} more and it’s on.`, detail: `Share the invite again; ${closes}.`, action: { kind: 'share' } }
+  if (more === 0) return { title: `${committed} reserved — confirming payments.`, detail: 'Holds are being charged.', action: { kind: 'share' } }
+  return { title: `${committed} of ${t.minimum} reserved — ${more} more and it’s on.`, detail: 'Share the invite again.', action: { kind: 'share' } }
 }
 
 function settling(v: OwnerView): NextStep {
@@ -85,13 +84,13 @@ function settling(v: OwnerView): NextStep {
     return { title: 'PayPal is returning the money.', detail: 'Holds are released and payments refunded on their own. This page updates as each one completes.', action: none }
   }
   if (v.enrollments.length === 0) return { title: 'Nothing to settle.', detail: 'Nobody had reserved, so nothing was held or charged.', action: none }
-  return { title: 'Everything is settled.', detail: 'Every hold is released and every payment refunded. There is nothing else to do.', action: none }
+  return { title: 'Everything is settled.', detail: 'There is nothing else to do.', action: none }
 }
 
 export function nextStep(v: OwnerView): NextStep {
   const { workshop: w, tally: t, proposal: p } = v
   if (w.resolution === 'NEEDS_ATTENTION') {
-    return { title: 'A payment needs your check.', detail: 'PayPal left something unsettled. The check above says what and offers the fix.', action: { kind: 'none' } }
+    return { title: 'PayPal left a payment unsettled.', detail: 'The check below says what happened and offers the fix.', action: { kind: 'none' } }
   }
   switch (w.status) {
     case 'COLLECTING':
@@ -101,7 +100,7 @@ export function nextStep(v: OwnerView): NextStep {
     case 'CONFIRMED': {
       const price = p?.price ?? w.price
       return {
-        title: `It’s on — ${t.paid} paid, ${usd(t.paid * price.minor, price.currency)} collected.`,
+        title: `${t.paid} paid — ${usd(t.paid * price.minor, price.currency)} collected.`,
         detail: p?.payments_open ? 'Spots still open can be reserved until reservations close.' : 'Everyone who paid got their spot.',
         action: p?.payments_open ? { kind: 'share' } : { kind: 'none' },
       }
@@ -109,6 +108,17 @@ export function nextStep(v: OwnerView): NextStep {
     case 'CANCELLED':
       return settling(v)
   }
+}
+
+export type DecisionCounts = { kind: 'interest'; can: number; needed: number; capacity: number } | { kind: 'seats'; paid: number; reserved: number; needed: number; capacity: number }
+
+export function decisionCounts(v: OwnerView): DecisionCounts | null {
+  const { workshop: w, tally: t, recommendation: rec } = v
+  if (w.status === 'CANCELLED') return null
+  if (v.proposal) return { kind: 'seats', paid: t.paid, reserved: t.authorized + t.capturing + t.pending, needed: t.minimum, capacity: t.capacity }
+  if (v.availabilities.length === 0 || !rec.date_id) return null
+  const can = rec.per_date?.find((d) => d.date_id === rec.date_id)?.compatible?.length ?? 0
+  return { kind: 'interest', can, needed: w.minimum, capacity: w.capacity }
 }
 
 export interface Coverage {
@@ -149,12 +159,12 @@ export interface DateColumn {
   name: string
   time: string
   can: number
-  mark: 'Recommended' | 'Reservations open' | 'Chosen date' | null
+  mark: 'Recommended' | 'Chosen date' | null
   canOpen: boolean
 }
 
 function markFor(v: OwnerView, id: string): DateColumn['mark'] {
-  if (v.proposal) return v.proposal.date_id === id ? (v.proposal.payments_open ? 'Reservations open' : 'Chosen date') : null
+  if (v.proposal) return v.proposal.date_id === id ? 'Chosen date' : null
   return v.availabilities.length > 0 && v.recommendation.date_id === id ? 'Recommended' : null
 }
 

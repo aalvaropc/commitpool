@@ -46,6 +46,7 @@ describe('headline', () => {
   it('has a sensible default for every other state', () => {
     expect(headline({ status: 'COLLECTING', resolution: 'OPEN' })).toBe('Finding the date')
     expect(headline({ status: 'FUNDING', resolution: 'OPEN' })).toBe('Reservations open')
+    expect(headline({ status: 'FUNDING', resolution: 'OPEN', paymentsOpen: false })).toBe('Reservations closed')
     expect(headline({ status: 'FUNDING', resolution: 'OPEN', enrollment: 'AUTHORIZED' })).toBe('Spot reserved — not charged yet')
     expect(headline({ status: 'CONFIRMED', resolution: 'OPEN' })).toBe('It’s on')
     expect(headline({ status: 'CANCELLED', resolution: 'SETTLED', enrollment: 'VOIDED' })).toBe(

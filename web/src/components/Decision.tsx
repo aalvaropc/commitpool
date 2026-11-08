@@ -1,12 +1,18 @@
+import type { Ref } from 'react'
 import type { OwnerView } from '../api'
-import type { NextStep as Step } from '../lib/owner'
+import { cancellationDetail, decisionCounts, studioCovered, type DecisionCounts, type NextStep as Step } from '../lib/owner'
+import { headline, heldAny, refundsAny, releasesAny, tone } from '../lib/status'
+import { formatDateRange } from '../lib/time'
 import CopyField from './CopyField'
-import { Button, Icon, Tile } from './ui'
+import Deadline from './Deadline'
+import { statusIcons } from './StatusBanner'
+import { Button, Icon, Meter, toneText, toneWash } from './ui'
 
 interface Props {
   view: OwnerView
   step: Step
   onOpen: (dateId: string) => void
+  titleRef?: Ref<HTMLHeadingElement>
 }
 
 export function InviteLink({ url, hint }: { url?: string; hint: string }) {
@@ -14,24 +20,100 @@ export function InviteLink({ url, hint }: { url?: string; hint: string }) {
   return <CopyField id="share-url" label="Invite link" value={url} hint={hint} />
 }
 
-export default function NextStep({ view, step, onOpen }: Props) {
+function Key({ swatch, children }: { swatch: string; children: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span aria-hidden="true" className={swatch} />
+      {children}
+    </span>
+  )
+}
+
+function Counts({ counts }: { counts: DecisionCounts }) {
+  if (counts.kind === 'interest') {
+    return (
+      <div className="flex flex-col gap-2">
+        <Meter capacity={counts.capacity} needed={counts.needed} paid={0} reserved={counts.can} interest />
+        <p aria-hidden="true" className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-ink-soft tabular-nums">
+          <Key swatch="size-2.5 rounded-full bg-ink-faint">{`${counts.can} can come`}</Key>
+          <Key swatch="h-3 w-[3px] rounded-full bg-ink">{`${counts.needed} needed`}</Key>
+          <span>{`${counts.capacity} spots`}</span>
+        </p>
+      </div>
+    )
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      <Meter capacity={counts.capacity} needed={counts.needed} paid={counts.paid} reserved={counts.reserved} caption={false} />
+      <p aria-hidden="true" className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-ink-soft tabular-nums">
+        <Key swatch="size-2.5 rounded-full bg-paid">{`${counts.paid} paid`}</Key>
+        <Key swatch="size-2.5 rounded-full bg-hold">{`${counts.reserved} reserved`}</Key>
+        <Key swatch="h-3 w-[3px] rounded-full bg-ink">{`${counts.needed} needed`}</Key>
+        <span>{`${counts.capacity} spots`}</span>
+      </p>
+    </div>
+  )
+}
+
+export default function Decision({ view, step, onOpen, titleRef }: Props) {
+  const w = view.workshop
+  const p = view.proposal
+  const status = headline({
+    status: w.status,
+    resolution: w.resolution,
+    paymentsOpen: p?.payments_open ?? false,
+    refunds: refundsAny(view.enrollments),
+    held: heldAny(view.enrollments),
+    releases: releasesAny(view.enrollments),
+  })
+  const t = tone(w.status, w.resolution)
+  const chosen = p ? view.dates.find((d) => d.id === p.date_id) : undefined
+  const counts = decisionCounts(view)
+  const coverage = p ? studioCovered(view) : null
   const action = step.action
   return (
-    <Tile as="section" aria-labelledby="next-title" className="flex flex-col gap-4 sm:p-7">
-      <h2 id="next-title" className="sr-only">
-        Next step
-      </h2>
-      <p className="max-w-[30ch] font-display text-2xl leading-tight font-bold sm:text-[2rem]">{step.title}</p>
-      <p className="max-w-prose text-ink-soft">{step.detail}</p>
-      {action.kind === 'open' && (
-        <div>
-          <Button size="lg" onClick={() => onOpen(action.dateId)}>
-            Open reservations for {action.day}
-            <Icon name="arrowRight" size={20} />
-          </Button>
+    <section aria-label="Workshop status" className="flex flex-col gap-4 rounded-tile bg-surface p-5 sm:p-7">
+      <div role="status" aria-live="polite" className="flex items-center gap-2.5">
+        <span aria-hidden="true" className={`grid size-8 shrink-0 place-items-center rounded-full ${toneWash[t]} ${toneText[t]}`}>
+          <Icon name={statusIcons[t]} size={16} />
+        </span>
+        <p className={`font-display text-lg leading-snug font-bold ${t === 'neutral' ? 'text-ink-soft' : toneText[t]}`}>{status}</p>
+      </div>
+      <section aria-label="Next step" className="flex flex-col gap-4">
+        <div className="flex flex-col gap-2">
+          <h2 ref={titleRef} tabIndex={-1} className="max-w-[26ch] font-display text-[1.75rem] leading-tight font-bold sm:text-[2rem]">
+            {step.title}
+          </h2>
+          <p className="max-w-prose text-ink-soft">{step.detail}</p>
+          {w.status === 'CANCELLED' && <p className="max-w-prose">{cancellationDetail(view)}</p>}
         </div>
-      )}
-      {action.kind === 'share' && <InviteLink url={view.share_url} hint="Send it to your group chat. Anyone with it can join and say when they can come." />}
-    </Tile>
+        {(chosen || p?.payments_open) && (
+          <div className="flex flex-col gap-1.5 sm:flex-row sm:flex-wrap sm:items-baseline sm:gap-x-6">
+            {chosen && (
+              <p className="flex items-center gap-2 text-sm font-semibold tabular-nums">
+                <Icon name="calendar" size={16} className="shrink-0 text-ink-soft" />
+                {formatDateRange(chosen.starts_at, chosen.ends_at, w.timezone)}
+              </p>
+            )}
+            {p?.payments_open && <Deadline closesAt={p.closes_at} timeZone={w.timezone} open />}
+          </div>
+        )}
+        {(counts || coverage) && (
+          <div className="flex flex-col gap-3 lg:hidden">
+            {counts && <Counts counts={counts} />}
+            {coverage && <p className="text-sm font-semibold">{coverage.text}</p>}
+          </div>
+        )}
+        {action.kind === 'open' && (
+          <div>
+            <Button size="lg" onClick={() => onOpen(action.dateId)}>
+              Open reservations for {action.day}
+              <Icon name="arrowRight" size={20} />
+            </Button>
+          </div>
+        )}
+        {action.kind === 'share' && <InviteLink url={view.share_url} hint="Send it to your group chat. Anyone with it can join and say when they can come." />}
+      </section>
+    </section>
   )
 }

@@ -22,8 +22,21 @@ export interface DemoStep {
 const GRACE = 'Grace Liu'
 const GRACE_REPLY = "No problem — I swapped Saturday. Sunday I'm still at the market."
 
+const HOLDS_A_SPOT: ReadonlySet<string> = new Set(['SEAT_RESERVED', 'AUTHORIZED', 'CAPTURING', 'CAPTURE_PENDING', 'PAID'])
+
+function reserveStep(v: OwnerView, cast: string[]): DemoStep | null {
+  const { tally: t, proposal: p } = v
+  if (!p?.payments_open || t.paid + t.authorized + t.capturing + t.pending >= t.minimum) return null
+  const taken = new Set(v.enrollments.filter((e) => HOLDS_A_SPOT.has(e.status)).map((e) => e.participant_id))
+  const compatible = new Set(v.recommendation.per_date?.find((d) => d.date_id === p.date_id)?.compatible ?? [])
+  const next = v.participants.find((x) => compatible.has(x.id) && !taken.has(x.id) && cast.includes(x.display_name))
+  if (!next) return null
+  return { text: `Reserve as someone who can come: act as ${next.display_name} and reserve with PayPal.`, primary: next.display_name }
+}
+
 export function demoStep(v: OwnerView, cast: string[]): DemoStep | null {
   const { workshop: w, recommendation: rec } = v
+  if (w.status === 'FUNDING') return reserveStep(v, cast)
   if (w.status !== 'COLLECTING' || v.proposal || !rec.date_id) return null
   const members = v.participants.filter((p) => cast.includes(p.display_name))
   const answers = new Map(v.availabilities.map((a) => [a.participant_id, a]))

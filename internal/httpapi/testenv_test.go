@@ -19,6 +19,7 @@ import (
 	"github.com/aalvaropc/commitpool/internal/ai"
 	"github.com/aalvaropc/commitpool/internal/clock"
 	"github.com/aalvaropc/commitpool/internal/config"
+	"github.com/aalvaropc/commitpool/internal/demo"
 	"github.com/aalvaropc/commitpool/internal/domain"
 	"github.com/aalvaropc/commitpool/internal/httpapi"
 	"github.com/aalvaropc/commitpool/internal/mail"
@@ -149,7 +150,7 @@ func newEnv(t *testing.T, opts ...option) *env {
 			SeatTTL:            30 * time.Minute,
 			FakePayPal:         true,
 		},
-		ai: ai.Fake{},
+		ai: ai.Fake{Script: demo.Script(demo.Maya)},
 	}
 	for _, o := range opts {
 		o(&s)

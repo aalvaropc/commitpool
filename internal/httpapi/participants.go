@@ -120,6 +120,7 @@ func (s *server) submitAvailability(w http.ResponseWriter, r *http.Request) erro
 	if sent >= maxSubmissionsPerParticipant {
 		return conflict("too_many_submissions", "You have sent your availability many times already; correct the reading instead.")
 	}
+	earlier := s.openQuestion(ctx, ws.ID, p.ID)
 	release, err := s.acquireAI(ctx)
 	if err != nil {
 		return err
@@ -128,7 +129,7 @@ func (s *server) submitAvailability(w http.ResponseWriter, r *http.Request) erro
 	actx, cancel := context.WithTimeout(ctx, interpretTimeout)
 	defer cancel()
 	in, meta, err := s.AI.Interpret(actx, ai.InterpretInput{
-		WorkshopTitle: ws.Title, Timezone: ws.Timezone, Dates: st.dateOptions(), Message: message,
+		WorkshopTitle: ws.Title, Timezone: ws.Timezone, Dates: st.dateOptions(), Message: message, Earlier: earlier,
 	})
 	if err != nil {
 		if wait, capped := ai.BusyWait(err); capped {
@@ -162,6 +163,28 @@ func (s *server) submitAvailability(w http.ResponseWriter, r *http.Request) erro
 	}
 	writeJSON(w, http.StatusCreated, map[string]availabilityDTO{"availability": availabilityView(saved, clean)})
 	return nil
+}
+
+func (s *server) openQuestion(ctx context.Context, workshopID, participantID string) *ai.EarlierAnswer {
+	a, err := s.Store.LatestAvailabilityByParticipant(ctx, participantID)
+	var in domain.Interpretation
+	if err == nil && a != nil {
+		in, err = inForce(*a)
+	}
+	if err != nil {
+		s.Log.Warn("could not load the earlier answer; reading the new message alone", "workshop_id", workshopID, "participant_id", participantID, "error", err)
+		return nil
+	}
+	if a == nil || !in.NeedsClarification {
+		return nil
+	}
+	out := &ai.EarlierAnswer{Message: a.RawMessage, Questions: []string{}}
+	for _, q := range in.Ambiguities {
+		if q.Question != "" {
+			out.Questions = append(out.Questions, q.Question)
+		}
+	}
+	return out
 }
 
 func (s *server) correctAvailability(w http.ResponseWriter, r *http.Request) error {

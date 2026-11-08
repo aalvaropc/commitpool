@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { OwnerView } from '../api'
-import { cancellationDetail, cellNotes, dateColumns, nextStep, ownerRefresh, studioCovered } from './owner'
+import { cancellationDetail, cellNotes, cellStatus, dateColumns, nextStep, ownerRefresh, studioCovered } from './owner'
 
 const usd = (minor: number) => ({ minor, currency: 'USD', value: (minor / 100).toFixed(2) })
 
@@ -280,5 +280,50 @@ describe('ownerRefresh for a demo filling in', () => {
   it('follows the answers as they arrive', () => {
     expect(ownerRefresh({ ...base, demoFilling: true })).toBe(2000)
     expect(ownerRefresh({ ...base, demoFilling: false })).toBe(8000)
+  })
+})
+
+describe('cellStatus', () => {
+  const none = { type: 'none' as const, time: '' }
+  const reading = (needsClarification: boolean) => ({
+    per_date: [
+      { candidate_date_id: 'sat', verdict: 'available' as const, condition: none, evidence: 'Saturday works' },
+      { candidate_date_id: 'sun', verdict: 'unknown' as const, condition: none, evidence: '' },
+    ],
+    hard_constraints: [],
+    preferences: [],
+    ambiguities: needsClarification ? [{ question: 'The class runs 10 AM–12 PM. Can you make it?', why: 'vague' }] : [],
+    needs_clarification: needsClarification,
+  })
+
+  it('shows the verdict of a clear reading', () => {
+    const a = { ...answered(['p1'])[0], interpretation: reading(false) }
+    expect(cellStatus(a, 'sat')).toEqual({ chip: { verdict: 'available', text: 'Can come' }, pill: null, readAs: null })
+    expect(cellStatus(a, 'gone')).toEqual({ chip: null, pill: null, readAs: null })
+  })
+
+  it('says a reading that needs clarifying is not counted, whatever it read', () => {
+    const a = { ...answered(['p1'])[0], interpretation: reading(true), needs_clarification: true }
+    expect(cellStatus(a, 'sat')).toEqual({ chip: null, pill: 'Not counted — needs clarifying', readAs: 'Read as: Can come' })
+    expect(cellStatus(a, 'sun')).toEqual({ chip: null, pill: 'Not counted — needs clarifying', readAs: null })
+  })
+
+  it('follows the corrected reading', () => {
+    const a = { ...answered(['p1'])[0], interpretation: reading(true), needs_clarification: true, corrected: reading(false) }
+    expect(cellStatus(a, 'sat').chip).toEqual({ verdict: 'available', text: 'Can come' })
+  })
+})
+
+describe('cellNotes while a reading needs clarifying', () => {
+  it('does not say whether a condition fits, since the person is not counted', () => {
+    const interpretation = {
+      per_date: [{ candidate_date_id: 'sat', verdict: 'conditional' as const, condition: { type: 'start_after' as const, time: '12:00' }, evidence: '' }],
+      hard_constraints: [],
+      preferences: [],
+      ambiguities: [{ question: 'Can you make 10 AM?', why: '' }],
+      needs_clarification: true,
+    }
+    const a = { ...answered(['p2'])[0], interpretation, needs_clarification: true }
+    expect(cellNotes(a, 'sat', { date_id: 'sat', compatible: [], blockers: { p2: 'needs clarification' } }).fit).toBeNull()
   })
 })

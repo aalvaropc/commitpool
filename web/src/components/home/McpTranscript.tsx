@@ -3,8 +3,11 @@ import { useInView } from '../../lib/inView'
 const turns = [
   { who: 'you', text: 'How is my class going?' },
   { who: 'tool', text: 'get_status' },
-  { who: 'claude', text: 'Sat, Nov 14 works for 4 — you need 3. Grace’s answer needs clarifying, so I drafted a message you can send her.' },
-  { who: 'you', text: 'Open reservations on the recommended date.' },
+  { who: 'claude', text: 'Saturday has 2 of the 3 you need. Grace might swap a market morning but didn’t say which, so I drafted a question: the class runs 10 AM–12 PM, can she make either morning?' },
+  { who: 'you', text: 'She answered. How about now?' },
+  { who: 'tool', text: 'get_status' },
+  { who: 'claude', text: 'Grace swapped Saturday, so it works for 3 — you need 3. Reservations can open.' },
+  { who: 'you', text: 'Open reservations on Saturday.' },
   { who: 'tool', text: 'preview_open_payments' },
   { who: 'claude', text: 'Here are the exact terms: $45 held per person, charged only if 3 reserve. Open them?' },
   { who: 'you', text: 'yes' },

@@ -22,14 +22,15 @@ For frontend work, run `pnpm -C web dev`. Vite proxies `/api`, `/paypal`,
 
 With the service running, `make seed` creates Maya's demo workshop through the
 HTTP API on the next free weekend: 3 needed of 6 spots at US$45. Its six
-participants have already sent their availability messages, and one of them is
-deliberately vague, so the organizer sees a clarification request.
+participants have already sent their availability messages. Saturday has 2 of
+the 3 needed: Grace's message leaves open whether she can make a morning, so
+Claude asks her about the class hours, and her answer is what lets Saturday open.
 
 `make seed` prints the organizer link, the invite link and one link per
 participant, and needs no credentials. `go run ./cmd/seed -h` lists the flags:
 - `-base` for another base URL;
 - the price, time zone and payment window;
-- `-open-payments` to open payments on the recommended date right away.
+- `-open-payments` to send Grace's answer to Claude's question and open payments on the recommended date right away.
 
 ### Demo mode
 
@@ -66,7 +67,7 @@ default.
 | `COMMITPOOL_ALLOW_LIVE_PAYPAL` | `1` accepts a `PAYPAL_BASE_URL` other than the Sandbox, such as the live `https://api-m.paypal.com`; it must still be https. Default `0`. Refused next to `COMMITPOOL_DEMO_MODE=1` or `COMMITPOOL_SANDBOX_MOCKS=1`, which are Sandbox-only. |
 | `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` | Required unless `E2E_FAKE_PAYPAL=1`. PayPal Sandbox app credentials. |
 | `PAYPAL_WEBHOOK_ID` | Id of the Sandbox webhook pointing at `/paypal/webhook` (`scripts/register-webhook.sh` creates it). Without it the webhook endpoint answers 503 and the periodic reconcile does the work alone. |
-| `COMMITPOOL_AI_PROVIDER` | `bedrock` (default) or `fake`, a deterministic keyword interpreter for tests and demos. |
+| `COMMITPOOL_AI_PROVIDER` | `bedrock` (default) or `fake`, a deterministic keyword interpreter for tests that also plays back the scripted readings of Maya's demo cast, including Grace's answer when it follows her first message. |
 | `AWS_REGION` | Required unless `COMMITPOOL_AI_PROVIDER=fake`. |
 | `COMMITPOOL_BEDROCK_MODEL`, `COMMITPOOL_BEDROCK_FALLBACK_MODEL` | Bedrock model or inference profile IDs. The model defaults to Claude Sonnet 4.5 through the US inference profile, `us.anthropic.claude-sonnet-4-5-20250929-v1:0`. The fallback defaults to none, which turns the refusal fallback off. |
 | `COMMITPOOL_AI_HOURLY_CAP`, `COMMITPOOL_AI_DAILY_CAP` | Most Bedrock calls in any sliding hour (default `200`) and in any sliding 24 hours (default `1500`). They count model calls as the app makes them; the SDK may retry a failed call up to twice, and that is still one call. Readings of availability may use the whole cap; explanations, nudges and drafts only three quarters of it, so they never starve readings. Past its share, a reading answers 429 `ai_capped` with `Retry-After` and a message that says when to try again, and the others fall back to plain text or an empty draft until the wait is over. Every reading calls Claude; an explanation, nudge or draft identical to one of the last 512 reuses that answer and is not counted. Setting only the daily cap lowers the hourly default to it. The fake provider has no cap. |

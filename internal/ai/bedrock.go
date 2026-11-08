@@ -114,7 +114,7 @@ func (b *Bedrock) Interpret(ctx context.Context, in InterpretInput) (domain.Inte
 		MaxTokens: interpretMaxTokens,
 		System:    []anthropic.BetaTextBlockParam{{Text: interpretSystem(in)}},
 		Messages: []anthropic.BetaMessageParam{
-			anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock("The participant's message, as a JSON string:\n" + jsonString(in.Message))),
+			anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(interpretUserTurn(in))),
 		},
 		OutputConfig: anthropic.BetaOutputConfigParam{
 			Effort: b.effort,
@@ -129,6 +129,16 @@ func (b *Bedrock) Interpret(ctx context.Context, in InterpretInput) (domain.Inte
 		return domain.Interpretation{}, meta, fmt.Errorf("ai: interpret: %w", err)
 	}
 	return out, meta, nil
+}
+
+func interpretUserTurn(in InterpretInput) string {
+	text := "The participant's message, as a JSON string:\n" + jsonString(in.Message)
+	if in.Earlier == nil {
+		return text
+	}
+	text += "\n\nIt follows their earlier message, as a JSON string:\n" + jsonString(in.Earlier.Message)
+	text += "\n\nand the questions we asked them, as a JSON list:\n" + jsonList(in.Earlier.Questions)
+	return text
 }
 
 func interpretSystem(in InterpretInput) string {

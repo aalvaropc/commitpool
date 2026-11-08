@@ -6,7 +6,11 @@ import (
 	"fmt"
 	"net/http"
 	"path"
+	"slices"
 	"time"
+
+	"github.com/aalvaropc/commitpool/internal/ai"
+	"github.com/aalvaropc/commitpool/internal/domain"
 )
 
 type Caller interface {
@@ -15,6 +19,7 @@ type Caller interface {
 
 type Person struct {
 	Name, Message string
+	Expect        ai.Scripted
 }
 
 type Scenario struct {
@@ -23,7 +28,30 @@ type Scenario struct {
 	StartHour                              int
 	Price, VenueCost, Currency             string
 	People                                 []Person
+	Replies                                []Person
 }
+
+var noCondition = domain.Condition{Type: domain.ConditionNone}
+
+func can(evidence string) domain.DateVerdict {
+	return domain.DateVerdict{Verdict: domain.VerdictAvailable, Condition: noCondition, Evidence: evidence}
+}
+
+func cannot(evidence string) domain.DateVerdict {
+	return domain.DateVerdict{Verdict: domain.VerdictUnavailable, Condition: noCondition, Evidence: evidence}
+}
+
+func endsBy(hhmm, evidence string) domain.DateVerdict {
+	return domain.DateVerdict{Verdict: domain.VerdictConditional, Condition: domain.Condition{Type: domain.ConditionEndBefore, Time: hhmm}, Evidence: evidence}
+}
+
+func unsure(evidence string) domain.DateVerdict {
+	return domain.DateVerdict{Verdict: domain.VerdictUnknown, Condition: noCondition, Evidence: evidence}
+}
+
+func verdicts(v ...domain.DateVerdict) []domain.DateVerdict { return v }
+
+const graceMessage = "Count me in! Mornings are tricky — I'm usually at the market — but I might be able to swap one. Not sure which day yet."
 
 var Maya = Scenario{
 	Title:       "Wheel-throwing for beginners",
@@ -38,13 +66,58 @@ var Maya = Scenario{
 	VenueCost:   "120.00",
 	Currency:    "USD",
 	People: []Person{
-		{"Priya Raman", "Saturday works for me, Sunday I can't."},
-		{"Ben Whitaker", "Either day is fine, but on Saturday only if we finish before six."},
-		{"Lucía Torres", "I can't do Saturday; Sunday morning is perfect."},
-		{"Hannah Kim", "Count me in on Saturday. Sunday is no good for me."},
-		{"Tomás Silva", "Both days work for me."},
-		{"Grace Liu", "I can make it either day, ideally in the afternoon."},
+		{
+			Name: "Priya Raman", Message: "Saturday works for me, Sunday I can't.",
+			Expect: ai.Scripted{Verdicts: verdicts(can("Saturday works for me"), cannot("Sunday I can't"))},
+		},
+		{
+			Name: "Ben Whitaker", Message: "The first date works if we're done before 6; the second one I'm away.",
+			Expect: ai.Scripted{
+				Verdicts:        verdicts(endsBy("18:00", "The first date works if we're done before 6"), cannot("the second one I'm away")),
+				HardConstraints: []string{"done before 6 PM"},
+			},
+		},
+		{
+			Name: "Lucía Torres", Message: "El sábado no puedo, pero el domingo me viene perfecto.",
+			Expect: ai.Scripted{Verdicts: verdicts(cannot("El sábado no puedo"), can("el domingo me viene perfecto"))},
+		},
+		{
+			Name: "Hannah Kim", Message: "Saturday only if we're done by 11:30 — I have a lunch at noon. Sunday is out.",
+			Expect: ai.Scripted{
+				Verdicts:        verdicts(endsBy("11:30", "Saturday only if we're done by 11:30"), cannot("Sunday is out")),
+				HardConstraints: []string{"done by 11:30 AM on Saturday"},
+			},
+		},
+		{
+			Name: "Tomás Silva", Message: "Sunday's good. Saturday I'm driving my daughter to a tournament all day.",
+			Expect: ai.Scripted{Verdicts: verdicts(cannot("Saturday I'm driving my daughter to a tournament all day"), can("Sunday's good"))},
+		},
+		{
+			Name: "Grace Liu", Message: graceMessage,
+			Expect: ai.Scripted{
+				Verdicts: verdicts(unsure("Mornings are tricky — I'm usually at the market"), unsure("Not sure which day yet")),
+				Question: "The class runs 10 AM–12 PM on Saturday and Sunday — can you make either morning, and which?",
+				Why:      "She might swap one market morning but has not said which, and the class only runs in the morning.",
+			},
+		},
 	},
+	Replies: []Person{
+		{
+			Name: "Grace Liu", Message: "No problem — I swapped Saturday. Sunday I'm still at the market.",
+			Expect: ai.Scripted{
+				Verdicts: verdicts(can("I swapped Saturday"), cannot("Sunday I'm still at the market")),
+				Follows:  graceMessage,
+			},
+		},
+	},
+}
+
+func Script(sc Scenario) map[string]ai.Scripted {
+	out := make(map[string]ai.Scripted, len(sc.People)+len(sc.Replies))
+	for _, p := range slices.Concat(sc.People, sc.Replies) {
+		out[p.Message] = p.Expect
+	}
+	return out
 }
 
 type Options struct {
@@ -168,6 +241,23 @@ func Answer(ctx context.Context, api Caller, people []Participant, pace Pace) er
 		}
 		if err := answer(ctx, api, p, pace); err != nil {
 			errs = append(errs, fmt.Errorf("availability of %s: %w", p.Name, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func Reply(ctx context.Context, api Caller, people []Participant, replies []Person, pace Pace) error {
+	var errs []error
+	for _, r := range replies {
+		i := slices.IndexFunc(people, func(p Participant) bool { return p.Name == r.Name })
+		if i < 0 {
+			errs = append(errs, fmt.Errorf("reply of %s: nobody by that name joined", r.Name))
+			continue
+		}
+		p := people[i]
+		p.Message = r.Message
+		if err := answer(ctx, api, p, pace); err != nil {
+			errs = append(errs, fmt.Errorf("reply of %s: %w", r.Name, err))
 		}
 	}
 	return errors.Join(errs...)

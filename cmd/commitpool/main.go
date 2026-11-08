@@ -18,6 +18,7 @@ import (
 	"github.com/aalvaropc/commitpool/internal/ai"
 	"github.com/aalvaropc/commitpool/internal/clock"
 	"github.com/aalvaropc/commitpool/internal/config"
+	"github.com/aalvaropc/commitpool/internal/demo"
 	"github.com/aalvaropc/commitpool/internal/httpapi"
 	"github.com/aalvaropc/commitpool/internal/mail"
 	"github.com/aalvaropc/commitpool/internal/mcpserver"
@@ -197,8 +198,8 @@ func newInterpreter(ctx context.Context, cfg config.Config, log *slog.Logger) (a
 			"hourly_cap", cfg.AIHourlyCap, "daily_cap", cfg.AIDailyCap)
 		return ai.NewMemo(ai.NewBudget(b, ai.BudgetConfig{Hourly: cfg.AIHourlyCap, Daily: cfg.AIDailyCap, Clock: clock.Real{}}), ai.MemoSize), nil
 	case config.AIProviderFake:
-		log.Warn("using the deterministic fake interpreter")
-		return ai.Fake{}, nil
+		log.Warn("using the deterministic fake interpreter, scripted for the demo cast")
+		return ai.Fake{Script: demo.Script(demo.Maya)}, nil
 	default:
 		return nil, fmt.Errorf("ai: unknown provider %q; set COMMITPOOL_AI_PROVIDER to bedrock or fake", cfg.AIProvider)
 	}

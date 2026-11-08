@@ -398,6 +398,42 @@ func TestLoad_AICaps(t *testing.T) {
 	env["COMMITPOOL_AI_HOURLY_CAP"] = "300"
 	env["COMMITPOOL_AI_DAILY_CAP"] = "250"
 	if _, err := load(env); err == nil || !strings.Contains(err.Error(), "COMMITPOOL_AI_HOURLY_CAP cannot be above COMMITPOOL_AI_DAILY_CAP") {
-		t.Errorf("an hourly cap above the daily one: err = %v", err)
+		t.Errorf("an hourly cap set above the daily one: err = %v", err)
+	}
+	env = baseEnv()
+	env["COMMITPOOL_AI_HOURLY_CAP"] = "2000"
+	if _, err := load(env); err == nil || !strings.Contains(err.Error(), "COMMITPOOL_AI_HOURLY_CAP") {
+		t.Errorf("an hourly cap set above the default daily one: err = %v", err)
+	}
+	env = baseEnv()
+	env["COMMITPOOL_AI_DAILY_CAP"] = "120"
+	if cfg, err := load(env); err != nil || cfg.AIHourlyCap != 120 || cfg.AIDailyCap != 120 {
+		t.Errorf("only a daily cap of 120 = %d an hour, %d a day, %v; want the hourly default clamped to 120", cfg.AIHourlyCap, cfg.AIDailyCap, err)
+	}
+	env["COMMITPOOL_AI_DAILY_CAP"] = "800"
+	if cfg, err := load(env); err != nil || cfg.AIHourlyCap != 200 || cfg.AIDailyCap != 800 {
+		t.Errorf("only a daily cap of 800 = %d an hour, %d a day, %v; want the hourly default", cfg.AIHourlyCap, cfg.AIDailyCap, err)
+	}
+}
+
+func TestLoad_DemoAndMocksAreSandboxOnly(t *testing.T) {
+	for _, flag := range []string{"COMMITPOOL_DEMO_MODE", "COMMITPOOL_SANDBOX_MOCKS"} {
+		for _, url := range []string{"", "https://api-m.paypal.com"} {
+			env := baseEnv()
+			env["COMMITPOOL_ALLOW_LIVE_PAYPAL"] = "1"
+			env[flag] = "1"
+			if url != "" {
+				env["PAYPAL_BASE_URL"] = url
+			}
+			if _, err := load(env); err == nil || !strings.Contains(err.Error(), flag) || !strings.Contains(err.Error(), "COMMITPOOL_ALLOW_LIVE_PAYPAL") {
+				t.Errorf("%s=1 with live PayPal allowed and PAYPAL_BASE_URL=%q: err = %v, want a refusal naming both", flag, url, err)
+			}
+		}
+	}
+	env := baseEnv()
+	env["COMMITPOOL_DEMO_MODE"] = "1"
+	env["COMMITPOOL_SANDBOX_MOCKS"] = "1"
+	if _, err := load(env); err != nil {
+		t.Errorf("demo and mocks on the Sandbox: %v", err)
 	}
 }

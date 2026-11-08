@@ -148,7 +148,10 @@ func Load(getenv func(string) string) (Config, error) {
 	cfg.AIHourlyCap = positive("COMMITPOOL_AI_HOURLY_CAP", defaultAIHourlyCap)
 	cfg.AIDailyCap = positive("COMMITPOOL_AI_DAILY_CAP", defaultAIDailyCap)
 	if cfg.AIHourlyCap > cfg.AIDailyCap {
-		problems = append(problems, "COMMITPOOL_AI_HOURLY_CAP cannot be above COMMITPOOL_AI_DAILY_CAP")
+		if strings.TrimSpace(getenv("COMMITPOOL_AI_HOURLY_CAP")) != "" {
+			problems = append(problems, "COMMITPOOL_AI_HOURLY_CAP cannot be above COMMITPOOL_AI_DAILY_CAP")
+		}
+		cfg.AIHourlyCap = cfg.AIDailyCap
 	}
 	if strings.EqualFold(cfg.BedrockFallbackModel, "none") {
 		cfg.BedrockFallbackModel = ""
@@ -198,6 +201,14 @@ func Load(getenv func(string) string) (Config, error) {
 		}
 	}
 
+	if cfg.AllowLivePayPal {
+		if cfg.DemoMode {
+			problems = append(problems, "COMMITPOOL_DEMO_MODE=1 runs only on the PayPal Sandbox; unset COMMITPOOL_ALLOW_LIVE_PAYPAL")
+		}
+		if cfg.SandboxMocks {
+			problems = append(problems, "COMMITPOOL_SANDBOX_MOCKS=1 runs only on the PayPal Sandbox; unset COMMITPOOL_ALLOW_LIVE_PAYPAL")
+		}
+	}
 	sandbox := cfg.PayPalBaseURL == defaultPayPalBaseURL
 	switch {
 	case sandbox:

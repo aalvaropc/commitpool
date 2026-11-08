@@ -66,11 +66,3 @@ export function sampleDates(now: Date): SampleDates {
   const date = (key: Day, civil: number): SampleDate => ({ key, weekday: WEEKDAYS[key], label: dayLabel(civil), hours: CLASS_HOURS_WORDS })
   return { sat: date('sat', saturday), sun: date('sun', saturday + DAY_MS) }
 }
-
-export function withLabels(dates: SampleDates, returned: { key: string; label: string; hours: string }[]): SampleDates {
-  const out = { ...dates }
-  for (const d of returned) {
-    if ((d.key === 'sat' || d.key === 'sun') && d.label && d.hours) out[d.key] = { ...dates[d.key], label: d.label, hours: d.hours }
-  }
-  return out
-}

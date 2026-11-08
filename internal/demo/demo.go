@@ -112,9 +112,35 @@ var Maya = Scenario{
 	},
 }
 
+var Landing = []Person{
+	{
+		Name: "Landing visitor", Message: "No problem — Saturday works!",
+		Expect: ai.Scripted{Verdicts: verdicts(can("Saturday works"), unsure(""))},
+	},
+	{
+		Name: "Landing visitor", Message: "El domingo sí puedo",
+		Expect: ai.Scripted{Verdicts: verdicts(unsure(""), can("El domingo sí puedo"))},
+	},
+	{
+		Name: "Landing visitor", Message: "The first one, if we're done by 11",
+		Expect: ai.Scripted{
+			Verdicts:        verdicts(endsBy("11:00", "The first one, if we're done by 11"), unsure("")),
+			HardConstraints: []string{"done by 11 AM"},
+		},
+	},
+}
+
 func Script(sc Scenario) map[string]ai.Scripted {
 	out := make(map[string]ai.Scripted, len(sc.People)+len(sc.Replies))
 	for _, p := range slices.Concat(sc.People, sc.Replies) {
+		out[p.Message] = p.Expect
+	}
+	return out
+}
+
+func FakeScript() map[string]ai.Scripted {
+	out := Script(Maya)
+	for _, p := range Landing {
 		out[p.Message] = p.Expect
 	}
 	return out

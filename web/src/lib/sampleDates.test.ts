@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CLASS_HOURS_WORDS, clockWords, sampleDates, withLabels } from './sampleDates'
+import { CLASS_HOURS_WORDS, clockWords, sampleDates } from './sampleDates'
 
 const labels = (now: string) => {
   const d = sampleDates(new Date(now))
@@ -51,18 +51,5 @@ describe('clockWords', () => {
     [810, '1:30 PM'],
   ])('writes %i minutes as %s', (minutes, words) => {
     expect(clockWords(minutes)).toBe(words)
-  })
-})
-
-describe('withLabels', () => {
-  it('takes the labels the server returned and ignores unknown keys', () => {
-    const local = sampleDates(new Date('2026-11-02T09:00:00Z'))
-    const next = withLabels(local, [
-      { key: 'sat', label: 'Sat, Nov 14', hours: '10 AM–12 PM' },
-      { key: 'mon', label: 'Mon, Nov 16', hours: '9 AM–11 AM' },
-    ])
-    expect(next.sat.label).toBe('Sat, Nov 14')
-    expect(next.sun).toEqual(local.sun)
-    expect(Object.keys(next)).toEqual(['sat', 'sun'])
   })
 })

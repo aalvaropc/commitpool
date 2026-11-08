@@ -10,7 +10,7 @@ describe('Reading', () => {
     ['prepared', 'Prepared reading'],
     ['claude', 'Read by Claude'],
     ['rules', 'Simple rules read this one'],
-    ['fallback', 'Claude is busy — simple rules read this one'],
+    ['fallback', 'Simple rules read this one — Claude wasn’t available'],
   ] as const)('labels a %s reading as %j', (by, label) => {
     const html = renderToStaticMarkup(<Reading reading={reading} by={by} />)
     expect(html).toContain(label)

@@ -60,6 +60,7 @@ type server struct {
 	self         http.Handler
 	drafts       *draftQuota
 	samples      *sampleQuota
+	questionKey  []byte
 	aiSem        chan struct{}
 }
 
@@ -80,6 +81,7 @@ func New(d Deps) http.Handler {
 	s.demoQuota = newDemoQuota(s.limiter != nil)
 	s.drafts = newDraftQuota(s.limiter != nil)
 	s.samples = newSampleQuota(s.limiter != nil)
+	s.questionKey = newQuestionKey(d.Cfg.MCPSecret)
 	mux := http.NewServeMux()
 	s.routes(mux)
 	h := s.observe(mux)

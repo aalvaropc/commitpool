@@ -150,7 +150,7 @@ func newEnv(t *testing.T, opts ...option) *env {
 			SeatTTL:            30 * time.Minute,
 			FakePayPal:         true,
 		},
-		ai: ai.Fake{Script: demo.Script(demo.Maya)},
+		ai: ai.Fake{Script: demo.FakeScript()},
 	}
 	for _, o := range opts {
 		o(&s)

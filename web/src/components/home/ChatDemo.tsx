@@ -19,7 +19,7 @@ import {
   type Read,
 } from '../../lib/chatScript'
 import { useInView } from '../../lib/inView'
-import { readLive, type Earlier, type ReadBy, type Reader } from '../../lib/liveReading'
+import { earlierFrom, footnote, readLive, type Earlier, type ReadBy, type Reader } from '../../lib/liveReading'
 import { sampleDates, type SampleDates } from '../../lib/sampleDates'
 import type { Day, SampleReading } from '../../lib/sampleReader'
 import TryDemo from '../TryDemo'
@@ -110,6 +110,7 @@ export default function ChatDemo({ demo }: { demo?: boolean }) {
   const [round, setRound] = useState(0)
   const [dates, setDates] = useState<SampleDates>(() => sampleDates(new Date()))
   const [earlier, setEarlier] = useState<Earlier | null>(null)
+  const [lastBy, setLastBy] = useState<ReadBy | null>(null)
   const ids = useRef(0)
   const run = useRef(0)
   const interacted = useRef(false)
@@ -159,6 +160,7 @@ export default function ChatDemo({ demo }: { demo?: boolean }) {
       setItems([])
       setDates(local)
       setEarlier(null)
+      setLastBy(null)
       setPhase('playing')
       await pause(500)
       if (!live()) return
@@ -197,25 +199,29 @@ export default function ChatDemo({ demo }: { demo?: boolean }) {
     setDraft('')
     setPhase('reading')
     const id = push({ kind: 'person', name: YOU, text: said, you: true, by: 'claude', reading: null, counted: null })
-    const [result] = await Promise.all([readLive({ message: said, earlier: asked }, dates), pause(700)])
+    const [result] = await Promise.all([readLive({ message: said, earlier: asked }), pause(700)])
     if (!live()) return
-    setDates(result.dates)
+    setLastBy(result.by)
     patch(id, { by: result.by, reading: result.reading, counted: result.counted })
     await pause(800)
     if (!live()) return
-    if (result.question && !asked) {
+    if (result.question) {
       push({ kind: 'question', by: result.by, text: result.question })
-      setEarlier({ message: said, questions: [result.question] })
-      setPhase('turn')
-      return
+      if (!asked) {
+        setEarlier(earlierFrom(said, result))
+        setPhase('turn')
+        return
+      }
+      await pause(900)
+      if (!live()) return
     }
     setPhase('counting')
-    const end = outcome(result.counted, result.dates, result.question !== null)
+    const end = outcome(result.counted, dates, result.question !== null)
     push({ kind: 'tally', text: end.text })
     await pause(1100)
     if (!live()) return
     if (end.key) {
-      push({ kind: 'offer', key: end.key, day: result.dates[end.key].label })
+      push({ kind: 'offer', key: end.key, day: dates[end.key].label })
       setPhase('offer')
       return
     }
@@ -377,8 +383,7 @@ export default function ChatDemo({ demo }: { demo?: boolean }) {
         </footer>
       </section>
       <p className="px-2 text-sm text-ink-soft">
-        The five answers are prepared; yours is read live by Claude. Payments in this chat are simulated. <span className="font-semibold text-ink">Try it as Maya</span> runs the real
-        flow on the PayPal Sandbox.
+        {footnote(lastBy)} <span className="font-semibold text-ink">Try it as Maya</span> runs the real flow on the PayPal Sandbox.
       </p>
     </div>
   )

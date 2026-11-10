@@ -128,8 +128,8 @@ export default function Owner() {
           <DemoGuide view={d} />
           <ClaudeSuggests suggestions={d.suggestions} />
           <ClaudeRead view={d} stalled={stalled} onCheck={() => void view.reload()} />
-          <PayoutTile token={token} view={d} onChange={view.reload} />
           {d.proposal && <EnrollmentList token={token} view={d} onChange={view.reload} />}
+          <PayoutTile token={token} view={d} onChange={view.reload} />
           <AgreedTerms view={d} />
         </div>
 

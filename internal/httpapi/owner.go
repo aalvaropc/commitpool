@@ -88,6 +88,7 @@ func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
 	enrollments := make([]enrollmentDTO, len(st.enrollments))
 	for i, en := range st.enrollments {
 		enrollments[i] = enrollmentView(en, ws, st.proposal, latest[en.ID], now)
+		ownerPayment(&enrollments[i], latest[en.ID])
 		enrollments[i].ParticipantID = en.ParticipantID
 		enrollments[i].DisplayName = names[en.ParticipantID]
 	}

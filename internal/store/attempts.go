@@ -22,11 +22,12 @@ type AttemptRow struct {
 	CaptureStatus, CaptureReason, CaptureIssue, CaptureDebugID *string
 	RefundStatus, RefundReason, MockCode                       *string
 	FailedRefundIDs                                            []string
+	CaptureFeeMinor, CaptureNetMinor                           *int64
 }
 
 const attemptCols = `id, enrollment_id, attempt_no, order_id, authorization_id, capture_id, refund_id, amount_minor, currency,
 	order_status, authorization_status, auth_expires_at, capture_status, capture_reason, capture_issue, capture_debug_id,
-	refund_status, refund_reason, mock_code, failed_refund_ids`
+	refund_status, refund_reason, mock_code, failed_refund_ids, capture_fee_minor, capture_net_minor`
 
 func (s *Store) CreateAttempt(ctx context.Context, enrollmentID string, amountMinor int64, currency string) (AttemptRow, error) {
 	a, _, err := s.openAttempt(ctx, enrollmentID, amountMinor, currency, false)
@@ -155,6 +156,20 @@ func (s *Store) LatestAttemptsWithPendingAuthorization(ctx context.Context) ([]A
 		 order by id`, string(domain.EnrollmentSeatReserved), AuthorizationPending)
 }
 
+func (s *Store) AttemptsMissingFees(ctx context.Context, limit int, skip []string) ([]AttemptRow, error) {
+	if skip == nil {
+		skip = []string{}
+	}
+	return many[AttemptRow](ctx, s.Pool, "attempts missing fees",
+		`select `+attemptCols+` from payment_attempts
+		 where capture_id is not null and capture_fee_minor is null and capture_net_minor is null
+		   and enrollment_id in (select id from enrollments where status = any($1))
+		   and not (id = any($2::uuid[]))
+		 order by updated_at, id
+		 limit $3`,
+		texts([]domain.EnrollmentStatus{domain.EnrollmentPaid, domain.EnrollmentRefunded}), skip, limit)
+}
+
 func (s *Store) AttemptByID(ctx context.Context, id string) (*AttemptRow, error) {
 	return oneOrNil[AttemptRow](ctx, s.Pool, "attempt by id",
 		`select `+attemptCols+` from payment_attempts where id = $1`, id)
@@ -179,6 +194,7 @@ const (
 	attemptSetTail = `order_status = $6, authorization_status = $7,
 			capture_status = $9, capture_reason = $10, capture_issue = $11, capture_debug_id = $12,
 			refund_status = $13, refund_reason = $14, mock_code = $15,
+			capture_fee_minor = coalesce(capture_fee_minor, $16), capture_net_minor = coalesce(capture_net_minor, $17),
 			updated_at = now()
 		 where id = $1`
 
@@ -200,6 +216,7 @@ func attemptArgs(id string, a AttemptRow) []any {
 		a.OrderStatus, a.AuthorizationStatus, a.AuthExpiresAt,
 		a.CaptureStatus, a.CaptureReason, a.CaptureIssue, a.CaptureDebugID,
 		a.RefundStatus, a.RefundReason, a.MockCode,
+		a.CaptureFeeMinor, a.CaptureNetMinor,
 	}
 }
 

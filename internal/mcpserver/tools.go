@@ -37,6 +37,9 @@ func (s *Server) addTools() {
 	mcp.AddTool(s.srv, &mcp.Tool{Name: "get_status", Annotations: readOnly,
 		Description: "Read a workshop from its owner link: the recommended date and why, who can come, who has committed or paid, what would happen if payments closed now, and who the organizer could nudge, each with a message Claude drafted for the organizer to send. Nothing is sent: show the messages to the organizer and let them decide."},
 		logged(s, "get_status", s.getStatus))
+	mcp.AddTool(s.srv, &mcp.Tool{Name: "verify_with_paypal", Annotations: readOnly,
+		Description: "Compare CommitPool's payment records for a workshop with PayPal's live records, from its owner link: for each seat's PayPal order, hold, charge and refund, the status and amount CommitPool expects, what PayPal reports, whether they match, and PayPal's debug id when PayPal answers with an error. Only reads: nothing is changed at PayPal or in CommitPool. One check per workshop every 30 seconds, at most 12 seats each."},
+		logged(s, "verify_with_paypal", s.verifyWithPayPal))
 	additive := false
 	mcp.AddTool(s.srv, &mcp.Tool{Name: "preview_open_payments", Annotations: &mcp.ToolAnnotations{DestructiveHint: &additive, IdempotentHint: true},
 		Description: "Prepare opening payments on a candidate date: returns the exact terms that will be locked (date, price, minimum, capacity, payment window) and an approve_url for the organizer. Nothing about the workshop changes. Show the terms to the organizer and ask them to open the approve_url and tap Approve on their own page. They have thirty minutes to approve; once they do, you have thirty more to call confirm_open_payments. A repeated preview returns the same approval while it has ten minutes left, with its state."},
@@ -360,6 +363,97 @@ func cancelledOutcome(resolution string) string {
 		return "The workshop is cancelled, and a release or a refund needs the organizer's check in the web app."
 	}
 	return "The workshop is cancelled: holds are being released and payments refunded."
+}
+
+type VerifyCheck struct {
+	Resource   string `json:"resource"`
+	ID         string `json:"id"`
+	CommitPool string `json:"commitpool"`
+	PayPal     string `json:"paypal"`
+	Match      bool   `json:"match"`
+	DebugID    string `json:"debug_id,omitempty"`
+}
+
+type VerifySeat struct {
+	Name   string        `json:"name"`
+	Checks []VerifyCheck `json:"checks"`
+}
+
+type VerifyOut struct {
+	Summary   string       `json:"summary"`
+	Records   int          `json:"records"`
+	Matching  int          `json:"matching"`
+	Skipped   int          `json:"skipped"`
+	CheckedAt time.Time    `json:"checked_at"`
+	Seats     []VerifySeat `json:"seats"`
+	Next      string       `json:"next"`
+}
+
+func (s *Server) verifyWithPayPal(ctx context.Context, _ *mcp.CallToolRequest, in OwnerIn) (*mcp.CallToolResult, VerifyOut, error) {
+	tok, err := token(in.OwnerLink, "owner")
+	if err != nil {
+		return nil, VerifyOut{}, err
+	}
+	var v struct {
+		CheckedAt time.Time `json:"checked_at"`
+		Summary   struct {
+			Records  int `json:"records"`
+			Matching int `json:"matching"`
+			Skipped  int `json:"skipped"`
+		} `json:"summary"`
+		Seats []struct {
+			Seat   string `json:"seat"`
+			Checks []struct {
+				Resource string `json:"resource"`
+				ID       string `json:"id"`
+				Local    string `json:"local"`
+				PayPal   string `json:"paypal"`
+				Match    bool   `json:"match"`
+				DebugID  string `json:"debug_id"`
+			} `json:"checks"`
+		} `json:"seats"`
+	}
+	if err := s.call(ctx, "POST", "/api/v1/owner/"+tok+"/paypal/verify", nil, &v); err != nil {
+		return nil, VerifyOut{}, err
+	}
+	out := VerifyOut{
+		Records: v.Summary.Records, Matching: v.Summary.Matching, Skipped: v.Summary.Skipped,
+		CheckedAt: v.CheckedAt, Seats: []VerifySeat{},
+		Summary: matchSummary(v.Summary.Matching, v.Summary.Records),
+	}
+	for _, seat := range v.Seats {
+		vs := VerifySeat{Name: seat.Seat, Checks: []VerifyCheck{}}
+		for _, c := range seat.Checks {
+			vs.Checks = append(vs.Checks, VerifyCheck{Resource: c.Resource, ID: c.ID, CommitPool: c.Local, PayPal: c.PayPal, Match: c.Match, DebugID: c.DebugID})
+		}
+		out.Seats = append(out.Seats, vs)
+	}
+	switch {
+	case v.Summary.Skipped == 1:
+		out.Summary += " 1 more seat was not checked this time."
+	case v.Summary.Skipped > 1:
+		out.Summary += fmt.Sprintf(" %d more seats were not checked this time.", v.Summary.Skipped)
+	}
+	switch {
+	case v.Summary.Records == 0:
+		out.Next = "No seat has reached PayPal yet, so there is nothing to compare. Nothing was changed."
+	case v.Summary.Matching == v.Summary.Records:
+		out.Next = "CommitPool's records agree with PayPal. Nothing was changed: this check only reads."
+	default:
+		out.Next = "Some records differ from what PayPal reports. Nothing was changed: this check only reads. Show the differences to the organizer, and quote a debug_id to PayPal support when there is one."
+	}
+	return nil, out, nil
+}
+
+func matchSummary(matching, records int) string {
+	noun, verb := "records", "match"
+	if records == 1 {
+		noun = "record"
+	}
+	if matching == 1 {
+		verb = "matches"
+	}
+	return fmt.Sprintf("%d of %d %s %s PayPal.", matching, records, noun, verb)
 }
 
 type PreviewIn struct {

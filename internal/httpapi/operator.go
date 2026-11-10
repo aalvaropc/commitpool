@@ -116,6 +116,8 @@ func (s *server) runAndAnswer(w http.ResponseWriter, ctx context.Context, ws sto
 	if err != nil {
 		return err
 	}
-	writeJSON(w, http.StatusOK, map[string]enrollmentDTO{"enrollment": enrollmentView(en, ws, p, latest, s.Clock.Now())})
+	view := enrollmentView(en, ws, p, latest, s.Clock.Now())
+	ownerPayment(&view, latest)
+	writeJSON(w, http.StatusOK, map[string]enrollmentDTO{"enrollment": view})
 	return nil
 }

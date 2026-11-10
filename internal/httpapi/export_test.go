@@ -39,3 +39,9 @@ func SetSampleTimeout(t testing.TB, d time.Duration) {
 	sampleTimeout = d
 	t.Cleanup(func() { sampleTimeout = old })
 }
+
+func SetVerifySeats(t testing.TB, n int) {
+	old := maxVerifySeats
+	maxVerifySeats = n
+	t.Cleanup(func() { maxVerifySeats = old })
+}

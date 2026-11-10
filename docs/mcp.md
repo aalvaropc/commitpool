@@ -40,6 +40,7 @@ For the organizer:
 | `get_status` | From the owner link: the recommended date and why, who can come, who committed or paid, how many paid seats cover the session cost before fees, what closing payments now would do, and who CommitPool suggests nudging, each with a message Claude drafted for the organizer to send. Read-only; nothing is sent. |
 | `preview_open_payments` | Prepares opening payments on a date: returns the exact terms that lock (date, price, minimum, capacity and payment window), an `approval_id`, its `state` and an `approve_url` for the organizer. The organizer has thirty minutes to approve; once they do, the assistant has thirty more to confirm. The workshop does not change. |
 | `confirm_open_payments` | Opens payments with that `approval_id`, only once the organizer has tapped Approve on the `approve_url` page. Refused while they have not, after the approval expired or was used, and when any term changed since the preview. |
+| `verify_with_paypal` | From the owner link: compares each seat's PayPal order, hold, charge and refund with PayPal's live records (status, amount and the recorded fee and net) and returns what CommitPool expects, what PayPal reports, whether they match and PayPal's debug id on an error. Read-only: nothing changes at PayPal or in CommitPool. One check per workshop every 30 seconds, at most 12 seats each. |
 
 For a participant:
 

@@ -38,10 +38,18 @@ type Authorization struct {
 }
 
 type Capture struct {
-	ID            string         `json:"id"`
-	Status        string         `json:"status"`
-	Amount        Money          `json:"amount"`
-	StatusDetails *StatusDetails `json:"status_details,omitempty"`
+	ID                        string                     `json:"id"`
+	Status                    string                     `json:"status"`
+	Amount                    Money                      `json:"amount"`
+	StatusDetails             *StatusDetails             `json:"status_details,omitempty"`
+	SellerReceivableBreakdown *SellerReceivableBreakdown `json:"seller_receivable_breakdown,omitempty"`
+}
+
+type SellerReceivableBreakdown struct {
+	GrossAmount      *Money `json:"gross_amount,omitempty"`
+	PayPalFee        *Money `json:"paypal_fee,omitempty"`
+	NetAmount        *Money `json:"net_amount,omitempty"`
+	ReceivableAmount *Money `json:"receivable_amount,omitempty"`
 }
 
 type Refund struct {

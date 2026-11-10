@@ -39,6 +39,7 @@ type ownerViewDTO struct {
 	Recommendation recommendationDTO `json:"recommendation"`
 	Enrollments    []enrollmentDTO   `json:"enrollments"`
 	Suggestions    []suggestionDTO   `json:"suggestions"`
+	Payout         *payoutDTO        `json:"payout"`
 	Demo           demoDTO           `json:"demo"`
 	ActAs          *[]actAsDTO       `json:"act_as,omitempty"`
 }
@@ -93,6 +94,11 @@ func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
 		enrollments[i].DisplayName = names[en.ParticipantID]
 	}
 
+	payout, err := s.payoutView(ctx, st, latest, now)
+	if err != nil {
+		return err
+	}
+
 	recommendation := recommendationView(rec)
 	recommendation.Explanation, recommendation.ExplanationPending = s.explanation(ctx, st, rec, names, len(avails))
 
@@ -124,6 +130,7 @@ func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
 		Recommendation: recommendation,
 		Enrollments:    enrollments,
 		Suggestions:    s.suggestions(ctx, st, rec, readings, names, shareURL),
+		Payout:         payout,
 		Demo:           demoDTO{DemoMode: s.Cfg.DemoMode, SandboxMocks: s.Cfg.SandboxMocks},
 		ActAs:          actAs,
 	})
@@ -377,6 +384,8 @@ func (s *server) cancelWorkshop(w http.ResponseWriter, r *http.Request) error {
 	}
 	ctx := r.Context()
 	switch err := s.Worker.CancelWorkshop(ctx, ws.ID, reason); {
+	case errors.Is(err, domain.ErrPayoutLocked):
+		return conflict("workshop_started", "The class has started and its organizer is being paid, so it can no longer be cancelled.")
 	case errors.Is(err, domain.ErrAlreadyCancelled):
 		return conflict("already_cancelled", "This workshop is already cancelled.")
 	case errors.Is(err, domain.ErrWorkshopStarted):

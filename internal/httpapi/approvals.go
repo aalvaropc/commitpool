@@ -58,6 +58,7 @@ type approvalDTO struct {
 	Minimum          int        `json:"minimum"`
 	Capacity         int        `json:"capacity"`
 	PaymentWindowMin int        `json:"payment_window_min"`
+	PayoutEmail      string     `json:"payout_email"`
 	ExpiresAt        time.Time  `json:"expires_at"`
 	ApprovedAt       *time.Time `json:"approved_at"`
 	UsedAt           *time.Time `json:"used_at"`
@@ -253,7 +254,7 @@ func (s *server) approvalView(ctx context.Context, r *http.Request, ws store.Wor
 	d := approvalDTO{
 		ID: a.ID, State: approvalState(a, ws, s.Clock.Now()), DateID: a.DateID,
 		Price: money(a.PriceMinor, a.Currency), Minimum: a.Minimum, Capacity: a.Capacity,
-		PaymentWindowMin: a.PaymentWindowMin, ExpiresAt: a.ExpiresAt.UTC(), ApprovedAt: a.ApprovedAt, UsedAt: a.UsedAt,
+		PaymentWindowMin: a.PaymentWindowMin, PayoutEmail: ws.PayoutEmail, ExpiresAt: a.ExpiresAt.UTC(), ApprovedAt: a.ApprovedAt, UsedAt: a.UsedAt,
 	}
 	for _, date := range dates {
 		if date.ID == a.DateID {

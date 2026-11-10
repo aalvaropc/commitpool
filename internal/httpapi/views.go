@@ -100,6 +100,7 @@ type workshopDTO struct {
 	Demo             bool      `json:"demo,omitempty"`
 	VenueCost        *moneyDTO `json:"venue_cost,omitempty"`
 	BreakEvenSeats   int       `json:"break_even_seats,omitempty"`
+	PayoutEmail      string    `json:"payout_email,omitempty"`
 }
 
 func publicWorkshopView(w store.WorkshopRow) workshopDTO {
@@ -124,6 +125,7 @@ func publicWorkshopView(w store.WorkshopRow) workshopDTO {
 func ownerWorkshopView(w store.WorkshopRow) workshopDTO {
 	d := publicWorkshopView(w)
 	d.ID = w.ID
+	d.PayoutEmail = w.PayoutEmail
 	if w.VenueCostMinor != nil {
 		cost := money(*w.VenueCostMinor, w.Currency)
 		d.VenueCost = &cost

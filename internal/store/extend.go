@@ -26,15 +26,21 @@ func (p ProposalRow) Domain() domain.Proposal {
 }
 
 func (s *Store) ExtensionCheck(ctx context.Context, status domain.WorkshopStatus, p ProposalRow, now time.Time) (domain.ExtensionCheck, error) {
-	return extensionCheck(ctx, s.Pool, status, p, now)
-}
-
-func extensionCheck(ctx context.Context, q querier, status domain.WorkshopStatus, p ProposalRow, now time.Time) (domain.ExtensionCheck, error) {
-	rows, err := many[EnrollmentRow](ctx, q, "enrollments for an extension",
+	rows, err := many[EnrollmentRow](ctx, s.Pool, "enrollments for an extension",
 		`select `+enrollmentCols+` from enrollments where workshop_id = $1 order by created_at, id`, p.WorkshopID)
 	if err != nil {
 		return domain.ExtensionCheck{}, err
 	}
+	return extensionCheck(ctx, s.Pool, status, p, rows, now)
+}
+
+func lockSeatsForExtension(ctx context.Context, tx pgx.Tx, workshopID string) ([]EnrollmentRow, error) {
+	return many[EnrollmentRow](ctx, tx, "lock seats for an extension",
+		`select `+enrollmentCols+` from enrollments where workshop_id = $1 and status = any($2::text[]) order by id for update`,
+		workshopID, append(occupyingStatuses(), string(domain.EnrollmentReleased)))
+}
+
+func extensionCheck(ctx context.Context, q querier, status domain.WorkshopStatus, p ProposalRow, rows []EnrollmentRow, now time.Time) (domain.ExtensionCheck, error) {
 	charging, err := scalars[string](ctx, q, "captures for an extension",
 		`select distinct a.enrollment_id::text from jobs j
 		 join payment_attempts a on a.id = j.attempt_id
@@ -101,7 +107,11 @@ func (s *Store) ExtendPaymentWindow(ctx context.Context, proposalID string, from
 		if err != nil {
 			return lookupErr("lock proposal", err)
 		}
-		check, err := extensionCheck(ctx, tx, status, p, now)
+		seats, err := lockSeatsForExtension(ctx, tx, workshopID)
+		if err != nil {
+			return err
+		}
+		check, err := extensionCheck(ctx, tx, status, p, seats, now)
 		if err != nil {
 			return err
 		}
@@ -136,4 +146,37 @@ func (s *Store) ExtendPaymentWindow(ctx context.Context, proposalID string, from
 		return ProposalRow{}, err
 	}
 	return extended, nil
+}
+
+func (s *Store) SkipToLastHours(ctx context.Context, proposalID string, closesAt time.Time) (ProposalRow, error) {
+	var shortened ProposalRow
+	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+		var workshopID string
+		if err := tx.QueryRow(ctx, `select workshop_id from proposals where id = $1`, proposalID).Scan(&workshopID); err != nil {
+			return lookupErr("find proposal", err)
+		}
+		if _, err := lockWorkshop(ctx, tx, workshopID); err != nil {
+			return err
+		}
+		row, err := one[ProposalRow](ctx, tx,
+			`update proposals set closes_at = least(closes_at, $2) where id = $1 and extended_at is null returning `+proposalCols,
+			proposalID, closesAt)
+		if isMissing(err) {
+			return domain.ErrAlreadyExtended
+		}
+		if err != nil {
+			return wrap("skip to the last hours", err)
+		}
+		if _, err := tx.Exec(ctx,
+			`update jobs set run_at = $2, updated_at = now() where idempotency_key = $1 and status = $3 and run_at > $2`,
+			JobKey(KindClose, proposalID), row.ClosesAt, JobPending); err != nil {
+			return wrap("bring the close forward", err)
+		}
+		shortened = row
+		return nil
+	})
+	if err != nil {
+		return ProposalRow{}, err
+	}
+	return shortened, nil
 }

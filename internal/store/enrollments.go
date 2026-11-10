@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -115,6 +116,9 @@ func (s *Store) ReReserveSeat(ctx context.Context, enrollmentID string, now time
 		}
 		if proposal == nil ||
 			!domain.PaymentsOpen(domain.Workshop{Status: status}, domain.Proposal{ClosesAt: proposal.ClosesAt}, now) {
+			return nil
+		}
+		if proposal.ExtendedAt != nil && !slices.Contains(domain.ExtensionConsents, current.ConsentVersion) {
 			return nil
 		}
 		newer, err := activeEnrollment(ctx, tx, current.ParticipantID)

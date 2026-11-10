@@ -205,3 +205,125 @@ func TestOverdueCloses_FollowTheExtendedDeadline(t *testing.T) {
 		t.Errorf("past the new deadline = %+v, %v; want the proposal", overdue, err)
 	}
 }
+
+func waitForLockWaiter(t *testing.T, s *store.Store, done <-chan error) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		select {
+		case err := <-done:
+			t.Fatalf("the extension finished (%v) without waiting on the locked seat", err)
+		default:
+		}
+		var waiting bool
+		if err := s.Pool.QueryRow(context.Background(),
+			`select exists (select 1 from pg_locks where not granted and locktype in ('transactionid', 'tuple'))`).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the extension did not wait on the locked seat within 5s")
+		}
+	}
+}
+
+func TestExtendPaymentWindow_WaitsForAHoldBeingPlacedAndSeesIt(t *testing.T) {
+	ctx := context.Background()
+	s := storetest.New(t)
+	w, p := extendableWorkshop(t, s)
+	es, err := s.EnrollmentsByWorkshop(ctx, w.ID)
+	if err != nil || len(es) != 1 {
+		t.Fatalf("EnrollmentsByWorkshop = %d, %v", len(es), err)
+	}
+	mustTransition(t, s, es[0].ID, []domain.EnrollmentStatus{domain.EnrollmentSeatReserved}, domain.EnrollmentAuthorized)
+	ben := reserveParams(w, p, newParticipant(t, s, w, "Ben").ID, baseTime.Add(2*time.Hour))
+	ben.ConsentVersion = "consent-v5"
+	benSeat, _, err := s.ReserveSeatAndCreateEnrollment(ctx, ben)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `update enrollments set status = 'AUTHORIZED' where id = $1`, benSeat.ID); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := s.ExtendPaymentWindow(ctx, p.ID, p.ClosesAt, extendedTo, baseTime.Add(22*time.Hour))
+		done <- err
+	}()
+	waitForLockWaiter(t, s, done)
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; !errors.Is(err, domain.ErrChargingStarted) {
+		t.Fatalf("extension racing the hold that reaches the minimum = %v, want ErrChargingStarted", err)
+	}
+	wantUnchanged(t, s, p)
+	closeOf(p).want(t, s, store.JobPending, p.ClosesAt)
+}
+
+func TestReReserveSeat_RefusesAPreExtensionConsentOnceExtended(t *testing.T) {
+	ctx := context.Background()
+	s := storetest.New(t)
+	w, p := extendableWorkshop(t, s)
+	seat := func(name, consent string) store.EnrollmentRow {
+		params := reserveParams(w, p, newParticipant(t, s, w, name).ID, baseTime.Add(2*time.Hour))
+		params.ConsentVersion = consent
+		en, _, err := s.ReserveSeatAndCreateEnrollment(ctx, params)
+		if err != nil {
+			t.Fatal(err)
+		}
+		mustTransition(t, s, en.ID, []domain.EnrollmentStatus{domain.EnrollmentSeatReserved}, domain.EnrollmentReleased)
+		return en
+	}
+	older, newer := seat("Ben", "consent-v4"), seat("Cleo", "consent-v5")
+	now := baseTime.Add(22 * time.Hour)
+	if _, err := s.ExtendPaymentWindow(ctx, p.ID, p.ClosesAt, extendedTo, now); err != nil {
+		t.Fatalf("a released v4 seat should not block the extension: %v", err)
+	}
+
+	if ok, err := s.ReReserveSeat(ctx, older.ID, now.Add(time.Hour), 30*time.Minute); err != nil || ok {
+		t.Errorf("re-reserving a v4 seat after the extension = %v, %v; want refused", ok, err)
+	}
+	if en, err := s.EnrollmentByID(ctx, older.ID); err != nil || en.Status != domain.EnrollmentReleased {
+		t.Errorf("v4 seat = %s, %v; want it still released", en.Status, err)
+	}
+	if ok, err := s.ReReserveSeat(ctx, newer.ID, now.Add(time.Hour), 30*time.Minute); err != nil || !ok {
+		t.Errorf("re-reserving a v5 seat after the extension = %v, %v; want it taken again", ok, err)
+	}
+}
+
+func TestSkipToLastHours_ShortensAndBringsTheCloseForwardTogether(t *testing.T) {
+	ctx := context.Background()
+	s := storetest.New(t)
+	_, p := extendableWorkshop(t, s)
+	at := baseTime.Add(3 * time.Hour)
+
+	got, err := s.SkipToLastHours(ctx, p.ID, at)
+	if err != nil || !got.ClosesAt.Equal(at) {
+		t.Fatalf("SkipToLastHours = %s, %v; want %s", got.ClosesAt, err, at)
+	}
+	closeOf(p).want(t, s, store.JobPending, at)
+	if got, err := s.SkipToLastHours(ctx, p.ID, at.Add(time.Hour)); err != nil || !got.ClosesAt.Equal(at) {
+		t.Errorf("a later skip = %s, %v; want the deadline kept at %s", got.ClosesAt, err, at)
+	}
+	closeOf(p).want(t, s, store.JobPending, at)
+
+	if _, err := s.ExtendPaymentWindow(ctx, p.ID, at, extendedTo, baseTime.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SkipToLastHours(ctx, p.ID, baseTime.Add(2*time.Hour)); !errors.Is(err, domain.ErrAlreadyExtended) {
+		t.Errorf("a skip after an extension = %v, want ErrAlreadyExtended", err)
+	}
+	closeOf(p).want(t, s, store.JobPending, extendedTo)
+	if got, err := s.ProposalByID(ctx, p.ID); err != nil || !got.ClosesAt.Equal(extendedTo) {
+		t.Errorf("proposal after a refused skip = %+v, %v", got, err)
+	}
+}

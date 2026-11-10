@@ -67,9 +67,11 @@ func (r *Runner) schedulePayout(ctx context.Context, workshopID string, startsAt
 	}
 }
 
+const payoutWaitPrefix = "payout waits: "
+
 func waitForPayout(log *slog.Logger, reason string) (*int, error) {
 	log.Info("payout waits", "reason", reason)
-	return nil, &refusal{reason: "payout waits: " + reason}
+	return nil, &refusal{reason: payoutWaitPrefix + reason}
 }
 
 func (r *Runner) payout(ctx context.Context, job *store.Job) (*int, error) {
@@ -125,11 +127,22 @@ func (r *Runner) beginPayout(ctx context.Context, log *slog.Logger, workshopID s
 	if err != nil {
 		return store.PayoutRow{}, err
 	}
+	moving := false
 	for _, a := range missing {
 		alog := log.With("attempt_id", a.ID, "capture_id", deref(a.CaptureID))
 		c, err := r.pp.GetCapture(ctx, *a.CaptureID)
 		if err != nil {
 			alog.Warn("payout: PayPal did not return a capture whose fees are missing", "error", err)
+			continue
+		}
+		if c.Status != paypal.StatusCompleted {
+			alog.Warn("payout: PayPal no longer reports a paid capture completed; reconciling it before paying out", "capture_status", c.Status)
+			now := r.clock.Now()
+			key := reconcilePrefix(a.ID) + "payout:" + store.Minute(now)
+			if err := r.Enqueue(ctx, store.KindReconcile, key, &workshopID, &a.ID, nil, now); err != nil {
+				return store.PayoutRow{}, err
+			}
+			moving = true
 			continue
 		}
 		_, problem, err := r.recordFees(ctx, a.ID, c)
@@ -139,6 +152,9 @@ func (r *Runner) beginPayout(ctx context.Context, log *slog.Logger, workshopID s
 		if problem != "" {
 			alog.Warn("payout: fees not recorded: " + problem)
 		}
+	}
+	if moving {
+		return store.PayoutRow{}, &store.ErrPayoutNotReady{Reason: domain.PayoutInFlight}
 	}
 	row, _, err = r.st.BeginPayout(ctx, workshopID, r.clock.Now(), early)
 	return row, err
@@ -312,7 +328,7 @@ func (r *Runner) StartPayoutNow(ctx context.Context, workshopID string) (store.P
 	if _, err := r.st.EnqueueJob(ctx, store.KindPayout, key, &workshopID, nil, nil, now); err != nil {
 		return store.PayoutRow{}, err
 	}
-	if _, err := r.st.ReviveJob(ctx, key, now, false); err != nil {
+	if _, err := r.st.RearmJob(ctx, key, now); err != nil {
 		return store.PayoutRow{}, err
 	}
 	if _, err := r.st.AdvanceJob(ctx, key, now); err != nil {
@@ -375,10 +391,16 @@ func (r *Runner) PayoutWebhook(ctx context.Context, ev PayoutEvent) (string, err
 	}
 	now := r.clock.Now()
 	if po.PayoutBatchID == nil && ev.PayoutBatchID != "" {
-		if _, err := r.st.MarkPayoutSent(ctx, po.ID, ev.PayoutBatchID, "", now); err != nil {
+		_, err := r.st.MarkPayoutSent(ctx, po.ID, ev.PayoutBatchID, "", now)
+		switch {
+		case errors.Is(err, store.ErrPayoutConflict):
+			r.log.Warn("webhook: the payout already holds another PayPal batch; the event's batch is not recorded",
+				"payout_id", po.ID, "payout_batch_id", ev.PayoutBatchID, "event_id", ev.ID)
+		case err != nil:
 			return "", err
+		default:
+			r.log.Info("webhook: recorded the payout's PayPal batch", "payout_id", po.ID, "payout_batch_id", ev.PayoutBatchID, "event_id", ev.ID)
 		}
-		r.log.Info("webhook: recorded the payout's PayPal batch", "payout_id", po.ID, "payout_batch_id", ev.PayoutBatchID, "event_id", ev.ID)
 	}
 	_, err = r.st.EnqueueJob(ctx, store.KindPayoutCheck, PayoutCheckKey(po.ID, payoutWebhookBucket+ev.ID), &po.WorkshopID, nil, nil, now)
 	return po.ID, err
@@ -390,16 +412,7 @@ func (r *Runner) sweepPayouts(ctx context.Context, now time.Time) error {
 		due, err := r.st.DuePayouts(ctx, now)
 		errs = append(errs, err)
 		for _, id := range due {
-			key := PayoutKey(id)
-			created, err := r.st.EnqueueJob(ctx, store.KindPayout, key, &id, nil, nil, now)
-			revived := false
-			if err == nil && !created {
-				revived, err = r.st.ReviveJob(ctx, key, now, false)
-			}
-			if created || revived {
-				r.log.Info("payout due; running it", "workshop_id", id, "key", key, "created", created)
-			}
-			errs = append(errs, err)
+			errs = append(errs, r.duePayout(ctx, id, now))
 		}
 	}
 	open, err := r.st.PayoutsToCheck(ctx)
@@ -410,4 +423,30 @@ func (r *Runner) sweepPayouts(ctx context.Context, now time.Time) error {
 		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
+}
+
+const payoutSlowWait = time.Hour
+
+func (r *Runner) duePayout(ctx context.Context, workshopID string, now time.Time) error {
+	key := PayoutKey(workshopID)
+	created, err := r.st.EnqueueJob(ctx, store.KindPayout, key, &workshopID, nil, nil, now)
+	if err != nil || created {
+		if created {
+			r.log.Info("payout due; running it", "workshop_id", workshopID, "key", key)
+		}
+		return err
+	}
+	j, err := r.st.JobByKey(ctx, key)
+	if err != nil || j == nil || j.Status != store.JobFailed {
+		return err
+	}
+	runAt := now
+	if domain.PayoutWaitIsLong(strings.TrimPrefix(deref(j.LastError), payoutWaitPrefix)) {
+		runAt = now.Add(payoutSlowWait)
+	}
+	rearmed, err := r.st.RearmJob(ctx, key, runAt)
+	if rearmed {
+		r.log.Info("payout waited; trying it again", "workshop_id", workshopID, "key", key, "run_at", runAt)
+	}
+	return err
 }

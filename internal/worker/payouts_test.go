@@ -504,3 +504,202 @@ func TestPayout_CheckRetriesWhenPayPalDoesNotReturnTheBatchYet(t *testing.T) {
 		t.Fatalf("payout after the retry = %s, want succeeded", po.Status)
 	}
 }
+
+func (e *env) periodic() {
+	e.t.Helper()
+	if err := e.runner.RunPeriodic(e.ctx); err != nil {
+		e.t.Fatalf("RunPeriodic: %v", err)
+	}
+}
+
+func (e *env) earlyLockWithALateCapture() (store.EnrollmentRow, store.AttemptRow, paypal.Capture, store.PayoutRow) {
+	e.t.Helper()
+	e.confirmed()
+	dee, d := e.authorized("Dee")
+	cp, err := e.api.CaptureAuthorization(e.ctx, paypal.CaptureParams{AuthorizationID: *d.AuthorizationID, RequestID: "capture:" + d.ID})
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	e.transition(dee.ID, domain.EnrollmentAuthorized, domain.EnrollmentCaptureFailed)
+	e.clock.Set(e.proposal.ClosesAt.Add(time.Minute))
+	po, err := e.runner.StartPayoutNow(e.ctx, e.workshop.ID)
+	if err != nil || po.Status != domain.PayoutSucceeded || po.Seats != 3 {
+		e.t.Fatalf("StartPayoutNow = %+v, %v; want three seats paid out", po, err)
+	}
+	e.transition(dee.ID, domain.EnrollmentCaptureFailed, domain.EnrollmentCapturing)
+	return dee, d, cp, po
+}
+
+func TestPayout_ALateCaptureReconciledBeforeThePayoutJobIsRefundedNotPaidOut(t *testing.T) {
+	e := payoutEnv(t, withClientTimeout(time.Second))
+	e.confirmed()
+	dee, d := e.authorized("Dee")
+	captureID := e.capturePending(dee, d)
+	e.toStart()
+	e.runKey(e.payoutKey())
+	e.wantJob(e.payoutKey(), store.JobFailed)
+
+	e.fake.SetCaptureStatus(captureID, "COMPLETED", "")
+	e.periodic()
+	e.runKey(e.pendingKey(d))
+	e.wantStatus(dee.ID, domain.EnrollmentPaid)
+	e.wantJob("refund:"+d.ID, store.JobPending)
+
+	e.runKey(e.payoutKey())
+	j := e.wantJob(e.payoutKey(), store.JobFailed)
+	if !strings.Contains(orEmpty(j.LastError), domain.PayoutInFlight) {
+		t.Fatalf("payout job ahead of the refund = %+v, want a wait for %s", j, domain.PayoutInFlight)
+	}
+	e.wantNoPayout()
+
+	e.runKey("refund:" + d.ID)
+	e.wantStatus(dee.ID, domain.EnrollmentRefunded)
+	e.periodic()
+	e.runUntilIdle()
+	po := e.payoutRow()
+	if po.Status != domain.PayoutSucceeded || po.Seats != 3 || po.AmountMinor != 2748 {
+		t.Fatalf("payout = %+v, want the three seats kept, without the refunded one", po)
+	}
+	if a := e.attempt(d.ID); a.PayoutID != nil {
+		t.Errorf("the refunded seat's attempt is stamped as paid out")
+	}
+}
+
+func TestPayout_ARefundRacingThePayoutIsRefusedForAPaidOutSeat(t *testing.T) {
+	e := payoutEnv(t)
+	attempts := e.confirmed()
+	e.toStart()
+	e.runUntilIdle()
+	po := e.payoutRow()
+	if a := e.attempt(attempts[0].ID); orEmpty(a.PayoutID) != po.ID {
+		t.Fatalf("paid attempt stamp = %v, want payout %s", a.PayoutID, po.ID)
+	}
+
+	e.enqueueKey("refund", "refund:"+attempts[0].ID, attempts[0], e.clock.Now())
+	e.runKey("refund:" + attempts[0].ID)
+
+	e.wantStatus(attempts[0].EnrollmentID, domain.EnrollmentPaid)
+	e.wantJob("refund:"+attempts[0].ID, store.JobFailed)
+	if n := len(e.fake.Requests("refund")); n != 0 {
+		t.Errorf("refund requests = %d, want none for a paid out seat", n)
+	}
+}
+
+func TestPayout_ACaptureLandingOnAStampedAttemptKeepsItsSeat(t *testing.T) {
+	e := payoutEnv(t)
+	attempts := e.confirmed()
+	e.toStart()
+	e.runUntilIdle()
+	a := e.attempt(attempts[0].ID)
+	e.transition(a.EnrollmentID, domain.EnrollmentPaid, domain.EnrollmentCapturing)
+	cp, err := e.api.GetCapture(e.ctx, *a.CaptureID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.runner.ApplyCapture(e.ctx, a.ID, cp); err != nil {
+		t.Fatal(err)
+	}
+	e.wantStatus(a.EnrollmentID, domain.EnrollmentPaid)
+	e.wantNoJob("refund:" + a.ID)
+}
+
+func TestPayout_RetryRefundAfterTheLockRefundsOnlyASeatThePayoutDidNotCount(t *testing.T) {
+	e := payoutEnv(t)
+	dee, d, cp, po := e.earlyLockWithALateCapture()
+	e.setMockCode(d, "REFUND_AMOUNT_EXCEEDED")
+	if err := e.runner.ApplyCapture(e.ctx, d.ID, cp); err != nil {
+		t.Fatal(err)
+	}
+	e.runKey("refund:" + d.ID)
+	e.wantFlagged(dee.ID, domain.EnrollmentRefundFailed)
+
+	key, err := e.runner.RetryRefund(e.ctx, dee.ID)
+	if err != nil {
+		t.Fatalf("RetryRefund after the lock = %v", err)
+	}
+	e.runKey(key)
+	e.wantStatus(dee.ID, domain.EnrollmentRefunded)
+	if after := e.payoutRow(); after.Seats != po.Seats || after.AmountMinor != po.AmountMinor || after.Status != domain.PayoutSucceeded {
+		t.Errorf("payout after the retried refund = %+v, want it unchanged", after)
+	}
+
+	paid := e.payoutRow()
+	stamped, err := e.st.Pool.Exec(e.ctx, `update enrollments set status = 'REFUND_FAILED', needs_attention_at = now()
+		where id = (select enrollment_id from payment_attempts where payout_id = $1 limit 1)`, paid.ID)
+	if err != nil || stamped.RowsAffected() != 1 {
+		t.Fatalf("mark a paid out seat refund failed: %v", err)
+	}
+	var seat string
+	if err := e.st.Pool.QueryRow(e.ctx, `select enrollment_id from payment_attempts where payout_id = $1 limit 1`, paid.ID).Scan(&seat); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.runner.RetryRefund(e.ctx, seat); !errors.Is(err, store.ErrPaidOut) {
+		t.Errorf("RetryRefund on a paid out seat = %v, want ErrPaidOut", err)
+	}
+}
+
+func TestPayout_WaitsDoNotUseUpTheRetriesOfTheSend(t *testing.T) {
+	e := payoutEnv(t)
+	e.confirmed()
+	dee, _ := e.authorized("Dee")
+	e.toStart()
+	for range 6 {
+		e.periodic()
+		e.runKey(e.payoutKey())
+		if j := e.wantJob(e.payoutKey(), store.JobFailed); j.Attempts > 1 {
+			t.Fatalf("a waiting payout job has %d attempts, want them reset on every wait", j.Attempts)
+		}
+	}
+	e.transition(dee.ID, domain.EnrollmentAuthorized, domain.EnrollmentVoided)
+	e.fake.FailNext("create_payout", http.StatusServiceUnavailable, "")
+	e.periodic()
+	e.runKey(e.payoutKey())
+	j := e.wantJob(e.payoutKey(), store.JobPending)
+	e.clock.Set(j.RunAt)
+	e.runKey(e.payoutKey())
+	if po := e.payoutRow(); po.Status != domain.PayoutSent || e.fake.PayoutBatches() != 1 {
+		t.Fatalf("payout after a 503 that followed six waits = %+v, want sent on the retry", po)
+	}
+}
+
+func TestPayout_AMissingFeeOnACaptureNoLongerCompletedWaits(t *testing.T) {
+	e := payoutEnv(t)
+	attempts := e.confirmed()
+	a := attempts[0]
+	if _, err := e.st.Pool.Exec(e.ctx, `update payment_attempts set capture_fee_minor = null, capture_net_minor = null where id = $1`, a.ID); err != nil {
+		t.Fatal(err)
+	}
+	e.fake.SetCaptureStatus(*e.attempt(a.ID).CaptureID, "REFUNDED", "")
+	e.toStart()
+	e.runKey(e.payoutKey())
+
+	j := e.wantJob(e.payoutKey(), store.JobFailed)
+	if !strings.Contains(orEmpty(j.LastError), domain.PayoutInFlight) {
+		t.Fatalf("payout job = %+v, want a wait for %s", j, domain.PayoutInFlight)
+	}
+	e.wantNoPayout()
+	e.wantJob("reconcile:"+a.ID+":payout:"+store.Minute(e.clock.Now()), store.JobPending)
+	if got := e.attempt(a.ID); got.CaptureNetMinor != nil {
+		t.Errorf("fees recorded from a capture PayPal reports REFUNDED: %v", *got.CaptureNetMinor)
+	}
+}
+
+func TestPayout_AWaitNoPaymentEndsOnItsOwnBacksOffAnHour(t *testing.T) {
+	e := payoutEnv(t)
+	e.confirmed()
+	if err := e.st.SetWorkshopStatus(e.ctx, e.workshop.ID, domain.WorkshopConfirmed, domain.ResolutionNeedsAttention); err != nil {
+		t.Fatal(err)
+	}
+	e.toStart()
+	e.runKey(e.payoutKey())
+	e.periodic()
+	j := e.wantJob(e.payoutKey(), store.JobPending)
+	if want := e.clock.Now().Add(time.Hour); !j.RunAt.Equal(want) {
+		t.Fatalf("a payout waiting for an operator runs again at %s, want an hour later (%s)", j.RunAt, want)
+	}
+	e.advance(2 * time.Minute)
+	e.periodic()
+	if again := e.wantJob(e.payoutKey(), store.JobPending); !again.RunAt.Equal(j.RunAt) {
+		t.Errorf("the next sweep moved the backed-off payout to %s", again.RunAt)
+	}
+}

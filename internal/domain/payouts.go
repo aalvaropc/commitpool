@@ -20,7 +20,7 @@ const (
 func (s PayoutStatus) Final() bool { return s == PayoutSucceeded || s == PayoutFailed }
 
 var (
-	payoutItemFailures  = []string{"FAILED", "RETURNED", "BLOCKED", "REFUNDED", "REVERSED"}
+	payoutItemFailures  = []string{"FAILED", "RETURNED", "BLOCKED", "REFUNDED", "REVERSED", "DENIED", "CANCELED", "CANCELLED"}
 	payoutBatchFailures = []string{"DENIED", "CANCELED", "CANCELLED"}
 )
 
@@ -93,4 +93,12 @@ func PayoutBlocker(f PayoutFacts, now time.Time, early bool) string {
 		return PayoutNothingToPay
 	}
 	return ""
+}
+
+func PayoutWaitIsLong(reason string) bool {
+	switch reason {
+	case PayoutNothingToPay, PayoutFlagged, PayoutNeedsAttention:
+		return true
+	}
+	return false
 }

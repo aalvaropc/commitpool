@@ -20,6 +20,8 @@ func TestPayoutState_MapsPayPalsBatchAndItemStatuses(t *testing.T) {
 		{"SUCCESS", "BLOCKED", domain.PayoutFailed},
 		{"SUCCESS", "REFUNDED", domain.PayoutFailed},
 		{"SUCCESS", "REVERSED", domain.PayoutFailed},
+		{"SUCCESS", "DENIED", domain.PayoutFailed},
+		{"SUCCESS", "CANCELED", domain.PayoutFailed},
 		{"DENIED", "", domain.PayoutFailed},
 		{"CANCELED", "", domain.PayoutFailed},
 		{"DENIED", "UNCLAIMED", domain.PayoutFailed},
@@ -95,5 +97,16 @@ func TestPayoutBlocker_EveryRuleRefusesOnItsOwn(t *testing.T) {
 	}
 	if got := domain.PayoutBlocker(ready, startsAt, false); got != "" {
 		t.Errorf("a payout exactly at the start is blocked by %q", got)
+	}
+}
+
+func TestPayoutWaitIsLong_OnlyForWaitsNoPaymentEndsOnItsOwn(t *testing.T) {
+	for reason, want := range map[string]bool{
+		domain.PayoutNothingToPay: true, domain.PayoutFlagged: true, domain.PayoutNeedsAttention: true,
+		domain.PayoutInFlight: false, domain.PayoutFeesMissing: false, domain.PayoutNotStarted: false, "": false,
+	} {
+		if got := domain.PayoutWaitIsLong(reason); got != want {
+			t.Errorf("PayoutWaitIsLong(%q) = %v, want %v", reason, got, want)
+		}
 	}
 }

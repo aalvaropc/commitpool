@@ -24,7 +24,7 @@ type EnrollmentRow struct {
 }
 
 func (e EnrollmentRow) Domain() domain.Enrollment {
-	return domain.Enrollment{ID: e.ID, ParticipantID: e.ParticipantID, Status: e.Status, SeatExpiresAt: e.SeatExpiresAt, NeedsAttention: e.NeedsAttentionAt != nil}
+	return domain.Enrollment{ID: e.ID, ParticipantID: e.ParticipantID, Status: e.Status, SeatExpiresAt: e.SeatExpiresAt, NeedsAttention: e.NeedsAttentionAt != nil, ConsentVersion: e.ConsentVersion}
 }
 
 type ReserveParams struct {

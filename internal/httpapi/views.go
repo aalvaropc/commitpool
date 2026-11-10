@@ -12,13 +12,15 @@ import (
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
-const ConsentVersion = "consent-v4"
+const ConsentVersion = "consent-v5"
 
 const ConsentText = "Reserving your spot places a temporary hold for the price on your PayPal account. Nothing is charged yet. " +
 	"Holds are charged once enough people have reserved, and the workshop is on when the minimum number of payments has gone through. " +
 	"If the minimum is not reached by the deadline, the workshop is cancelled: every hold is released and any charge already made is refunded. " +
 	"You can leave and have your hold released until charging starts; after that, your payment is refunded only if the workshop is cancelled, including when the organizer cancels it. " +
-	"Refunds can take a few days, and you can follow yours on your page."
+	"Refunds can take a few days, and you can follow yours on your page. " +
+	"The organizer can extend the deadline once, to at most three days after reservations opened. " +
+	"Your page always shows the current deadline and the latest possible one, and you can leave and release your hold until charging starts."
 
 type labelState struct {
 	workshop     domain.WorkshopStatus
@@ -160,17 +162,19 @@ func dateLabel(d store.CandidateDateRow, loc *time.Location) string {
 }
 
 type proposalDTO struct {
-	ID           string    `json:"id"`
-	Version      int       `json:"version"`
-	DateID       string    `json:"date_id"`
-	Price        moneyDTO  `json:"price"`
-	Minimum      int       `json:"minimum"`
-	Capacity     int       `json:"capacity"`
-	OpensAt      time.Time `json:"opens_at"`
-	ClosesAt     time.Time `json:"closes_at"`
-	StartsAt     time.Time `json:"starts_at"`
-	PaymentsOpen bool      `json:"payments_open"`
-	CalendarPath string    `json:"calendar_path,omitempty"`
+	ID           string     `json:"id"`
+	Version      int        `json:"version"`
+	DateID       string     `json:"date_id"`
+	Price        moneyDTO   `json:"price"`
+	Minimum      int        `json:"minimum"`
+	Capacity     int        `json:"capacity"`
+	OpensAt      time.Time  `json:"opens_at"`
+	ClosesAt     time.Time  `json:"closes_at"`
+	StartsAt     time.Time  `json:"starts_at"`
+	PaymentsOpen bool       `json:"payments_open"`
+	CalendarPath string     `json:"calendar_path,omitempty"`
+	ExtendedFrom *time.Time `json:"extended_from"`
+	LatestCloses time.Time  `json:"latest_closes_at"`
 }
 
 func paymentsOpen(ws store.WorkshopRow, p *store.ProposalRow, now time.Time) bool {
@@ -226,6 +230,8 @@ func proposalView(p *store.ProposalRow, w store.WorkshopRow, now time.Time) *pro
 		ClosesAt:     p.ClosesAt.UTC(),
 		StartsAt:     p.StartsAt.UTC(),
 		PaymentsOpen: paymentsOpen(w, p, now),
+		ExtendedFrom: extendedFrom(p),
+		LatestCloses: p.ClosesAt.UTC(),
 	}
 }
 
@@ -381,6 +387,7 @@ type workshopState struct {
 	proposal     *store.ProposalRow
 	participants []store.ParticipantRow
 	enrollments  []store.EnrollmentRow
+	extension    *extensionOption
 }
 
 func (s *server) loadState(ctx context.Context, w store.WorkshopRow) (workshopState, error) {

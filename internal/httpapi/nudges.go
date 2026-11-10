@@ -71,6 +71,7 @@ func (s *server) suggestions(ctx context.Context, st workshopState, rec domain.R
 		Status: st.w.Status, PaymentsOpen: paymentsOpen(st.w, st.proposal, now), ClosesAt: closes, Now: now,
 		Minimum: minimum, Committed: committed, Capacity: capacity, SeatsTaken: c.Occupying,
 		Date: summary, Unclear: unclear, Reserved: reserved,
+		CanExtend: st.extension.available(), Extended: st.proposal != nil && st.proposal.ExtendedAt != nil,
 	})
 	day := present.Day(date.StartsAt, st.loc)
 	hours := present.Clock(date.StartsAt.In(st.loc)) + "–" + present.Clock(date.EndsAt.In(st.loc))
@@ -100,9 +101,12 @@ func (s *server) suggestions(ctx context.Context, st workshopState, rec domain.R
 		case domain.SuggestShare:
 			in.Deadline, in.Missing = deadline, missing
 			reason = fmt.Sprintf("Reservations close %s, and %d more %s needed.", deadline, missing, plural(missing, "is", "are"))
+		case domain.SuggestRescue:
+			in.Missing, in.Earlier = missing, deadline
+			reason, in.Deadline = rescueNudge(st, deadline, missing)
 		}
 		message, pending := s.nudgeMessage(ctx, st, in, closes)
-		if sg.Kind == domain.SuggestShare && shareURL != "" && message != "" {
+		if (sg.Kind == domain.SuggestShare || sg.Kind == domain.SuggestRescue) && shareURL != "" && message != "" {
 			message += "\n" + shareURL
 		}
 		out = append(out, suggestionDTO{Kind: string(sg.Kind), ParticipantID: sg.ParticipantID, Name: name, Reason: reason, Message: message, Pending: pending})
@@ -213,6 +217,9 @@ func (s *server) writeNudge(ctx context.Context, st workshopState, in ai.Suggest
 	})
 	if len(allowed) > 0 && !closes.IsZero() {
 		allowed = append(allowed, closes)
+	}
+	if len(allowed) > 0 && in.Kind == string(domain.SuggestRescue) && st.extension != nil {
+		allowed = append(allowed, st.extension.to)
 	}
 	if namesAnotherDate(text, allowed, st.loc) {
 		s.Log.Warn("nudge named another date; using the plain message", "workshop_id", st.w.ID, "model", meta.Model)

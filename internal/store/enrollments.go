@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -24,7 +25,7 @@ type EnrollmentRow struct {
 }
 
 func (e EnrollmentRow) Domain() domain.Enrollment {
-	return domain.Enrollment{ID: e.ID, ParticipantID: e.ParticipantID, Status: e.Status, SeatExpiresAt: e.SeatExpiresAt, NeedsAttention: e.NeedsAttentionAt != nil}
+	return domain.Enrollment{ID: e.ID, ParticipantID: e.ParticipantID, Status: e.Status, SeatExpiresAt: e.SeatExpiresAt, NeedsAttention: e.NeedsAttentionAt != nil, ConsentVersion: e.ConsentVersion}
 }
 
 type ReserveParams struct {
@@ -115,6 +116,9 @@ func (s *Store) ReReserveSeat(ctx context.Context, enrollmentID string, now time
 		}
 		if proposal == nil ||
 			!domain.PaymentsOpen(domain.Workshop{Status: status}, domain.Proposal{ClosesAt: proposal.ClosesAt}, now) {
+			return nil
+		}
+		if proposal.ExtendedAt != nil && !slices.Contains(domain.ExtensionConsents, current.ConsentVersion) {
 			return nil
 		}
 		newer, err := activeEnrollment(ctx, tx, current.ParticipantID)
@@ -315,25 +319,37 @@ func (s *Store) WorkshopIDsWithExpiredSeats(ctx context.Context, now time.Time) 
 }
 
 func (s *Store) ReleaseReservedSeats(ctx context.Context, workshopID string, now time.Time) (int, error) {
-	tag, err := s.Pool.Exec(ctx,
-		`update enrollments e set status = 'RELEASED', released_at = $2, updated_at = now()
-		 where e.workshop_id = $1 and `+releasable("'infinity'::timestamptz"), workshopID, now)
-	if err != nil {
-		return 0, wrap("release reserved seats", err)
-	}
-	return int(tag.RowsAffected()), nil
+	return s.releaseSeats(ctx, "release reserved seats", workshopID, "'infinity'::timestamptz", now)
 }
 
 func (s *Store) ReleaseExpiredSeats(ctx context.Context, workshopID string, now time.Time) (int, error) {
-	tag, err := s.Pool.Exec(ctx,
-		`update enrollments e
-		 set status = $3, released_at = $2, updated_at = now()
-		 where e.workshop_id = $1 and `+releasable("$2"),
-		workshopID, now, string(domain.EnrollmentReleased))
-	if err != nil {
-		return 0, wrap("release expired seats", err)
+	return s.releaseSeats(ctx, "release expired seats", workshopID, "$2", now)
+}
+
+func (s *Store) releaseSeats(ctx context.Context, op, workshopID, upTo string, now time.Time) (int, error) {
+	var released int
+	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+		if _, err := lockWorkshop(ctx, tx, workshopID); err != nil {
+			return err
+		}
+		tag, err := tx.Exec(ctx,
+			`update enrollments e
+			 set status = $3, released_at = $2, updated_at = now()
+			 where e.workshop_id = $1 and `+releasable(upTo),
+			workshopID, now, string(domain.EnrollmentReleased))
+		if err != nil {
+			return wrap(op, err)
+		}
+		released = int(tag.RowsAffected())
+		return nil
+	})
+	if errors.Is(err, ErrNotFound) {
+		return 0, nil
 	}
-	return int(tag.RowsAffected()), nil
+	if err != nil {
+		return 0, err
+	}
+	return released, nil
 }
 
 func (s *Store) MarkApprovalCancelled(ctx context.Context, enrollmentID string, now time.Time) (bool, error) {

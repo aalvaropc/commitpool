@@ -41,6 +41,9 @@ func TestRender_EveryKindMatchesItsGolden(t *testing.T) {
 				d.Reason = "The room flooded."
 				d.Opened = true
 			}
+			if kind == notice.DeadlineExtended {
+				d.Earlier = "Thu, Nov 12 at 10 AM (New York time)"
+			}
 			if kind == notice.OwnerCreated {
 				d.Name = "Iris Calder"
 				d.Link = "https://example.test/owner/ORGANIZER"

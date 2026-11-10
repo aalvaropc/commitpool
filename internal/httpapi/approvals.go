@@ -291,10 +291,7 @@ func (s *server) setApprovalCookie(w http.ResponseWriter, r *http.Request, a sto
 }
 
 func (s *server) fromApprovalPage(r *http.Request, a store.OpenApprovalRow) bool {
-	if r.Header.Get("Sec-Fetch-Site") == "" && r.Header.Get("Origin") == "" {
-		return false
-	}
-	if s.crossOrigin.Check(r) != nil {
+	if !s.fromSameOriginPage(r) {
 		return false
 	}
 	c, err := r.Cookie(approvalCookieName)

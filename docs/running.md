@@ -56,7 +56,9 @@ Sandbox.
 
 All configuration comes from environment variables, and secrets are only ever
 read from the environment. `.env.example` lists every variable with its
-default.
+default. `commitpool check-config` loads them as the server would, prints
+`config: ok` and exits 0, or prints why the server would refuse to start and
+exits 1; the EC2 deploy runs it before it replaces the running app.
 
 | Variable | Notes |
 | --- | --- |

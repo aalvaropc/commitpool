@@ -61,6 +61,10 @@ for _ in $(seq 1 60); do
 done
 
 docker pull --quiet "$REPOSITORY:$tag" >/dev/null
+if ! docker run --rm --env-file "$dir/app.env" "$REPOSITORY:$tag" check-config >/dev/null; then
+  echo "deploy: $tag refuses this configuration (see above); the running app is left as it is" >&2
+  exit 1
+fi
 docker stop -t 35 app >/dev/null 2>&1 || true
 docker rm app >/dev/null 2>&1 || true
 docker run -d --name app --network commitpool --restart unless-stopped \

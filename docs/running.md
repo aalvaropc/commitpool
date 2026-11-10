@@ -45,7 +45,13 @@ Limits on starting demos:
 - A demo starts only when the Bedrock caps leave room for about 10 more calls. Otherwise it answers 429 `demo_resting` with `Retry-After` and says when to try again.
 
 Both endpoints answer 404 outside demo mode. The demo also adds the
-organizer's **Close reservations now** control.
+organizer's **Close reservations now** control, and a **Demo clock** with
+**Skip to the last 2 hours** (`POST /api/v1/owner/{token}/demo/skip-to-last-hours`):
+while a workshop is funding and its deadline has never been extended, it
+moves `closes_at` to two hours from now (only ever earlier) and brings the
+`close:{proposal}` job forward with it, so a short class reaches the window in
+which Claude suggests rescuing it with one deadline extension. It answers 404
+outside demo mode too.
 
 With `COMMITPOOL_SANDBOX_MOCKS=1` as well, **Fail next charge** makes PayPal
 answer `AUTHORIZATION_EXPIRED` to one capture through the

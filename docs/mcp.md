@@ -40,6 +40,7 @@ For the organizer:
 | `get_status` | From the owner link: the recommended date and why, who can come, who committed or paid, how many paid seats cover the session cost before fees, what closing payments now would do, and who CommitPool suggests nudging, each with a message Claude drafted for the organizer to send. Read-only; nothing is sent. |
 | `preview_open_payments` | Prepares opening payments on a date: returns the exact terms that lock (date, price, minimum, capacity and payment window), an `approval_id`, its `state` and an `approve_url` for the organizer. The organizer has thirty minutes to approve; once they do, the assistant has thirty more to confirm. The workshop does not change. |
 | `confirm_open_payments` | Opens payments with that `approval_id`, only once the organizer has tapped Approve on the `approve_url` page. Refused while they have not, after the approval expired or was used, and when any term changed since the preview. |
+| `preview_extend_reservations` | From the owner link, while a class is short of its minimum: whether the reservation deadline can move once and to when, the reason, and an `approve_url` for the organizer, or the refusal code. Read-only: only the organizer extends, on their own page. |
 | `verify_with_paypal` | From the owner link: compares each seat's PayPal order, hold, charge and refund with PayPal's live records (status, amount and the recorded fee and net) and returns what CommitPool expects, what PayPal reports, whether they match and PayPal's debug id on an error. Read-only: nothing changes at PayPal or in CommitPool. One check per workshop every 30 seconds, at most 12 seats each. |
 
 For a participant:
@@ -96,6 +97,32 @@ reservations** button is unchanged: the organizer is already the one tapping.
 | `GET /api/v1/owner/{token}/approvals/{id}` | The approve page: terms and state (`pending`, `approved`, `used`, `expired`, `changed` or `closed`). While pending it sets the approval cookie. |
 | `POST /api/v1/owner/{token}/approvals/{id}/approve` | The approve page's **Approve** button only (see below). |
 | `POST /api/v1/owner/{token}/approvals/{id}/open` | `confirm_open_payments`: opens reservations and uses the approval, in one transaction. |
+
+## Extending the deadline: the organizer confirms
+
+When a class is short near its deadline, CommitPool computes one safe
+extension (see [Deadline extension](payments.md#deadline-extension)) and the
+organizer decides. No tool and no approvals table is involved beyond a link:
+
+1. The assistant calls `preview_extend_reservations` with the owner link. It
+   returns `available`, the current `deadline`, `extend_to`, the `reason` and
+   an `approve_url` (`{base}/owner/{owner token}?extend={unix seconds}`), with
+   the instruction to show the organizer the new deadline, ask them to open the
+   link on their own device and confirm, and never to open it or confirm it
+   itself. When nothing can move it returns the `refusal` code and its reason.
+2. The organizer page opens the confirmation dialog for exactly that option
+   (once only; everyone with an email is told; holds stay; anyone can still
+   leave before charging starts). A link whose option is no longer on offer
+   shows "This extension link is out of date" with the reason instead.
+3. **Extend to {date}** posts `POST /api/v1/owner/{token}/extend` `{from, to}`.
+   That endpoint refuses the in-process calls the tools make (`403
+   approval_required`), so the MCP tools alone cannot move a deadline, and it
+   refuses an option that changed since the page showed it (`409
+   extension_changed`).
+
+The same organizer page offers the extension without an assistant: Claude's
+`rescue` suggestion carries the **Extend to {date}** button and the message
+for the group once the deadline moves.
 
 ## Safety by design
 

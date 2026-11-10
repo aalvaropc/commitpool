@@ -26,6 +26,7 @@ const (
 	NotifyOwnerCreated    = string(notice.OwnerCreated)
 	NotifyOwnerConfirmed  = string(notice.OwnerConfirmed)
 	NotifyOwnerCancelled  = string(notice.OwnerCancelled)
+	NotifyOwnerPaidOut    = string(notice.OwnerPaidOut)
 )
 
 const linkAttempts = 5
@@ -88,6 +89,8 @@ func (r *Runner) stale(ctx context.Context, n *store.NotificationRow) (bool, err
 			return false, err
 		}
 		return w.Status == domain.WorkshopCancelled, nil
+	case NotifyDeadlineExtended:
+		return r.deadlineNoticeStale(ctx, n)
 	}
 	return false, nil
 }
@@ -301,6 +304,7 @@ func (r *Runner) onConfirmed(ctx context.Context, workshopID string) {
 		return
 	}
 	r.notifyOwnerConfirmed(ctx, workshopID, paid, domain.Money{Minor: int64(paid) * p.PriceMinor, Currency: p.Currency})
+	r.schedulePayout(ctx, workshopID, p.StartsAt)
 }
 
 func (r *Runner) notifyOwnerConfirmed(ctx context.Context, workshopID string, paid int, collected domain.Money) {

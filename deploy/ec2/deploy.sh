@@ -25,6 +25,11 @@ umask 077
   echo "COMMITPOOL_AI_PROVIDER=bedrock"
   echo "COMMITPOOL_DEMO_MODE=1"
   echo "COMMITPOOL_SANDBOX_MOCKS=1"
+  echo "COMMITPOOL_PAYOUTS=1"
+  demo_payout_email="$(optional_param demo_payout_email)"
+  if [[ -n "$demo_payout_email" ]]; then
+    echo "COMMITPOOL_DEMO_PAYOUT_EMAIL=$demo_payout_email"
+  fi
   mcp_secret="$(optional_param mcp_secret)"
   if [[ -n "$mcp_secret" ]]; then
     echo "COMMITPOOL_MCP_SECRET=$mcp_secret"

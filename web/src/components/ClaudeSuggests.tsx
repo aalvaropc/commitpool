@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { Suggestion } from '../api'
 import { firstName, groupSuggestions, groupTitle, previewLabel } from '../lib/suggest'
+import { RescueCard, type Rescue } from './RescueCard'
 import { Avatar, Button, Icon, Tile } from './ui'
 
 function useCopy() {
@@ -100,7 +101,7 @@ function SuggestionGroup({ people, pending }: { people: Suggestion[]; pending: b
   )
 }
 
-export default function ClaudeSuggests({ suggestions }: { suggestions: Suggestion[] }) {
+export default function ClaudeSuggests({ suggestions, rescue }: { suggestions: Suggestion[]; rescue?: Rescue }) {
   if (suggestions.length === 0) return null
   return (
     <Tile as="section" aria-labelledby="suggests-title" className="flex flex-col gap-4 sm:p-6">
@@ -113,7 +114,13 @@ export default function ClaudeSuggests({ suggestions }: { suggestions: Suggestio
       </div>
       <ul className="flex flex-col gap-3">
         {groupSuggestions(suggestions).map((c) =>
-          c.kind === 'single' ? <SuggestionItem key={c.key} s={c.suggestion} /> : <SuggestionGroup key={c.key} people={c.people} pending={c.pending} />,
+          c.kind === 'group' ? (
+            <SuggestionGroup key={c.key} people={c.people} pending={c.pending} />
+          ) : c.suggestion.kind === 'rescue' ? (
+            <RescueCard key={c.key} s={c.suggestion} rescue={rescue} />
+          ) : (
+            <SuggestionItem key={c.key} s={c.suggestion} />
+          ),
         )}
       </ul>
     </Tile>

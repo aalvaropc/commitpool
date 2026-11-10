@@ -103,7 +103,7 @@ Every PayPal action is a row in `jobs`, written before the request leaves.
 | `running` | Claimed by a worker. | `succeeded`; `failed` on a refusal; `unknown` on an ambiguous result; `pending` for a retry (5 s, 30 s, 2 min, 10 min); `needs_attention` after the fifth attempt, except the kinds that retry forever (`void`, `refund`, `reconcile`, `close`, `release_seats`: then 30 min and every hour after, flagged once at the fifth); `pending` again when its worker has not finished it after 5 minutes. |
 | `unknown` | PayPal may or may not have performed the action. | `succeeded` or `pending` (same key) once a reconcile has read PayPal. |
 | `failed` | Refused: by PayPal for good, by the worker (a passed deadline), or skipped because the action did not apply. | `pending` (same key) when revived. |
-| `needs_attention` | Retries used up (`create_order`, `authorize`, `capture`; a close parked before this rule is revived by the periodic work). | `pending` (same key) only when revived by hand. |
+| `needs_attention` | Retries used up (`create_order`, `authorize`, `capture`, `payout`, `payout_check`; a close parked before this rule is revived by the periodic work). | `pending` (same key) only when revived by hand. |
 | `succeeded` | Done. | Final. A succeeded seat release or read-only reconcile is deleted after 30 days (see Periodic work). |
 
 Automatic paths revive only a job that failed without a PayPal answer (a
@@ -141,8 +141,14 @@ it and PayPal performs the action at most once.
 | `reconcile:{attempt}:return:{minute}` | Read back a checkout whose order PayPal did not show on the return page. |
 | `reconcile:{attempt}:periodic:{hour}` | Periodic read-back of a pending authorization, capture or refund (see Periodic work). |
 | `reconcile:{attempt}:periodic:{minute}` | Periodic read-back of an attempt with a job unknown for too long. |
-| `close:{proposal}` | Close payments at `closes_at`. |
+| `close:{proposal}` | Close payments at `closes_at`; an extension moves its `run_at` with the deadline (see [Deadline extension](#deadline-extension)). |
 | `release_seats:{workshop}:{minute}` | Release the expired seats. |
+| `payout:{workshop}` | Pay the organizer at the class start (see [Payouts](#payouts)). Its `sender_batch_id` is `cp-{workshop}`. |
+| `reconcile:{attempt}:payout:{minute}` | Read back a paid seat whose fees the payout needs and whose capture PayPal no longer reports `COMPLETED`. |
+| `payout_check:{payout}:created:{n}` | Read the payout batch back after sending; `n` from 1 to 5, at 0 s, 30 s, 2 min, 10 min and 1 h. |
+| `payout_check:{payout}:periodic:{hour}` | Hourly read-back of a payout that is sent, unclaimed or unknown with a batch id. |
+| `payout_check:{payout}:webhook:{event_id}` | Read-back after a verified payout webhook. |
+| `payout_check:{payout}:operator:{minute}` | Read-back an operator asked for. |
 
 Minutes (`yyyy-mm-ddThh:mm`) and hours (`yyyy-mm-ddThh`) are UTC, so a
 second enqueue within the same minute or hour is a no-op.
@@ -236,6 +242,202 @@ sum of the stored net amounts is exact. The owner view shows each payment's
 `fee` and `net`; a participant's view never does. The fake PayPal charges 3.49%
 of the gross, rounded half up, plus 0.49.
 
+## Payouts
+
+Every payment lands in the PayPal Business account that owns the REST app.
+When a confirmed class starts, CommitPool sends its organizer what the
+participants paid, less PayPal's fees, with the PayPal Payouts API, to the
+PayPal email given when the workshop was created (`workshops.payout_email`:
+optional, validated like the organizer's email, never changed afterwards,
+shown on the approve page and part of the approval's terms hash).
+
+The payout waits for the class to start, not for the confirmation: until the
+start the organizer can cancel, and a cancel refunds every participant, which
+money already paid out could not cover.
+
+`COMMITPOOL_PAYOUTS=1` turns sending on. It is off by default: a payout job
+then waits, and the periodic sweep picks it up once payouts are on. Demo
+workshops are paid out to `COMMITPOOL_DEMO_PAYOUT_EMAIL`. A workshop without a
+payout email is never paid out.
+
+### Ready to pay
+
+`domain.PayoutBlocker` decides, and `store.BeginPayout` checks it again from
+SQL, inside one transaction, under the workshop's row lock:
+
+| Rule | Refusal |
+|---|---|
+| The workshop is `CONFIRMED`. | `not_confirmed` |
+| Its resolution is not `NEEDS_ATTENTION`. | `needs_attention` |
+| It has a payout email. | `no_payout_email` |
+| Payments have closed (`closes_at`). | `payments_open` |
+| The class has started (`starts_at`), unless the demo starts it early. | `not_started` |
+| No enrollment is `AUTHORIZED`, `CAPTURING`, `CAPTURE_PENDING`, `VOIDING`, `REFUNDING` or `REFUND_PENDING`, and no `PAID` one has a refund under way (a refund job on its latest attempt that has not succeeded, or a refund recorded on it). | `payments_in_flight` |
+| No enrollment is flagged. | `payment_flagged` |
+| The latest attempt of every `PAID` enrollment has its fee and net. | `fees_missing` |
+| The net is above zero. | `nothing_to_pay` |
+
+A refusal is a typed `store.ErrPayoutNotReady{Reason}`: the job fails without
+a PayPal answer (a wait) and never parks or flags anything. The periodic sweep
+re-arms it with its attempts reset (`store.RearmJob`), so waiting never uses
+up the retries the send needs later; a wait that no payment ends on its own
+(`nothing_to_pay`, `payment_flagged`, `needs_attention`) is re-armed an hour
+later instead of every two minutes.
+
+### Freeze and lock
+
+When the rules hold, `BeginPayout` sums the net of the latest attempt of every
+`PAID` enrollment and inserts the workshop's one `payouts` row (migration
+0015) with the amount (the net), the gross, the fee, the seats, the receiver
+and `sender_batch_id = "cp-" + workshop id`, all frozen. In the same
+transaction it stamps the latest attempt of every one of those `PAID`
+enrollments with the payout (`payment_attempts.payout_id`), checks that the
+stamped seats add up to exactly the frozen amounts (any difference rolls the
+whole payout back), and sets `workshops.payout_locked_at`. The organizer cancel's
+compare-and-set requires that lock to be empty, so a cancel and a payout
+racing never both win. From the lock on the class counts as started
+(`domain.EffectiveStart`, the earlier of `starts_at` and the lock): the
+organizer can no longer cancel, and a capture that completes after it is
+refunded, not kept unpaid.
+
+A payment is either paid out or refunded, never both. The refund job moves a
+seat to `REFUNDING` only under a key-share lock on the workshop row
+(`store.StartRefund`), the lock `BeginPayout` takes for update, and refuses an
+attempt the payout stamped ("paid out to the organizer"), leaving it `PAID`
+and calling nothing at PayPal. A late capture on a stamped attempt keeps its
+seat instead of queueing a refund, and the operator's retry refund refuses a
+stamped attempt (`409 paid_out`).
+
+### Sending
+
+`payout:{workshop}` is enqueued when the class is confirmed (with payouts on
+and a payout email), to run at `starts_at`. It is not one of the kinds that
+retry forever. In order:
+
+1. A cancelled workshop pays nothing: the job succeeds without a call.
+2. A missing fee is read back first (`GET` capture, the [Fees](#fees) rule),
+   but only from a capture PayPal reports `COMPLETED`: any other status
+   (refunded, partially refunded, pending) enqueues
+   `reconcile:{attempt}:payout:{minute}` and the payout waits with
+   `payments_in_flight`.
+3. The payout is frozen; a refusal waits (above).
+4. A payout that already has a batch, or is no longer `created`, is only
+   checked, never sent again.
+5. A payout created more than 25 days ago is never sent: PayPal refuses a
+   reused `sender_batch_id` for 30 days, and past that a second batch could
+   go out. It becomes `unknown` with `PAYOUT_TOO_OLD_TO_SEND`.
+6. `POST /v1/payments/payouts`, built from the row alone: one item,
+   `recipient_type: EMAIL`, the receiver, the amount as `{value, currency}`,
+   `sender_item_id` = the workshop id and the note `CommitPool payout for
+   {title}`, under the row's `sender_batch_id`, with the job key as
+   `PayPal-Request-Id`.
+
+| PayPal's answer | Outcome |
+|---|---|
+| 201 with a batch id | `sent`, with the batch id and status; checks start. |
+| A transport failure, a timeout, a 5xx, a 409, or a 201 without a batch id | Retried under the same `sender_batch_id` and `PayPal-Request-Id` (5 s, 30 s, 2 min, 10 min), then parked `needs_attention`. |
+| A duplicate `sender_batch_id` that links to the batch | `sent`, with that batch id; checks start. The job succeeds. |
+| A duplicate without a link to the batch | `unknown` with `DUPLICATE_SENDER_BATCH_ID` and PayPal's debug id. Never sent again; an operator looks the batch up. |
+| Any other 4xx | `failed`, with PayPal's issue (or name) and debug id. |
+
+Which answers count as a duplicate is decided in one place,
+`paypal.DuplicatePayout`: a 4xx whose name or detail issue is
+`SENDER_BATCH_ID_ALREADY_USED`, `DUPLICATE_SENDER_BATCH_ID`,
+`DUPLICATE_REQUEST_ID` or `BATCH_ALREADY_EXISTS`, or whose message or detail
+mentions `sender_batch_id` with "already" or "duplicate" (such as PayPal's
+`USER_BUSINESS_ERROR` "Batch with given sender_batch_id already exists").
+`(*paypal.Error).ExistingPayoutBatchID` reads the batch id from any link to
+`/v1/payments/payouts/{id}`, in the error's `links` or a detail's `link` or
+`links`.
+
+### Statuses and checks
+
+| Status | Meaning |
+|---|---|
+| `created` | Frozen; not known to be at PayPal yet. |
+| `sent` | PayPal has the batch; the item is not final. |
+| `succeeded` | The item is `SUCCESS`: the money is in the organizer's PayPal account. |
+| `unclaimed` | The item is `UNCLAIMED`: no PayPal account has that email yet. PayPal returns it after 30 days (then `failed`). |
+| `failed` | PayPal refused the payout, or reports the item `FAILED`, `RETURNED`, `BLOCKED`, `REFUNDED`, `REVERSED`, `DENIED` or `CANCELED`, or the batch `DENIED` or `CANCELED`. |
+| `unknown` | CommitPool cannot tell whether a batch exists; it is never sent again. |
+
+`payout_check:{payout}:{bucket}` reads `GET /v1/payments/payouts/{batch}`,
+picks the item whose `sender_item_id` is the workshop and maps it with
+`domain.PayoutState`; anything not listed above stays `sent`. A succeeded or
+failed payout only ever moves to the other final status. It records the
+batch and item statuses, the item and transaction ids and the item's error
+name as the issue. The first check runs right after sending and, while the
+payout is not final, schedules the next one (30 s, 2 min, 10 min, 1 h, five
+in all); after that the periodic sweep checks it hourly. A read PayPal does
+not answer, a 404 for a batch just created included, is retried under the
+same key (5 s, 30 s, 2 min, 10 min) and then parked; it never changes the
+payout. A payout that turns `succeeded` queues
+`notify:owner_paid_out:{workshop}`.
+
+Payout problems never flag the workshop `NEEDS_ATTENTION`: that flag can be
+cleared without fixing the payout. `/healthz` counts them instead,
+`payouts.failed` and `payouts.unknown`, and a parked payout job counts in
+`jobs.parked`.
+
+### Organizer page and demo
+
+The owner view's `payout` block is `null` until the class is confirmed. Then
+it has a `state`: `no_email`, `off` (payouts switched off), `scheduled` (with
+`scheduled_at`, the start), `waiting` (the class started but a rule above
+still refuses, named in `waiting`), `created` (frozen, PayPal has not
+confirmed a batch yet), `parked` (frozen, and its job is parked for an
+operator), `sending` (`sent`), `paid`, `unclaimed`, `failed` or `unknown`;
+`locked` once the payout is frozen (the organizer page then hides Cancel); the
+receiver; the amount, gross and fees
+with `estimated` until the row freezes them (no amount while a fee is
+unknown); and once sent the PayPal batch, item and transaction ids, their
+statuses, the issue and the debug id. The MCP `get_status` returns it with a
+sentence.
+
+`POST /api/v1/owner/{token}/demo/start-class` (demo mode only; 404 otherwise)
+starts the class now: it freezes the payout early, runs `payout:{workshop}`
+inline and then its first check, and answers `202 {payout}`. It is refused
+with `409 payout_not_ready` and the rule's `reason` above (or
+`payouts_off`). The organizer page offers it as **Start the class now** once
+the class is confirmed and reservations are closed, and only before any
+payout.
+
+`POST /api/v1/owner/{token}/operator/check-payout` reads the batch again
+inline (`payout_check:{payout}:operator:{minute}`); `409 no_payout` before
+there is one. The organizer page offers it as **Check the payout with
+PayPal** while the payout is sending, unclaimed or unknown.
+
+### Known limit: money that moves after the payout
+
+Once a payout is sent, a later refund, reversal or dispute on a payment it
+counted does not reduce it: the payout already went to the organizer, and the
+platform's PayPal account absorbs the loss. CommitPool never refunds a
+payment it paid out itself (see above), but PayPal can still move one, through
+a dispute or a refund made in the PayPal account, and a reconcile then records
+it on the seat.
+
+### What the Sandbox probe confirms
+
+These are the PayPal behaviours the code assumes and the Sandbox probe checks
+before the hosted demo relies on them:
+
+- `POST /v1/payments/payouts` answers 201 with `batch_header.payout_batch_id`
+  and a `PENDING` (or `PROCESSING`) `batch_status`, and no items.
+- PayPal honours `PayPal-Request-Id` on that call: the same id replays the
+  first answer.
+- A second batch with the same `sender_batch_id` is refused with a 4xx that
+  the matcher above recognises, ideally with a link to the first batch. The
+  exact name, status and shape are what the probe records.
+- `sender_batch_id` stays unique for 30 days.
+- `GET /v1/payments/payouts/{batch}` lists the item with its
+  `payout_item_id`, `transaction_id`, `transaction_status` and
+  `payout_item.sender_item_id`, and an `errors.name` on a failed or unclaimed
+  item.
+- An insufficient balance or an invalid receiver is a 4xx and creates no
+  batch.
+- The payout webhooks carry `payout_batch_id` (`batch_header` for batch
+  events; the item's fields for item events, including `sender_batch_id`).
+
 ## Close
 
 `close:{proposal}` runs at `closes_at` and first heals the workshop (see
@@ -247,6 +449,10 @@ below). Then:
 | `FUNDING`, below the minimum | `CANCELLED`, `RESOLVING` | `AUTHORIZED` | `PAID` | `CAPTURING`, `CAPTURE_PENDING` |
 | `CONFIRMED` | unchanged | `AUTHORIZED` whose capture has not started | none | `CAPTURING`, `CAPTURE_PENDING` |
 
+A close that runs more than a minute before its proposal's `closes_at` does
+nothing: it is refused as a skip (`failed`, no PayPal answer), which never
+flags the workshop, and the periodic work runs it again once it is overdue.
+
 Captures still in flight are never counted as paid. The status is written by
 compare-and-set before anything is enqueued; when the workshop changed
 meanwhile the decision is taken again. Once a cancellation is written, what
@@ -255,8 +461,95 @@ between is refunded by the close itself. Every key is fixed by its attempt,
 so running the close again enqueues nothing new.
 
 A payment that completes after a cancellation is refunded. One that
-completes after a confirmation keeps its seat until the workshop starts and
-is refunded after that.
+completes after a confirmation keeps its seat until the workshop starts, or
+until its payout locked the workshop if that came first
+(`domain.EffectiveStart`), and is refunded after that.
+
+## Deadline extension
+
+When a class is short of its minimum near its deadline, the organizer can
+move the deadline later, once (`domain.CanExtend`, migration 0016). The one
+option on offer is
+
+```
+ExtendedDeadline = floor(min(opens_at + 72 h, starts_at − 24 h), 15 min)
+```
+
+and never later than 72 hours after the oldest hold that may still be live
+(each payment attempt of the workshop that holds an authorization, or belongs
+to a seat still taken, counts from its `created_at`, which precedes its
+authorization), so every hold is still within the three days PayPal honours
+it and the class keeps its day between the close and the start.
+
+It is refused, each with its own code:
+
+| Refusal | When |
+|---|---|
+| `not_funding` | The workshop is not `FUNDING`, or payments have closed. |
+| `too_late_to_extend` | Less than 10 minutes are left. |
+| `already_extended` | The proposal was extended once (`extended_at` is set). |
+| `already_funded` | Completed payments reach the minimum. |
+| `charging_started` | Any seat is `PAID`, `CAPTURING` or `CAPTURE_PENDING`, a capture job exists for a seat still taken, or the holds alone reach the minimum (charging is about to start): those people could no longer leave during the extra time. |
+| `consent_predates_extension` | A seat still taken was reserved under a consent version outside `domain.ExtensionConsents` (an explicit list, `consent-v5` today), so its holder never agreed that the deadline could move. |
+| `extension_too_small` | The option adds less than an hour. |
+
+`POST /api/v1/owner/{token}/extend` `{from, to}` (the current `closes_at` and
+the option the page showed) runs `store.ExtendPaymentWindow` in one
+transaction: it locks the workshop, then the proposal, then (`for update`, in
+id order) every seat still taken and every released one, so a hold or a charge
+landing meanwhile either commits first and is seen or waits for the
+extension; `REFUND_FAILED` rows, which the refund retry locks before the
+workshop, stay outside. It evaluates `CanExtend` again on those rows,
+requires the stored
+`closes_at` to equal `from` and the option to equal `to` (`409
+extension_changed` otherwise), writes `closes_at`, `extended_from` and
+`extended_at` (both null or both set), and moves the pending
+`close:{proposal}` job to the new deadline. That update must touch exactly one
+pending row; a close that is running, finished, failed or missing rolls the
+whole extension back (`409 close_in_progress`). An in-process caller (an MCP
+tool) is refused with `403 approval_required`, and a request without a
+browser's same-origin headers (`Sec-Fetch-Site: same-origin`, or a matching
+`Origin`) with `403 extension_needs_page`: only the organizer's page extends.
+
+Once extended:
+
+- every seat still taken whose participant left an email is told
+  (`notify:deadline_extended:{enrollment}`); holds stay as they are, and
+  anyone can still withdraw until charging starts;
+- the capture deadline and payments open follow the new `closes_at`, so a
+  late hold is captured until then;
+- seat releases (`ReleaseExpiredSeats`, `ReleaseReservedSeats`) take the
+  workshop lock first, as reservations and the extension do, so a release
+  and an extension never wait on each other's seats;
+- shortening the window later (the demo's **Close reservations now**) keeps
+  `extended_from`, and no second extension is offered;
+- a lapsed seat reserved under a consent outside `domain.ExtensionConsents`
+  is never taken again (`store.ReReserveSeat` refuses it, so a late PayPal
+  return or reconcile does not authorize it); its holder never agreed to the
+  later deadline.
+
+The owner view carries `extension` (`available`, `from`, `to` and an
+`approve_url` when on offer, or the `refusal` code, with a `reason` either
+way), and the proposal in the owner, participant and invite views carries
+`extended_from` and `latest_closes_at`: the option `CanExtend` offers right
+now, computed from the workshop's live seats and holds exactly as for the
+organizer, when there is one; `closes_at` itself otherwise (already extended,
+charging started, funded, under 10 minutes left, less than an hour to gain, a
+seat under an older consent, payments closed). Other responses carry
+`closes_at`. The participant's card shows it as "Latest possible deadline",
+followed by "The organizer can extend the deadline once, up to then." only in
+the first case and "This deadline will not move." (or "It was already
+extended once.") otherwise, and both pages show "Deadline extended from X to
+Y" while the class is funding.
+
+The suggestion `rescue` (see `domain.Suggestions`) appears for a `FUNDING`
+class short of its minimum with an extension on offer and at most six hours
+left (`domain.RescueWhenLeft`). The server writes its reason; Claude drafts
+the message for the group once the deadline moves (the new deadline and how
+many are missing), under the same rules as every suggestion, with the plain
+message as the fallback and a filter that only lets it name the class's date,
+the current deadline and the new one. After an extension the `share`
+suggestion appears whatever the time left.
 
 ## Participant withdrawal
 
@@ -278,7 +571,7 @@ it, so a later PayPal return or reconcile does not bring it back); the
 person can still commit again with a new enrollment while payments are
 open. Its seat reads **Gave up the spot**, **Gave up the spot — releasing the hold** while
 the void is under way, and **Gave up the spot — hold released** once it went
-through, never "Reservation expired". The consent (`consent-v4`, see
+through, never "Reservation expired". The consent (`consent-v5`, see
 [Consent versions](#consent-versions)) says all this before anyone
 reserves.
 
@@ -299,7 +592,8 @@ block a money move: a notification that cannot be queued is logged.
 Each message is rendered once, when it is queued, by `internal/notice` into a
 text and an HTML part. When its turn comes, the worker checks it is still
 true and marks it `skipped` otherwise: a "spot reserved" whose hold was
-already charged or released, or an "It's on" for a workshop cancelled since.
+already charged or released, an "It's on" for a workshop cancelled since, or a
+moved deadline once the class is decided.
 
 | Key | To | When |
 |---|---|---|
@@ -308,10 +602,12 @@ already charged or released, or an "It's on" for a workshop cancelled since.
 | `notify:confirmed:{enrollment}` | Participant | The workshop is confirmed (by a capture round or at the close), for each paid seat, and for a seat paid after. Carries the `.ics`; if SES refuses the message, it goes again once without the attachment. |
 | `notify:cancelled:{participant}` | Participant | The workshop is cancelled, at the close (not enough people by the deadline) or by the organizer (with the reason). |
 | `notify:payment_failed:{enrollment}` | Participant | A charge failed and the hold is released. |
+| `notify:deadline_extended:{enrollment}` | Participant | The organizer extended the deadline, for each seat still taken: both deadlines, and that the spot and hold stay. Skipped once the workshop is no longer `FUNDING` or the seat was given up. |
 | `notify:refund_completed:{enrollment}` | Participant | A refund completed. |
 | `notify:owner_created:{workshop}` | Organizer | On creation, queued in the same request: the only moment the organizer link exists. Carries it and the invite message. |
 | `notify:owner_confirmed:{workshop}` | Organizer | The workshop is confirmed: how many paid and the total. |
 | `notify:owner_cancelled:{workshop}` | Organizer | The workshop is cancelled, with what happened to the money. |
+| `notify:owner_paid_out:{workshop}` | Organizer | PayPal reports the payout paid: the amount, the PayPal email it went to, what was paid and PayPal's fees. |
 
 Every refused or skipped message drops its body and HTML. The two carrying a
 private link (`joined`, `owner_created`) also drop them once sent, and give
@@ -326,8 +622,10 @@ recorded is sent again.
 `POST /api/v1/owner/{token}/cancel` (optional `reason`, at most 280
 characters) cancels the workshop any time before it starts, once
 (`domain.CanCancel`; `already_cancelled` and `workshop_started` otherwise).
-It is one compare-and-set on status and resolution (`CANCELLED`, with
-`cancelled_at` and `cancel_reason`): `SETTLED` at once when payments never
+Once the organizer's payout has locked the workshop it counts as started:
+the cancel is refused with `workshop_started`, whatever the time. It is one
+compare-and-set on status, resolution and an empty `payout_locked_at`
+(`CANCELLED`, with `cancelled_at` and `cancel_reason`): `SETTLED` at once when payments never
 opened, `RESOLVING` otherwise, and still `NEEDS_ATTENTION` when the workshop
 was flagged. A workshop with payments then releases its reserved seats (a
 seat kept for a `PENDING` authorization stays until PayPal decides) and is
@@ -399,8 +697,9 @@ The worker, in process:
   `CAPTURE_FAILED`, which frees the seat), and `reconcile:{attempt}:periodic:{minute}`
   for every attempt with a job unknown for more than five minutes, unless its
   fifth reconcile generation has run; runs again the close of every workshop
-  still `FUNDING` more than five minutes past its `closes_at` (enqueued, or
-  revived when it failed or was parked); then heals every `FUNDING` workshop and
+  still `FUNDING` more than five minutes past its `closes_at`, extended or not
+  (enqueued, or revived when it failed, was refused as early or was parked);
+  then heals every `FUNDING` workshop and
   every workshop whose money is not settled (`RESOLVING`, or cancelled and
   not `SETTLED`, `NEEDS_ATTENTION` included);
 - on the same two-minute tick deletes the `succeeded` jobs last updated
@@ -410,7 +709,16 @@ The worker, in process:
   generations are kept whatever their age, because the worker decides from
   their existence (healing, the next generation and the last one that leaves
   a job to an operator). The count is logged when it is not zero;
-- last on that tick, runs the fee backfill (see [Fees](#fees)).
+- then runs the fee backfill (see [Fees](#fees));
+- last, the payout sweep (see [Payouts](#payouts)): with payouts on, every
+  confirmed workshop with a payout email whose class has started and whose
+  payout is missing or still `created` gets `payout:{workshop}` enqueued, or
+  re-armed with its attempts reset when it waited (an hour later for a wait
+  that needs an operator or has nothing to pay; never when PayPal refused it
+  or it is parked); and
+  every payout that is `sent`, `unclaimed` or `unknown` with a batch id gets
+  `payout_check:{payout}:periodic:{hour}`. Succeeded payout checks are deleted
+  after 30 days like the read-only reconciles.
 
 On shutdown the worker claims nothing new and lets the job it is running
 finish for up to ten seconds; past that the PayPal call is cancelled and its
@@ -424,7 +732,7 @@ workshop's own enrollments only:
 | Route | What it does |
 |---|---|
 | `POST /api/v1/owner/{token}/operator/reconcile` `{enrollment_id}` | Reads the enrollment's latest attempt back from PayPal inline (`reconcile:{attempt}:operator:{minute}`); safe at any time. |
-| `POST /api/v1/owner/{token}/operator/retry-refund` `{enrollment_id}` | For a `REFUND_FAILED` enrollment only: keeps the failed refund's id in `failed_refund_ids`, sends the refund again inline under `refund:{attempt}:retry:{n}`, puts the enrollment back to `PAID` with its flag cleared and reopens the workshop's settlement. A new key is safe: a failed refund returned nothing, and PayPal refuses a refund beyond what was captured. PayPal keeps listing the failed refund on the order, so a reconcile or webhook ignores any refund in `failed_refund_ids`. |
+| `POST /api/v1/owner/{token}/operator/retry-refund` `{enrollment_id}` | For a `REFUND_FAILED` enrollment only, and never for a payment the organizer's payout counted (`409 paid_out`): keeps the failed refund's id in `failed_refund_ids`, sends the refund again inline under `refund:{attempt}:retry:{n}`, puts the enrollment back to `PAID` with its flag cleared and reopens the workshop's settlement. A new key is safe: a failed refund returned nothing, and PayPal refuses a refund beyond what was captured. PayPal keeps listing the failed refund on the order, so a reconcile or webhook ignores any refund in `failed_refund_ids`. |
 | `POST /api/v1/owner/{token}/operator/clear-flag` `{enrollment_id?}` | Clears the enrollment's flag once its money is settled: none of its jobs is unknown, running, parked or still failing after the attempt that flagged it, and PayPal keeps no hold on a seat that should hold none (failed capture, released, withdrawn or voiding); without an enrollment, clears the workshop's `NEEDS_ATTENTION` once no enrollment needs an operator and every enrollment's money is settled in the same sense (`RESOLVING` and settled again when cancelled, `OPEN` otherwise). `still_unresolved` otherwise. |
 
 The organizer page offers them as buttons in a **Needs your check** panel,
@@ -532,6 +840,67 @@ owner view shows it as `capture_issue`), `debug_id` and `last_error`. Older atte
 enrollment, `auth_expires_at`, `capture_debug_id`, `capture_reason` and
 `refund_reason` are only in `payment_attempts`.
 
+### Payouts
+
+Payouts that are not done, with their job:
+
+```sql
+select p.id, w.id as workshop_id, w.title, p.status, p.receiver, p.amount_minor, p.currency,
+       p.sender_batch_id, p.payout_batch_id, p.item_status, p.issue, p.debug_id, p.created_at,
+       j.status as job_status, j.attempts, j.last_error
+from payouts p
+join workshops w on w.id = p.workshop_id
+left join jobs j on j.idempotency_key = 'payout:' || w.id
+where p.status <> 'succeeded'
+order by p.updated_at;
+```
+
+A confirmed class that started and has no payout row is waiting: its
+`payout:{workshop}` job is `failed` with a `last_error` of
+`payout waits: {rule}` (the rules are in [Payouts](#ready-to-pay)). Settle what
+the rule names (a payment in flight, a flag to clear); the periodic sweep runs
+the job again within two minutes.
+
+- **Parked** (`created`, job `needs_attention`): PayPal never answered
+  clearly. Within 25 days of `created_at`, revive the job (see
+  [Reviving a job](#reviving-a-job)). It is sent under the same
+  `sender_batch_id` and `PayPal-Request-Id`, so PayPal replays the batch,
+  names it as a duplicate, or creates it once.
+- **Unknown** (`DUPLICATE_SENDER_BATCH_ID` or `PAYOUT_TOO_OLD_TO_SEND`): find
+  the batch in the PayPal account (its payouts history, by the
+  `sender_batch_id` `cp-{workshop}`, or through PayPal support with the
+  `debug_id`). If it exists, record it; the next hourly check, or **Check the
+  payout with PayPal**, reads it:
+
+  ```sql
+  update payouts set payout_batch_id = $2, status = 'sent', issue = null, debug_id = null, updated_at = now()
+  where id = $1 and status = 'unknown' and payout_batch_id is null;
+  ```
+
+  If PayPal has none and the payout is younger than 25 days, set it back to
+  `created` and revive `payout:{workshop}`. Older than that, pay the
+  organizer from the PayPal account by hand and record it as
+  `failed` with `issue = 'PAID_BY_HAND'`, so it is never sent.
+- **Failed before sending** (no `payout_batch_id`, such as
+  `INSUFFICIENT_FUNDS` or a receiver PayPal refuses): fix the cause, then,
+  within 25 days, send it again under the same `sender_batch_id`:
+
+  ```sql
+  update payouts set status = 'created', issue = null, debug_id = null, completed_at = null, updated_at = now()
+  where id = $1 and status = 'failed' and payout_batch_id is null;
+  ```
+
+  and revive `payout:{workshop}` (it failed with a PayPal answer, so revive
+  it by hand). The receiver cannot change: it is part of the terms people
+  approved.
+- **Failed after sending** (`RETURNED`, `BLOCKED`, `REFUNDED`, `REVERSED`, or
+  a `DENIED` batch): PayPal holds or returned the money. Quote the batch,
+  item and debug ids to PayPal support, or pay the organizer by hand; never
+  send a second batch.
+- **Unclaimed**: no PayPal account uses that email yet. Ask the organizer to
+  sign up, or add that email to their account, and accept it. PayPal returns
+  an unclaimed payout after 30 days (`RETURNED`, then `failed`).
+
 ## Consent versions
 
 Every enrollment records the version of the consent its participant
@@ -540,7 +909,27 @@ names the version in force, so nobody reserves on text they did not see. A
 page left open while the version changes gets `consent_version_mismatch` and
 shows the new text before the participant tries again.
 
-`consent-v4` (current):
+`consent-v5` (current):
+
+> Reserving your spot places a temporary hold for the price on your PayPal
+> account. Nothing is charged yet. Holds are charged once enough people have
+> reserved, and the workshop is on when the minimum number of payments has
+> gone through. If the minimum is not reached by the deadline, the workshop is
+> cancelled: every hold is released and any charge already made is refunded.
+> You can leave and have your hold released until charging starts; after
+> that, your payment is refunded only if the workshop is cancelled, including
+> when the organizer cancels it. Refunds can take a few days, and you can
+> follow yours on your page. The organizer can extend the deadline once, to
+> at most three days after reservations opened. Your page always shows the
+> current deadline and the latest possible one, and you can leave and release
+> your hold until charging starts.
+
+v5 adds the last two sentences. Only enrollments that accepted a version in
+`domain.ExtensionConsents` (v5) allow an extension; a workshop with a seat
+still taken under v4 or earlier keeps its deadline.
+
+`consent-v4` (from 8 November 2026 until v5), kept for the enrollments that
+accepted it:
 
 > Reserving your spot places a temporary hold for the price on your PayPal
 > account. Nothing is charged yet. Holds are charged once enough people have
@@ -628,6 +1017,14 @@ are here.
   `reconcile:{attempt}:webhook:{event_id}`; the reconcile reads PayPal and
   applies what it finds, so an early or repeated event cannot count a payment
   twice.
+- `PAYMENT.PAYOUTSBATCH.*` and `PAYMENT.PAYOUTS-ITEM.*` events find the payout
+  by `payout_batch_id`, `sender_batch_id` or `payout_item_id` (from the
+  resource or its `batch_header`) and enqueue
+  `payout_check:{payout}:webhook:{event_id}`. They never set a payout status;
+  the only thing they write is a missing PayPal batch id, from a delivery
+  PayPal has verified, which moves a `created` or `unknown` payout to `sent`;
+  a payout that already holds another batch keeps it, the event is logged and
+  still answered `200`.
 - The log names a verified event and its attempt, never the body, and nothing
   of an unverified delivery.
 

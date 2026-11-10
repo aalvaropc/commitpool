@@ -160,11 +160,11 @@ func TestMCP_NoMoneyMovingTools(t *testing.T) {
 	}
 	slices.Sort(names)
 	want := []string{"confirm_open_payments", "create_workshop", "get_checkout_link", "get_my_status", "get_status",
-		"get_workshop", "join_workshop", "preview_open_payments", "submit_availability", "verify_with_paypal"}
+		"get_workshop", "join_workshop", "preview_extend_reservations", "preview_open_payments", "submit_availability", "verify_with_paypal"}
 	if !slices.Equal(names, want) {
 		t.Errorf("tools = %v, want %v", names, want)
 	}
-	for _, name := range []string{"get_workshop", "get_my_status", "get_status", "verify_with_paypal"} {
+	for _, name := range []string{"get_workshop", "get_my_status", "get_status", "verify_with_paypal", "preview_extend_reservations"} {
 		if !readOnly[name] {
 			t.Errorf("tool %q is not annotated read-only", name)
 		}

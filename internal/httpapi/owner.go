@@ -33,12 +33,14 @@ type ownerViewDTO struct {
 	Workshop       workshopDTO       `json:"workshop"`
 	Dates          []dateDTO         `json:"dates"`
 	Proposal       *proposalDTO      `json:"proposal"`
+	Extension      *extensionDTO     `json:"extension"`
 	Tally          ownerTallyDTO     `json:"tally"`
 	Participants   []participantDTO  `json:"participants"`
 	Availabilities []availabilityDTO `json:"availabilities"`
 	Recommendation recommendationDTO `json:"recommendation"`
 	Enrollments    []enrollmentDTO   `json:"enrollments"`
 	Suggestions    []suggestionDTO   `json:"suggestions"`
+	Payout         *payoutDTO        `json:"payout"`
 	Demo           demoDTO           `json:"demo"`
 	ActAs          *[]actAsDTO       `json:"act_as,omitempty"`
 }
@@ -81,6 +83,14 @@ func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
 		availabilities[i].DisplayName = names[a.ParticipantID]
 	}
 	now := s.Clock.Now()
+	if st.extension, err = s.extensionOption(ctx, st, now); err != nil {
+		return err
+	}
+	extension := s.extensionView(st.extension, st, r.PathValue("token"))
+	proposal, err := s.withLatest(ctx, st, ownerProposalView(st.proposal, ws, now), now)
+	if err != nil {
+		return err
+	}
 	latest, err := s.Store.LatestAttemptsByWorkshop(ctx, ws.ID)
 	if err != nil {
 		return err
@@ -91,6 +101,11 @@ func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
 		ownerPayment(&enrollments[i], latest[en.ID])
 		enrollments[i].ParticipantID = en.ParticipantID
 		enrollments[i].DisplayName = names[en.ParticipantID]
+	}
+
+	payout, err := s.payoutView(ctx, st, latest, now)
+	if err != nil {
+		return err
 	}
 
 	recommendation := recommendationView(rec)
@@ -117,13 +132,15 @@ func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
 		ShareURL:       shareURL,
 		Workshop:       ownerWorkshopView(ws),
 		Dates:          dateViews(st.dates, st.loc),
-		Proposal:       ownerProposalView(st.proposal, ws, now),
+		Proposal:       proposal,
+		Extension:      extension,
 		Tally:          st.ownerTally(),
 		Participants:   participants,
 		Availabilities: availabilities,
 		Recommendation: recommendation,
 		Enrollments:    enrollments,
 		Suggestions:    s.suggestions(ctx, st, rec, readings, names, shareURL),
+		Payout:         payout,
 		Demo:           demoDTO{DemoMode: s.Cfg.DemoMode, SandboxMocks: s.Cfg.SandboxMocks},
 		ActAs:          actAs,
 	})
@@ -377,6 +394,8 @@ func (s *server) cancelWorkshop(w http.ResponseWriter, r *http.Request) error {
 	}
 	ctx := r.Context()
 	switch err := s.Worker.CancelWorkshop(ctx, ws.ID, reason); {
+	case errors.Is(err, domain.ErrPayoutLocked):
+		return conflict("workshop_started", "The class has started and its organizer is being paid, so it can no longer be cancelled.")
 	case errors.Is(err, domain.ErrAlreadyCancelled):
 		return conflict("already_cancelled", "This workshop is already cancelled.")
 	case errors.Is(err, domain.ErrWorkshopStarted):

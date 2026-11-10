@@ -63,32 +63,14 @@ func (r *Runner) backfillFees(ctx context.Context, now time.Time) error {
 			log.Warn("fee backfill: PayPal did not return the capture; trying again later", "error", err)
 			continue
 		}
-		problem := ""
-		_, err = r.st.UpdateAttemptFunc(ctx, a.ID, func(row *store.AttemptRow) error {
-			switch {
-			case row.CaptureFeeMinor != nil || row.CaptureNetMinor != nil:
-				return errNoFeesToRecord
-			case row.CaptureID == nil || *row.CaptureID != c.ID:
-				problem = "PayPal returned another capture"
-			case c.Status != paypal.StatusCompleted && c.Status != paypal.StatusRefunded && c.Status != paypal.StatusPartiallyRefunded:
-				problem = "PayPal reports the capture " + c.Status
-			default:
-				problem = fillFees(row, c.SellerReceivableBreakdown)
-			}
-			if problem != "" || row.CaptureFeeMinor == nil {
-				return errNoFeesToRecord
-			}
-			return nil
-		})
+		ok, problem, err := r.recordFees(ctx, a.ID, c)
 		switch {
-		case errors.Is(err, errNoFeesToRecord):
-			if problem != "" {
-				r.retries.later(a.ID, now.Add(feeBackfillRetryAfter))
-				log.Warn("fee backfill: fees not recorded: " + problem)
-			}
 		case err != nil:
 			return err
-		default:
+		case problem != "":
+			r.retries.later(a.ID, now.Add(feeBackfillRetryAfter))
+			log.Warn("fee backfill: fees not recorded: " + problem)
+		case ok:
 			recorded++
 		}
 	}
@@ -96,4 +78,27 @@ func (r *Runner) backfillFees(ctx context.Context, now time.Time) error {
 		r.log.Info("fee backfill: recorded PayPal's fees for captures recorded without them", "count", recorded)
 	}
 	return nil
+}
+
+func (r *Runner) recordFees(ctx context.Context, attemptID string, c paypal.Capture) (recorded bool, problem string, err error) {
+	_, err = r.st.UpdateAttemptFunc(ctx, attemptID, func(row *store.AttemptRow) error {
+		switch {
+		case row.CaptureFeeMinor != nil || row.CaptureNetMinor != nil:
+			return errNoFeesToRecord
+		case row.CaptureID == nil || *row.CaptureID != c.ID:
+			problem = "PayPal returned another capture"
+		case c.Status != paypal.StatusCompleted && c.Status != paypal.StatusRefunded && c.Status != paypal.StatusPartiallyRefunded:
+			problem = "PayPal reports the capture " + c.Status
+		default:
+			problem = fillFees(row, c.SellerReceivableBreakdown)
+		}
+		if problem != "" || row.CaptureFeeMinor == nil {
+			return errNoFeesToRecord
+		}
+		return nil
+	})
+	if errors.Is(err, errNoFeesToRecord) {
+		return false, problem, nil
+	}
+	return err == nil, problem, err
 }

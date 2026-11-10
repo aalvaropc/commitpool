@@ -8,6 +8,7 @@ const form: WorkshopForm = {
   description: '',
   hostName: 'Iris Calder',
   ownerEmail: '',
+  payoutEmail: '',
   location: 'The Long Room · Red Hook, Brooklyn',
   duration: '120',
   timezone: 'America/New_York',
@@ -69,6 +70,12 @@ describe('validateWorkshop', () => {
   it('takes an optional email for the organizer', () => {
     expect(validateWorkshop({ ...form, ownerEmail: 'iris@example.com' }, now).errors).toEqual({})
     expect(validateWorkshop({ ...form, ownerEmail: 'iris' }, now).errors.ownerEmail).toBe('Write one address, such as iris@example.com, or leave it empty.')
+  })
+
+  it('takes an optional PayPal email for the payout', () => {
+    expect(validateWorkshop({ ...form, payoutEmail: 'iris@example.com' }, now).errors).toEqual({})
+    expect(validateWorkshop({ ...form, payoutEmail: 'iris at paypal' }, now).errors.payoutEmail).toBe('Write the email of your PayPal account, such as iris@example.com, or leave it empty.')
+    expect(serverField('invalid_payout_email')).toBe('payoutEmail')
   })
 
   it('lets the session cost stay empty', () => {
@@ -159,6 +166,8 @@ describe('toRequest', () => {
     expect(toRequest({ ...form, venueCost: ' ' }, []).venue_cost).toBeUndefined()
     expect(toRequest(form, []).owner_email).toBeUndefined()
     expect(toRequest({ ...form, ownerEmail: ' iris@example.com ' }, []).owner_email).toBe('iris@example.com')
+    expect(toRequest(form, []).payout_email).toBeUndefined()
+    expect(toRequest({ ...form, payoutEmail: ' iris@paypal.example ' }, []).payout_email).toBe('iris@paypal.example')
   })
 })
 

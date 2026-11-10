@@ -21,9 +21,12 @@ const (
 	OwnerCreated    Kind = "owner_created"
 	OwnerConfirmed  Kind = "owner_confirmed"
 	OwnerCancelled  Kind = "owner_cancelled"
+	OwnerPaidOut    Kind = "owner_paid_out"
 )
 
-var Kinds = []Kind{Joined, Reserved, Confirmed, PaymentFailed, RefundCompleted, Cancelled, OwnerCreated, OwnerConfirmed, OwnerCancelled}
+const DeadlineExtended Kind = "deadline_extended"
+
+var Kinds = []Kind{Joined, Reserved, Confirmed, PaymentFailed, RefundCompleted, Cancelled, OwnerCreated, OwnerConfirmed, OwnerCancelled, OwnerPaidOut, DeadlineExtended}
 
 type Data struct {
 	Name          string
@@ -35,6 +38,9 @@ type Data struct {
 	Needed        int
 	Paid          int
 	Collected     string
+	PaidOut       string
+	Fees          string
+	Receiver      string
 	Deadline      string
 	Reason        string
 	Opened        bool
@@ -42,6 +48,7 @@ type Data struct {
 	Link          string
 	InviteLink    string
 	InviteMessage string
+	Earlier       string
 }
 
 type Email struct {
@@ -239,6 +246,26 @@ func compose(kind Kind, d Data) (message, error) {
 			Paragraphs: []string{hi, fmt.Sprintf("%s paid %s in total for %s. That’s enough to run it.", paidPeople, d.Collected, d.Title)},
 			Facts:      d.facts("When", "Where"),
 			After:      []string{"Your organizer link shows who paid. Spots still open can be reserved until reservations close."},
+			Why:        created,
+		}, nil
+	case DeadlineExtended:
+		return message{
+			Subject:    "More time to reserve for " + d.Title,
+			Preheader:  "Reservations now close " + d.Deadline + ".",
+			Headline:   "Reservations now close " + d.Deadline,
+			Paragraphs: []string{hi, "The organizer moved the deadline for " + d.Title + " from " + d.Earlier + " to " + d.Deadline + ", so more people have time to reserve. It can move only once.", "If " + people + " reserve by then, holds are charged and the class is on. If not, every hold is released and nobody pays."},
+			Facts:      d.facts("When", "Where", "Price"),
+			After:      []string{"Your spot stays as it is. Until charging starts, you can still leave and have any hold released from the private link you got when you joined."},
+			Why:        joined,
+		}, nil
+	case OwnerPaidOut:
+		return message{
+			Subject:    "You’ve been paid for " + d.Title,
+			Preheader:  d.PaidOut + " sent to your PayPal account.",
+			Headline:   "Paid out: " + d.PaidOut,
+			Paragraphs: []string{hi, fmt.Sprintf("CommitPool sent %s to %s through PayPal for %s: what %s paid, %s, less %s in PayPal fees.", d.PaidOut, d.Receiver, d.Title, paidPeople, d.Collected, d.Fees)},
+			Facts:      d.facts("When", "Where"),
+			After:      []string{"PayPal shows it in your account’s activity. Your organizer link shows the PayPal batch and transaction."},
 			Why:        created,
 		}, nil
 	case OwnerCancelled:

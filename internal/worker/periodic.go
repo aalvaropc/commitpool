@@ -76,6 +76,9 @@ func (r *Runner) RunPeriodic(ctx context.Context) error {
 	if err := r.backfillFees(ctx, now); err != nil {
 		errs = append(errs, fmt.Errorf("fee backfill: %w", err))
 	}
+	if err := r.sweepPayouts(ctx, now); err != nil {
+		errs = append(errs, fmt.Errorf("payout sweep: %w", err))
+	}
 	return errors.Join(errs...)
 }
 

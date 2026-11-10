@@ -42,6 +42,7 @@ type createWorkshopRequest struct {
 	Location         string `json:"location"`
 	VenueCost        string `json:"venue_cost"`
 	OwnerEmail       string `json:"owner_email"`
+	PayoutEmail      string `json:"payout_email"`
 	Demo             bool   `json:"demo"`
 	Dates            []struct {
 		StartsAt time.Time `json:"starts_at"`
@@ -148,6 +149,14 @@ func (s *server) workshopParams(req createWorkshopRequest) (store.CreateWorkshop
 	if err != nil {
 		return none, badRequest("invalid_owner_email", "Your email must be one plain address, such as iris@example.com.")
 	}
+	payoutEmail, err := optionalEmail(req.PayoutEmail)
+	if err != nil {
+		return none, badRequest("invalid_payout_email", "The PayPal email for your payout must be one plain address, such as iris@example.com.")
+	}
+	isDemo := req.Demo && s.Cfg.DemoMode
+	if isDemo && payoutEmail == "" {
+		payoutEmail = s.Cfg.DemoPayoutEmail
+	}
 	window := store.DefaultPaymentWindowMin
 	if req.PaymentWindowMin != nil {
 		window = *req.PaymentWindowMin
@@ -185,8 +194,9 @@ func (s *server) workshopParams(req createWorkshopRequest) (store.CreateWorkshop
 		HostName:         hostName,
 		Location:         location,
 		VenueCostMinor:   venueCost,
-		IsDemo:           req.Demo && s.Cfg.DemoMode,
+		IsDemo:           isDemo,
 		OwnerEmail:       ownerEmail,
+		PayoutEmail:      payoutEmail,
 		Dates:            dates,
 	}, nil
 }
@@ -236,10 +246,14 @@ func (s *server) publicWorkshop(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	proposal, err := s.withLatest(r.Context(), st, proposalView(st.proposal, ws, s.Clock.Now()), s.Clock.Now())
+	if err != nil {
+		return err
+	}
 	writeJSON(w, http.StatusOK, publicView{
 		Workshop: publicWorkshopView(ws),
 		Dates:    dateViews(st.dates, st.loc),
-		Proposal: proposalView(st.proposal, ws, s.Clock.Now()),
+		Proposal: proposal,
 		Tally:    st.tally(),
 		Group:    g,
 	})

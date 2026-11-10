@@ -40,6 +40,7 @@ export interface Workshop {
   demo?: boolean
   venue_cost?: Money
   break_even_seats?: number
+  payout_email?: string
 }
 
 export interface CandidateDate {
@@ -61,6 +62,8 @@ export interface Proposal {
   starts_at: string
   payments_open: boolean
   calendar_path?: string
+  extended_from?: string | null
+  latest_closes_at?: string
 }
 
 export interface Tally {
@@ -167,23 +170,70 @@ export interface ParticipantRef {
   display_name: string
 }
 
+export type PayoutState = 'no_email' | 'off' | 'scheduled' | 'waiting' | 'created' | 'parked' | 'sending' | 'paid' | 'unclaimed' | 'failed' | 'unknown'
+
+export interface Payout {
+  state: PayoutState
+  locked: boolean
+  receiver?: string
+  scheduled_at?: string
+  waiting?: string
+  estimated: boolean
+  amount?: Money
+  gross?: Money
+  fees?: Money
+  seats: number
+  early?: boolean
+  sender_batch_id?: string
+  payout_batch_id?: string
+  payout_item_id?: string
+  transaction_id?: string
+  batch_status?: string
+  item_status?: string
+  issue?: string
+  debug_id?: string
+  sent_at?: string
+  completed_at?: string
+}
+
 export interface OwnerView {
   share_url: string
   workshop: Workshop
   dates: CandidateDate[]
   proposal: Proposal | null
+  extension?: Extension | null
   tally: OwnerTally
   participants: ParticipantRef[]
   availabilities: Availability[]
   recommendation: Recommendation
   enrollments: Enrollment[]
   suggestions: Suggestion[]
+  payout: Payout | null
   demo: { demo_mode: boolean; sandbox_mocks: boolean }
   act_as?: { name: string; participant_url: string }[]
 }
 
+export type ExtensionRefusal =
+  | 'not_funding'
+  | 'too_late_to_extend'
+  | 'already_extended'
+  | 'already_funded'
+  | 'charging_started'
+  | 'consent_predates_extension'
+  | 'extension_too_small'
+  | 'unavailable'
+
+export interface Extension {
+  available: boolean
+  from: string
+  to?: string
+  refusal?: ExtensionRefusal
+  reason: string
+  approve_url?: string
+}
+
 export interface Suggestion {
-  kind: 'clarify' | 'condition' | 'reserve' | 'share'
+  kind: 'clarify' | 'condition' | 'reserve' | 'share' | 'rescue'
   participant_id?: string
   name?: string
   reason: string
@@ -225,6 +275,7 @@ export interface CreateWorkshopRequest {
   location?: string
   venue_cost?: string
   owner_email?: string
+  payout_email?: string
   dates: { starts_at: string; ends_at: string }[]
 }
 
@@ -295,6 +346,7 @@ export interface OpenApproval {
   minimum: number
   capacity: number
   payment_window_min: number
+  payout_email?: string
   expires_at: string
   approved_at: string | null
   used_at: string | null
@@ -394,6 +446,8 @@ export const api = {
   approveOpen: (token: string, id: string) => request<ApprovalView>('POST', `/api/v1/owner/${seg(token)}/approvals/${seg(id)}/approve`),
   cancelWorkshop: (token: string, reason: string) =>
     request<{ workshop: Workshop }>('POST', `/api/v1/owner/${seg(token)}/cancel`, reason ? { reason } : {}),
+  extendDeadline: (token: string, from: string, to: string) => request<{ proposal: Proposal }>('POST', `/api/v1/owner/${seg(token)}/extend`, { from, to }),
+  demoSkipToLastHours: (token: string) => request<{ proposal: Proposal }>('POST', `/api/v1/owner/${seg(token)}/demo/skip-to-last-hours`),
   operatorReconcile: (token: string, enrollmentId: string) =>
     request<{ enrollment: Enrollment }>('POST', `/api/v1/owner/${seg(token)}/operator/reconcile`, { enrollment_id: enrollmentId }),
   operatorRetryRefund: (token: string, enrollmentId: string) =>
@@ -402,6 +456,8 @@ export const api = {
     request<{ workshop: Workshop }>('POST', `/api/v1/owner/${seg(token)}/operator/clear-flag`, enrollmentId ? { enrollment_id: enrollmentId } : {}),
   verifyWithPayPal: (token: string) => request<VerifyResult>('POST', `/api/v1/owner/${seg(token)}/paypal/verify`),
   demoCloseNow: (token: string) => request<{ proposal: Proposal }>('POST', `/api/v1/owner/${seg(token)}/demo/close-now`),
+  demoStartClass: (token: string) => request<{ payout: Payout }>('POST', `/api/v1/owner/${seg(token)}/demo/start-class`),
+  operatorCheckPayout: (token: string) => request<{ payout: Payout }>('POST', `/api/v1/owner/${seg(token)}/operator/check-payout`),
   demoFailNextCapture: (token: string, enrollmentId: string) =>
     request<{ enrollment_id: string }>('POST', `/api/v1/owner/${seg(token)}/demo/fail-next-capture`, {
       enrollment_id: enrollmentId,

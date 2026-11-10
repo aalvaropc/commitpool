@@ -117,12 +117,16 @@ func (s *server) routes(mux *http.ServeMux) {
 	api("POST /api/v1/owner/{token}/approvals/{id}/approve", s.approveOpen)
 	api("POST /api/v1/owner/{token}/approvals/{id}/open", s.openApproved)
 	api("POST /api/v1/owner/{token}/cancel", s.cancelWorkshop)
+	api("POST /api/v1/owner/{token}/extend", s.extendDeadline)
+	api("POST /api/v1/owner/{token}/demo/skip-to-last-hours", s.demoSkipToLastHours)
 	api("POST /api/v1/owner/{token}/operator/reconcile", s.operatorReconcile)
 	api("POST /api/v1/owner/{token}/operator/retry-refund", s.operatorRetryRefund)
 	api("POST /api/v1/owner/{token}/operator/clear-flag", s.operatorClearFlag)
+	api("POST /api/v1/owner/{token}/operator/check-payout", s.operatorCheckPayout)
 	api("POST /api/v1/owner/{token}/paypal/verify", s.verifyWithPayPal)
 	api("POST /api/v1/owner/{token}/demo/close-now", s.demoCloseNow)
 	api("POST /api/v1/owner/{token}/demo/fail-next-capture", s.demoFailNextCapture)
+	api("POST /api/v1/owner/{token}/demo/start-class", s.demoStartClass)
 
 	api("GET /api/v1/p/{token}", s.participantView)
 	api("POST /api/v1/p/{token}/availability", s.submitAvailability)
@@ -168,6 +172,7 @@ func (s *server) healthz(w http.ResponseWriter, r *http.Request) {
 	if q, err := s.Store.Health(ctx); err == nil {
 		body["jobs"] = map[string]int{"unknown": q.Unknown, "parked": q.Parked, "stuck_pending": q.StuckPending}
 		body["workshops_flagged"] = q.WorkshopsFlagged
+		body["payouts"] = map[string]int{"failed": q.PayoutsFailed, "unknown": q.PayoutsUnknown}
 	}
 	if s.Worker != nil {
 		h := s.Worker.Health()

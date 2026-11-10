@@ -32,6 +32,7 @@ type SuggestInput struct {
 	Date          string
 	Hours         string
 	Deadline      string
+	Earlier       string
 	Needed        int
 	Missing       int
 	Question      string
@@ -64,20 +65,25 @@ func PlainSuggestion(in SuggestInput) string {
 	case "reserve":
 		return fmt.Sprintf("%sReservations for %s on %s are open until %s, and you can make it. Reserve your spot from the link you got when you joined. Nothing is charged unless %d people reserve.", hi, in.WorkshopTitle, in.Date, in.Deadline, in.Needed)
 	case "share":
-		more := fmt.Sprintf("%d more people", in.Missing)
-		if in.Missing == 1 {
-			more = "1 more person"
-		}
-		return fmt.Sprintf("%s on %s needs %s by %s, or it won’t happen and nobody pays. Know someone who’d enjoy it? Please pass it on.", in.WorkshopTitle, in.Date, more, in.Deadline)
+		return fmt.Sprintf("%s on %s needs %s by %s, or it won’t happen and nobody pays. Know someone who’d enjoy it? Please pass it on.", in.WorkshopTitle, in.Date, morePeople(in.Missing), in.Deadline)
+	case "rescue":
+		return fmt.Sprintf("%s on %s has more time: reservations now stay open until %s. It still needs %s, or it won’t happen and nobody pays. Know someone who’d enjoy it? Please pass it on.", in.WorkshopTitle, in.Date, in.Deadline, morePeople(in.Missing))
 	}
 	return ""
+}
+
+func morePeople(n int) string {
+	if n == 1 {
+		return "1 more person"
+	}
+	return fmt.Sprintf("%d more people", n)
 }
 
 func SuggestFacts(in SuggestInput) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "Kind of message: %s\n", in.Kind)
 	fmt.Fprintf(&sb, "Workshop title: %s\n", jsonString(in.WorkshopTitle))
-	if in.Kind != "share" {
+	if in.Kind != "share" && in.Kind != "rescue" {
 		fmt.Fprintf(&sb, "Person: %s\n", jsonString(in.Name))
 	}
 	fmt.Fprintf(&sb, "Date: %s\n", jsonString(in.Date))
@@ -86,6 +92,9 @@ func SuggestFacts(in SuggestInput) string {
 	}
 	if in.Deadline != "" {
 		fmt.Fprintf(&sb, "Reservations close: %s\n", jsonString(in.Deadline))
+	}
+	if in.Earlier != "" {
+		fmt.Fprintf(&sb, "Earlier deadline, before the organizer extended it: %s\n", jsonString(in.Earlier))
 	}
 	if in.Needed > 0 {
 		fmt.Fprintf(&sb, "People needed for the class to happen: %d\n", in.Needed)

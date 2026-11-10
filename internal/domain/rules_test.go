@@ -428,10 +428,51 @@ func TestLateCapture_AfterConfirmKeepsSeatBeforeStart(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := domain.LateCaptureAfterConfirm(enr("e1", tt.status), startsAt, tt.now); got != tt.want {
+			if got := domain.LateCaptureAfterConfirm(enr("e1", tt.status), startsAt, nil, tt.now); got != tt.want {
 				t.Fatalf("LateCaptureAfterConfirm() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestLateCapture_AfterThePayoutLockIsRefundedEvenBeforeTheStart(t *testing.T) {
+	locked := startsAt.Add(-48 * time.Hour)
+	tests := []struct {
+		name   string
+		status domain.EnrollmentStatus
+		now    time.Time
+		want   domain.Action
+	}{
+		{"paid before the lock", domain.EnrollmentPaid, locked.Add(-time.Second), domain.ActionKeepSeat},
+		{"paid at the lock", domain.EnrollmentPaid, locked, domain.ActionRefund},
+		{"paid after the lock, before the start", domain.EnrollmentPaid, locked.Add(time.Hour), domain.ActionRefund},
+		{"not paid", domain.EnrollmentCapturePending, locked.Add(time.Hour), domain.ActionNone},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := domain.LateCaptureAfterConfirm(enr("e1", tt.status), startsAt, &locked, tt.now); got != tt.want {
+				t.Fatalf("LateCaptureAfterConfirm() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestEffectiveStart_IsTheEarlierOfTheStartAndThePayoutLock(t *testing.T) {
+	earlier, later := startsAt.Add(-time.Hour), startsAt.Add(time.Hour)
+	cases := []struct {
+		name   string
+		locked *time.Time
+		want   time.Time
+	}{
+		{"no lock", nil, startsAt},
+		{"locked before the start", &earlier, earlier},
+		{"locked after the start", &later, startsAt},
+		{"locked at the start", &startsAt, startsAt},
+	}
+	for _, c := range cases {
+		if got := domain.EffectiveStart(startsAt, c.locked); !got.Equal(c.want) {
+			t.Errorf("%s: EffectiveStart = %s, want %s", c.name, got, c.want)
+		}
 	}
 }
 
@@ -481,21 +522,30 @@ func TestPaymentsOpen_FundingOrConfirmedBeforeClose(t *testing.T) {
 func TestCanCancel(t *testing.T) {
 	starts := time.Date(2026, 11, 14, 15, 0, 0, 0, time.UTC)
 	before := starts.Add(-time.Hour)
+	locked := before.Add(-time.Hour)
+	ahead := before.Add(time.Minute)
 	cases := []struct {
 		status   domain.WorkshopStatus
 		startsAt *time.Time
+		locked   *time.Time
 		now      time.Time
 		want     error
 	}{
-		{domain.WorkshopCollecting, nil, before, nil},
-		{domain.WorkshopFunding, &starts, before, nil},
-		{domain.WorkshopConfirmed, &starts, before, nil},
-		{domain.WorkshopConfirmed, &starts, starts, domain.ErrWorkshopStarted},
-		{domain.WorkshopCancelled, &starts, before, domain.ErrAlreadyCancelled},
+		{domain.WorkshopCollecting, nil, nil, before, nil},
+		{domain.WorkshopFunding, &starts, nil, before, nil},
+		{domain.WorkshopConfirmed, &starts, nil, before, nil},
+		{domain.WorkshopConfirmed, &starts, nil, starts, domain.ErrWorkshopStarted},
+		{domain.WorkshopCancelled, &starts, nil, before, domain.ErrAlreadyCancelled},
+		{domain.WorkshopConfirmed, &starts, &locked, before, domain.ErrPayoutLocked},
+		{domain.WorkshopConfirmed, &starts, &ahead, before, domain.ErrPayoutLocked},
+		{domain.WorkshopCancelled, &starts, &locked, before, domain.ErrAlreadyCancelled},
 	}
 	for _, c := range cases {
-		if err := domain.CanCancel(c.status, c.startsAt, c.now); !errors.Is(err, c.want) {
-			t.Errorf("CanCancel(%s, now %s) = %v, want %v", c.status, c.now, err, c.want)
+		if err := domain.CanCancel(c.status, c.startsAt, c.locked, c.now); !errors.Is(err, c.want) {
+			t.Errorf("CanCancel(%s, locked %v, now %s) = %v, want %v", c.status, c.locked, c.now, err, c.want)
 		}
+	}
+	if err := domain.CanCancel(domain.WorkshopConfirmed, &starts, &locked, before); !errors.Is(err, domain.ErrWorkshopStarted) {
+		t.Errorf("a payout lock = %v, want it to read as started too", err)
 	}
 }

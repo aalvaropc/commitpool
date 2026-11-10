@@ -36,10 +36,11 @@ For the organizer:
 
 | Tool | What it does |
 | --- | --- |
-| `create_workshop` | Creates a paid workshop with one or more candidate dates, the organizer's name and the place. An optional session cost (room, model, materials) stays private to the organizer. Returns the owner link (private) and the share link (for participants). |
-| `get_status` | From the owner link: the recommended date and why, who can come, who committed or paid, how many paid seats cover the session cost before fees, what closing payments now would do, and who CommitPool suggests nudging, each with a message Claude drafted for the organizer to send. Read-only; nothing is sent. |
-| `preview_open_payments` | Prepares opening payments on a date: returns the exact terms that lock (date, price, minimum, capacity and payment window), an `approval_id`, its `state` and an `approve_url` for the organizer. The organizer has thirty minutes to approve; once they do, the assistant has thirty more to confirm. The workshop does not change. |
+| `create_workshop` | Creates a paid workshop with one or more candidate dates, the organizer's name and the place. An optional session cost (room, model, materials) stays private to the organizer. An optional `payout_email` is the organizer's PayPal email: when the class starts, CommitPool pays it what participants paid, less PayPal's fees ([Payouts](payments.md#payouts)). The tool says to set it only to an address the organizer gave. Returns the owner link (private) and the share link (for participants). |
+| `get_status` | From the owner link: the recommended date and why, who can come, who committed or paid, how many paid seats cover the session cost before fees, what closing payments now would do, where the organizer's payout stands (`payout`: its state, receiver, amount, whether the amount is still an estimate, the PayPal batch and transaction once sent, and a `summary` sentence), and who CommitPool suggests nudging, each with a message Claude drafted for the organizer to send. Read-only; nothing is sent. |
+| `preview_open_payments` | Prepares opening payments on a date: returns the exact terms that lock (date, price, minimum, capacity, payment window and the `payout_email` the money is paid out to), an `approval_id`, its `state` and an `approve_url` for the organizer. The organizer has thirty minutes to approve; once they do, the assistant has thirty more to confirm. The workshop does not change. |
 | `confirm_open_payments` | Opens payments with that `approval_id`, only once the organizer has tapped Approve on the `approve_url` page. Refused while they have not, after the approval expired or was used, and when any term changed since the preview. |
+| `preview_extend_reservations` | From the owner link, while a class is short of its minimum: whether the reservation deadline can move once and to when, the reason, and an `approve_url` for the organizer, or the refusal code. Read-only: only the organizer extends, on their own page. |
 | `verify_with_paypal` | From the owner link: compares each seat's PayPal order, hold, charge and refund with PayPal's live records (status, amount and the recorded fee and net) and returns what CommitPool expects, what PayPal reports, whether they match and PayPal's debug id on an error. Read-only: nothing changes at PayPal or in CommitPool. One check per workshop every 30 seconds, at most 12 seats each. |
 
 For a participant:
@@ -52,8 +53,8 @@ For a participant:
 | `get_my_status` | The person's seat, the payment terms once payments are open, and the consent text they must read before committing. Read-only. |
 | `get_checkout_link` | Once the person has read and accepted the consent text, returns their PayPal approval link. |
 
-There is deliberately no tool to capture, void, refund, cancel a workshop,
-withdraw a seat or approve anything. Those stay in the web app, in front of
+There is deliberately no tool to capture, void, refund, pay out, cancel a
+workshop, withdraw a seat or approve anything. Those stay in the web app, in front of
 the person they affect.
 
 ## Opening reservations: the organizer approves
@@ -70,9 +71,10 @@ PayPal: the assistant prepares, the person taps.
    Approve; then call confirm_open_payments."
 2. The organizer opens the link on their own device. The page shows the
    workshop, "Your assistant wants to open reservations on these terms:", the
-   date, price, length, how long reservations stay open, the minimum and the
-   spots, and that nothing is charged until enough people reserve, with
-   **Approve** and **Not now**.
+   date, price, length, how long reservations stay open, the minimum, the
+   spots and the PayPal email the money is paid out to when the class starts
+   ("No PayPal email given" when there is none), and that nothing is charged
+   until enough people reserve, with **Approve** and **Not now**.
 3. After **Approve** the page says "Approved. Your assistant can now open
    reservations." The assistant calls `confirm_open_payments` with the
    `approval_id`; CommitPool opens reservations on exactly those terms and
@@ -80,8 +82,13 @@ PayPal: the assistant prepares, the person taps.
    approved yet — ask them to open the approve link".
 
 An approval belongs to one workshop and one set of terms (date, price,
-currency, minimum, capacity and payment window, hashed when it is requested)
-and opens reservations once. The organizer has thirty minutes to approve it;
+currency, minimum, capacity, payment window and, when there is one, the
+payout email, hashed when it is requested) and opens reservations once. The
+payout email is set when the workshop is created and never changes, and the
+hash names it, so an assistant cannot send the organizer's money elsewhere
+without the organizer seeing that address on the approve page. The hash only
+names a payout email when the workshop has one, so an approval requested
+before payouts existed (whose workshop has none) still verifies. The organizer has thirty minutes to approve it;
 approving starts a fresh thirty minutes for the assistant to confirm, and the
 approve page shows that deadline. A second preview of the same terms returns
 the same approval while it has at least ten minutes left (with `state`
@@ -96,6 +103,38 @@ reservations** button is unchanged: the organizer is already the one tapping.
 | `GET /api/v1/owner/{token}/approvals/{id}` | The approve page: terms and state (`pending`, `approved`, `used`, `expired`, `changed` or `closed`). While pending it sets the approval cookie. |
 | `POST /api/v1/owner/{token}/approvals/{id}/approve` | The approve page's **Approve** button only (see below). |
 | `POST /api/v1/owner/{token}/approvals/{id}/open` | `confirm_open_payments`: opens reservations and uses the approval, in one transaction. |
+
+## Extending the deadline: the organizer confirms
+
+When a class is short near its deadline, CommitPool computes one safe
+extension (see [Deadline extension](payments.md#deadline-extension)) and the
+organizer decides. No tool and no approvals table is involved beyond a link:
+
+1. The assistant calls `preview_extend_reservations` with the owner link. It
+   returns `available`, the current `deadline`, `extend_to`, the `reason` and
+   an `approve_url` (`{base}/owner/{owner token}?extend={unix seconds}`), with
+   the instruction to show the organizer the new deadline, ask them to open the
+   link on their own device and confirm, and never to open it or confirm it
+   itself. When nothing can move it returns the `refusal` code and its reason.
+2. The organizer page opens the confirmation dialog for exactly that option
+   (once only; everyone with an email is told; holds stay; anyone can still
+   leave before charging starts). A link whose option is no longer on offer
+   shows "This extension link is out of date" with the reason instead.
+3. **Extend to {date}** posts `POST /api/v1/owner/{token}/extend` `{from, to}`.
+   That endpoint refuses the in-process calls the tools make (`403
+   approval_required`), so the MCP tools alone cannot move a deadline; it
+   refuses a request without the browser headers that pass Go's cross-origin
+   protection (`Sec-Fetch-Site: same-origin`, or a matching `Origin`) with `403
+   extension_needs_page` ("Only the organizer can extend the deadline, from
+   their own page in a browser."), so an assistant posting with a general HTTP
+   tool is refused too; and it refuses an option that changed since the page
+   showed it (`409 extension_changed`). The same honest limit as for approving
+   applies: a program that forges those headers, or an assistant driving a
+   real browser with the owner link, could still press the button.
+
+The same organizer page offers the extension without an assistant: Claude's
+`rescue` suggestion carries the **Extend to {date}** button and the message
+for the group once the deadline moves.
 
 ## Safety by design
 

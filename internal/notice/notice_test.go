@@ -23,6 +23,9 @@ func sampleData() notice.Data {
 		Needed:        3,
 		Paid:          4,
 		Collected:     "$180",
+		PaidOut:       "$171.24",
+		Fees:          "$8.76",
+		Receiver:      "iris@example.com",
 		Deadline:      "Fri, Nov 13 at 10 AM (New York time)",
 		Link:          "https://example.test/p/PRIVATE",
 		InviteLink:    "https://example.test/w/INVITE",
@@ -37,6 +40,9 @@ func TestRender_EveryKindMatchesItsGolden(t *testing.T) {
 			if kind == notice.Cancelled || kind == notice.OwnerCancelled {
 				d.Reason = "The room flooded."
 				d.Opened = true
+			}
+			if kind == notice.DeadlineExtended {
+				d.Earlier = "Thu, Nov 12 at 10 AM (New York time)"
 			}
 			if kind == notice.OwnerCreated {
 				d.Name = "Iris Calder"

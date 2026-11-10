@@ -872,3 +872,28 @@ func TestEvalScoring_QuestionsNameTheHoursAsWholeNumbers(t *testing.T) {
 		}
 	}
 }
+
+func TestEvalReport_DescribesTheCurrentCorpus(t *testing.T) {
+	corpus, _ := loadEvalCorpus(t)
+	raw, err := os.ReadFile("../../docs/eval.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := string(raw)
+	digest, err := corpusDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(report, corpusShape(corpus)) || !strings.Contains(report, digest) {
+		t.Errorf("docs/eval.md does not describe the current corpus (%s, %s); rerun the live eval to rewrite it", corpusShape(corpus), digest)
+	}
+	ids := map[string]bool{}
+	for _, c := range corpus.Cases {
+		ids[c.ID] = true
+	}
+	for _, m := range regexp.MustCompile("(?m)^### `([^`]+)`").FindAllStringSubmatch(report, -1) {
+		if !ids[m[1]] {
+			t.Errorf("docs/eval.md lists a miss for %q, which is not in the corpus", m[1])
+		}
+	}
+}

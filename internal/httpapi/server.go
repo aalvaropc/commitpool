@@ -63,6 +63,7 @@ type server struct {
 	signingKey   []byte
 	crossOrigin  *http.CrossOriginProtection
 	aiSem        chan struct{}
+	verifies     *verifyQuota
 }
 
 func New(d Deps) http.Handler {
@@ -75,7 +76,7 @@ func New(d Deps) http.Handler {
 	if d.Background == nil {
 		d.Background = &sync.WaitGroup{}
 	}
-	s := &server{Deps: d, explanations: newTextCache(), nudges: newTextCache(), nudgeSlots: make(chan struct{}, nudgeSlots), aiSem: make(chan struct{}, aiSlots)}
+	s := &server{Deps: d, explanations: newTextCache(), nudges: newTextCache(), nudgeSlots: make(chan struct{}, nudgeSlots), aiSem: make(chan struct{}, aiSlots), verifies: newVerifyQuota()}
 	if d.Cfg.RateLimitPerMin > 0 {
 		s.limiter = newRateLimiter(d.Cfg.RateLimitPerMin)
 	}
@@ -119,6 +120,7 @@ func (s *server) routes(mux *http.ServeMux) {
 	api("POST /api/v1/owner/{token}/operator/reconcile", s.operatorReconcile)
 	api("POST /api/v1/owner/{token}/operator/retry-refund", s.operatorRetryRefund)
 	api("POST /api/v1/owner/{token}/operator/clear-flag", s.operatorClearFlag)
+	api("POST /api/v1/owner/{token}/paypal/verify", s.verifyWithPayPal)
 	api("POST /api/v1/owner/{token}/demo/close-now", s.demoCloseNow)
 	api("POST /api/v1/owner/{token}/demo/fail-next-capture", s.demoFailNextCapture)
 

@@ -246,17 +246,19 @@ type ownerTallyDTO struct {
 }
 
 type paymentDTO struct {
-	AttemptID           string  `json:"attempt_id"`
-	AttemptNo           int     `json:"attempt_no"`
-	OrderID             *string `json:"order_id"`
-	AuthorizationID     *string `json:"authorization_id"`
-	CaptureID           *string `json:"capture_id"`
-	RefundID            *string `json:"refund_id"`
-	OrderStatus         *string `json:"order_status"`
-	AuthorizationStatus *string `json:"authorization_status"`
-	CaptureStatus       *string `json:"capture_status"`
-	CaptureIssue        *string `json:"capture_issue"`
-	RefundStatus        *string `json:"refund_status"`
+	AttemptID           string    `json:"attempt_id"`
+	AttemptNo           int       `json:"attempt_no"`
+	OrderID             *string   `json:"order_id"`
+	AuthorizationID     *string   `json:"authorization_id"`
+	CaptureID           *string   `json:"capture_id"`
+	RefundID            *string   `json:"refund_id"`
+	OrderStatus         *string   `json:"order_status"`
+	AuthorizationStatus *string   `json:"authorization_status"`
+	CaptureStatus       *string   `json:"capture_status"`
+	CaptureIssue        *string   `json:"capture_issue"`
+	RefundStatus        *string   `json:"refund_status"`
+	Fee                 *moneyDTO `json:"fee,omitempty"`
+	Net                 *moneyDTO `json:"net,omitempty"`
 }
 
 func paymentView(a *store.AttemptRow) *paymentDTO {
@@ -276,6 +278,14 @@ func paymentView(a *store.AttemptRow) *paymentDTO {
 		CaptureIssue:        a.CaptureIssue,
 		RefundStatus:        a.RefundStatus,
 	}
+}
+
+func ownerPayment(d *enrollmentDTO, a *store.AttemptRow) {
+	if d.Payment == nil || a == nil || a.CaptureFeeMinor == nil || a.CaptureNetMinor == nil {
+		return
+	}
+	fee, net := money(*a.CaptureFeeMinor, a.Currency), money(*a.CaptureNetMinor, a.Currency)
+	d.Payment.Fee, d.Payment.Net = &fee, &net
 }
 
 type enrollmentDTO struct {

@@ -40,7 +40,7 @@ export function RescueCard({ s, rescue }: { s: Suggestion; rescue?: Rescue }) {
       <div className="flex flex-wrap items-center gap-3">
         <Button variant="secondary" size="sm" onClick={() => void copy()}>
           <Icon name="copy" size={16} />
-          Copy message<span className="sr-only"> for the group</span>
+          Copy message<span className="sr-only"> for the group, once you extend</span>
         </Button>
         <span role="status" className="text-sm text-ink-soft">
           {copied ? 'Copied. Send it to the group once you extend.' : copied === false ? 'Copying is blocked here; select the message and copy it.' : s.pending ? 'Claude is rewording this message…' : ''}

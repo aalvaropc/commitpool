@@ -193,6 +193,7 @@ export type ExtensionRefusal =
   | 'charging_started'
   | 'consent_predates_extension'
   | 'extension_too_small'
+  | 'unavailable'
 
 export interface Extension {
   available: boolean

@@ -85,10 +85,7 @@ func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
 	if st.extension, err = s.extensionOption(ctx, st, now); err != nil {
 		return err
 	}
-	extension, err := s.extensionView(st.extension, st, r.PathValue("token"))
-	if err != nil {
-		return err
-	}
+	extension := s.extensionView(st.extension, st, r.PathValue("token"))
 	latest, err := s.Store.LatestAttemptsByWorkshop(ctx, ws.ID)
 	if err != nil {
 		return err

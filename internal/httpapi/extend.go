@@ -77,24 +77,25 @@ func (s *server) extensionOption(ctx context.Context, st workshopState, now time
 	return &extensionOption{from: p.ClosesAt, to: to, refusal: refusal}, nil
 }
 
-func (s *server) extensionView(o *extensionOption, st workshopState, ownerToken string) (*extensionDTO, error) {
+func (s *server) extensionView(o *extensionOption, st workshopState, ownerToken string) *extensionDTO {
 	if o == nil {
-		return nil, nil
+		return nil
 	}
 	out := &extensionDTO{From: o.from.UTC()}
 	if o.refusal != nil {
 		code, statement, ok := extensionRefusal(o.refusal)
 		if !ok {
-			return nil, o.refusal
+			s.Log.Error("deadline extension refused for an unmapped reason", "workshop_id", st.w.ID, "error", o.refusal)
+			code, statement = "unavailable", "The deadline cannot be extended right now."
 		}
 		out.Refusal, out.Reason = code, statement
-		return out, nil
+		return out
 	}
 	to := o.to.UTC()
 	out.Available, out.To = true, &to
 	out.Reason = fmt.Sprintf("You can move the deadline once, to %s. Holds stay in place, everyone with an email is told, and anyone can still leave before charging starts.", present.Moment(o.to, st.loc))
 	out.ApproveURL = s.Cfg.BaseURL + "/owner/" + ownerToken + "?extend=" + strconv.FormatInt(o.to.Unix(), 10)
-	return out, nil
+	return out
 }
 
 func extendedFrom(p *store.ProposalRow) *time.Time {

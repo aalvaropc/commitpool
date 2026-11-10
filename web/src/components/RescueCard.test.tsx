@@ -43,7 +43,7 @@ describe('the rescue card', () => {
     expect(plain).toContain(`Extend to ${formatMoment(to, tz)}`)
     expect(plain).toContain('Claude’s message for the group, once you extend')
     expect(plain).toContain('reservations now stay open until Thu, Nov 5 at 4 AM.')
-    expect(plain).toContain('Copy message for the group')
+    expect(plain).toContain('Copy message for the group, once you extend')
   })
 
   it('shows no button once the extension is no longer on offer', () => {

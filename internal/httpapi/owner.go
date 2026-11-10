@@ -33,6 +33,7 @@ type ownerViewDTO struct {
 	Workshop       workshopDTO       `json:"workshop"`
 	Dates          []dateDTO         `json:"dates"`
 	Proposal       *proposalDTO      `json:"proposal"`
+	Extension      *extensionDTO     `json:"extension"`
 	Tally          ownerTallyDTO     `json:"tally"`
 	Participants   []participantDTO  `json:"participants"`
 	Availabilities []availabilityDTO `json:"availabilities"`
@@ -81,6 +82,13 @@ func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
 		availabilities[i].DisplayName = names[a.ParticipantID]
 	}
 	now := s.Clock.Now()
+	if st.extension, err = s.extensionOption(ctx, st, now); err != nil {
+		return err
+	}
+	extension, err := s.extensionView(st.extension, st, r.PathValue("token"))
+	if err != nil {
+		return err
+	}
 	latest, err := s.Store.LatestAttemptsByWorkshop(ctx, ws.ID)
 	if err != nil {
 		return err
@@ -118,6 +126,7 @@ func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
 		Workshop:       ownerWorkshopView(ws),
 		Dates:          dateViews(st.dates, st.loc),
 		Proposal:       ownerProposalView(st.proposal, ws, now),
+		Extension:      extension,
 		Tally:          st.ownerTally(),
 		Participants:   participants,
 		Availabilities: availabilities,

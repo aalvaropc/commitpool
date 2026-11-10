@@ -485,3 +485,22 @@ func TestPayout_WebhookFillsAMissingBatchAndChecks(t *testing.T) {
 		t.Errorf("an unknown batch = %q, %v; want no match", id, err)
 	}
 }
+
+func TestPayout_CheckRetriesWhenPayPalDoesNotReturnTheBatchYet(t *testing.T) {
+	e := payoutEnv(t)
+	e.confirmed()
+	e.toStart()
+	e.runKey(e.payoutKey())
+	po := e.payoutRow()
+	e.fake.FailNext("get_payout_batch", http.StatusNotFound, "INVALID_RESOURCE_ID")
+	e.runKey(e.checkKey(po, "created:1"))
+	j := e.wantJob(e.checkKey(po, "created:1"), store.JobPending)
+	if po = e.payoutRow(); po.Status != domain.PayoutSent {
+		t.Fatalf("payout after a 404 = %s, want still sent", po.Status)
+	}
+	e.clock.Set(j.RunAt)
+	e.runKey(e.checkKey(po, "created:1"))
+	if po = e.payoutRow(); po.Status != domain.PayoutSucceeded {
+		t.Fatalf("payout after the retry = %s, want succeeded", po.Status)
+	}
+}

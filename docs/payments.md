@@ -349,8 +349,11 @@ failed payout only ever moves to the other final status. It records the
 batch and item statuses, the item and transaction ids and the item's error
 name as the issue. The first check runs right after sending and, while the
 payout is not final, schedules the next one (30 s, 2 min, 10 min, 1 h, five
-in all); after that the periodic sweep checks it hourly. A payout that turns
-`succeeded` queues `notify:owner_paid_out:{workshop}`.
+in all); after that the periodic sweep checks it hourly. A read PayPal does
+not answer, a 404 for a batch just created included, is retried under the
+same key (5 s, 30 s, 2 min, 10 min) and then parked; it never changes the
+payout. A payout that turns `succeeded` queues
+`notify:owner_paid_out:{workshop}`.
 
 Payout problems never flag the workshop `NEEDS_ATTENTION`: that flag can be
 cleared without fixing the payout. `/healthz` counts them instead,

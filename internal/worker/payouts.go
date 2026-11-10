@@ -236,10 +236,7 @@ func (r *Runner) payoutCheck(ctx context.Context, job *store.Job) (*int, error) 
 	}
 	batch, err := r.pp.GetPayoutBatch(ctx, *po.PayoutBatchID)
 	if err != nil {
-		if pe := paypal.Definitive(err); pe != nil {
-			log.Error("PayPal refused to return the payout batch", "http_status", pe.HTTPStatus, "issue", pe.Issue, "debug_id", pe.DebugID)
-			return refused(pe)
-		}
+		log.Warn("PayPal did not return the payout batch; reading it again later", "payout_batch_id", *po.PayoutBatchID, "error", err)
 		return failed(err)
 	}
 	check := store.PayoutCheck{BatchStatus: batch.BatchHeader.BatchStatus}

@@ -390,7 +390,11 @@ func payoutOf(p *payoutJSON) *PayoutOut {
 	case "off":
 		out.Summary = "Payouts are switched off on this server, so the organizer is not paid out automatically."
 	case "scheduled":
-		out.Summary = fmt.Sprintf("When the class starts, CommitPool sends %s (what %d paid, less PayPal's fees) to %s through PayPal.", amount, p.Seats, p.Receiver)
+		people := fmt.Sprintf("%d people", p.Seats)
+		if p.Seats == 1 {
+			people = "1 person"
+		}
+		out.Summary = fmt.Sprintf("When the class starts, CommitPool sends %s (what %s paid, less PayPal's fees) to %s through PayPal.", amount, people, p.Receiver)
 	case "waiting":
 		out.Summary = "The payout waits for every payment to settle at PayPal (" + p.Waiting + "); it goes out on its own once they do."
 	case "sending":

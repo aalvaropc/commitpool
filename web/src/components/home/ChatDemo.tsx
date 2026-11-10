@@ -6,6 +6,7 @@ import {
   NEEDED,
   PRICE,
   SESSION_COST,
+  SPOTS,
   SUGGESTIONS,
   YOU,
   countedBy,
@@ -74,13 +75,23 @@ function placeholder(phase: Phase, answering: boolean): string {
   }
 }
 
-function DayCard({ day, count, best, state }: { day: string; count: number; best: boolean; state: string | null }) {
+function DayCard({ day, count, was, best, state }: { day: string; count: number; was: number; best: boolean; state: string | null }) {
+  const moved = state === null && was !== count
   return (
-    <div className={`flex flex-col gap-1.5 rounded-2xl px-3.5 py-2.5 transition-colors duration-300 ${best ? 'bg-brand-wash' : 'bg-surface-muted'}`}>
-      <p className="text-sm font-semibold">{day}</p>
-      <p className="font-display text-lg leading-none font-bold tabular-nums">{state ?? `${count} can come`}</p>
-      <div aria-hidden="true" className="h-1.5 rounded-full bg-canvas/60">
-        <div className="h-full rounded-full bg-paid transition-[width] duration-500 ease-(--ease-out)" style={{ width: `${Math.min(count / NEEDED, 1) * 100}%` }} />
+    <div className={`flex min-w-0 flex-col rounded-2xl px-3 pt-2.5 pb-3 transition-[background-color,box-shadow] duration-300 ${best ? 'bg-brand-wash ring-1 ring-brand/45 ring-inset' : 'bg-surface-muted'}`}>
+      <p className="text-[0.8125rem] font-semibold text-ink-soft">{day}</p>
+      <p className="mt-0.5 flex items-center gap-1.5 text-[clamp(0.9375rem,0.85rem+0.4vw,1.0625rem)] leading-tight font-bold whitespace-nowrap tabular-nums">
+        {moved && (
+          <span aria-hidden="true" className="flex items-center gap-1.5">
+            <span className="font-semibold text-ink-faint line-through decoration-2">{was}</span>
+            <Icon name="arrowRight" size={14} strokeWidth={2.4} className="text-brand" />
+          </span>
+        )}
+        {state ?? `${count} can come`}
+      </p>
+      <div aria-hidden="true" className="relative mt-2.5 h-1.5 rounded-full bg-line">
+        <div className={`absolute inset-y-0 left-0 rounded-full transition-[width] duration-500 ease-(--ease-out) ${best ? 'bg-paid' : 'bg-ink-faint'}`} style={{ width: `${Math.min(count / SPOTS, 1) * 100}%` }} />
+        <span className="absolute -inset-y-1 w-[3px] rounded-sm bg-ink" style={{ left: `calc(${(NEEDED / SPOTS) * 100}% - 1px)` }} />
       </div>
     </div>
   )
@@ -102,7 +113,7 @@ function Short({ demo }: { demo: boolean | undefined }) {
   )
 }
 
-export default function ChatDemo({ demo }: { demo?: boolean }) {
+export default function ChatDemo({ demo, noteClassName = '' }: { demo?: boolean; noteClassName?: string }) {
   const [stage, seen] = useInView<HTMLDivElement>()
   const [items, setItems] = useState<Item[]>([])
   const [phase, setPhase] = useState<Phase>('playing')
@@ -120,6 +131,7 @@ export default function ChatDemo({ demo }: { demo?: boolean }) {
 
   const reads = readsOf(items)
   const counts = tally(reads)
+  const before = tally(reads.filter((r) => r.name !== YOU))
   const best = leader(counts)
   const holds = items.filter((i) => i.kind === 'hold').length
   const on = items.some((i) => i.kind === 'on')
@@ -273,19 +285,19 @@ export default function ChatDemo({ demo }: { demo?: boolean }) {
 
   return (
     <div ref={stage} className="flex min-w-0 flex-col gap-3">
-      <section aria-label="Example: answers to Iris’s invite" className="flex h-[40rem] max-h-[88svh] flex-col overflow-hidden rounded-[2rem] bg-surface">
-        <header className="flex flex-col gap-3 p-4 pb-3">
+      <section aria-label="Example: answers to Iris’s invite" className="kiln flex h-[44rem] max-h-[88svh] flex-col overflow-hidden rounded-tile border border-surface-muted bg-surface">
+        <header className="flex flex-col gap-3 px-[1.125rem] pt-4 pb-1">
           <div className="flex min-w-0 flex-col">
-            <p className="font-display text-lg leading-tight font-bold">Sat or Sun?</p>
-            <p className="text-sm text-ink-soft">Example chat · prepared answers · payments simulated</p>
+            <p className="text-[1.0625rem] leading-tight font-bold">Sat or Sun?</p>
+            <p className="text-[0.8125rem] text-ink-faint">Example chat · prepared answers · payments simulated</p>
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <DayCard day={dates.sat.label} count={counts.sat} best={reads.length > 0 && best === 'sat'} state={dayState('sat')} />
-            <DayCard day={dates.sun.label} count={counts.sun} best={reads.length > 0 && best === 'sun'} state={dayState('sun')} />
+            <DayCard day={dates.sat.label} count={counts.sat} was={before.sat} best={reads.length > 0 && best === 'sat'} state={dayState('sat')} />
+            <DayCard day={dates.sun.label} count={counts.sun} was={before.sun} best={reads.length > 0 && best === 'sun'} state={dayState('sun')} />
           </div>
         </header>
 
-        <div ref={log} role="log" aria-live="polite" aria-label="Messages" tabIndex={0} className="flex flex-1 flex-col gap-3 overflow-y-auto px-4 pt-3 pb-4 [mask-image:linear-gradient(to_bottom,transparent,black_1.25rem)]">
+        <div ref={log} role="log" aria-live="polite" aria-label="Messages" tabIndex={0} className="flex flex-1 flex-col gap-3 overflow-y-auto px-[1.125rem] pt-3 pb-4 [mask-image:linear-gradient(to_bottom,transparent,black_1.25rem)]">
           {items.map((item) => {
             switch (item.kind) {
               case 'host':
@@ -336,15 +348,15 @@ export default function ChatDemo({ demo }: { demo?: boolean }) {
           })}
         </div>
 
-        <footer className="flex flex-col gap-2.5 bg-surface-muted p-3">
+        <footer className="flex flex-col gap-2.5 bg-composer px-3.5 pt-3 pb-3.5">
           {turn && (
-            <div className="rise -mx-3 flex gap-2 overflow-x-auto px-3 sm:flex-wrap" role="group" aria-label="Quick replies">
+            <div className="rise -mx-3.5 flex gap-2 overflow-x-auto px-3.5 [mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)] [scrollbar-width:none]" role="group" aria-label="Quick replies">
               {replies.map((s) => (
                 <button
                   key={s}
                   type="button"
                   onClick={() => quickReply(s)}
-                  className="min-h-11 shrink-0 rounded-full bg-surface px-4 text-sm font-medium whitespace-nowrap transition-colors duration-150 hover:bg-line"
+                  className="min-h-11 shrink-0 rounded-full bg-surface-muted px-4 text-sm font-medium whitespace-nowrap transition-colors duration-150 hover:bg-line"
                 >
                   {s}
                 </button>
@@ -382,8 +394,8 @@ export default function ChatDemo({ demo }: { demo?: boolean }) {
           )}
         </footer>
       </section>
-      <p className="px-2 text-sm text-ink-soft">
-        {footnote(lastBy)} <span className="font-semibold text-ink">Try it as Iris</span> runs the real flow on the PayPal Sandbox.
+      <p className={`text-sm leading-snug text-graphite ${noteClassName}`}>
+        {footnote(lastBy)} <span className="font-semibold text-charcoal">Try it as Iris</span> runs the real flow on the PayPal Sandbox.
       </p>
     </div>
   )

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -31,11 +32,26 @@ import (
 const shutdownTimeout = 30 * time.Second
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "check-config" {
+		if err := checkConfig(os.Getenv, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	if err := run(log); err != nil {
 		log.Error("commitpool stopped", "error", err)
 		os.Exit(1)
 	}
+}
+
+func checkConfig(getenv func(string) string, out io.Writer) error {
+	if _, err := config.Load(getenv); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintln(out, "config: ok")
+	return err
 }
 
 func run(log *slog.Logger) error {

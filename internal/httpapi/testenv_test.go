@@ -68,6 +68,11 @@ type option func(*setup)
 
 func withDemoMode() option     { return func(s *setup) { s.cfg.DemoMode = true } }
 func withSandboxMocks() option { return func(s *setup) { s.cfg.SandboxMocks = true } }
+func withJudgeKit(video, email, password string) option {
+	return func(s *setup) {
+		s.cfg.VideoEmbedURL, s.cfg.JudgeBuyerEmail, s.cfg.JudgeBuyerPassword = video, email, password
+	}
+}
 
 const testWebhookID = "WH-ID-COMMITPOOL-TEST"
 

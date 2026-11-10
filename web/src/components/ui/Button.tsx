@@ -1,7 +1,7 @@
 import type { ButtonHTMLAttributes, MouseEvent, Ref } from 'react'
 import { Link, type LinkProps } from 'react-router'
 
-export type ButtonVariant = 'primary' | 'secondary' | 'quiet' | 'danger' | 'demo' | 'inverse'
+export type ButtonVariant = 'primary' | 'secondary' | 'quiet' | 'danger' | 'demo' | 'inverse' | 'ink' | 'outline'
 export type ButtonSize = 'sm' | 'md' | 'lg'
 
 const variants: Record<ButtonVariant, string> = {
@@ -11,6 +11,8 @@ const variants: Record<ButtonVariant, string> = {
   danger: 'bg-no text-canvas hover:brightness-110',
   demo: 'bg-surface text-ink hover:bg-surface-muted',
   inverse: 'bg-ink text-canvas hover:bg-white',
+  ink: 'bg-on-brand text-ink hover:bg-brand-wash',
+  outline: 'border-2 border-on-brand bg-transparent text-on-brand hover:bg-on-brand/10',
 }
 
 const sizes: Record<ButtonSize, string> = {

@@ -44,6 +44,9 @@ PORT="$port" \
   COMMITPOOL_DEMO_PACE_MS=50 \
   COMMITPOOL_PAYOUTS=1 \
   COMMITPOOL_DEMO_PAYOUT_EMAIL=receiver@example.com \
+  COMMITPOOL_VIDEO_URL=https://youtu.be/aB3_x-9Zk0Q \
+  COMMITPOOL_JUDGE_BUYER_EMAIL=judge-buyer@example.com \
+  COMMITPOOL_JUDGE_BUYER_PASSWORD=e2e-sandbox-password \
   "$work/commitpool" >"$work/server.log" 2>&1 &
 server_pid=$!
 

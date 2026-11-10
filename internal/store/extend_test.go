@@ -327,3 +327,65 @@ func TestSkipToLastHours_ShortensAndBringsTheCloseForwardTogether(t *testing.T) 
 		t.Errorf("proposal after a refused skip = %+v, %v", got, err)
 	}
 }
+
+func TestReleaseExpiredSeats_WaitsForTheWorkshopLockSoItNeverDeadlocksAnExtension(t *testing.T) {
+	ctx := context.Background()
+	s := storetest.New(t)
+	w, p := extendableWorkshop(t, s)
+	for _, name := range []string{"Ben", "Cleo", "Dev"} {
+		params := reserveParams(w, p, newParticipant(t, s, w, name).ID, baseTime.Add(time.Hour))
+		params.ConsentVersion = "consent-v5"
+		if _, _, err := s.ReserveSeatAndCreateEnrollment(ctx, params); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := baseTime.Add(22 * time.Hour)
+
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `select 1 from workshops where id = $1 for update`, w.ID); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := s.ReleaseExpiredSeats(ctx, w.ID, now)
+		done <- err
+	}()
+	waitForLockWaiter(t, s, done)
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("ReleaseExpiredSeats after the workshop lock was released: %v", err)
+	}
+
+	w2, p2 := extendableWorkshop(t, s)
+	for _, name := range []string{"Eve", "Finn", "Gus"} {
+		params := reserveParams(w2, p2, newParticipant(t, s, w2, name).ID, baseTime.Add(time.Hour))
+		params.ConsentVersion = "consent-v5"
+		if _, _, err := s.ReserveSeatAndCreateEnrollment(ctx, params); err != nil {
+			t.Fatal(err)
+		}
+	}
+	extended, released := make(chan error, 1), make(chan error, 1)
+	go func() {
+		_, err := s.ExtendPaymentWindow(ctx, p2.ID, p2.ClosesAt, extendedTo, now)
+		extended <- err
+	}()
+	go func() {
+		_, err := s.ReleaseExpiredSeats(ctx, w2.ID, now)
+		released <- err
+	}()
+	if err := <-extended; err != nil {
+		t.Errorf("extension running beside a seat release = %v", err)
+	}
+	if err := <-released; err != nil {
+		t.Errorf("seat release running beside an extension = %v", err)
+	}
+	if n := count(t, s, `select count(*) from enrollments where workshop_id = $1 and status = 'RELEASED'`, w2.ID); n != 4 {
+		t.Errorf("released seats = %d, want all 4 lapsed seats", n)
+	}
+}

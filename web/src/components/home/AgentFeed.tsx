@@ -106,7 +106,8 @@ export default function AgentFeed() {
                 <Pill tone="hold">2 of 3 reserved</Pill>
                 <Pill tone="attention">Closes 9:12 PM</Pill>
               </p>
-              <p className="text-[1.0625rem] font-bold">Extend the deadline once? Everyone is told, holds stay as they are, and anyone can still leave.</p>
+              <p className="text-[1.0625rem] font-bold">Extend the deadline once? Holds stay in place, and anyone can still leave until charging starts.</p>
+              <p className="text-[0.9375rem] text-ink-soft">CommitPool offers the latest deadline it allows; Claude drafts the message for the group, sent once Iris extends.</p>
               <p className="flex flex-wrap items-center gap-2.5">
                 <Avatar name="Iris Calder" size="sm" />
                 <VerdictChip verdict="available" size="sm">

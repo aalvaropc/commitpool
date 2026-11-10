@@ -10,7 +10,7 @@ describe('the money example', () => {
 
   it('prints the same figures in the ledger and the receipt', () => {
     const html = renderToStaticMarkup(<MoneyFlow />)
-    for (const text of ['$45 held', '$135 charged', '$0 for anyone', '$128.82 sent', '$135.00 collected', '$6.18 PayPal fees', '$128.82 net']) {
+    for (const text of ['$45 held', '$135 charged', '$0 for anyone', '$128.82 paid out', '$135.00 collected', '$6.18 PayPal fees', '$128.82 net']) {
       expect(html).toContain(text)
     }
   })

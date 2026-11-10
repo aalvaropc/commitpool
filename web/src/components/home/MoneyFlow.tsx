@@ -65,7 +65,7 @@ export default function MoneyFlow() {
           <Ledger chip="If short" title="Released or refunded" amount="$0 for anyone" branch>
             Fewer than {NEEDED} by the deadline? Every hold is released and any charge is refunded.
           </Ledger>
-          <Ledger chip="It’s on" title="Iris paid at class start" amount={`${money(m.net)} sent`}>
+          <Ledger chip="It’s on" title="Iris paid at class start" amount={`${money(m.net)} paid out`}>
             When the class starts, CommitPool sends Iris her money with PayPal Payouts.
           </Ledger>
         </ol>

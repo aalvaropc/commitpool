@@ -61,7 +61,7 @@ test.describe('landing proof', () => {
 
     const money = page.getByRole('region', { name: 'The money comes last.' })
     await expect(money).toContainText('$135.00 collected · $6.18 PayPal fees · $128.82 net')
-    await expect(money).toContainText('$128.82 sent')
+    await expect(money).toContainText('$128.82 paid out')
 
     const judges = page.getByRole('region', { name: 'For judges.' })
     await expect(judges.getByRole('heading', { name: 'PayPal Sandbox buyer' })).toBeVisible()

@@ -9,7 +9,7 @@ const faq = [
   },
   {
     q: 'What if not enough people reserve?',
-    a: 'At the deadline the class is cancelled: every hold is released and any charge already made is refunded. Nobody pays for a class that does not happen.',
+    a: 'At the deadline the class is cancelled: every hold is released and any charge already made is refunded. Nobody pays for a class that does not happen. The organizer can extend the deadline once, to at most three days after reservations opened, and your page always shows the latest possible deadline.',
   },
   {
     q: 'Does Claude decide the date?',

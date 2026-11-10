@@ -23,11 +23,12 @@ type AttemptRow struct {
 	RefundStatus, RefundReason, MockCode                       *string
 	FailedRefundIDs                                            []string
 	CaptureFeeMinor, CaptureNetMinor                           *int64
+	PayoutID                                                   *string
 }
 
 const attemptCols = `id, enrollment_id, attempt_no, order_id, authorization_id, capture_id, refund_id, amount_minor, currency,
 	order_status, authorization_status, auth_expires_at, capture_status, capture_reason, capture_issue, capture_debug_id,
-	refund_status, refund_reason, mock_code, failed_refund_ids, capture_fee_minor, capture_net_minor`
+	refund_status, refund_reason, mock_code, failed_refund_ids, capture_fee_minor, capture_net_minor, payout_id`
 
 func (s *Store) CreateAttempt(ctx context.Context, enrollmentID string, amountMinor int64, currency string) (AttemptRow, error) {
 	a, _, err := s.openAttempt(ctx, enrollmentID, amountMinor, currency, false)
@@ -316,10 +317,17 @@ func (s *Store) RetryRefund(ctx context.Context, enrollmentID string, now time.T
 		if status != string(domain.EnrollmentRefundFailed) {
 			return domain.ErrNotRefundFailed
 		}
+		if err := shareWorkshop(ctx, tx, workshopID); err != nil {
+			return err
+		}
 		var attemptID string
-		if err := tx.QueryRow(ctx, `select id from payment_attempts where enrollment_id = $1 order by attempt_no desc limit 1 for update`,
-			enrollmentID).Scan(&attemptID); err != nil {
+		var payoutID *string
+		if err := tx.QueryRow(ctx, `select id, payout_id from payment_attempts where enrollment_id = $1 order by attempt_no desc limit 1 for update`,
+			enrollmentID).Scan(&attemptID, &payoutID); err != nil {
 			return lookupErr("lock attempt", err)
+		}
+		if payoutID != nil {
+			return ErrPaidOut
 		}
 		var retries int
 		if err := tx.QueryRow(ctx, `select count(*) from jobs where attempt_id = $1 and kind = $2 and idempotency_key like $3`,
@@ -350,4 +358,41 @@ func (s *Store) RetryRefund(ctx context.Context, enrollmentID string, now time.T
 		return "", err
 	}
 	return key, nil
+}
+
+func shareWorkshop(ctx context.Context, tx pgx.Tx, workshopID string) error {
+	var id string
+	if err := tx.QueryRow(ctx, `select id from workshops where id = $1 for key share`, workshopID).Scan(&id); err != nil {
+		return lookupErr("share workshop", err)
+	}
+	return nil
+}
+
+func (s *Store) StartRefund(ctx context.Context, enrollmentID, attemptID string, from []domain.EnrollmentStatus) (moved, paidOut bool, err error) {
+	err = pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+		var workshopID string
+		if err := tx.QueryRow(ctx, `select workshop_id from enrollments where id = $1`, enrollmentID).Scan(&workshopID); err != nil {
+			return lookupErr("find enrollment", err)
+		}
+		if err := shareWorkshop(ctx, tx, workshopID); err != nil {
+			return err
+		}
+		var payoutID *string
+		if err := tx.QueryRow(ctx, `select payout_id from payment_attempts where id = $1`, attemptID).Scan(&payoutID); err != nil {
+			return lookupErr("read attempt", err)
+		}
+		if payoutID != nil {
+			paidOut = true
+			return nil
+		}
+		tag, err := tx.Exec(ctx,
+			`update enrollments set status = $3, updated_at = now() where id = $1 and status = any($2)`,
+			enrollmentID, texts(from), string(domain.EnrollmentRefunding))
+		if err != nil {
+			return wrap("start refund", err)
+		}
+		moved = tag.RowsAffected() == 1
+		return nil
+	})
+	return moved, paidOut, err
 }

@@ -82,6 +82,9 @@ func (s *Store) BeginPayout(ctx context.Context, workshopID string, now time.Tim
 		if err != nil {
 			return wrap("insert payout", err)
 		}
+		if err := stampPaidAttempts(ctx, tx, row); err != nil {
+			return err
+		}
 		tag, err := tx.Exec(ctx,
 			`update workshops set payout_locked_at = $2, updated_at = now() where id = $1 and payout_locked_at is null`, workshopID, now)
 		if err != nil {
@@ -99,6 +102,42 @@ func (s *Store) BeginPayout(ctx context.Context, workshopID string, now time.Tim
 	return out, created, nil
 }
 
+var errPaidSeatsMoved = errors.New("store: the paid seats changed while the payout was frozen")
+
+func stampPaidAttempts(ctx context.Context, tx pgx.Tx, po PayoutRow) error {
+	rows, err := tx.Query(ctx,
+		`with latest as (
+		   select distinct on (a.enrollment_id) a.id, e.status
+		   from payment_attempts a join enrollments e on e.id = a.enrollment_id
+		   where e.workshop_id = $1
+		   order by a.enrollment_id, a.attempt_no desc)
+		 update payment_attempts p set payout_id = $2, updated_at = now()
+		 from latest l
+		 where p.id = l.id and l.status = $3 and p.payout_id is null
+		 returning coalesce(p.capture_net_minor, 0), coalesce(p.capture_fee_minor, 0)`,
+		po.WorkshopID, po.ID, string(domain.EnrollmentPaid))
+	if err != nil {
+		return wrap("stamp paid attempts", err)
+	}
+	var seats int
+	var net, fee int64
+	for rows.Next() {
+		var n, f int64
+		if err := rows.Scan(&n, &f); err != nil {
+			rows.Close()
+			return wrap("stamp paid attempts", err)
+		}
+		seats, net, fee = seats+1, net+n, fee+f
+	}
+	if err := rows.Err(); err != nil {
+		return wrap("stamp paid attempts", err)
+	}
+	if seats != po.Seats || net != po.AmountMinor || fee != po.FeeMinor {
+		return errPaidSeatsMoved
+	}
+	return nil
+}
+
 func payoutFacts(ctx context.Context, tx pgx.Tx, w WorkshopRow, p ProposalRow) (domain.PayoutFacts, int64, error) {
 	f := domain.PayoutFacts{
 		Status: w.Status, Resolution: w.Resolution, PayoutEmail: w.PayoutEmail,
@@ -107,12 +146,13 @@ func payoutFacts(ctx context.Context, tx pgx.Tx, w WorkshopRow, p ProposalRow) (
 	var fee int64
 	err := tx.QueryRow(ctx,
 		`with latest as (
-		   select distinct on (a.enrollment_id) a.enrollment_id, a.capture_fee_minor, a.capture_net_minor
+		   select distinct on (a.enrollment_id) a.id, a.enrollment_id, a.refund_id, a.capture_fee_minor, a.capture_net_minor
 		   from payment_attempts a join enrollments e on e.id = a.enrollment_id
 		   where e.workshop_id = $1
 		   order by a.enrollment_id, a.attempt_no desc)
 		 select
-		   count(*) filter (where e.status = any($2)),
+		   count(*) filter (where e.status = any($2) or (e.status = $3 and (l.refund_id is not null
+		     or exists (select 1 from jobs j where j.attempt_id = l.id and j.kind = $4 and j.status <> $5)))),
 		   count(*) filter (where e.needs_attention_at is not null),
 		   count(*) filter (where e.status = $3),
 		   count(*) filter (where e.status = $3 and (l.capture_net_minor is null or l.capture_fee_minor is null)),
@@ -120,7 +160,7 @@ func payoutFacts(ctx context.Context, tx pgx.Tx, w WorkshopRow, p ProposalRow) (
 		   coalesce(sum(l.capture_fee_minor) filter (where e.status = $3), 0)
 		 from enrollments e left join latest l on l.enrollment_id = e.id
 		 where e.workshop_id = $1`,
-		w.ID, texts(domain.PayoutHoldStatuses), string(domain.EnrollmentPaid)).
+		w.ID, texts(domain.PayoutHoldStatuses), string(domain.EnrollmentPaid), KindRefund, JobSucceeded).
 		Scan(&f.InFlight, &f.Flagged, &f.Paid, &f.MissingNet, &f.Net, &fee)
 	if err != nil {
 		return domain.PayoutFacts{}, 0, wrap("payout facts", err)

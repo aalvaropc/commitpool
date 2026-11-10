@@ -16,6 +16,7 @@ var (
 	ErrProposalExists  = errors.New("store: workshop already has a proposal")
 
 	ErrAttemptNotAllowed = errors.New("store: a new payment attempt needs a SEAT_RESERVED enrollment")
+	ErrPaidOut           = errors.New("store: the payment was paid out to the organizer")
 )
 
 const pgInvalidTextRepresentation = "22P02"

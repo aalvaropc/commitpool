@@ -277,6 +277,17 @@ func (s *Store) ReviveJob(ctx context.Context, key string, now time.Time, anyFai
 	return tag.RowsAffected() == 1, nil
 }
 
+func (s *Store) RearmJob(ctx context.Context, key string, runAt time.Time) (bool, error) {
+	tag, err := s.Pool.Exec(ctx,
+		`update jobs set status = 'pending', run_at = $2, attempts = 0,
+			locked_at = null, locked_by = null, updated_at = now()
+		 where idempotency_key = $1 and status = 'failed' and provider_issue is null and http_status is null`, key, runAt)
+	if err != nil {
+		return false, wrap("rearm job", err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
 func (s *Store) AdvanceJob(ctx context.Context, key string, runAt time.Time) (bool, error) {
 	tag, err := s.Pool.Exec(ctx,
 		`update jobs set run_at = $2, updated_at = now()

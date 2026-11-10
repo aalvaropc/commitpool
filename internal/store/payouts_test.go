@@ -508,3 +508,126 @@ func orEmpty(s *string) string {
 	}
 	return *s
 }
+
+func TestBeginPayout_StampsExactlyThePaidAttemptsItSums(t *testing.T) {
+	ctx := context.Background()
+	s := storetest.New(t)
+	f := readyPayout(t, s)
+	refunded := f.seat(t, "Dee", domain.EnrollmentRefunded, nil)
+	po, _, err := s.BeginPayout(ctx, f.w.ID, afterStart, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := count(t, s, `select count(*) from payment_attempts where payout_id = $1`, po.ID); n != 3 {
+		t.Fatalf("stamped attempts = %d, want the 3 paid ones", n)
+	}
+	if n := count(t, s, `select count(*) from payment_attempts where enrollment_id = $1 and payout_id is not null`, refunded.ID); n != 0 {
+		t.Errorf("a refunded seat was stamped as paid out")
+	}
+}
+
+func TestBeginPayout_APaidSeatWithARefundUnderWayIsInFlight(t *testing.T) {
+	ctx := context.Background()
+	for _, refund := range []string{"a pending refund job", "a refund job still unknown", "a recorded refund"} {
+		t.Run(refund, func(t *testing.T) {
+			s := storetest.New(t)
+			f := readyPayout(t, s)
+			a := f.attempts[0]
+			var err error
+			switch refund {
+			case "a pending refund job":
+				_, err = s.EnqueueJob(ctx, store.KindRefund, "refund:"+a.ID, &f.w.ID, &a.ID, nil, afterStart)
+			case "a refund job still unknown":
+				_, err = s.Pool.Exec(ctx, `insert into jobs (kind, idempotency_key, workshop_id, attempt_id, status) values ('refund', $1, $2, $3, 'unknown')`,
+					"refund:"+a.ID, f.w.ID, a.ID)
+			default:
+				_, err = s.Pool.Exec(ctx, `update payment_attempts set refund_id = 'R-1' where id = $1`, a.ID)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, _, err = s.BeginPayout(ctx, f.w.ID, afterStart, false)
+			wantNotReady(t, err, domain.PayoutInFlight)
+		})
+	}
+
+	s := storetest.New(t)
+	f := readyPayout(t, s)
+	a := f.attempts[0]
+	if _, err := s.Pool.Exec(ctx, `insert into jobs (kind, idempotency_key, workshop_id, attempt_id, status) values ('refund', $1, $2, $3, 'succeeded')`,
+		"refund:"+a.ID, f.w.ID, a.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.BeginPayout(ctx, f.w.ID, afterStart, false); err != nil {
+		t.Errorf("a refund job that already succeeded on a seat still paid blocks the payout: %v", err)
+	}
+}
+
+func TestStartRefund_RefusesAPaidOutAttempt(t *testing.T) {
+	ctx := context.Background()
+	s := storetest.New(t)
+	f := readyPayout(t, s)
+	free := f.paid(t, "Dee", 916)
+	freeAttempt := f.attempts[len(f.attempts)-1]
+	if _, err := s.Pool.Exec(ctx, `update enrollments set status = 'REFUNDED' where id = $1`, free.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.BeginPayout(ctx, f.w.ID, afterStart, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Pool.Exec(ctx, `update enrollments set status = 'PAID' where id = $1`, free.ID); err != nil {
+		t.Fatal(err)
+	}
+	from := []domain.EnrollmentStatus{domain.EnrollmentPaid, domain.EnrollmentRefunding}
+
+	moved, paidOut, err := s.StartRefund(ctx, f.seats[0].ID, f.attempts[0].ID, from)
+	if err != nil || moved || !paidOut {
+		t.Fatalf("StartRefund on a paid out seat = moved %v, paid out %v, %v; want refused", moved, paidOut, err)
+	}
+	if en, _ := s.EnrollmentByID(ctx, f.seats[0].ID); en.Status != domain.EnrollmentPaid {
+		t.Errorf("paid out seat = %s, want still PAID", en.Status)
+	}
+	moved, paidOut, err = s.StartRefund(ctx, free.ID, freeAttempt.ID, from)
+	if err != nil || !moved || paidOut {
+		t.Fatalf("StartRefund on a seat the payout did not count = moved %v, paid out %v, %v; want moved", moved, paidOut, err)
+	}
+}
+
+func TestRetryRefund_RefusesAPaidOutAttempt(t *testing.T) {
+	ctx := context.Background()
+	s := storetest.New(t)
+	f := readyPayout(t, s)
+	if _, _, err := s.BeginPayout(ctx, f.w.ID, afterStart, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Pool.Exec(ctx, `update enrollments set status = 'REFUND_FAILED', needs_attention_at = now() where id = $1`, f.seats[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RetryRefund(ctx, f.seats[0].ID, afterStart); !errors.Is(err, store.ErrPaidOut) {
+		t.Fatalf("RetryRefund on a paid out seat = %v, want ErrPaidOut", err)
+	}
+	if n := count(t, s, `select count(*) from jobs where kind = 'refund'`); n != 0 {
+		t.Errorf("a refused retry enqueued %d refunds", n)
+	}
+}
+
+func TestRearmJob_ResetsTheAttemptsOfAWaitOnly(t *testing.T) {
+	ctx := context.Background()
+	s := storetest.New(t)
+	for key, issue := range map[string]any{"payout:wait": nil, "payout:refused": "INSUFFICIENT_FUNDS"} {
+		if _, err := s.Pool.Exec(ctx,
+			`insert into jobs (kind, idempotency_key, status, attempts, provider_issue) values ('payout', $1, 'failed', 4, $2)`, key, issue); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if ok, err := s.RearmJob(ctx, "payout:wait", afterStart); err != nil || !ok {
+		t.Fatalf("RearmJob(wait) = %v, %v", ok, err)
+	}
+	j, err := s.JobByKey(ctx, "payout:wait")
+	if err != nil || j.Status != store.JobPending || j.Attempts != 0 || !j.RunAt.Equal(afterStart) {
+		t.Fatalf("rearmed job = %+v, %v; want pending with no attempts at %s", j, err, afterStart)
+	}
+	if ok, err := s.RearmJob(ctx, "payout:refused", afterStart); err != nil || ok {
+		t.Errorf("RearmJob on a job PayPal refused = %v, %v; want left alone", ok, err)
+	}
+}

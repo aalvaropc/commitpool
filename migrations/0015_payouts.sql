@@ -30,3 +30,6 @@ create table payouts (
 );
 
 create index payouts_open on payouts (status) where status in ('created', 'sent', 'unclaimed', 'unknown');
+
+alter table payment_attempts add column payout_id uuid references payouts(id);
+create index payment_attempts_by_payout on payment_attempts (payout_id) where payout_id is not null;

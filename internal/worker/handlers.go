@@ -376,13 +376,18 @@ func (r *Runner) refund(ctx context.Context, job *store.Job) (*int, error) {
 	if a.CaptureID == nil {
 		return nil, errors.New("payment attempt has no capture to refund")
 	}
-	moved, err := r.transition(ctx, s.log, s.enrollment.ID, move{statuses(domain.EnrollmentPaid, domain.EnrollmentRefunding), domain.EnrollmentRefunding})
+	moved, paidOut, err := r.st.StartRefund(ctx, s.enrollment.ID, a.ID, statuses(domain.EnrollmentPaid, domain.EnrollmentRefunding))
 	if err != nil {
 		return nil, err
+	}
+	if paidOut {
+		s.log.Warn("payment was paid out to the organizer; it keeps its seat and is not refunded", "payout_id", deref(a.PayoutID))
+		return s.refuse("skipped: paid out to the organizer")
 	}
 	if !moved {
 		return s.skip()
 	}
+	s.log.Info("enrollment moved", "to", domain.EnrollmentRefunding)
 
 	rf, err := r.pp.RefundCapture(ctx, paypal.RefundParams{
 		CaptureID: *a.CaptureID,

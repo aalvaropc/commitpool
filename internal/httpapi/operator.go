@@ -65,6 +65,9 @@ func (s *server) operatorRetryRefund(w http.ResponseWriter, r *http.Request) err
 	if errors.Is(err, domain.ErrNotRefundFailed) {
 		return conflict("not_refund_failed", "Only a refund that failed can be retried.")
 	}
+	if errors.Is(err, store.ErrPaidOut) {
+		return conflict("paid_out", "This payment was paid out to the organizer, so CommitPool does not refund it.")
+	}
 	if err != nil {
 		return err
 	}

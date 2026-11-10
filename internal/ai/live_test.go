@@ -237,8 +237,12 @@ func TestBedrock_LiveEval(t *testing.T) {
 	t.Logf("Claude: mean latency %s, %d input and %d output tokens", meanLatency(claude.total), claude.total.inputTokens, claude.total.outputTokens)
 
 	if path := os.Getenv("COMMITPOOL_EVAL_REPORT"); path != "" {
+		digest, err := corpusDigest()
+		if err != nil {
+			t.Fatal(err)
+		}
 		report := evalReport(evalReportInput{
-			model: envOr("COMMITPOOL_BEDROCK_MODEL", config.DefaultBedrockModel), ran: ran,
+			model: envOr("COMMITPOOL_BEDROCK_MODEL", config.DefaultBedrockModel), ran: ran, digest: digest,
 			corpus: corpus, setups: setups, claude: claude, keywords: keywords,
 		})
 		if err := os.WriteFile(path, []byte(report), 0o644); err != nil {

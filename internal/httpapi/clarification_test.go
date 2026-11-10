@@ -2,6 +2,7 @@ package httpapi_test
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"reflect"
 	"strings"
@@ -81,12 +82,101 @@ func TestAvailability_TheInterpreterSeesTheEarlierAnswerAndItsQuestions(t *testi
 	if got[0] != nil {
 		t.Errorf("the first answer came with an earlier one: %+v", got[0])
 	}
-	want := &ai.EarlierAnswer{Message: "I can make it either day, ideally in the afternoon.", Questions: []string{first.Interpretation.Ambiguities[0].Question}}
+	want := &ai.EarlierAnswer{Messages: []string{"I can make it either day, ideally in the afternoon."}, Questions: []string{first.Interpretation.Ambiguities[0].Question}}
 	if !reflect.DeepEqual(got[1], want) {
 		t.Errorf("the reply came with %+v, want %+v", got[1], want)
 	}
 	if got[2] != nil {
 		t.Errorf("an update after a clear answer came with %+v, want the new message alone", got[2])
+	}
+}
+
+func TestAvailability_TheInterpreterSeesEveryRoundOfAClarificationChain(t *testing.T) {
+	rec := &recordingAI{}
+	e := newEnv(t, withAI(rec))
+	h := e.createWorkshop()
+	grace := e.join(h, "Grace Liu")
+
+	first := "I can make it either day, ideally in the afternoon."
+	second := "Maybe an evening, I am not sure yet."
+	third := "Late afternoon would be fine."
+	e.say(grace, first)
+	secondReading := e.say(grace, second)
+	if !secondReading.NeedsClarification {
+		t.Fatalf("second answer = %+v, want another question", secondReading)
+	}
+	e.say(grace, third)
+	e.say(grace, "Saturday works")
+
+	got := rec.earlier()
+	if len(got) != 4 {
+		t.Fatalf("interpreted %d messages, want 4", len(got))
+	}
+	if got[0] != nil {
+		t.Errorf("the first answer came with an earlier one: %+v", got[0])
+	}
+	if want := []string{first}; !reflect.DeepEqual(got[1].Messages, want) {
+		t.Errorf("the second round came with %q, want %q", got[1].Messages, want)
+	}
+	wantThird := &ai.EarlierAnswer{Messages: []string{first, second}, Questions: []string{secondReading.Interpretation.Ambiguities[0].Question}}
+	if !reflect.DeepEqual(got[2], wantThird) {
+		t.Errorf("the third round came with %+v, want %+v", got[2], wantThird)
+	}
+	if want := []string{first, second, third}; !reflect.DeepEqual(got[3].Messages, want) {
+		t.Errorf("the fourth message came with %q, want the whole chain %q", got[3].Messages, want)
+	}
+}
+
+func TestAvailability_AClarificationChainKeepsAtMostFourMessages(t *testing.T) {
+	rec := &recordingAI{}
+	e := newEnv(t, withAI(rec))
+	h := e.createWorkshop()
+	grace := e.join(h, "Grace Liu")
+	var sent []string
+	for i := range 7 {
+		message := fmt.Sprintf("Round %d: maybe an afternoon.", i)
+		sent = append(sent, message)
+		e.say(grace, message)
+	}
+	got := rec.earlier()
+	if want := sent[2:6]; !reflect.DeepEqual(got[6].Messages, want) {
+		t.Errorf("the seventh round came with %q, want the four latest earlier messages %q", got[6].Messages, want)
+	}
+}
+
+func TestAvailability_AClarificationChainKeepsAtMostTwoThousandCharacters(t *testing.T) {
+	rec := &recordingAI{}
+	e := newEnv(t, withAI(rec))
+	h := e.createWorkshop()
+	grace := e.join(h, "Grace Liu")
+	padding := strings.Repeat("é", 880)
+	var sent []string
+	for i := range 4 {
+		message := fmt.Sprintf("Round %d: maybe an afternoon. %s", i, padding)
+		sent = append(sent, message)
+		e.say(grace, message)
+	}
+	got := rec.earlier()
+	if want := sent[1:3]; !reflect.DeepEqual(got[3].Messages, want) {
+		t.Errorf("the fourth round came with %d messages, want the two latest that fit in 2000 characters", len(got[3].Messages))
+	}
+}
+
+func TestAvailability_ACorrectedReadingEndsTheClarificationChain(t *testing.T) {
+	rec := &recordingAI{}
+	e := newEnv(t, withAI(rec))
+	h := e.createWorkshop()
+	grace := e.join(h, "Grace Liu")
+	older := e.say(grace, "I can make it either day, ideally in the afternoon.")
+	corrected := older.Interpretation
+	corrected.NeedsClarification, corrected.Ambiguities = true, []domain.Ambiguity{{Question: "Which day?", Why: "It decides the date."}}
+	e.call(http.MethodPut, grace.path+"/availability/"+older.ID, map[string]any{"corrected": corrected}, http.StatusOK, nil)
+	newer := "Maybe an evening, I am not sure yet."
+	e.say(grace, newer)
+	e.say(grace, "Saturday works")
+	got := rec.earlier()
+	if len(got) != 3 || got[2] == nil || !reflect.DeepEqual(got[2].Messages, []string{newer}) {
+		t.Errorf("the reply came with %+v, want only the newer message %q after the corrected one", got, newer)
 	}
 }
 

@@ -47,12 +47,19 @@ func (f Fake) scripted(in InterpretInput) (Scripted, bool) {
 		if scriptKey(message) != key {
 			continue
 		}
-		if s.Follows != "" && (in.Earlier == nil || scriptKey(in.Earlier.Message) != scriptKey(s.Follows)) {
+		if s.Follows != "" && !followsLatest(in.Earlier, s.Follows) {
 			continue
 		}
 		return s, true
 	}
 	return Scripted{}, false
+}
+
+func followsLatest(earlier *EarlierAnswer, follows string) bool {
+	if earlier == nil || len(earlier.Messages) == 0 {
+		return false
+	}
+	return scriptKey(earlier.Messages[len(earlier.Messages)-1]) == scriptKey(follows)
 }
 
 func (s Scripted) Reading(dates []DateOption) domain.Interpretation {

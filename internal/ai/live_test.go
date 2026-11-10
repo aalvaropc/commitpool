@@ -78,6 +78,9 @@ func TestBedrock_Live(t *testing.T) {
 	if text == "" || len(strings.Fields(text)) > 60 {
 		t.Errorf("explanation %q, want 1 to 60 words", text)
 	}
+	if !strings.HasSuffix(text, ".") && !strings.HasSuffix(text, "!") && !strings.HasSuffix(text, "?") {
+		t.Errorf("explanation %q does not end on a whole sentence", text)
+	}
 	if strings.Contains(text, "Nov 15") || strings.Contains(text, "Sun") {
 		t.Errorf("explanation %q names a date the server did not recommend", text)
 	}
@@ -181,7 +184,7 @@ func TestBedrock_LiveDemo(t *testing.T) {
 				first = p.Message
 			}
 		}
-		got := read(r.Message, &ai.EarlierAnswer{Message: first, Questions: questions[r.Name]})
+		got := read(r.Message, &ai.EarlierAnswer{Messages: []string{first}, Questions: questions[r.Name]})
 		checkLiveReading(t, r.Name+"'s reply", r.Expect, got)
 	}
 }

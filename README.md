@@ -77,8 +77,7 @@ browser ── React SPA ────────┴──► Go API ──► P
                                     ▼  │ verified webhooks
                        payment worker ◄──── PayPal Sandbox (Orders v2, Payments v2)
                                     │
-                                    ├──► Claude on Amazon Bedrock
-                                    └──► Amazon SES
+                                    └──► Claude on Amazon Bedrock
 ```
 
 - **One Go binary** serves the API, the embedded SPA and the MCP server, and runs the payment worker. Migrations apply on startup.

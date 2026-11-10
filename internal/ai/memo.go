@@ -65,8 +65,12 @@ func (m *Memo) Suggest(ctx context.Context, in SuggestInput) (string, Meta, erro
 }
 
 func (m *Memo) Room(calls int) time.Duration {
+	return m.RoomLeaving(calls, func(int) int { return 0 })
+}
+
+func (m *Memo) RoomLeaving(calls int, reserve func(limit int) int) time.Duration {
 	if c, ok := m.next.(Capacity); ok {
-		return c.Room(calls)
+		return c.RoomLeaving(calls, reserve)
 	}
 	return 0
 }

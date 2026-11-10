@@ -177,14 +177,14 @@ func TestDemo_RestsWhileTheBudgetHasNoRoomForOne(t *testing.T) {
 		after         string
 		message       string
 	}{
-		{"this hour", 12, 100, 15 * time.Minute, "2700", "Claude has read many messages this hour. Try the demo again in 45 minutes, or create your own workshop."},
-		{"today", 100, 12, 5 * time.Hour, "68400", "Claude has read many messages today. Try the demo again in about 19 hours, or create your own workshop."},
+		{"this hour", 30, 1000, 15 * time.Minute, "2700", "Claude has read many messages this hour. Try the demo again in 45 minutes, or create your own workshop."},
+		{"today", 100, 30, 5 * time.Hour, "68400", "Claude has read many messages today. Try the demo again in about 19 hours, or create your own workshop."},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			budgetClock := &clock.Fake{T: t0}
 			budget := ai.NewBudget(ai.Fake{}, ai.BudgetConfig{Hourly: tc.hourly, Daily: tc.daily, Clock: budgetClock})
-			for range 3 {
+			for range 6 {
 				if _, _, err := budget.Interpret(context.Background(), ai.InterpretInput{Dates: []ai.DateOption{{ID: "d"}}, Message: "any day"}); err != nil {
 					t.Fatal(err)
 				}

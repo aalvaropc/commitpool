@@ -39,7 +39,7 @@ function Ask({ view, busy, error, onApprove, onDecline }: { view: ApprovalView; 
         </p>
       </div>
       <p className="text-sm text-ink-soft">
-        This request works until {formatMoment(a.expires_at, view.workshop.timezone)}. Only you can approve it, here on your own page.
+        This request works until {formatMoment(a.expires_at, view.workshop.timezone)}. Only someone with your organizer link can approve it, here in a browser. Your assistant's tools cannot.
       </p>
       {error && (
         <Notice tone="attention" role="alert">

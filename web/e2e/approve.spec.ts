@@ -125,7 +125,7 @@ test.describe('organizer approval for an assistant', () => {
     let refused = 0
     await page.route('**/api/v1/owner/*/approvals/*/approve', async (route) => {
       refused++
-      await route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: 'approval_needs_page', message: 'Only the organizer can approve, on the approve page in their own browser.' }) })
+      await route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: 'approval_needs_page', message: "Only someone with the organizer link can approve, on the approve page in a browser. An assistant's tools cannot." }) })
     })
     await page.goto(preview.approve_url)
     const approve = page.getByRole('button', { name: 'Approve', exact: true })

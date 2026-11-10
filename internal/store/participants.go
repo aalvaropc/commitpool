@@ -102,6 +102,12 @@ func (s *Store) LatestAvailabilityByParticipant(ctx context.Context, participant
 		participantID)
 }
 
+func (s *Store) RecentAvailabilitiesByParticipant(ctx context.Context, participantID string, limit int) ([]AvailabilityRow, error) {
+	return many[AvailabilityRow](ctx, s.Pool, "recent availabilities",
+		`select `+availabilityCols+` from availabilities where participant_id = $1 order by created_at desc, id desc limit $2`,
+		participantID, limit)
+}
+
 func (s *Store) AvailabilitiesByWorkshop(ctx context.Context, workshopID string) ([]AvailabilityRow, error) {
 	return many[AvailabilityRow](ctx, s.Pool, "availabilities by workshop",
 		`select `+availabilityCols+` from (

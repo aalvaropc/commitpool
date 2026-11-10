@@ -471,9 +471,13 @@ func domainDates(ds []store.CandidateDateRow) []domain.CandidateDate {
 	return out
 }
 
+func isCorrected(a store.AvailabilityRow) bool {
+	return len(a.Corrected) > 0 && string(a.Corrected) != "null"
+}
+
 func inForce(a store.AvailabilityRow) (domain.Interpretation, error) {
 	raw := a.Interpretation
-	if len(a.Corrected) > 0 && string(a.Corrected) != "null" {
+	if isCorrected(a) {
 		raw = a.Corrected
 	}
 	var in domain.Interpretation

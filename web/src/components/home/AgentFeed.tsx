@@ -54,11 +54,11 @@ export default function AgentFeed() {
             ))}
           </dl>
         </div>
-        <ol aria-label="What Claude did for Iris’s class" className="relative before:absolute before:top-3 before:bottom-3 before:left-[1.0625rem] before:w-0.5 before:bg-line lg:col-span-6 lg:col-start-7">
+        <ol aria-label="How Iris’s class found its date" className="relative before:absolute before:top-3 before:bottom-3 before:left-[1.0625rem] before:w-0.5 before:bg-line lg:col-span-6 lg:col-start-7">
           <Step icon="quote" tone="claude" time="9:02 PM" title="Read 6 answers, one in Spanish">
-            <div role="img" aria-label="Priya, Ben, Lucía, Hannah, Tomás and Grace" className="flex">
+            <div role="img" aria-label="Priya, Ben, Lucía, Hannah, Tomás and Grace" className="flex flex-wrap gap-1.5">
               {people.map((n) => (
-                <Avatar key={n} name={n} size="sm" className="-mr-1.5 ring-3 ring-canvas" />
+                <Avatar key={n} name={n} size="sm" />
               ))}
             </div>
             <Quote by="Lucía Torres">
@@ -91,7 +91,7 @@ export default function AgentFeed() {
             </p>
             <p className="max-w-[46ch] text-ink-soft">Priya, Ben and Grace can come. Hannah has to leave by 11:30, so she isn’t counted for a class that ends at noon.</p>
           </Step>
-          <Step icon="calendar" tone="claude" time="9:12 PM" title="Recommended Saturday">
+          <Step icon="calendar" tone="done" time="9:12 PM" title="CommitPool recommended Saturday">
             <p className="flex flex-wrap items-center gap-2 text-ink-soft">
               Iris opened reservations from her board.
               <Pill tone="hold">Reservations open</Pill>

@@ -83,7 +83,7 @@ test.describe('landing proof', () => {
     await expect(video).toHaveAttribute('title', /^CommitPool demo video/)
 
     const truth = judges.getByRole('table')
-    await expect(truth.getByRole('row', { name: /PayPal Sandbox/ })).toContainText('Real Sandbox calls')
+    await expect(truth.getByRole('row', { name: /^PayPal Sandbox/ })).toContainText('Real Sandbox calls')
     await expect(truth.getByRole('row', { name: /Claude on Amazon Bedrock/ })).toContainText('Real')
     await expect(truth.getByRole('row', { name: /Demo participants/ })).toContainText('Prepared')
     await expect(truth.getByRole('row', { name: /Close reservations now/ })).toContainText('Accelerated clock')

@@ -5,19 +5,15 @@ import { PaperSection, SectionHead } from './Section'
 
 const PRICE = 45
 const NEEDED = 3
-const FEE = { rate: 0.0349, fixed: 0.49 }
-
-function cents(dollars: number): number {
-  return Math.round(dollars * 100 + Number.EPSILON)
-}
+const FEE = { basisPoints: 349, fixedCents: 49 }
 
 function money(c: number): string {
   return `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
 export function moneyExample(price = PRICE, people = NEEDED) {
-  const each = cents(price)
-  const feeEach = Math.floor(each * FEE.rate + cents(FEE.fixed) + 0.5)
+  const each = price * 100
+  const feeEach = Math.floor((each * FEE.basisPoints + 5000) / 10000) + FEE.fixedCents
   const collected = each * people
   const fees = feeEach * people
   return { collected, fees, net: collected - fees }

@@ -87,6 +87,8 @@ func New(d Deps) *Runner {
 		store.KindClose:        r.closePayments,
 		store.KindReleaseSeats: r.releaseSeats,
 		store.KindNotify:       r.notify,
+		store.KindPayout:       r.payout,
+		store.KindPayoutCheck:  r.payoutCheck,
 	}
 	return r
 }

@@ -22,7 +22,7 @@ func (r *Runner) CancelWorkshop(ctx context.Context, workshopID, reason string) 
 		if p != nil {
 			starts = &p.StartsAt
 		}
-		if err := domain.CanCancel(w.Status, starts, now); err != nil {
+		if err := domain.CanCancel(w.Status, starts, w.PayoutLockedAt, now); err != nil {
 			return err
 		}
 		resolution := domain.ResolutionResolving

@@ -49,6 +49,8 @@ type Config struct {
 	AllowLivePayPal      bool
 	AIHourlyCap          int
 	AIDailyCap           int
+	Payouts              bool
+	DemoPayoutEmail      string
 }
 
 func Load(getenv func(string) string) (Config, error) {
@@ -86,6 +88,13 @@ func Load(getenv func(string) string) (Config, error) {
 		SandboxMocks:         flag("COMMITPOOL_SANDBOX_MOCKS"),
 		FakePayPal:           flag("E2E_FAKE_PAYPAL"),
 		AllowLivePayPal:      flag("COMMITPOOL_ALLOW_LIVE_PAYPAL"),
+		Payouts:              flag("COMMITPOOL_PAYOUTS"),
+		DemoPayoutEmail:      str("COMMITPOOL_DEMO_PAYOUT_EMAIL", ""),
+	}
+	if cfg.DemoPayoutEmail != "" {
+		if a, err := netmail.ParseAddress(cfg.DemoPayoutEmail); err != nil || a.Name != "" || a.Address != cfg.DemoPayoutEmail {
+			problems = append(problems, "COMMITPOOL_DEMO_PAYOUT_EMAIL must be one plain address, such as receiver@example.com")
+		}
 	}
 	switch raw := strings.ToLower(strings.TrimSpace(str("COMMITPOOL_RATE_LIMIT", "120"))); raw {
 	case "off", "0":
@@ -249,6 +258,8 @@ func (c Config) LogValue() slog.Value {
 		slog.Bool("allow_live_paypal", c.AllowLivePayPal),
 		slog.Int("ai_hourly_cap", c.AIHourlyCap),
 		slog.Int("ai_daily_cap", c.AIDailyCap),
+		slog.Bool("payouts", c.Payouts),
+		slog.Bool("demo_payout_email_set", c.DemoPayoutEmail != ""),
 	)
 }
 

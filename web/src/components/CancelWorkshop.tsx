@@ -16,7 +16,7 @@ export default function CancelWorkshop({ token, view, onChange }: Props) {
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  if (!canCancel(view.workshop.status, view.proposal?.starts_at, Date.now())) return null
+  if (!canCancel(view.workshop.status, view.proposal?.starts_at, Date.now(), view.payout?.locked ?? false)) return null
 
   async function cancel() {
     setBusy(true)

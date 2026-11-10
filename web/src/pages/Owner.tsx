@@ -12,6 +12,7 @@ import DemoGuide from '../components/DemoGuide'
 import EnrollmentList from '../components/EnrollmentList'
 import OpenReservationsDialog from '../components/OpenReservationsDialog'
 import OperatorPanel from '../components/OperatorPanel'
+import PayoutTile from '../components/PayoutTile'
 import { Loading, LoadError, RefreshError } from '../components/PageState'
 import SpotsTile from '../components/SpotsTile'
 import { TermsList } from '../components/Terms'
@@ -83,6 +84,7 @@ export default function Owner() {
         enrollments: d.enrollments.map((e) => e.status),
         explanationPending: pending || d.suggestions.some((s) => s.pending),
         demoFilling: d.workshop.demo === true && d.availabilities.length < d.participants.length,
+        payoutMoving: d.payout?.state === 'created' || d.payout?.state === 'sending' || (d.payout?.state === 'waiting' && d.payout.waiting === 'payments_in_flight'),
       })
     : null
   usePolling(view.reload, refresh ?? 0, refresh !== null)
@@ -127,6 +129,7 @@ export default function Owner() {
           <ClaudeSuggests suggestions={d.suggestions} />
           <ClaudeRead view={d} stalled={stalled} onCheck={() => void view.reload()} />
           {d.proposal && <EnrollmentList token={token} view={d} onChange={view.reload} />}
+          <PayoutTile token={token} view={d} onChange={view.reload} />
           <AgreedTerms view={d} />
         </div>
 

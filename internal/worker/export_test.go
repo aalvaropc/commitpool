@@ -7,3 +7,5 @@ func SetFeeBackfillBatch(t testing.TB, n int) {
 	feeBackfillBatch = n
 	t.Cleanup(func() { feeBackfillBatch = old })
 }
+
+func EnablePayouts(r *Runner) { r.cfg.Payouts = true }

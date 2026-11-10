@@ -437,3 +437,31 @@ func TestLoad_DemoAndMocksAreSandboxOnly(t *testing.T) {
 		t.Errorf("demo and mocks on the Sandbox: %v", err)
 	}
 }
+
+func TestLoad_PayoutsAreOffUnlessSwitchedOn(t *testing.T) {
+	cfg, err := load(baseEnv())
+	if err != nil || cfg.Payouts || cfg.DemoPayoutEmail != "" {
+		t.Fatalf("default payouts = %v, demo email %q, %v; want off and none", cfg.Payouts, cfg.DemoPayoutEmail, err)
+	}
+	env := baseEnv()
+	env["COMMITPOOL_PAYOUTS"] = "1"
+	env["COMMITPOOL_DEMO_PAYOUT_EMAIL"] = " receiver@example.com "
+	cfg, err = load(env)
+	if err != nil || !cfg.Payouts || cfg.DemoPayoutEmail != "receiver@example.com" {
+		t.Fatalf("switched on = %v, %q, %v", cfg.Payouts, cfg.DemoPayoutEmail, err)
+	}
+	if got := cfg.String(); strings.Contains(got, "receiver@example.com") || !strings.Contains(got, "payouts=true") {
+		t.Errorf("config log %q names the demo payout email or hides the switch", got)
+	}
+	for _, bad := range []string{"receiver", "Iris <receiver@example.com>", "a@example.com, b@example.com"} {
+		env["COMMITPOOL_DEMO_PAYOUT_EMAIL"] = bad
+		if _, err := load(env); err == nil || !strings.Contains(err.Error(), "COMMITPOOL_DEMO_PAYOUT_EMAIL") {
+			t.Errorf("COMMITPOOL_DEMO_PAYOUT_EMAIL=%q: err = %v, want refused", bad, err)
+		}
+	}
+	env["COMMITPOOL_DEMO_PAYOUT_EMAIL"] = ""
+	env["COMMITPOOL_PAYOUTS"] = "yes"
+	if _, err := load(env); err == nil || !strings.Contains(err.Error(), "COMMITPOOL_PAYOUTS") {
+		t.Errorf("COMMITPOOL_PAYOUTS=yes: err = %v, want refused", err)
+	}
+}

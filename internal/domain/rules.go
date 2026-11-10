@@ -17,6 +17,7 @@ var (
 	ErrNotEnoughCompatible   = errors.New("not enough compatible participants")
 	ErrAlreadyCancelled      = errors.New("workshop is already cancelled")
 	ErrWorkshopStarted       = errors.New("workshop has already started")
+	ErrPayoutLocked          = fmt.Errorf("%w: the organizer's payout has started", ErrWorkshopStarted)
 	ErrNothingToWithdraw     = errors.New("no seat to withdraw")
 	ErrCaptureInProgress     = errors.New("the payment is being charged")
 	ErrPaidNoSelfRefund      = errors.New("a paid seat is refunded only if the workshop is cancelled")
@@ -86,9 +87,19 @@ func ValidateProposal(w Workshop, p Proposal, date CandidateDate, compatible int
 	return nil
 }
 
-func CanCancel(status WorkshopStatus, startsAt *time.Time, now time.Time) error {
+func EffectiveStart(startsAt time.Time, payoutLockedAt *time.Time) time.Time {
+	if payoutLockedAt != nil && payoutLockedAt.Before(startsAt) {
+		return *payoutLockedAt
+	}
+	return startsAt
+}
+
+func CanCancel(status WorkshopStatus, startsAt, payoutLockedAt *time.Time, now time.Time) error {
 	if status == WorkshopCancelled {
 		return ErrAlreadyCancelled
+	}
+	if payoutLockedAt != nil {
+		return fmt.Errorf("%w at %s", ErrPayoutLocked, payoutLockedAt.Format(time.RFC3339))
 	}
 	if startsAt != nil && !now.Before(*startsAt) {
 		return fmt.Errorf("%w: it started at %s", ErrWorkshopStarted, startsAt.Format(time.RFC3339))
@@ -170,11 +181,11 @@ func LateCaptureAfterCancel(e Enrollment) Action {
 	return ActionNone
 }
 
-func LateCaptureAfterConfirm(e Enrollment, startsAt, now time.Time) Action {
+func LateCaptureAfterConfirm(e Enrollment, startsAt time.Time, payoutLockedAt *time.Time, now time.Time) Action {
 	if e.Status != EnrollmentPaid {
 		return ActionNone
 	}
-	if now.Before(startsAt) {
+	if now.Before(EffectiveStart(startsAt, payoutLockedAt)) {
 		return ActionKeepSeat
 	}
 	return ActionRefund

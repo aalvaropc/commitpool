@@ -215,7 +215,7 @@ func (r *Runner) afterPaid(ctx context.Context, en store.EnrollmentRow) error {
 			if p == nil {
 				return fmt.Errorf("proposal %s: %w", en.ProposalID, store.ErrNotFound)
 			}
-			return r.lateCapture(ctx, en, w.Status, domain.LateCaptureAfterConfirm(paid, p.StartsAt, r.clock.Now()))
+			return r.lateCapture(ctx, en, w.Status, domain.LateCaptureAfterConfirm(paid, p.StartsAt, w.PayoutLockedAt, r.clock.Now()))
 		default:
 			return nil
 		}
@@ -247,6 +247,16 @@ func (r *Runner) confirmIfFunded(ctx context.Context, workshopID string) (done b
 
 func (r *Runner) lateCapture(ctx context.Context, en store.EnrollmentRow, status domain.WorkshopStatus, action domain.Action) error {
 	log := r.log.With("workshop_id", en.WorkshopID, "enrollment_id", en.ID, "workshop_status", status)
+	if action == domain.ActionRefund {
+		a, err := r.st.LatestAttempt(ctx, en.ID)
+		if err != nil {
+			return err
+		}
+		if a != nil && a.PayoutID != nil {
+			log.Warn("payment completed late but was already paid out to the organizer; it keeps its seat", "payout_id", *a.PayoutID)
+			return nil
+		}
+	}
 	switch action {
 	case domain.ActionRefund:
 		log.Warn("payment completed too late to keep; refunding it")

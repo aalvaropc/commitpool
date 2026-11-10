@@ -405,7 +405,16 @@ type webhookEvent struct {
 	EventType    string `json:"event_type"`
 	ResourceType string `json:"resource_type"`
 	Resource     struct {
-		ID                string `json:"id"`
+		ID            string `json:"id"`
+		PayoutBatchID string `json:"payout_batch_id"`
+		PayoutItemID  string `json:"payout_item_id"`
+		SenderBatchID string `json:"sender_batch_id"`
+		BatchHeader   *struct {
+			PayoutBatchID     string `json:"payout_batch_id"`
+			SenderBatchHeader struct {
+				SenderBatchID string `json:"sender_batch_id"`
+			} `json:"sender_batch_header"`
+		} `json:"batch_header"`
 		SupplementaryData struct {
 			RelatedIDs struct {
 				OrderID         string `json:"order_id"`
@@ -459,6 +468,18 @@ func (s *server) paypalWebhook(w http.ResponseWriter, r *http.Request) error {
 	inserted, err := s.Store.InsertProviderEvent(ctx, ev.ID, ev.EventType, ev.ResourceType, ev.Resource.ID, true, body)
 	if err != nil {
 		return err
+	}
+	if pev, ok := payoutEvent(ev); ok {
+		payoutID, err := s.Worker.PayoutWebhook(ctx, pev)
+		if err != nil {
+			return err
+		}
+		if err := s.Store.MarkEventProcessed(ctx, ev.ID); err != nil {
+			return err
+		}
+		log.Info("webhook: payout event recorded", "inserted", inserted, "matched", payoutID != "", "payout_id", payoutID)
+		writeJSON(w, http.StatusOK, map[string]bool{"inserted": inserted})
+		return nil
 	}
 	a, err := s.eventAttempt(ctx, ev)
 	if err != nil {

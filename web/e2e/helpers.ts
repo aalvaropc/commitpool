@@ -49,12 +49,13 @@ export async function createdLinks(owner: Page, title: string): Promise<Workshop
   }
 }
 
-export async function createWorkshop(owner: Page, title: string): Promise<Workshop> {
+export async function createWorkshop(owner: Page, title: string, payoutEmail?: string): Promise<Workshop> {
   await fillTheFormMyself(owner)
   await owner.getByLabel('Title', { exact: true }).fill(title)
   await owner.getByLabel('Price per person, USD').fill('10')
   await owner.getByLabel('People needed to happen').fill(String(MINIMUM))
   await owner.getByLabel('Spots').fill('8')
+  if (payoutEmail) await owner.getByLabel('PayPal email for your payout').fill(payoutEmail)
   await owner.getByRole('button', { name: 'Create workshop' }).click()
   return createdLinks(owner, title)
 }

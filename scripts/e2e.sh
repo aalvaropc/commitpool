@@ -42,6 +42,8 @@ PORT="$port" \
   COMMITPOOL_RATE_LIMIT=off \
   COMMITPOOL_SEAT_TTL_MIN=30 \
   COMMITPOOL_DEMO_PACE_MS=50 \
+  COMMITPOOL_PAYOUTS=1 \
+  COMMITPOOL_DEMO_PAYOUT_EMAIL=receiver@example.com \
   "$work/commitpool" >"$work/server.log" 2>&1 &
 server_pid=$!
 

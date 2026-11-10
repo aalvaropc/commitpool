@@ -5,6 +5,8 @@ import { Button, Field, Icon, Notice, Tile, describedBy, inputClass } from './ui
 
 const WINDOWS = [1440, 2880, 60, 15, 5]
 const NEEDED: FieldKey[] = ['title', 'price', 'minimum', 'capacity', 'duration', 'dates']
+const PAYOUT_HINT = 'Optional. When the class starts, CommitPool sends what people paid, less PayPal’s fees, to this PayPal account.'
+
 
 export interface ReviewNote {
   tone: 'hold' | 'attention'
@@ -155,6 +157,9 @@ export default function WorkshopReview({ form, onChange, errors, missing, note, 
             <input {...input('capacity', 'The most people who can take part.')} type="number" inputMode="numeric" min={1} max={500} step={1} />
           </Field>
         </div>
+        <Field id="f-payoutEmail" label="PayPal email for your payout" hint={PAYOUT_HINT} error={errors.payoutEmail}>
+          <input {...input('payoutEmail', PAYOUT_HINT)} type="email" inputMode="email" autoComplete="email" maxLength={254} />
+        </Field>
       </Section>
 
       <Section title="When">

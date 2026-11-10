@@ -39,7 +39,7 @@ export default function TryDemo({ size = 'lg', variant = 'primary', pending = fa
     return (
       <div aria-hidden="true" className="invisible">
         <Button size={size} variant={variant} tabIndex={-1}>
-          Try it as Maya
+          Try it as Iris
           <Icon name="arrowRight" size={20} />
         </Button>
       </div>
@@ -48,8 +48,8 @@ export default function TryDemo({ size = 'lg', variant = 'primary', pending = fa
 
   return (
     <div className="flex flex-col gap-2">
-      <Button size={size} variant={variant} onClick={start} busy={busy} busyLabel="Setting up Maya’s class…">
-        Try it as Maya
+      <Button size={size} variant={variant} onClick={start} busy={busy} busyLabel="Setting up Iris’s class…">
+        Try it as Iris
         <Icon name="arrowRight" size={20} />
       </Button>
       {error && (

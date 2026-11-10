@@ -31,15 +31,15 @@ export default function Home() {
   const origin = typeof window === 'undefined' ? 'https://your-commitpool' : window.location.origin
   return (
     <>
-      <title>CommitPool – the class happens, or nobody pays</title>
+      <title>CommitPool – find the date that fills the class</title>
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-28 px-4 py-6 sm:gap-36 sm:px-6 sm:py-12">
         <section aria-labelledby="hero-title" className="grid grid-cols-[minmax(0,1fr)] items-center gap-10 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:gap-14">
           <div className="flex flex-col gap-7">
             <h1 id="hero-title" className="shout text-display">
-              The class happens, or nobody pays.
+              Find the date that fills the class.
             </h1>
             <p className="max-w-[34rem] text-lead text-ink-soft">
-              Share one link in the group chat. Claude reads everyone’s “maybe”, you see which date works, and PayPal only charges if enough people reserve.
+              Claude reads the group chat’s maybes and asks when it matters. CommitPool picks the date that reaches your minimum, and PayPal charges only once enough people reserve.
             </p>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
               {demo !== false && <TryDemo pending={demo === undefined} />}
@@ -47,6 +47,7 @@ export default function Home() {
                 Create a workshop
               </ButtonLink>
             </div>
+            <p className="font-display text-base font-bold text-ink">The class happens, or nobody pays.</p>
             <p className="text-sm text-ink-soft">Doodle meets Kickstarter, for small paid classes. Runs on the PayPal Sandbox: no real money moves.</p>
           </div>
           <ChatDemo demo={demo} />
@@ -58,7 +59,7 @@ export default function Home() {
               Claude chases the maybes.
             </h2>
             <p className="max-w-[34rem] text-lead text-ink-soft">
-              Claude reads each message against every date, asks when something is vague, and drafts the nudge. Maya keeps the decision, and the server, not the model, decides
+              Claude reads each message against every date, asks when something is vague, and drafts the nudge. Iris keeps the decision, and the server, not the model, decides
               which date works.
             </p>
           </div>

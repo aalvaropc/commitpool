@@ -107,16 +107,16 @@ func (q *sampleQuota) take(addr string, now time.Time) (time.Duration, *apiError
 		mine = q.visitorHour(addr, now)
 		if wait := mine.wait(now); wait > 0 {
 			return wait, newError(http.StatusTooManyRequests, "sample_rate_limited",
-				fmt.Sprintf("You sent many answers this hour. Try again %s, or try it as Maya.", later(wait)))
+				fmt.Sprintf("You sent many answers this hour. Try again %s, or try it as Iris.", later(wait)))
 		}
 	}
 	if wait := q.hour.wait(now); wait > 0 {
 		return wait, newError(http.StatusTooManyRequests, "sample_capped",
-			fmt.Sprintf("Claude has read many sample answers this hour. Try again %s, or try it as Maya.", later(wait)))
+			fmt.Sprintf("Claude has read many sample answers this hour. Try again %s, or try it as Iris.", later(wait)))
 	}
 	if wait := q.day.wait(now); wait > 0 {
 		return wait, newError(http.StatusTooManyRequests, "sample_capped",
-			fmt.Sprintf("Claude has read many sample answers today. Try again %s, or try it as Maya.", later(wait)))
+			fmt.Sprintf("Claude has read many sample answers today. Try again %s, or try it as Iris.", later(wait)))
 	}
 	if mine != nil {
 		mine.add(now)
@@ -173,8 +173,8 @@ type sampleDay struct {
 }
 
 func sampleDays(now time.Time, loc *time.Location) []sampleDay {
-	saturday := demo.FirstSaturday(now, demoWindowMin, demo.Maya.StartHour, loc)
-	length := time.Duration(demo.Maya.DurationMin) * time.Minute
+	saturday := demo.FirstSaturday(now, demoWindowMin, demo.LifeDrawing.StartHour, loc)
+	length := time.Duration(demo.LifeDrawing.DurationMin) * time.Minute
 	out := make([]sampleDay, len(sampleKeys))
 	for i, key := range sampleKeys {
 		start := saturday.AddDate(0, 0, i)
@@ -224,7 +224,7 @@ func sampleInput(message string, earlier *ai.EarlierAnswer, days []sampleDay, lo
 	for i, d := range days {
 		dates[i] = ai.DateOption{ID: d.key, Label: present.DateLabel(d.start, d.end, loc), StartsAt: d.start}
 	}
-	return ai.InterpretInput{WorkshopTitle: demo.Maya.Title, Timezone: demoTimezone, Dates: dates, Message: message, Earlier: earlier}
+	return ai.InterpretInput{WorkshopTitle: demo.LifeDrawing.Title, Timezone: demoTimezone, Dates: dates, Message: message, Earlier: earlier}
 }
 
 type sampleDateDTO struct {

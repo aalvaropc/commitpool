@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { OwnerView } from '../api'
-import { cancellationDetail, cellNotes, cellStatus, dateColumns, countFacts, decisionCounts, nextStep, ownerRefresh, studioCovered, studioPlan } from './owner'
+import { cancellationDetail, cellNotes, cellStatus, dateColumns, countFacts, decisionCounts, nextStep, ownerRefresh, sessionCovered, sessionPlan } from './owner'
 
 const usd = (minor: number) => ({ minor, currency: 'USD', value: (minor / 100).toFixed(2) })
 
@@ -8,7 +8,7 @@ function view(over: Partial<OwnerView> = {}): OwnerView {
   return {
     share_url: 'https://x/w/share',
     workshop: {
-      title: 'Wheel-throwing for beginners',
+      title: 'Life drawing for beginners',
       description: '',
       duration_min: 120,
       timezone: 'America/New_York',
@@ -19,7 +19,7 @@ function view(over: Partial<OwnerView> = {}): OwnerView {
       payment_window_min: 1440,
       status: 'COLLECTING',
       resolution: 'OPEN',
-      host_name: 'Maya Okafor',
+      host_name: 'Iris Calder',
       location: '',
       venue_cost: usd(12000),
       break_even_seats: 3,
@@ -119,31 +119,31 @@ describe('countFacts', () => {
   })
 })
 
-describe('studioPlan', () => {
-  it('says how many payments cover the studio while the date is still open', () => {
-    expect(studioPlan(view())).toBe('Your studio costs $120 — 3 × $45 covers it before fees')
-    expect(studioPlan(view({ workshop: { ...view().workshop, break_even_seats: undefined, price: usd(2500) } }))).toBe('Your studio costs $120 — 5 × $25 covers it before fees')
+describe('sessionPlan', () => {
+  it('says how many payments cover the session costs while the date is still open', () => {
+    expect(sessionPlan(view())).toBe('Your session costs $120 — 3 × $45 covers it before fees')
+    expect(sessionPlan(view({ workshop: { ...view().workshop, break_even_seats: undefined, price: usd(2500) } }))).toBe('Your session costs $120 — 5 × $25 covers it before fees')
   })
 
   it('says when even a full class falls short', () => {
-    expect(studioPlan(view({ workshop: { ...view().workshop, capacity: 2, break_even_seats: 3 } }))).toBe('Your studio costs $120 — even 2 × $45 falls short before fees')
+    expect(sessionPlan(view({ workshop: { ...view().workshop, capacity: 2, break_even_seats: 3 } }))).toBe('Your session costs $120 — even 2 × $45 falls short before fees')
   })
 
-  it('is absent without a studio cost, without a price, or once a date is chosen', () => {
-    expect(studioPlan(view({ workshop: { ...view().workshop, venue_cost: undefined } }))).toBeNull()
-    expect(studioPlan(view({ workshop: { ...view().workshop, price: usd(0), break_even_seats: undefined } }))).toBeNull()
-    expect(studioPlan(view({ workshop: { ...view().workshop, status: 'FUNDING' }, proposal: { id: 'p', version: 1, date_id: 'sat', price: usd(4500), minimum: 3, capacity: 6, opens_at: '', closes_at: '', starts_at: '', payments_open: true } }))).toBeNull()
+  it('is absent without a session cost, without a price, or once a date is chosen', () => {
+    expect(sessionPlan(view({ workshop: { ...view().workshop, venue_cost: undefined } }))).toBeNull()
+    expect(sessionPlan(view({ workshop: { ...view().workshop, price: usd(0), break_even_seats: undefined } }))).toBeNull()
+    expect(sessionPlan(view({ workshop: { ...view().workshop, status: 'FUNDING' }, proposal: { id: 'p', version: 1, date_id: 'sat', price: usd(4500), minimum: 3, capacity: 6, opens_at: '', closes_at: '', starts_at: '', payments_open: true } }))).toBeNull()
   })
 })
 
-describe('studioCovered', () => {
-  it('says how much of the studio the payments cover', () => {
-    expect(studioCovered(view({ tally: { ...view().tally, paid: 2 } }))).toEqual({ covered: 9000, cost: 12000, text: '$90 toward your $120 studio (before fees)' })
-    expect(studioCovered(view({ tally: { ...view().tally, paid: 3 } }))?.text).toBe('Your $120 studio is covered before fees, with $15 to spare')
+describe('sessionCovered', () => {
+  it('says how much of the session costs the payments cover', () => {
+    expect(sessionCovered(view({ tally: { ...view().tally, paid: 2 } }))).toEqual({ covered: 9000, cost: 12000, text: '$90 toward your $120 session costs (before fees)' })
+    expect(sessionCovered(view({ tally: { ...view().tally, paid: 3 } }))?.text).toBe('Your $120 session costs are covered before fees, with $15 to spare')
   })
 
-  it('is absent without a studio cost', () => {
-    expect(studioCovered(view({ workshop: { ...view().workshop, venue_cost: undefined } }))).toBeNull()
+  it('is absent without a session cost', () => {
+    expect(sessionCovered(view({ workshop: { ...view().workshop, venue_cost: undefined } }))).toBeNull()
   })
 })
 
@@ -237,9 +237,9 @@ describe('nextStep never gets ahead of the money', () => {
   })
 })
 
-describe('studioCovered once cancelled', () => {
-  it('stops claiming the studio is covered', () => {
-    expect(studioCovered(view({ workshop: { ...view().workshop, status: 'CANCELLED' }, tally: { ...view().tally, paid: 3 } }))).toBeNull()
+describe('sessionCovered once cancelled', () => {
+  it('stops claiming the session costs are covered', () => {
+    expect(sessionCovered(view({ workshop: { ...view().workshop, status: 'CANCELLED' }, tally: { ...view().tally, paid: 3 } }))).toBeNull()
   })
 })
 

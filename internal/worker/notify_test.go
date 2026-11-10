@@ -132,7 +132,7 @@ func TestNotify_ReservedOnceTheHoldLands(t *testing.T) {
 
 func TestNotify_OrganizerHearsItIsOnOnce(t *testing.T) {
 	e := newEnv(t)
-	e.setOwnerEmail("maya@example.com")
+	e.setOwnerEmail("iris@example.com")
 	e.paid("Ana")
 	e.paid("Ben")
 	e.paid("Cleo")
@@ -143,7 +143,7 @@ func TestNotify_OrganizerHearsItIsOnOnce(t *testing.T) {
 	e.runUntilIdle()
 	var owner []string
 	for _, m := range e.mailer.Sent() {
-		if m.To == "maya@example.com" {
+		if m.To == "iris@example.com" {
 			owner = append(owner, m.Subject+" | "+m.Text)
 		}
 	}
@@ -154,14 +154,14 @@ func TestNotify_OrganizerHearsItIsOnOnce(t *testing.T) {
 
 func TestNotify_OrganizerHearsOfTheCancellation(t *testing.T) {
 	e := newEnv(t)
-	e.setOwnerEmail("maya@example.com")
+	e.setOwnerEmail("iris@example.com")
 	e.paid("Ana")
 	e.clock.Set(e.proposal.ClosesAt)
 	e.runKey(e.closeKey())
 	e.runUntilIdle()
 	var owner []mail.Message
 	for _, m := range e.mailer.Sent() {
-		if m.To == "maya@example.com" {
+		if m.To == "iris@example.com" {
 			owner = append(owner, m)
 		}
 	}
@@ -221,7 +221,7 @@ func TestNotify_AReservedNoticeOvertakenByTheChargeIsSkipped(t *testing.T) {
 
 func TestNotify_EveryoneHearsWhenTheDeadlineConfirmsIt(t *testing.T) {
 	e := newEnv(t)
-	e.setOwnerEmail("maya@example.com")
+	e.setOwnerEmail("iris@example.com")
 	for _, name := range []string{"Ana", "Ben", "Cleo"} {
 		en, _ := e.paid(name)
 		e.setEmail(en, strings.ToLower(name)+"@example.com")
@@ -229,20 +229,20 @@ func TestNotify_EveryoneHearsWhenTheDeadlineConfirmsIt(t *testing.T) {
 	e.clock.Set(e.proposal.ClosesAt)
 	e.runKey(e.closeKey())
 	e.runUntilIdle()
-	if got := e.sentTo("It’s on"); len(got) < 3 || !strings.Contains(strings.Join(got, ","), "maya@example.com") {
-		t.Errorf("It’s on sent to %v, want the paid participants and Maya", got)
+	if got := e.sentTo("It’s on"); len(got) < 3 || !strings.Contains(strings.Join(got, ","), "iris@example.com") {
+		t.Errorf("It’s on sent to %v, want the paid participants and Iris", got)
 	}
 }
 
 func TestNotify_DeadlineCancellationSaysWhy(t *testing.T) {
 	e := newEnv(t)
-	e.setOwnerEmail("maya@example.com")
+	e.setOwnerEmail("iris@example.com")
 	e.paid("Ana")
 	e.clock.Set(e.proposal.ClosesAt)
 	e.runKey(e.closeKey())
 	e.runUntilIdle()
 	for _, m := range e.mailer.Sent() {
-		if m.To == "maya@example.com" && !strings.Contains(m.Text, "Not enough people reserved by") {
+		if m.To == "iris@example.com" && !strings.Contains(m.Text, "Not enough people reserved by") {
 			t.Errorf("organizer cancellation:\n%s", m.Text)
 		}
 	}

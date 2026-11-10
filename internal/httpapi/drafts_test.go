@@ -13,8 +13,8 @@ import (
 	"github.com/aalvaropc/commitpool/internal/ai"
 )
 
-const mayaDescription = "I'm Maya Okafor. I teach wheel-throwing for beginners at Maya's studio in Greenpoint, Brooklyn. " +
-	"Two hours, $45 a person, and you take home what you make. The studio costs me $120 a session and I have 6 wheels. " +
+const classDescription = "I'm Iris Calder. I run life drawing for beginners at The Long Room in Red Hook, Brooklyn. " +
+	"Two hours, $45 a person, the room and the model cost me $120 a session, and I have 6 easels. " +
 	"Saturday or Sunday next week, 10 to 12."
 
 type draftDateJSON struct {
@@ -61,9 +61,9 @@ func (c cannedDraftAI) Draft(context.Context, ai.DraftInput) (ai.Draft, ai.Meta,
 func TestDrafts_ClaudeFillsTheFormFromADescription(t *testing.T) {
 	e := newEnv(t)
 	var got draftResponseJSON
-	e.call(http.MethodPost, draftsPath, draftBody(mayaDescription), http.StatusOK, &got)
+	e.call(http.MethodPost, draftsPath, draftBody(classDescription), http.StatusOK, &got)
 	want := draftResponseJSON{Drafted: true, Draft: draftJSON{
-		Title: "Wheel-throwing for beginners", HostName: "Maya Okafor", Location: "Maya's studio in Greenpoint, Brooklyn", Timezone: "America/New_York",
+		Title: "Life drawing for beginners", HostName: "Iris Calder", Location: "The Long Room in Red Hook, Brooklyn", Timezone: "America/New_York",
 		DurationMin: 120, Price: "45.00", VenueCost: "120.00", Capacity: 6,
 		Dates:   []draftDateJSON{{Date: "2026-11-14", Start: "10:00"}, {Date: "2026-11-15", Start: "10:00"}},
 		Missing: []string{"description", "minimum"},
@@ -77,13 +77,13 @@ func TestDrafts_RefuseEmptyOrOverlongTextAndUnknownZones(t *testing.T) {
 	e := newEnv(t)
 	e.wantError(http.MethodPost, draftsPath, draftBody("   "), http.StatusBadRequest, "invalid_text")
 	e.wantError(http.MethodPost, draftsPath, draftBody(strings.Repeat("a", 2001)), http.StatusBadRequest, "invalid_text")
-	e.wantError(http.MethodPost, draftsPath, map[string]string{"text": "pottery", "timezone": "Mars/Olympus"}, http.StatusBadRequest, "invalid_timezone")
+	e.wantError(http.MethodPost, draftsPath, map[string]string{"text": "life drawing", "timezone": "Mars/Olympus"}, http.StatusBadRequest, "invalid_timezone")
 }
 
 func TestDrafts_AFailedModelStillAnswersWithAnEmptyDraft(t *testing.T) {
 	e := newEnv(t, withAI(cannedDraftAI{err: errors.New("bedrock: throttled")}))
 	var got draftResponseJSON
-	e.call(http.MethodPost, draftsPath, draftBody(mayaDescription), http.StatusOK, &got)
+	e.call(http.MethodPost, draftsPath, draftBody(classDescription), http.StatusOK, &got)
 	if got.Drafted {
 		t.Error("drafted = true after the model failed")
 	}
@@ -111,10 +111,10 @@ func TestDrafts_KeepOnlyWhatTheServerWouldAccept(t *testing.T) {
 		ai.DraftDate{Date: "2026-11-10", Start: "10:00"},
 	)
 	e := newEnv(t, withAI(cannedDraftAI{draft: ai.Draft{
-		Title:       "  " + strings.Repeat("Clay", 50) + "  ",
+		Title:       "  " + strings.Repeat("Charcoal", 50) + "  ",
 		Description: strings.Repeat("d", 2500),
 		HostName:    strings.Repeat("M", 90),
-		Location:    " Greenpoint ",
+		Location:    " Red Hook ",
 		DurationMin: 5000,
 		Price:       "-5",
 		VenueCost:   "a lot",
@@ -128,8 +128,8 @@ func TestDrafts_KeepOnlyWhatTheServerWouldAccept(t *testing.T) {
 	if n := len([]rune(d.Title)); n != 120 || strings.HasSuffix(d.Title, " ") || strings.HasPrefix(d.Title, " ") {
 		t.Errorf("title has %d runes (%q), want a trimmed 120", n, d.Title)
 	}
-	if len(d.Description) != 2000 || len(d.HostName) != 80 || d.Location != "Greenpoint" {
-		t.Errorf("description %d, host %d, location %q; want 2000, 80, Greenpoint", len(d.Description), len(d.HostName), d.Location)
+	if len(d.Description) != 2000 || len(d.HostName) != 80 || d.Location != "Red Hook" {
+		t.Errorf("description %d, host %d, location %q; want 2000, 80, Red Hook", len(d.Description), len(d.HostName), d.Location)
 	}
 	if d.DurationMin != 0 || d.Price != "" || d.VenueCost != "" || d.Minimum != 0 || d.Capacity != 6 {
 		t.Errorf("duration %d price %q venue %q minimum %d capacity %d; want 0, empty, empty, 0, 6", d.DurationMin, d.Price, d.VenueCost, d.Minimum, d.Capacity)
@@ -155,11 +155,11 @@ func TestDrafts_WriteAmountsWithCents(t *testing.T) {
 func TestDrafts_HaveTheirOwnLimitPerPerson(t *testing.T) {
 	e := newEnv(t, withRateLimit(600))
 	for i := range 2 {
-		if rec := e.request(http.MethodPost, draftsPath, draftBody(mayaDescription)); rec.Code != http.StatusOK {
+		if rec := e.request(http.MethodPost, draftsPath, draftBody(classDescription)); rec.Code != http.StatusOK {
 			t.Fatalf("draft %d = %d %s", i+1, rec.Code, rec.Body)
 		}
 	}
-	got := e.wantError(http.MethodPost, draftsPath, draftBody(mayaDescription), http.StatusTooManyRequests, "draft_rate_limited")
+	got := e.wantError(http.MethodPost, draftsPath, draftBody(classDescription), http.StatusTooManyRequests, "draft_rate_limited")
 	if !strings.Contains(got.Message, "fill in the form") {
 		t.Errorf("message = %q, want it to point at the form", got.Message)
 	}
@@ -225,7 +225,7 @@ func TestDrafts_NeverTakeTheReadersParticipantsNeed(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			e.request(http.MethodPost, draftsPath, draftBody(mayaDescription))
+			e.request(http.MethodPost, draftsPath, draftBody(classDescription))
 		}()
 	}
 	defer wg.Wait()
@@ -234,7 +234,7 @@ func TestDrafts_NeverTakeTheReadersParticipantsNeed(t *testing.T) {
 	<-stub.entered
 
 	var got draftResponseJSON
-	e.call(http.MethodPost, draftsPath, draftBody(mayaDescription), http.StatusOK, &got)
+	e.call(http.MethodPost, draftsPath, draftBody(classDescription), http.StatusOK, &got)
 	if got.Drafted {
 		t.Error("a third draft ran while both drafting slots were busy")
 	}

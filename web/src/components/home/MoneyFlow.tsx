@@ -48,7 +48,7 @@ export default function MoneyFlow() {
       </ul>
       <p aria-live="polite" className="flex items-start gap-3 font-display text-lead leading-tight font-bold">
         <Icon name={enough ? 'check' : 'x'} size={26} className={`mt-0.5 ${enough ? 'text-paid' : 'text-no'}`} />
-        {!settled ? 'Holding…' : enough ? `It’s on. $${total} collected covers the $120 studio.` : 'Not enough by the deadline. Every hold is released. Nobody paid.'}
+        {!settled ? 'Holding…' : enough ? `It’s on. $${total} collected covers your $120 session costs.` : 'Not enough by the deadline. Every hold is released. Nobody paid.'}
       </p>
     </div>
   )

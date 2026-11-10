@@ -1,8 +1,8 @@
 import { useState, type FormEvent } from 'react'
 import { Button, Field, Icon, Notice, Tile, describedBy, inputClass } from './ui'
 
-export const MAYA_EXAMPLE =
-  'I’m Maya Okafor. I teach wheel-throwing for beginners at Maya’s studio in Greenpoint, Brooklyn. Two hours, $45 a person, and you take home what you make. The studio costs me $120 a session and I have 6 wheels. Saturday or Sunday next week, 10 to 12.'
+export const EXAMPLE =
+  'I’m Iris Calder. I run life drawing for beginners at The Long Room in Red Hook, Brooklyn. Two hours, $45 a person, the room and the model cost me $120 a session, and I have 6 easels. Saturday or Sunday next week, 10 to 12.'
 
 interface Props {
   showExample: boolean
@@ -62,8 +62,8 @@ export default function DescribeWorkshop({ showExample, text, onText, drafting, 
             <Icon name="arrowRight" size={20} />
           </Button>
           {showExample && (
-            <Button variant="secondary" size="lg" onClick={() => onText(MAYA_EXAMPLE)} disabled={drafting}>
-              Use Maya’s example
+            <Button variant="secondary" size="lg" onClick={() => onText(EXAMPLE)} disabled={drafting}>
+              Use Iris’s example
             </Button>
           )}
         </div>

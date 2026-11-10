@@ -5,7 +5,7 @@ test.describe('landing chat', () => {
   test('reads a quick reply live, says who read it and counts it for the right day', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await page.goto('/')
-    const chat = page.getByRole('region', { name: 'Example: answers to Maya’s invite' })
+    const chat = page.getByRole('region', { name: 'Example: answers to Iris’s invite' })
     await expect(chat.getByText('Example chat · prepared answers · payments simulated')).toBeVisible()
     await expect(chat.getByText('Prepared reading')).toHaveCount(5)
     await expect(chat.getByText('you could be the third')).toBeVisible()
@@ -26,6 +26,6 @@ test.describe('landing chat', () => {
 
     await chat.getByRole('button', { name: /^Reserve · \$45 hold, simulated/ }).click()
     await expect(chat.getByText('It’s on', { exact: true }).last()).toBeVisible()
-    await expect(chat.getByText('3 paid · $135 covers the $120 studio.')).toBeVisible()
+    await expect(chat.getByText('3 paid · $135 covers your $120 session costs.')).toBeVisible()
   })
 })

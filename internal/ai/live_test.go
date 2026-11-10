@@ -85,7 +85,7 @@ func TestBedrock_Live(t *testing.T) {
 
 	loc, _ := time.LoadLocation("America/New_York")
 	friday := time.Date(2026, 11, 6, 9, 0, 0, 0, loc)
-	draft, meta, err := b.Draft(ctx, ai.DraftInput{Text: mayaDescription, Timezone: "America/New_York", Today: friday})
+	draft, meta, err := b.Draft(ctx, ai.DraftInput{Text: classDescription, Timezone: "America/New_York", Today: friday})
 	if err != nil {
 		t.Fatalf("Draft: %v", err)
 	}
@@ -106,17 +106,17 @@ func envOr(name, def string) string {
 	return def
 }
 
-func mayaDates(t *testing.T) []ai.DateOption {
+func classDates(t *testing.T) []ai.DateOption {
 	t.Helper()
 	ny, err := time.LoadLocation("America/New_York")
 	if err != nil {
 		t.Fatal(err)
 	}
-	sat := time.Date(2026, 11, 21, demo.Maya.StartHour, 0, 0, 0, ny)
+	sat := time.Date(2026, 11, 21, demo.LifeDrawing.StartHour, 0, 0, 0, ny)
 	var out []ai.DateOption
 	for i, id := range []string{"sat", "sun"} {
 		start := sat.AddDate(0, 0, i)
-		end := start.Add(time.Duration(demo.Maya.DurationMin) * time.Minute)
+		end := start.Add(time.Duration(demo.LifeDrawing.DurationMin) * time.Minute)
 		out = append(out, ai.DateOption{ID: id, Label: present.DateLabel(start, end, ny), StartsAt: start})
 	}
 	return out
@@ -154,12 +154,12 @@ func checkLiveReading(t *testing.T, who string, want ai.Scripted, got domain.Int
 	}
 }
 
-func TestBedrock_LiveMaya(t *testing.T) {
+func TestBedrock_LiveDemo(t *testing.T) {
 	b, ctx := liveBedrock(t)
-	dates := mayaDates(t)
+	dates := classDates(t)
 	read := func(message string, earlier *ai.EarlierAnswer) domain.Interpretation {
 		t.Helper()
-		in, meta, err := b.Interpret(ctx, ai.InterpretInput{WorkshopTitle: demo.Maya.Title, Timezone: "America/New_York", Dates: dates, Message: message, Earlier: earlier})
+		in, meta, err := b.Interpret(ctx, ai.InterpretInput{WorkshopTitle: demo.LifeDrawing.Title, Timezone: "America/New_York", Dates: dates, Message: message, Earlier: earlier})
 		if err != nil {
 			t.Fatalf("Interpret(%q): %v", message, err)
 		}
@@ -167,16 +167,16 @@ func TestBedrock_LiveMaya(t *testing.T) {
 		return in
 	}
 	questions := map[string][]string{}
-	for _, p := range demo.Maya.People {
+	for _, p := range demo.LifeDrawing.People {
 		got := read(p.Message, nil)
 		checkLiveReading(t, p.Name, p.Expect, got)
 		for _, a := range got.Ambiguities {
 			questions[p.Name] = append(questions[p.Name], a.Question)
 		}
 	}
-	for _, r := range demo.Maya.Replies {
+	for _, r := range demo.LifeDrawing.Replies {
 		var first string
-		for _, p := range demo.Maya.People {
+		for _, p := range demo.LifeDrawing.People {
 			if p.Name == r.Name {
 				first = p.Message
 			}

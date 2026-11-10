@@ -25,7 +25,7 @@ func TestDemo_OnlyOnADemoServer(t *testing.T) {
 	e.wantError(http.MethodGet, "/api/v1/demo", nil, http.StatusNotFound, "not_found")
 }
 
-func TestDemo_CreatesMayasWorkshopAndItsAnswersArrive(t *testing.T) {
+func TestDemo_CreatesTheLifeDrawingWorkshopAndItsAnswersArrive(t *testing.T) {
 	e := newEnv(t, withDemoMode())
 	var info struct {
 		Workshops bool `json:"workshops"`
@@ -47,7 +47,7 @@ func TestDemo_CreatesMayasWorkshopAndItsAnswersArrive(t *testing.T) {
 	e.background.Wait()
 	var v ownerViewJSON
 	e.call(http.MethodGet, "/api/v1/owner/"+strings.TrimPrefix(d.OwnerURL, appBaseURL+"/owner/"), nil, http.StatusOK, &v)
-	if v.Workshop.HostName != "Maya Okafor" || v.Workshop.Title != "Wheel-throwing for beginners" {
+	if v.Workshop.HostName != "Iris Calder" || v.Workshop.Title != "Life drawing for beginners" {
 		t.Fatalf("workshop = %+v", v.Workshop)
 	}
 	if len(v.Availabilities) != 6 {

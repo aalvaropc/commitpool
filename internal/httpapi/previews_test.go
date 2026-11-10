@@ -8,10 +8,10 @@ import (
 	"testing"
 )
 
-func mayaWorkshop(body map[string]any) {
-	body["title"] = `Wheel-throwing <for> "beginners"`
-	body["host_name"] = "Maya Okafor"
-	body["location"] = "Maya's studio · Greenpoint, Brooklyn"
+func classWorkshop(body map[string]any) {
+	body["title"] = `Life drawing <for> "beginners"`
+	body["host_name"] = "Iris Calder"
+	body["location"] = "The Long Room · Red Hook, Brooklyn"
 	body["timezone"] = "America/New_York"
 	body["price"] = "45.00"
 	body["minimum"] = 3
@@ -20,18 +20,18 @@ func mayaWorkshop(body map[string]any) {
 
 func TestInvite_LinkPreviewNamesTheClassInTheHead(t *testing.T) {
 	e := newEnv(t)
-	h := e.createWorkshop(mayaWorkshop)
+	h := e.createWorkshop(classWorkshop)
 	rec := e.request(http.MethodGet, "/w/"+h.shareToken, nil)
 	page := rec.Body.String()
 	if rec.Code != http.StatusOK || !strings.HasPrefix(page, "<!doctype html>") {
 		t.Fatalf("GET /w/ = %d %q", rec.Code, page)
 	}
 	for _, want := range []string{
-		`<title>Wheel-throwing &lt;for&gt; &#34;beginners&#34; – CommitPool</title>`,
-		`<meta property="og:title" content="Wheel-throwing &lt;for&gt; &#34;beginners&#34;" />`,
+		`<title>Life drawing &lt;for&gt; &#34;beginners&#34; – CommitPool</title>`,
+		`<meta property="og:title" content="Life drawing &lt;for&gt; &#34;beginners&#34;" />`,
 		`<meta property="og:image" content="` + appBaseURL + `/api/v1/w/` + h.shareToken + `/og.png?v=`,
 		`<meta property="og:url" content="` + appBaseURL + `/w/` + h.shareToken + `" />`,
-		`<meta property="og:description" content="With Maya Okafor · Maya&#39;s studio · Greenpoint, Brooklyn. $45 a spot; it happens if 3 reserve, and nobody pays otherwise. Times in New York time." />`,
+		`<meta property="og:description" content="With Iris Calder · The Long Room · Red Hook, Brooklyn. $45 a spot; it happens if 3 reserve, and nobody pays otherwise. Times in New York time." />`,
 		`<meta name="twitter:card" content="summary_large_image" />`,
 	} {
 		if !strings.Contains(page, want) {
@@ -54,8 +54,9 @@ func TestLanding_LinkPreviewUsesTheDefaultCard(t *testing.T) {
 	rec := e.request(http.MethodGet, "/", nil)
 	page := rec.Body.String()
 	for _, want := range []string{
-		`<title>The class happens, or nobody pays – CommitPool</title>`,
-		`<meta property="og:title" content="The class happens, or nobody pays" />`,
+		`<title>Find the date that fills the class – CommitPool</title>`,
+		`<meta property="og:title" content="Find the date that fills the class" />`,
+		`<meta property="og:description" content="Claude reads the group chat&#39;s maybes and asks when it matters. CommitPool picks the date that reaches your minimum, and PayPal charges only once enough people reserve." />`,
 		`<meta property="og:image" content="` + appBaseURL + `/og-default.png" />`,
 		`<meta property="og:url" content="` + appBaseURL + `/" />`,
 		`<meta name="twitter:card" content="summary_large_image" />`,
@@ -95,7 +96,7 @@ func TestInvite_PrivatePagesAreNotIndexed(t *testing.T) {
 
 func TestInvite_ImageIsALinkPreviewPNG(t *testing.T) {
 	e := newEnv(t)
-	h := e.createWorkshop(mayaWorkshop)
+	h := e.createWorkshop(classWorkshop)
 	rec := e.request(http.MethodGet, h.sharePath+"/og.png", nil)
 	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "image/png" || rec.Header().Get("Cache-Control") != "public, max-age=300" {
 		t.Fatalf("og.png = %d %q %q", rec.Code, rec.Header().Get("Content-Type"), rec.Header().Get("Cache-Control"))
@@ -122,7 +123,7 @@ func TestInvite_ImageIsALinkPreviewPNG(t *testing.T) {
 
 func TestInvite_CalendarOnceTheDateIsPicked(t *testing.T) {
 	e := newEnv(t)
-	h := e.createWorkshop(mayaWorkshop)
+	h := e.createWorkshop(classWorkshop)
 	e.wantError(http.MethodGet, h.sharePath+"/calendar.ics", nil, http.StatusNotFound, "no_date_yet")
 
 	var priya participantHandle
@@ -140,11 +141,11 @@ func TestInvite_CalendarOnceTheDateIsPicked(t *testing.T) {
 	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "text/calendar; charset=utf-8" {
 		t.Fatalf("calendar = %d %q", rec.Code, rec.Header().Get("Content-Type"))
 	}
-	if cd := rec.Header().Get("Content-Disposition"); cd != `attachment; filename="wheel-throwing-for-beginners.ics"` {
+	if cd := rec.Header().Get("Content-Disposition"); cd != `attachment; filename="life-drawing-for-beginners.ics"` {
 		t.Errorf("Content-Disposition = %q", cd)
 	}
 	for _, want := range []string{"DTSTART:20261114T200000Z", "DTEND:20261114T230000Z", "STATUS:TENTATIVE", "SEQUENCE:10",
-		"LOCATION:Maya's studio · Greenpoint\\, Brooklyn", "URL:" + appBaseURL + "/w/" + h.shareToken} {
+		"LOCATION:The Long Room · Red Hook\\, Brooklyn", "URL:" + appBaseURL + "/w/" + h.shareToken} {
 		if !strings.Contains(body, want+"\r\n") {
 			t.Errorf("calendar lacks %s:\n%s", want, body)
 		}
@@ -164,7 +165,7 @@ func TestInvite_CalendarOnceTheDateIsPicked(t *testing.T) {
 		}
 	}
 
-	e.call(http.MethodPost, h.ownerPath+"/cancel", map[string]string{"reason": "Studio flooded"}, http.StatusOK, nil)
+	e.call(http.MethodPost, h.ownerPath+"/cancel", map[string]string{"reason": "Room flooded"}, http.StatusOK, nil)
 	body = e.request(http.MethodGet, h.sharePath+"/calendar.ics", nil).Body.String()
 	if !strings.Contains(body, "STATUS:CANCELLED\r\n") || !strings.Contains(body, "SEQUENCE:12\r\n") {
 		t.Errorf("cancelled calendar:\n%s", body)
@@ -173,7 +174,7 @@ func TestInvite_CalendarOnceTheDateIsPicked(t *testing.T) {
 
 func TestInvite_ImageIsLimitedPerAddress(t *testing.T) {
 	e := newEnv(t, withRateLimit(4))
-	h := e.createWorkshop(mayaWorkshop)
+	h := e.createWorkshop(classWorkshop)
 	if rec := e.request(http.MethodGet, h.sharePath+"/og.png", nil); rec.Code != http.StatusOK {
 		t.Fatalf("first og.png = %d", rec.Code)
 	}

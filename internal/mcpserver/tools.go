@@ -17,7 +17,7 @@ import (
 func (s *Server) addTools() {
 	readOnly := &mcp.ToolAnnotations{ReadOnlyHint: true}
 	mcp.AddTool(s.srv, &mcp.Tool{Name: "create_workshop", Annotations: &mcp.ToolAnnotations{},
-		Description: "Create a paid workshop with one or more candidate dates, the organizer's name and the place. An optional studio cost stays private and lets get_status say how many paid seats cover it before fees. Returns the private owner link (keep it secret: it controls the workshop) and the share link to send to participants."},
+		Description: "Create a paid workshop with one or more candidate dates, the organizer's name and the place. An optional session cost (room, model, materials) stays private and lets get_status say how many paid seats cover it before fees. Returns the private owner link (keep it secret: it controls the workshop) and the share link to send to participants."},
 		logged(s, "create_workshop", s.createWorkshop))
 	mcp.AddTool(s.srv, &mcp.Tool{Name: "get_workshop", Annotations: readOnly,
 		Description: "Read a workshop from its share link: terms, candidate dates, whether payments are open and how many committed."},
@@ -187,8 +187,8 @@ type CreateWorkshopIn struct {
 	PaymentWindowMin int      `json:"payment_window_min,omitempty" jsonschema:"minutes payments stay open once opened, at most 4320 (72 hours); default 1440"`
 	DateStarts       []string `json:"date_starts" jsonschema:"start of each candidate date in RFC 3339 with an offset, such as 2026-11-14T10:00:00-05:00"`
 	HostName         string   `json:"host_name,omitempty" jsonschema:"the organizer's name as participants will see it"`
-	Location         string   `json:"location,omitempty" jsonschema:"where the workshop takes place, such as a studio and neighbourhood"`
-	VenueCost        string   `json:"venue_cost,omitempty" jsonschema:"what the room or studio costs the organizer, in the price's currency, such as 120.00; private to the organizer"`
+	Location         string   `json:"location,omitempty" jsonschema:"where the workshop takes place, such as a venue and neighbourhood"`
+	VenueCost        string   `json:"venue_cost,omitempty" jsonschema:"what the session costs the organizer (room, model, materials), in the price's currency, such as 120.00; private to the organizer"`
 }
 
 type CreateWorkshopOut struct {

@@ -20,7 +20,7 @@ const view: ApprovalView = {
     used_at: null,
   },
   workshop: {
-    title: 'Wheel-throwing for beginners',
+    title: 'Life drawing for beginners',
     description: '',
     duration_min: 120,
     timezone: 'America/New_York',
@@ -31,7 +31,7 @@ const view: ApprovalView = {
     payment_window_min: 1440,
     status: 'COLLECTING',
     resolution: 'OPEN',
-    host_name: 'Maya',
+    host_name: 'Iris',
     location: '',
   },
 }

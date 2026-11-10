@@ -28,7 +28,9 @@ export default function Shell() {
       </main>
       <footer className="mt-16">
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-1 px-4 py-10 text-sm text-ink-soft sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <p className="font-display text-base font-bold text-ink">The class happens, or nobody pays.</p>
+          <p className="font-display text-base font-bold text-ink">
+            Find the date that fills the class. <span className="font-normal text-ink-soft">The class happens, or nobody pays.</span>
+          </p>
           <p>Payments by PayPal · Reading by Claude on Amazon Bedrock</p>
         </div>
       </footer>

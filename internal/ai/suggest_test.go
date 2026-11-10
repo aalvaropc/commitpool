@@ -10,7 +10,7 @@ import (
 
 func nudge(kind string) ai.SuggestInput {
 	return ai.SuggestInput{
-		WorkshopTitle: "Wheel-throwing for beginners", Kind: kind, Name: "Grace Liu", Date: "Sat, Nov 14", Hours: "10 AM–12 PM",
+		WorkshopTitle: "Life drawing for beginners", Kind: kind, Name: "Grace Liu", Date: "Sat, Nov 14", Hours: "10 AM–12 PM",
 		Deadline: "Fri, Nov 13 at 10 AM", Needed: 3, Missing: 2, Question: "Can you make either morning, and which?", Condition: "only if it ends by 11 AM",
 		Options: "Sat, Nov 14 or Sun, Nov 15, 10 AM–12 PM",
 	}
@@ -20,8 +20,8 @@ func TestPlainSuggestion_SaysOnlyTheFacts(t *testing.T) {
 	cases := map[string][]string{
 		"clarify":   {"Hi Grace! Can you make either morning, and which? The class runs Sat, Nov 14 or Sun, Nov 15, 10 AM–12 PM. Answer on your CommitPool page."},
 		"condition": {"Hi Grace!", "Sat, Nov 14 runs 10 AM–12 PM", "you said you could come only if it ends by 11 AM", "any way you could make it"},
-		"reserve":   {"Hi Grace!", "Reservations for Wheel-throwing for beginners on Sat, Nov 14 are open until Fri, Nov 13 at 10 AM", "Nothing is charged unless 3 people reserve"},
-		"share":     {"Wheel-throwing for beginners on Sat, Nov 14 needs 2 more people by Fri, Nov 13 at 10 AM", "nobody pays"},
+		"reserve":   {"Hi Grace!", "Reservations for Life drawing for beginners on Sat, Nov 14 are open until Fri, Nov 13 at 10 AM", "Nothing is charged unless 3 people reserve"},
+		"share":     {"Life drawing for beginners on Sat, Nov 14 needs 2 more people by Fri, Nov 13 at 10 AM", "nobody pays"},
 	}
 	for kind, wants := range cases {
 		got := ai.PlainSuggestion(nudge(kind))
@@ -93,7 +93,7 @@ func toString(v any) string {
 }
 
 func TestHasContact_CatchesLinksAddressesAndNumbers(t *testing.T) {
-	for _, s := range []string{"see paypal.me/maya", "WWW.example.org", "write to maya@example.com", "call +1 (718) 555-0199", "bit.ly/x", "https://a.b"} {
+	for _, s := range []string{"see paypal.me/iris", "WWW.example.org", "write to iris@example.com", "call +1 (718) 555-0199", "bit.ly/x", "https://a.b"} {
 		if !ai.HasContact(s) {
 			t.Errorf("%q passed", s)
 		}

@@ -5,7 +5,7 @@ import {
   HOST,
   NEEDED,
   PRICE,
-  STUDIO,
+  SESSION_COST,
   SUGGESTIONS,
   YOU,
   countedBy,
@@ -89,8 +89,8 @@ function DayCard({ day, count, best, state }: { day: string; count: number; best
 function Short({ demo }: { demo: boolean | undefined }) {
   return (
     <div className="rise flex flex-col gap-3 rounded-3xl bg-surface-muted p-4">
-      <p className="font-display text-lead leading-tight font-bold">Maya still needs one more</p>
-      <p className="text-ink-soft">Until one day reaches {NEEDED}, nothing opens and nobody pays. The real flow works the same way: Claude reads every answer, Maya decides, and the PayPal Sandbox holds the money.</p>
+      <p className="font-display text-lead leading-tight font-bold">Iris still needs one more</p>
+      <p className="text-ink-soft">Until one day reaches {NEEDED}, nothing opens and nobody pays. The real flow works the same way: Claude reads every answer, Iris decides, and the PayPal Sandbox holds the money.</p>
       {demo === false ? (
         <ButtonLink to="/new" variant="primary">
           Create a workshop
@@ -252,7 +252,7 @@ export default function ChatDemo({ demo }: { demo?: boolean }) {
     await pause(1400)
     if (!live()) return
     drop(charging)
-    push({ kind: 'on', text: `${names.length} paid · $${names.length * PRICE} covers the $${STUDIO} studio.` })
+    push({ kind: 'on', text: `${names.length} paid · $${names.length * PRICE} covers your $${SESSION_COST} session costs.` })
     setPhase('done')
   }
 
@@ -273,7 +273,7 @@ export default function ChatDemo({ demo }: { demo?: boolean }) {
 
   return (
     <div ref={stage} className="flex min-w-0 flex-col gap-3">
-      <section aria-label="Example: answers to Maya’s invite" className="flex h-[40rem] max-h-[88svh] flex-col overflow-hidden rounded-[2rem] bg-surface">
+      <section aria-label="Example: answers to Iris’s invite" className="flex h-[40rem] max-h-[88svh] flex-col overflow-hidden rounded-[2rem] bg-surface">
         <header className="flex flex-col gap-3 p-4 pb-3">
           <div className="flex min-w-0 flex-col">
             <p className="font-display text-lg leading-tight font-bold">Sat or Sun?</p>
@@ -383,7 +383,7 @@ export default function ChatDemo({ demo }: { demo?: boolean }) {
         </footer>
       </section>
       <p className="px-2 text-sm text-ink-soft">
-        {footnote(lastBy)} <span className="font-semibold text-ink">Try it as Maya</span> runs the real flow on the PayPal Sandbox.
+        {footnote(lastBy)} <span className="font-semibold text-ink">Try it as Iris</span> runs the real flow on the PayPal Sandbox.
       </p>
     </div>
   )

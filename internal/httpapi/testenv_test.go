@@ -39,7 +39,7 @@ var (
 
 const (
 	appBaseURL = "https://commitpool.example"
-	indexHTML  = `<!doctype html><html lang="en"><head><meta charset="UTF-8" /><meta name="description" content="The class happens, or nobody pays." /><title>CommitPool</title></head><body><div id="root"></div></body></html>`
+	indexHTML  = `<!doctype html><html lang="en"><head><meta charset="UTF-8" /><meta name="description" content="Find the date that fills the class." /><title>CommitPool</title></head><body><div id="root"></div></body></html>`
 )
 
 type env struct {

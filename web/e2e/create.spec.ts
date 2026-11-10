@@ -4,22 +4,22 @@ import { createdLinks, expect, test } from './helpers'
 test.describe('create a workshop', () => {
   test('Claude drafts the form from a description and the organizer checks it', async ({ page }) => {
     await page.goto('/new')
-    await page.getByRole('button', { name: 'Use Maya’s example' }).click()
-    await expect(page.getByLabel('Your workshop, in your own words')).toHaveValue(/Maya Okafor/)
+    await page.getByRole('button', { name: 'Use Iris’s example' }).click()
+    await expect(page.getByLabel('Your workshop, in your own words')).toHaveValue(/Iris Calder/)
     await page.getByRole('button', { name: 'Draft it with Claude' }).click()
 
     await expect(page.getByRole('heading', { name: 'Check your workshop' })).toBeFocused()
     await expect(page.getByText('Claude drafted this from your description.')).toBeVisible()
-    await expect(page.getByLabel('Title', { exact: true })).toHaveValue('Wheel-throwing for beginners')
-    await expect(page.getByLabel('Your name')).toHaveValue('Maya Okafor')
+    await expect(page.getByLabel('Title', { exact: true })).toHaveValue('Life drawing for beginners')
+    await expect(page.getByLabel('Your name')).toHaveValue('Iris Calder')
     await expect(page.getByLabel('Price per person, USD')).toHaveValue('45')
-    await expect(page.getByLabel('What the studio costs you, USD')).toHaveValue('120')
+    await expect(page.getByLabel('What the session costs you (room, model, materials)')).toHaveValue('120')
     await expect(page.getByLabel('Spots')).toHaveValue('6')
     await expect(page.getByLabel('Duration in minutes')).toHaveValue('120')
     await expect(page.getByLabel('Time zone')).toHaveValue('America/New_York')
     await expect(page.getByLabel('Day 1')).not.toHaveValue('')
     await expect(page.getByLabel('Starts at').first()).toHaveValue('10:00')
-    await expect(page.getByText('3 × $45 = $135 covers your $120 studio before fees.')).toBeVisible()
+    await expect(page.getByText('3 × $45 = $135 covers your $120 session costs before fees.')).toBeVisible()
     await expectAccessible(page, 'the drafted form')
 
     await page.getByRole('button', { name: 'Create workshop' }).click()
@@ -34,18 +34,18 @@ test.describe('create a workshop', () => {
     await expect(page.getByLabel('Day 3')).toHaveCount(0)
     await expect(page.getByLabel('Day 2')).toBeFocused()
 
-    await page.getByLabel('Your email').fill('maya@example.test')
+    await page.getByLabel('Your email').fill('iris@example.test')
     await page.getByRole('button', { name: 'Create workshop' }).click()
-    const links = await createdLinks(page, 'Wheel-throwing for beginners')
-    await expect(page.getByText('We also sent it to maya@example.test.')).toBeVisible()
+    const links = await createdLinks(page, 'Life drawing for beginners')
+    await expect(page.getByText('We also sent it to iris@example.test.')).toBeVisible()
     await expect(page.getByRole('textbox', { name: 'Message for your group chat', exact: true })).toHaveValue(
       new RegExp(`only happens if 3 people reserve; otherwise nobody pays\\. Tell me when you can come: ${links.shareURL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`),
     )
     await expectAccessible(page, 'the created page')
 
     await page.goto(links.shareURL)
-    await expect(page.getByRole('heading', { level: 1, name: 'Wheel-throwing for beginners' })).toBeVisible()
-    await expect(page.getByText('Maya Okafor').first()).toBeVisible()
+    await expect(page.getByRole('heading', { level: 1, name: 'Life drawing for beginners' })).toBeVisible()
+    await expect(page.getByText('Iris Calder').first()).toBeVisible()
   })
 
   test('a description that says nothing leaves the form for the organizer', async ({ page }) => {

@@ -132,7 +132,7 @@ func TestSuggestions_ACappedModelSendsThePlainMessage(t *testing.T) {
 func TestDrafts_ACappedModelAnswersWithAnEmptyDraft(t *testing.T) {
 	e := newEnv(t, withAI(&cappedAI{wait: time.Minute}))
 	var got draftResponseJSON
-	e.call(http.MethodPost, draftsPath, draftBody(mayaDescription), http.StatusOK, &got)
+	e.call(http.MethodPost, draftsPath, draftBody(classDescription), http.StatusOK, &got)
 	if got.Drafted || got.Draft.Title != "" || len(got.Draft.Missing) != 10 {
 		t.Errorf("draft with a capped model = %+v, want an empty draft", got)
 	}

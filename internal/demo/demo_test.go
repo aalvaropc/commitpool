@@ -100,16 +100,16 @@ func (f *fakeAPI) answers() []string {
 	return out
 }
 
-func mayaOptions() demo.Options {
+func classOptions() demo.Options {
 	ny, _ := time.LoadLocation("America/New_York")
 	return demo.Options{Now: time.Date(2026, 11, 6, 9, 0, 0, 0, ny), Timezone: "America/New_York", WindowMin: 1440, Demo: true}
 }
 
-func TestMaya_IsTheDemoPersona(t *testing.T) {
-	m := demo.Maya
-	if m.HostName != "Maya Okafor" || m.Title != "Wheel-throwing for beginners" || m.Price != "45.00" || m.VenueCost != "120.00" || m.Minimum != 3 || m.Capacity != 6 ||
+func TestLifeDrawing_IsTheDemoPersona(t *testing.T) {
+	m := demo.LifeDrawing
+	if m.HostName != "Iris Calder" || m.Title != "Life drawing for beginners" || m.Price != "45.00" || m.VenueCost != "120.00" || m.Minimum != 3 || m.Capacity != 6 ||
 		m.StartHour != 10 || m.DurationMin != 120 {
-		t.Errorf("Maya = %+v", m)
+		t.Errorf("Iris = %+v", m)
 	}
 	if len(m.People) != 6 || m.People[len(m.People)-1].Name != "Grace Liu" || m.People[len(m.People)-1].Expect.Question == "" {
 		t.Errorf("people = %+v, want six with Grace's unclear answer last", m.People)
@@ -127,18 +127,18 @@ func TestMaya_IsTheDemoPersona(t *testing.T) {
 	}
 }
 
-func mayaDates(t *testing.T) ([]domain.CandidateDate, []ai.DateOption, *time.Location) {
+func classDates(t *testing.T) ([]domain.CandidateDate, []ai.DateOption, *time.Location) {
 	t.Helper()
 	ny, err := time.LoadLocation("America/New_York")
 	if err != nil {
 		t.Fatal(err)
 	}
-	sat := demo.FirstSaturday(mayaOptions().Now, mayaOptions().WindowMin, demo.Maya.StartHour, ny)
+	sat := demo.FirstSaturday(classOptions().Now, classOptions().WindowMin, demo.LifeDrawing.StartHour, ny)
 	var dates []domain.CandidateDate
 	var options []ai.DateOption
 	for i, id := range []string{"sat", "sun"} {
 		start := sat.AddDate(0, 0, i)
-		end := start.Add(time.Duration(demo.Maya.DurationMin) * time.Minute)
+		end := start.Add(time.Duration(demo.LifeDrawing.DurationMin) * time.Minute)
 		dates = append(dates, domain.CandidateDate{ID: id, StartsAt: start, EndsAt: end})
 		options = append(options, ai.DateOption{ID: id, Label: present.DateLabel(start, end, ny), StartsAt: start})
 	}
@@ -153,11 +153,11 @@ func count(rec domain.Recommendation) map[string][]string {
 	return out
 }
 
-func TestMaya_SaturdayIsOneShortUntilGraceAnswers(t *testing.T) {
-	dates, options, ny := mayaDates(t)
-	w := domain.Workshop{Minimum: demo.Maya.Minimum, Capacity: demo.Maya.Capacity}
+func TestLifeDrawing_SaturdayIsOneShortUntilGraceAnswers(t *testing.T) {
+	dates, options, ny := classDates(t)
+	w := domain.Workshop{Minimum: demo.LifeDrawing.Minimum, Capacity: demo.LifeDrawing.Capacity}
 	readings := map[string]domain.Interpretation{}
-	for _, p := range demo.Maya.People {
+	for _, p := range demo.LifeDrawing.People {
 		readings[p.Name] = p.Expect.Reading(options)
 	}
 	rec := domain.Recommend(w, dates, readings, ny)
@@ -174,13 +174,13 @@ func TestMaya_SaturdayIsOneShortUntilGraceAnswers(t *testing.T) {
 	}
 	collecting := w
 	collecting.Status, collecting.PaymentWindow = domain.WorkshopCollecting, 24*time.Hour
-	now := mayaOptions().Now
-	proposal := domain.Proposal{Minimum: demo.Maya.Minimum, Capacity: demo.Maya.Capacity, OpensAt: now, ClosesAt: now.Add(24 * time.Hour), StartsAt: dates[0].StartsAt}
+	now := classOptions().Now
+	proposal := domain.Proposal{Minimum: demo.LifeDrawing.Minimum, Capacity: demo.LifeDrawing.Capacity, OpensAt: now, ClosesAt: now.Add(24 * time.Hour), StartsAt: dates[0].StartsAt}
 	if err := domain.ValidateProposal(collecting, proposal, dates[0], len(sat.Compatible)); !errors.Is(err, domain.ErrNotEnoughCompatible) {
 		t.Errorf("opening Saturday with %d compatible = %v, want refused for lack of people", len(sat.Compatible), err)
 	}
 
-	for _, r := range demo.Maya.Replies {
+	for _, r := range demo.LifeDrawing.Replies {
 		readings[r.Name] = r.Expect.Reading(options)
 	}
 	rec = domain.Recommend(w, dates, readings, ny)
@@ -190,8 +190,8 @@ func TestMaya_SaturdayIsOneShortUntilGraceAnswers(t *testing.T) {
 }
 
 func TestScript_PlaysEveryAnswerAndTheReplyInContext(t *testing.T) {
-	_, options, _ := mayaDates(t)
-	fake := ai.Fake{Script: demo.Script(demo.Maya)}
+	_, options, _ := classDates(t)
+	fake := ai.Fake{Script: demo.Script(demo.LifeDrawing)}
 	read := func(message string, earlier *ai.EarlierAnswer) domain.Interpretation {
 		t.Helper()
 		in, meta, err := fake.Interpret(context.Background(), ai.InterpretInput{Dates: options, Message: message, Earlier: earlier})
@@ -200,16 +200,16 @@ func TestScript_PlaysEveryAnswerAndTheReplyInContext(t *testing.T) {
 		}
 		return in
 	}
-	for _, p := range demo.Maya.People {
+	for _, p := range demo.LifeDrawing.People {
 		if got := read(p.Message, nil); !reflect.DeepEqual(got, p.Expect.Reading(options)) {
 			t.Errorf("%s read as %+v, want %+v", p.Name, got, p.Expect.Reading(options))
 		}
 	}
-	grace := demo.Maya.People[len(demo.Maya.People)-1]
+	grace := demo.LifeDrawing.People[len(demo.LifeDrawing.People)-1]
 	if q := grace.Expect.Question; !strings.Contains(q, "10 AM–12 PM") || !strings.Contains(q, "Saturday") || !strings.Contains(q, "Sunday") {
 		t.Errorf("Grace's question %q does not name the class hours and both days", q)
 	}
-	reply := demo.Maya.Replies[0]
+	reply := demo.LifeDrawing.Replies[0]
 	earlier := &ai.EarlierAnswer{Message: grace.Message, Questions: []string{grace.Expect.Question}}
 	if got := read(reply.Message, earlier); !reflect.DeepEqual(got, reply.Expect.Reading(options)) || got.NeedsClarification {
 		t.Errorf("Grace's reply read as %+v, want %+v", got, reply.Expect.Reading(options))
@@ -222,13 +222,13 @@ func TestScript_PlaysEveryAnswerAndTheReplyInContext(t *testing.T) {
 func TestReply_SendsEachReplyAsItsPerson(t *testing.T) {
 	api := &fakeAPI{}
 	people := []demo.Participant{{Name: "Priya Raman", Token: "P1"}, {Name: "Grace Liu", Token: "P6"}}
-	if err := demo.Reply(context.Background(), api, people, demo.Maya.Replies, nil); err != nil {
+	if err := demo.Reply(context.Background(), api, people, demo.LifeDrawing.Replies, nil); err != nil {
 		t.Fatal(err)
 	}
-	if len(api.calls) != 1 || api.calls[0].Path != "/api/v1/p/P6/availability" || api.answers()[0] != demo.Maya.Replies[0].Message {
+	if len(api.calls) != 1 || api.calls[0].Path != "/api/v1/p/P6/availability" || api.answers()[0] != demo.LifeDrawing.Replies[0].Message {
 		t.Errorf("calls = %+v, want Grace's reply on her page", api.calls)
 	}
-	if err := demo.Reply(context.Background(), &fakeAPI{}, people[:1], demo.Maya.Replies, nil); err == nil || !strings.Contains(err.Error(), "Grace Liu") {
+	if err := demo.Reply(context.Background(), &fakeAPI{}, people[:1], demo.LifeDrawing.Replies, nil); err == nil || !strings.Contains(err.Error(), "Grace Liu") {
 		t.Errorf("err = %v, want Grace named as missing", err)
 	}
 }
@@ -242,14 +242,14 @@ func TestFirstSaturday_LeavesTheWindowAndLeadTime(t *testing.T) {
 	}
 }
 
-func TestCreate_SendsMayasWorkshopAndThePriceItUsed(t *testing.T) {
+func TestCreate_SendsTheLifeDrawingWorkshopAndThePriceItUsed(t *testing.T) {
 	api := &fakeAPI{}
-	res, err := demo.Create(context.Background(), api, demo.Maya, mayaOptions())
+	res, err := demo.Create(context.Background(), api, demo.LifeDrawing, classOptions())
 	if err != nil {
 		t.Fatal(err)
 	}
 	create := api.calls[0]
-	if create.Path != "/api/v1/workshops" || create.Body["host_name"] != "Maya Okafor" || create.Body["venue_cost"] != "120.00" || create.Body["demo"] != true {
+	if create.Path != "/api/v1/workshops" || create.Body["host_name"] != "Iris Calder" || create.Body["venue_cost"] != "120.00" || create.Body["demo"] != true {
 		t.Errorf("create = %+v", create)
 	}
 	if dates := create.Body["dates"].([]any); len(dates) != 2 {
@@ -258,16 +258,16 @@ func TestCreate_SendsMayasWorkshopAndThePriceItUsed(t *testing.T) {
 	if res.OwnerURL != "https://cp.test/owner/OWNER" || res.ShareToken != "SHARE" || res.Price != "45.00" {
 		t.Errorf("result = %+v", res)
 	}
-	o := mayaOptions()
+	o := classOptions()
 	o.Price = "10.00"
-	if res, _ := demo.Create(context.Background(), &fakeAPI{}, demo.Maya, o); res.Price != "10.00" {
+	if res, _ := demo.Create(context.Background(), &fakeAPI{}, demo.LifeDrawing, o); res.Price != "10.00" {
 		t.Errorf("price = %q, want the override", res.Price)
 	}
 }
 
 func TestJoinAndAnswer_InTheScenarioOrder(t *testing.T) {
 	api := &fakeAPI{}
-	people, err := demo.Join(context.Background(), api, demo.Result{ShareToken: "SHARE"}, demo.Maya.People)
+	people, err := demo.Join(context.Background(), api, demo.Result{ShareToken: "SHARE"}, demo.LifeDrawing.People)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,13 +278,13 @@ func TestJoinAndAnswer_InTheScenarioOrder(t *testing.T) {
 	if err := demo.Answer(context.Background(), api, people, func(context.Context) error { paced++; return nil }); err != nil {
 		t.Fatal(err)
 	}
-	if got := api.answers(); len(got) != 6 || got[0] != demo.Maya.People[0].Message || paced != 6 {
+	if got := api.answers(); len(got) != 6 || got[0] != demo.LifeDrawing.People[0].Message || paced != 6 {
 		t.Errorf("answers = %v, paced %d", got, paced)
 	}
 }
 
 func TestJoin_NamesWhoCouldNotJoin(t *testing.T) {
-	_, err := demo.Join(context.Background(), &fakeAPI{fail: "/participants"}, demo.Result{ShareToken: "SHARE"}, demo.Maya.People)
+	_, err := demo.Join(context.Background(), &fakeAPI{fail: "/participants"}, demo.Result{ShareToken: "SHARE"}, demo.LifeDrawing.People)
 	if err == nil || !strings.Contains(err.Error(), "Priya Raman") {
 		t.Fatalf("err = %v, want the first person named", err)
 	}
@@ -324,12 +324,12 @@ func TestAnswer_StopsWhenTheTimeIsUp(t *testing.T) {
 	}
 }
 
-func TestMaya_TheWebGuideQuotesGracesReply(t *testing.T) {
+func TestLifeDrawing_TheWebGuideQuotesGracesReply(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("..", "..", "web", "src", "lib", "demo.ts"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	reply := demo.Maya.Replies[0]
+	reply := demo.LifeDrawing.Replies[0]
 	if !strings.Contains(string(raw), `"`+reply.Message+`"`) || !strings.Contains(string(raw), `'`+reply.Name+`'`) {
 		t.Errorf("web/src/lib/demo.ts does not quote %s's reply %q; the guide's example must be the scenario's reply", reply.Name, reply.Message)
 	}
@@ -411,7 +411,7 @@ func TestAnswer_DoesNotWaitPastItsTime(t *testing.T) {
 }
 
 func TestFakeScript_ReadsTheLandingQuickRepliesAsClaudeDoes(t *testing.T) {
-	dates, options, ny := mayaDates(t)
+	dates, options, ny := classDates(t)
 	fake := ai.Fake{Script: demo.FakeScript()}
 	want := map[string][2]bool{
 		"No problem — Saturday works!":       {true, false},
@@ -429,7 +429,7 @@ func TestFakeScript_ReadsTheLandingQuickRepliesAsClaudeDoes(t *testing.T) {
 			}
 		}
 	}
-	if len(demo.FakeScript()) != len(demo.Script(demo.Maya))+len(demo.Landing) {
-		t.Errorf("FakeScript has %d answers, want Maya's and the landing's", len(demo.FakeScript()))
+	if len(demo.FakeScript()) != len(demo.Script(demo.LifeDrawing))+len(demo.Landing) {
+		t.Errorf("FakeScript has %d answers, want Iris's and the landing's", len(demo.FakeScript()))
 	}
 }

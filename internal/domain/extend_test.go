@@ -139,7 +139,7 @@ func TestSuggestions_RescueOnlyInTheLastHours(t *testing.T) {
 		}
 	}
 	in.Now = in.ClosesAt.Add(-domain.RescueWhenLeft)
-	want := []domain.Suggestion{{Kind: domain.SuggestRescue}, {Kind: domain.SuggestShare}, {Kind: domain.SuggestReserve, ParticipantID: "ben"}}
+	want := []domain.Suggestion{{Kind: domain.SuggestRescue}, {Kind: domain.SuggestReserve, ParticipantID: "ben"}}
 	if got := domain.Suggestions(in); !reflect.DeepEqual(got, want) {
 		t.Errorf("six hours left = %+v, want %+v", got, want)
 	}
@@ -150,6 +150,31 @@ func TestSuggestions_RescueOnlyInTheLastHours(t *testing.T) {
 	in.CanExtend, in.Committed = true, 3
 	if got := domain.Suggestions(in); len(got) != 0 {
 		t.Errorf("minimum met = %+v, want no rescue", got)
+	}
+}
+
+func TestSuggestions_RescueTakesThePlaceOfTheShareMessage(t *testing.T) {
+	in := domain.SuggestInput{
+		Status: domain.WorkshopFunding, PaymentsOpen: true, ClosesAt: noon.Add(2 * time.Hour), Now: noon,
+		Minimum: 3, Committed: 2, CanExtend: true,
+		Date:     domain.DateSummary{DateID: "sat", Compatible: []string{"priya", "ben", "grace"}},
+		Reserved: map[string]bool{"priya": true, "ben": true},
+	}
+	want := []domain.Suggestion{{Kind: domain.SuggestRescue}, {Kind: domain.SuggestReserve, ParticipantID: "grace"}}
+	if got := domain.Suggestions(in); !reflect.DeepEqual(got, want) {
+		t.Errorf("while the rescue is offered = %+v, want %+v: no group message naming the deadline about to change", got, want)
+	}
+
+	in.CanExtend, in.Extended, in.ClosesAt = false, true, noon.Add(72*time.Hour)
+	want = []domain.Suggestion{{Kind: domain.SuggestShare}, {Kind: domain.SuggestReserve, ParticipantID: "grace"}}
+	if got := domain.Suggestions(in); !reflect.DeepEqual(got, want) {
+		t.Errorf("after the extension = %+v, want %+v: sharing the new deadline comes back", got, want)
+	}
+
+	in.Extended, in.ClosesAt = false, noon.Add(2*time.Hour)
+	want = []domain.Suggestion{{Kind: domain.SuggestShare}, {Kind: domain.SuggestReserve, ParticipantID: "grace"}}
+	if got := domain.Suggestions(in); !reflect.DeepEqual(got, want) {
+		t.Errorf("with no extension to offer = %+v, want %+v", got, want)
 	}
 }
 

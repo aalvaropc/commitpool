@@ -137,8 +137,8 @@ func TestExtend_TheOrganizerMovesTheDeadlineOnce(t *testing.T) {
 	if !before.Proposal.LatestClosesAt.Equal(extendTo) {
 		t.Errorf("participant latest_closes_at = %s, want the option on offer %s", before.Proposal.LatestClosesAt, extendTo)
 	}
-	if got := kinds(v.Suggestions); len(got) < 2 || got[0] != "rescue" || got[1] != "share" {
-		t.Fatalf("suggestions = %v, want the rescue first, then sharing", got)
+	if got := kinds(v.Suggestions); len(got) == 0 || got[0] != "rescue" || slices.Contains(got, "share") {
+		t.Fatalf("suggestions = %v, want the rescue first and no group message naming the old deadline", got)
 	}
 	rescue := v.Suggestions[0]
 	if !strings.Contains(rescue.Reason, "1 more is needed") || !strings.Contains(rescue.Reason, "Thu, Nov 5 at 4 AM") {

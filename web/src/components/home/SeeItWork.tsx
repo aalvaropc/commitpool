@@ -65,7 +65,7 @@ export default function SeeItWork() {
               <img
                 src={board}
                 width={1600}
-                height={1210}
+                height={1274}
                 loading="lazy"
                 decoding="async"
                 alt="Iris’s board, Who can come: six people, their messages, and each answer read for Saturday and Sunday. Saturday is recommended with 2 of the 3 needed; Grace’s message needs clarifying."

@@ -210,7 +210,7 @@ func TestScript_PlaysEveryAnswerAndTheReplyInContext(t *testing.T) {
 		t.Errorf("Grace's question %q does not name the class hours and both days", q)
 	}
 	reply := demo.Maya.Replies[0]
-	earlier := &ai.EarlierAnswer{Message: grace.Message, Questions: []string{grace.Expect.Question}}
+	earlier := &ai.EarlierAnswer{Messages: []string{grace.Message}, Questions: []string{grace.Expect.Question}}
 	if got := read(reply.Message, earlier); !reflect.DeepEqual(got, reply.Expect.Reading(options)) || got.NeedsClarification {
 		t.Errorf("Grace's reply read as %+v, want %+v", got, reply.Expect.Reading(options))
 	}

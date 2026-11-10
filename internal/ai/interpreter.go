@@ -19,7 +19,7 @@ type DateOption struct {
 }
 
 type EarlierAnswer struct {
-	Message   string
+	Messages  []string
 	Questions []string
 }
 

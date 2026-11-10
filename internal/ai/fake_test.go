@@ -232,7 +232,7 @@ func TestFake_ScriptedReplyNeedsItsEarlierMessage(t *testing.T) {
 		}
 		return in
 	}
-	withContext := read(&ai.EarlierAnswer{Message: "Count me in if it’s an afternoon thing.", Questions: []string{"Can you make either?"}})
+	withContext := read(&ai.EarlierAnswer{Messages: []string{"Count me in if it’s an afternoon thing."}, Questions: []string{"Can you make either?"}})
 	if sat, sun := verdictFor(t, withContext, "sat"), verdictFor(t, withContext, "sun"); sat.Verdict != domain.VerdictAvailable || sun.Verdict != domain.VerdictUnavailable || withContext.NeedsClarification {
 		t.Errorf("reply with its earlier message = %+v, want Saturday yes, Sunday no", withContext)
 	}
@@ -240,7 +240,7 @@ func TestFake_ScriptedReplyNeedsItsEarlierMessage(t *testing.T) {
 	if verdictFor(t, alone, "sat").Verdict != domain.VerdictUnavailable {
 		t.Errorf("reply without its earlier message = %+v, want the keyword reading of a bare %q", alone, scriptedReply)
 	}
-	other := read(&ai.EarlierAnswer{Message: "Something else entirely"})
+	other := read(&ai.EarlierAnswer{Messages: []string{"Something else entirely"}})
 	if reflect.DeepEqual(other, withContext) {
 		t.Errorf("reply after another message played the script: %+v", other)
 	}
@@ -260,7 +260,7 @@ func TestFake_FallsBackToKeywordsOutsideTheScript(t *testing.T) {
 
 func TestFake_ScriptMatchesWhateverDashTheReplyUses(t *testing.T) {
 	f := scriptedFake()
-	earlier := &ai.EarlierAnswer{Message: "Count me in if it's an afternoon thing."}
+	earlier := &ai.EarlierAnswer{Messages: []string{"Count me in if it's an afternoon thing."}}
 	for _, reply := range []string{"No problem - I swapped Saturday.", "No problem -- I swapped Saturday.", "No problem–I swapped Saturday.", "No problem — I swapped Saturday."} {
 		in, _, err := f.Interpret(context.Background(), ai.InterpretInput{Dates: dates, Message: reply, Earlier: earlier})
 		if err != nil {
@@ -269,5 +269,25 @@ func TestFake_ScriptMatchesWhateverDashTheReplyUses(t *testing.T) {
 		if verdictFor(t, in, "sat").Verdict != domain.VerdictAvailable || verdictFor(t, in, "sun").Verdict != domain.VerdictUnavailable {
 			t.Errorf("%q = %+v, want the scripted reply", reply, in.PerDate)
 		}
+	}
+}
+
+func TestFake_ScriptedReplyFollowsOnlyTheLatestEarlierMessage(t *testing.T) {
+	f := scriptedFake()
+	read := func(messages ...string) domain.Interpretation {
+		in, _, err := f.Interpret(context.Background(), ai.InterpretInput{Dates: dates, Message: scriptedReply, Earlier: &ai.EarlierAnswer{Messages: messages}})
+		if err != nil {
+			t.Fatalf("Interpret: %v", err)
+		}
+		return in
+	}
+	const scripted = "Count me in if it’s an afternoon thing."
+	latest := read("Something older", scripted)
+	if sat, sun := verdictFor(t, latest, "sat"), verdictFor(t, latest, "sun"); sat.Verdict != domain.VerdictAvailable || sun.Verdict != domain.VerdictUnavailable {
+		t.Errorf("reply after the scripted message as the latest = %+v, want Saturday yes, Sunday no", latest)
+	}
+	buried := read(scripted, "Something newer")
+	if reflect.DeepEqual(buried, latest) {
+		t.Errorf("reply with the scripted message buried under a newer one played the script: %+v", buried)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -14,7 +15,11 @@ import (
 	"github.com/aalvaropc/commitpool/internal/store"
 )
 
-const interpretTimeout = 30 * time.Second
+const (
+	interpretTimeout   = 30 * time.Second
+	maxEarlierMessages = 4
+	maxEarlierRunes    = 2000
+)
 
 type participantViewDTO struct {
 	Participant  participantDTO   `json:"participant"`
@@ -166,25 +171,48 @@ func (s *server) submitAvailability(w http.ResponseWriter, r *http.Request) erro
 }
 
 func (s *server) openQuestion(ctx context.Context, workshopID, participantID string) *ai.EarlierAnswer {
-	a, err := s.Store.LatestAvailabilityByParticipant(ctx, participantID)
-	var in domain.Interpretation
-	if err == nil && a != nil {
-		in, err = inForce(*a)
-	}
+	rows, err := s.Store.RecentAvailabilitiesByParticipant(ctx, participantID, maxEarlierMessages)
 	if err != nil {
-		s.Log.Warn("could not load the earlier answer; reading the new message alone", "workshop_id", workshopID, "participant_id", participantID, "error", err)
+		s.Log.Warn("could not load the earlier answers; reading the new message alone", "workshop_id", workshopID, "participant_id", participantID, "error", err)
 		return nil
 	}
-	if a == nil || !in.NeedsClarification {
-		return nil
-	}
-	out := &ai.EarlierAnswer{Message: a.RawMessage, Questions: []string{}}
-	for _, q := range in.Ambiguities {
-		if q.Question != "" {
-			out.Questions = append(out.Questions, q.Question)
+	var newestFirst []string
+	var questions []string
+	runes := 0
+	for i, a := range rows {
+		in, err := inForce(a)
+		if err != nil {
+			s.Log.Warn("could not read an earlier answer; reading the new message without it", "workshop_id", workshopID, "participant_id", participantID, "error", err)
+			break
+		}
+		if !in.NeedsClarification || isCorrected(a) {
+			break
+		}
+		runes += utf8.RuneCountInString(a.RawMessage)
+		if runes > maxEarlierRunes {
+			break
+		}
+		newestFirst = append(newestFirst, a.RawMessage)
+		if i == 0 {
+			for _, q := range in.Ambiguities {
+				if q.Question != "" {
+					questions = append(questions, q.Question)
+				}
+			}
 		}
 	}
-	return out
+	if len(newestFirst) == 0 {
+		return nil
+	}
+	slices.Reverse(newestFirst)
+	if questions == nil {
+		questions = []string{}
+	}
+	return &ai.EarlierAnswer{Messages: newestFirst, Questions: questions}
+}
+
+func isCorrected(a store.AvailabilityRow) bool {
+	return len(a.Corrected) > 0 && string(a.Corrected) != "null"
 }
 
 func (s *server) correctAvailability(w http.ResponseWriter, r *http.Request) error {

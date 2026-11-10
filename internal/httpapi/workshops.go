@@ -249,7 +249,7 @@ func (s *server) publicWorkshop(w http.ResponseWriter, r *http.Request) error {
 	writeJSON(w, http.StatusOK, publicView{
 		Workshop: publicWorkshopView(ws),
 		Dates:    dateViews(st.dates, st.loc),
-		Proposal: proposalView(st.proposal, ws, s.Clock.Now()),
+		Proposal: st.withLatest(proposalView(st.proposal, ws, s.Clock.Now())),
 		Tally:    st.tally(),
 		Group:    g,
 	})

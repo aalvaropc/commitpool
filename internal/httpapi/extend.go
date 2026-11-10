@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"time"
 
@@ -48,6 +49,8 @@ var extensionRefusals = []struct {
 var (
 	errExtendNeedsOrganizer = newError(http.StatusForbidden, "approval_required",
 		"An assistant cannot extend the deadline. Give the organizer the approve_url from preview_extend_reservations; they confirm on their own page.")
+	errExtendNeedsPage = newError(http.StatusForbidden, "extension_needs_page",
+		"Only the organizer can extend the deadline, from their own page in a browser. An assistant's tools cannot.")
 	errExtensionChanged = conflict("extension_changed", "The deadline or the extension on offer changed. Check the new option and try again.")
 	errCloseInProgress  = conflict("close_in_progress", "Reservations are closing right now, so the deadline can no longer move.")
 )
@@ -106,14 +109,27 @@ func extendedFrom(p *store.ProposalRow) *time.Time {
 	return &from
 }
 
-func latestClosesAt(p *store.ProposalRow, status domain.WorkshopStatus) time.Time {
+func latestClosesAt(p *store.ProposalRow, status domain.WorkshopStatus, now time.Time) time.Time {
 	latest := p.ClosesAt
-	if p.ExtendedAt == nil && status == domain.WorkshopFunding {
+	if p.ExtendedAt == nil && status == domain.WorkshopFunding && now.Before(p.ClosesAt) {
 		if bound := domain.LatestDeadline(p.Domain()); bound.After(latest) {
 			latest = bound
 		}
 	}
 	return latest.UTC()
+}
+
+func (st workshopState) withLatest(d *proposalDTO) *proposalDTO {
+	if d == nil {
+		return d
+	}
+	for _, en := range st.enrollments {
+		if en.Status.Occupies() && !slices.Contains(domain.ExtensionConsents, en.ConsentVersion) {
+			d.LatestCloses = d.ClosesAt
+			break
+		}
+	}
+	return d
 }
 
 func rescueNudge(st workshopState, deadline string, missing int) (reason, newDeadline string) {
@@ -125,6 +141,9 @@ func rescueNudge(st workshopState, deadline string, missing int) (reason, newDea
 func (s *server) extendDeadline(w http.ResponseWriter, r *http.Request) error {
 	if inproc.Is(r.Context()) {
 		return errExtendNeedsOrganizer
+	}
+	if !s.fromSameOriginPage(r) {
+		return errExtendNeedsPage
 	}
 	ws, err := s.ownerWorkshop(r)
 	if err != nil {
@@ -154,6 +173,13 @@ func (s *server) extendDeadline(w http.ResponseWriter, r *http.Request) error {
 	}
 	writeJSON(w, http.StatusOK, map[string]*proposalDTO{"proposal": ownerProposalView(&extended, ws, s.Clock.Now())})
 	return nil
+}
+
+func (s *server) fromSameOriginPage(r *http.Request) bool {
+	if r.Header.Get("Sec-Fetch-Site") == "" && r.Header.Get("Origin") == "" {
+		return false
+	}
+	return s.crossOrigin.Check(r) == nil
 }
 
 func extendError(err error) error {
@@ -186,14 +212,11 @@ func (s *server) demoSkipToLastHours(w http.ResponseWriter, r *http.Request) err
 	if ws.Status != domain.WorkshopFunding || !paymentsOpen(ws, p, now) {
 		return errProposalNotOpen
 	}
-	if p.ExtendedAt != nil {
+	shortened, err := s.Store.SkipToLastHours(ctx, p.ID, now.Add(demoLastHours))
+	if errors.Is(err, domain.ErrAlreadyExtended) {
 		return conflict("already_extended", "The deadline was already extended, so the demo clock no longer moves it.")
 	}
-	shortened, err := s.Store.ShortenPaymentWindow(ctx, p.ID, now.Add(demoLastHours))
 	if err != nil {
-		return err
-	}
-	if _, err := s.Store.AdvanceJob(ctx, store.JobKey(store.KindClose, p.ID), shortened.ClosesAt); err != nil {
 		return err
 	}
 	s.Log.Info("demo: skipped to the last hours of reservations", "workshop_id", ws.ID, "proposal_id", p.ID)

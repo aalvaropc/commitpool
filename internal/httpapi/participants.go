@@ -53,7 +53,7 @@ func (s *server) participantView(w http.ResponseWriter, r *http.Request) error {
 		Participant: participantDTO{ID: p.ID, DisplayName: p.DisplayName},
 		Workshop:    publicWorkshopView(ws),
 		Dates:       dateViews(st.dates, st.loc),
-		Proposal:    proposalView(st.proposal, ws, now),
+		Proposal:    st.withLatest(proposalView(st.proposal, ws, now)),
 		Tally:       st.tally(),
 		Consent:     consentDTO{Version: ConsentVersion, Text: ConsentText},
 	}

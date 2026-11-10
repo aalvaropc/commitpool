@@ -1,9 +1,12 @@
 package httpapi_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strconv"
 	"strings"
@@ -62,6 +65,44 @@ func (e *env) workshopID(h workshopHandle) string {
 	return e.owner(h).Workshop.ID
 }
 
+func (e *env) extendFromPage(h workshopHandle, body any, headers map[string]string) *httptest.ResponseRecorder {
+	e.t.Helper()
+	raw, err := json.Marshal(body)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	req := httptest.NewRequestWithContext(e.ctx, http.MethodPost, h.ownerPath+"/extend", bytes.NewReader(raw))
+	req.Host = strings.TrimPrefix(appBaseURL, "https://")
+	req.Header.Set("Content-Type", "application/json")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	rec := httptest.NewRecorder()
+	e.h.ServeHTTP(rec, req)
+	return rec
+}
+
+func (e *env) extend(h workshopHandle, body any, want int, out any) {
+	e.t.Helper()
+	rec := e.extendFromPage(h, body, sameOriginPage())
+	if rec.Code != want {
+		e.t.Fatalf("POST extend = %d %s, want %d", rec.Code, rec.Body.String(), want)
+	}
+	if out != nil {
+		decodeInto(e.t, rec, out)
+	}
+}
+
+func (e *env) wantExtendError(h workshopHandle, body any, status int, code string) errorJSON {
+	e.t.Helper()
+	rec := e.extendFromPage(h, body, sameOriginPage())
+	var got errorJSON
+	if rec.Code != status || json.Unmarshal(rec.Body.Bytes(), &got) != nil || got.Error != code || got.Message == "" {
+		e.t.Fatalf("POST extend = %d %s, want %d %s", rec.Code, rec.Body.String(), status, code)
+	}
+	return got
+}
+
 func extendBody(from, to time.Time) map[string]string {
 	return map[string]string{"from": from.Format(time.RFC3339Nano), "to": to.Format(time.RFC3339Nano)}
 }
@@ -103,7 +144,7 @@ func TestExtend_TheOrganizerMovesTheDeadlineOnce(t *testing.T) {
 	var out struct {
 		Proposal extendProposalJSON `json:"proposal"`
 	}
-	e.call(http.MethodPost, h.ownerPath+"/extend", extendBody(p.ClosesAt, extendTo), http.StatusOK, &out)
+	e.extend(h, extendBody(p.ClosesAt, extendTo), http.StatusOK, &out)
 	if !out.Proposal.ClosesAt.Equal(extendTo) || out.Proposal.ExtendedFrom == nil || !out.Proposal.ExtendedFrom.Equal(p.ClosesAt) {
 		t.Errorf("extended proposal = %+v", out.Proposal)
 	}
@@ -130,7 +171,7 @@ func TestExtend_TheOrganizerMovesTheDeadlineOnce(t *testing.T) {
 		t.Errorf("participant proposal = %+v, want extended from %s to %s", mine.Proposal, p.ClosesAt, extendTo)
 	}
 
-	e.wantError(http.MethodPost, h.ownerPath+"/extend", extendBody(extendTo, extendTo), http.StatusConflict, "already_extended")
+	e.wantExtendError(h, extendBody(extendTo, extendTo), http.StatusConflict, "already_extended")
 }
 
 func TestExtend_EachRefusalHasItsOwnCode(t *testing.T) {
@@ -149,15 +190,19 @@ func TestExtend_EachRefusalHasItsOwnCode(t *testing.T) {
 	t.Run("changed option", func(t *testing.T) {
 		e := newEnv(t)
 		h, p, _ := e.shortOfTheMinimum()
-		e.wantError(http.MethodPost, h.ownerPath+"/extend", extendBody(p.ClosesAt, extendTo.Add(15*time.Minute)), http.StatusConflict, "extension_changed")
-		e.wantError(http.MethodPost, h.ownerPath+"/extend", extendBody(p.ClosesAt.Add(-time.Hour), extendTo), http.StatusConflict, "extension_changed")
-		e.wantError(http.MethodPost, h.ownerPath+"/extend", map[string]string{"to": extendTo.Format(time.RFC3339)}, http.StatusBadRequest, "invalid_extension")
+		e.wantExtendError(h, extendBody(p.ClosesAt, extendTo.Add(15*time.Minute)), http.StatusConflict, "extension_changed")
+		e.wantExtendError(h, extendBody(p.ClosesAt.Add(-time.Hour), extendTo), http.StatusConflict, "extension_changed")
+		e.wantExtendError(h, map[string]string{"to": extendTo.Format(time.RFC3339)}, http.StatusBadRequest, "invalid_extension")
 	})
 	t.Run("too late", func(t *testing.T) {
 		e := newEnv(t)
 		h, p, _ := e.shortOfTheMinimum()
+		e.clock.Set(p.ClosesAt.Add(time.Minute))
+		if v := e.extendView(h); !v.Proposal.LatestClosesAt.Equal(p.ClosesAt) {
+			t.Errorf("latest_closes_at once closed = %s, want %s", v.Proposal.LatestClosesAt, p.ClosesAt)
+		}
 		e.clock.Set(p.ClosesAt.Add(-5 * time.Minute))
-		e.wantError(http.MethodPost, h.ownerPath+"/extend", extendBody(p.ClosesAt, extendTo), http.StatusConflict, "too_late_to_extend")
+		e.wantExtendError(h, extendBody(p.ClosesAt, extendTo), http.StatusConflict, "too_late_to_extend")
 	})
 	t.Run("someone paid", func(t *testing.T) {
 		e := newEnv(t)
@@ -165,21 +210,31 @@ func TestExtend_EachRefusalHasItsOwnCode(t *testing.T) {
 		v := e.owner(h)
 		e.runPayment("capture", v.Workshop.ID, e.latestAttempt(v.Enrollments[0].ID))
 		e.wantStatus(v.Enrollments[0].ID, domain.EnrollmentPaid)
-		e.wantError(http.MethodPost, h.ownerPath+"/extend", extendBody(p.ClosesAt, extendTo), http.StatusConflict, "charging_started")
+		e.wantExtendError(h, extendBody(p.ClosesAt, extendTo), http.StatusConflict, "charging_started")
 		if x := e.extendView(h).Extension; x == nil || x.Available || x.Refusal != "charging_started" || x.Reason == "" {
 			t.Errorf("extension with a paid seat = %+v", x)
 		}
 	})
 	t.Run("a v4 reservation", func(t *testing.T) {
 		e := newEnv(t)
-		h, p, _ := e.shortOfTheMinimum()
+		h, p, ps := e.shortOfTheMinimum()
 		if _, err := e.st.Pool.Exec(e.ctx, `update enrollments set consent_version = 'consent-v4'`); err != nil {
 			t.Fatal(err)
 		}
-		e.wantError(http.MethodPost, h.ownerPath+"/extend", extendBody(p.ClosesAt, extendTo), http.StatusConflict, "consent_predates_extension")
+		e.wantExtendError(h, extendBody(p.ClosesAt, extendTo), http.StatusConflict, "consent_predates_extension")
 		v := e.extendView(h)
 		if v.Extension == nil || v.Extension.Refusal != "consent_predates_extension" || slices.Contains(kinds(v.Suggestions), "rescue") {
 			t.Errorf("extension = %+v, suggestions %v; want it refused and no rescue offered", v.Extension, kinds(v.Suggestions))
+		}
+		if !v.Proposal.LatestClosesAt.Equal(p.ClosesAt) {
+			t.Errorf("latest_closes_at = %s, want the deadline itself %s: nothing can move it", v.Proposal.LatestClosesAt, p.ClosesAt)
+		}
+		var mine struct {
+			Proposal extendProposalJSON `json:"proposal"`
+		}
+		e.call(http.MethodGet, ps[1].path, nil, http.StatusOK, &mine)
+		if !mine.Proposal.LatestClosesAt.Equal(p.ClosesAt) {
+			t.Errorf("participant latest_closes_at = %s, want %s", mine.Proposal.LatestClosesAt, p.ClosesAt)
 		}
 	})
 	t.Run("close running", func(t *testing.T) {
@@ -188,22 +243,54 @@ func TestExtend_EachRefusalHasItsOwnCode(t *testing.T) {
 		if _, err := e.st.Pool.Exec(e.ctx, `update jobs set status = 'running' where idempotency_key = $1`, "close:"+p.ID); err != nil {
 			t.Fatal(err)
 		}
-		e.wantError(http.MethodPost, h.ownerPath+"/extend", extendBody(p.ClosesAt, extendTo), http.StatusConflict, "close_in_progress")
+		e.wantExtendError(h, extendBody(p.ClosesAt, extendTo), http.StatusConflict, "close_in_progress")
 	})
 	t.Run("cancelled", func(t *testing.T) {
 		e := newEnv(t)
 		h, p, _ := e.shortOfTheMinimum()
 		e.call(http.MethodPost, h.ownerPath+"/cancel", map[string]string{}, http.StatusOK, nil)
-		e.wantError(http.MethodPost, h.ownerPath+"/extend", extendBody(p.ClosesAt, extendTo), http.StatusConflict, "not_funding")
+		e.wantExtendError(h, extendBody(p.ClosesAt, extendTo), http.StatusConflict, "not_funding")
 	})
 	t.Run("not open yet", func(t *testing.T) {
 		e := newEnv(t)
 		h := e.createWorkshop()
-		e.wantError(http.MethodPost, h.ownerPath+"/extend", extendBody(t0, extendTo), http.StatusConflict, "proposal_not_open")
+		e.wantExtendError(h, extendBody(t0, extendTo), http.StatusConflict, "proposal_not_open")
 		if v := e.extendView(h); v.Extension != nil {
 			t.Errorf("extension before reservations open = %+v, want none", v.Extension)
 		}
 	})
+}
+
+func TestExtend_OnlyFromTheOrganizersPageInABrowser(t *testing.T) {
+	refused := map[string]map[string]string{
+		"no browser headers": nil,
+		"a cross-site page":  {"Origin": "https://elsewhere.example", "Sec-Fetch-Site": "cross-site"},
+		"another origin":     {"Origin": "https://elsewhere.example"},
+	}
+	for name, headers := range refused {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t)
+			h, p, _ := e.shortOfTheMinimum()
+			rec := e.extendFromPage(h, extendBody(p.ClosesAt, extendTo), headers)
+			var got errorJSON
+			if rec.Code != http.StatusForbidden || json.Unmarshal(rec.Body.Bytes(), &got) != nil || got.Error != "extension_needs_page" ||
+				got.Message != "Only the organizer can extend the deadline, from their own page in a browser. An assistant's tools cannot." {
+				t.Fatalf("POST extend with %v = %d %s, want 403 extension_needs_page", headers, rec.Code, rec.Body.String())
+			}
+			if v := e.extendView(h); v.Proposal.ExtendedFrom != nil {
+				t.Errorf("extended without the organizer's page: %+v", v.Proposal)
+			}
+		})
+	}
+	for name, headers := range map[string]map[string]string{"origin only": {"Origin": appBaseURL}, "fetch metadata only": {"Sec-Fetch-Site": "same-origin"}} {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t)
+			h, p, _ := e.shortOfTheMinimum()
+			if rec := e.extendFromPage(h, extendBody(p.ClosesAt, extendTo), headers); rec.Code != http.StatusOK {
+				t.Fatalf("POST extend with %v = %d %s, want 200", headers, rec.Code, rec.Body.String())
+			}
+		})
+	}
 }
 
 func TestExtend_NoRescueUntilTheLastSixHours(t *testing.T) {
@@ -277,7 +364,7 @@ func TestDemoSkipToLastHours(t *testing.T) {
 		if v.Extension == nil || !v.Extension.Available || !slices.Contains(kinds(v.Suggestions), "rescue") {
 			t.Errorf("after the skip: extension %+v, suggestions %v; want the rescue", v.Extension, kinds(v.Suggestions))
 		}
-		e.call(http.MethodPost, h.ownerPath+"/extend", extendBody(want, *v.Extension.To), http.StatusOK, nil)
+		e.extend(h, extendBody(want, *v.Extension.To), http.StatusOK, nil)
 		e.wantError(http.MethodPost, h.ownerPath+"/demo/skip-to-last-hours", nil, http.StatusConflict, "already_extended")
 	})
 	t.Run("only while reservations are open", func(t *testing.T) {

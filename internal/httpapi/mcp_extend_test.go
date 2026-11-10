@@ -38,7 +38,7 @@ func TestMCP_PreviewExtendHandsTheOrganizerADeepLink(t *testing.T) {
 		t.Errorf("a preview moved the deadline: %+v", v.Proposal)
 	}
 
-	e.call(http.MethodPost, h.ownerPath+"/extend", extendBody(p.ClosesAt, extendTo), http.StatusOK, nil)
+	e.extend(h, extendBody(p.ClosesAt, extendTo), http.StatusOK, nil)
 	out = mcpExtendPreview{}
 	e.tool(cs, "preview_extend_reservations", map[string]any{"owner_link": h.created.OwnerURL}, &out)
 	if out.Available || out.Refusal != "already_extended" || out.ApproveURL != "" || !strings.Contains(out.Next, "cannot be extended") {

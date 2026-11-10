@@ -128,7 +128,7 @@ func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
 		ShareURL:       shareURL,
 		Workshop:       ownerWorkshopView(ws),
 		Dates:          dateViews(st.dates, st.loc),
-		Proposal:       ownerProposalView(st.proposal, ws, now),
+		Proposal:       st.withLatest(ownerProposalView(st.proposal, ws, now)),
 		Extension:      extension,
 		Tally:          st.ownerTally(),
 		Participants:   participants,

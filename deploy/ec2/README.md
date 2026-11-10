@@ -106,7 +106,12 @@ export AWS_REGION=us-east-1
   `/commitpool/mail_from`, a sender verified in Amazon SES, turns email on
   (the instance role may send with `ses:SendEmail`). While the SES account is
   in its sandbox, only verified recipients get mail. Without it,
-  notifications are only logged.
+  notifications are only logged;
+  `/commitpool/demo_payout_email` (String), the email of a Sandbox Personal
+  account, is where the demo workshops pay their organizer out. The deploy
+  always sets `COMMITPOOL_PAYOUTS=1`; see
+  [Running: Payouts](../../docs/running.md#payouts) for what the Sandbox app
+  needs.
 - Tear down: `terraform -chdir=deploy/ec2 destroy`, then delete the three
   PayPal parameters with `aws ssm delete-parameter`.
 

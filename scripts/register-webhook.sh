@@ -9,6 +9,18 @@ events=(
   PAYMENT.CAPTURE.DENIED
   PAYMENT.CAPTURE.PENDING
   PAYMENT.CAPTURE.REFUNDED
+  PAYMENT.PAYOUTSBATCH.DENIED
+  PAYMENT.PAYOUTSBATCH.PROCESSING
+  PAYMENT.PAYOUTSBATCH.SUCCESS
+  PAYMENT.PAYOUTS-ITEM.BLOCKED
+  PAYMENT.PAYOUTS-ITEM.CANCELED
+  PAYMENT.PAYOUTS-ITEM.DENIED
+  PAYMENT.PAYOUTS-ITEM.FAILED
+  PAYMENT.PAYOUTS-ITEM.HELD
+  PAYMENT.PAYOUTS-ITEM.REFUNDED
+  PAYMENT.PAYOUTS-ITEM.RETURNED
+  PAYMENT.PAYOUTS-ITEM.SUCCEEDED
+  PAYMENT.PAYOUTS-ITEM.UNCLAIMED
 )
 
 log() { echo "register-webhook: $*" >&2; }
@@ -81,7 +93,11 @@ if [[ -n "$existing" ]]; then
     "${events[@]}" <<<"$existing")"
   log "reusing webhook $id"
   if [[ -n "$missing" ]]; then
-    log "warning: webhook $id does not subscribe to: $missing"
+    log "webhook $id does not subscribe to: $missing; adding them"
+    patch="$(jq -c --args '[{op: "replace", path: "/event_types",
+      value: ([.event_types[]?.name] + $ARGS.positional | unique | map({name: .}))}]' "${events[@]}" <<<"$existing")"
+    status="$(call PATCH "/v1/notifications/webhooks/$id" "$bearer" "$patch" application/json)" || die "could not reach $paypal"
+    [[ "$status" == 200 ]] || fail "updating the webhook's events" "$status"
   fi
   echo "$id"
   exit 0

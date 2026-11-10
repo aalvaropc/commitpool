@@ -37,6 +37,7 @@ If too few reserve by the deadline, every hold is released.
 - **Webhooks and reconcile.** Webhooks are verified with PayPal before they are stored. A periodic reconcile reads back anything pending.
 - **Fees, and a check against PayPal.** Each capture keeps PayPal's fee and net from its `seller_receivable_breakdown`, so the organizer sees what was collected, what PayPal kept and the net. **Verify with PayPal** reads every seat's order, hold, charge and refund back from PayPal and compares them with CommitPool's records, without changing anything.
 - **Plans can change.** A participant can withdraw until they are charged, and the organizer can cancel until the class starts.
+- **The organizer is paid when the class starts.** With PayPal Payouts, CommitPool sends the organizer's PayPal email what people paid, less PayPal's fees: one batch per class, under a `sender_batch_id` PayPal deduplicates, tracked until PayPal reports it paid. It waits for the start because until then a cancel refunds everyone.
 
 The state machines, keys, deadlines and the operator runbook are in [docs/payments.md](docs/payments.md).
 
@@ -49,7 +50,7 @@ Claude Sonnet 4.5 on Amazon Bedrock does the reading and the writing. The code m
 | Reads each answer into a verdict per date, as strict JSON | Decides who can come and recommends the date |
 | Drafts the class from a description | Validates every field; the organizer creates it |
 | Explains the recommendation and drafts nudges | Picks who to nudge; the organizer sends them, or not |
-| Never touches money | Captures, voids and refunds by its own rules |
+| Never touches money | Captures, voids, refunds and pays out by its own rules |
 
 Messages reach Claude as data, never as instructions, and the server re-validates everything it returns.
 

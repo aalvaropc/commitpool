@@ -14,7 +14,7 @@ import {
 
 test.describe('induced capture failure', () => {
   test('induced failure keeps workshop funding and shows failed seat', async ({ page: owner, join }) => {
-    const workshop = await createWorkshop(owner, 'Pottery for beginners')
+    const workshop = await createWorkshop(owner, 'Life drawing for beginners')
     const participants = []
     for (const name of ['Ada', 'Ben', 'Cleo', 'Dev']) {
       const p = await join(workshop.shareURL, name)

@@ -1,11 +1,11 @@
 import type { OwnerView } from '../api'
-import { studioCovered } from '../lib/owner'
+import { sessionCovered } from '../lib/owner'
 import { count } from '../lib/plural'
 import { Meter, Stat, Tile } from './ui'
 
 export default function SpotsTile({ view }: { view: OwnerView }) {
   const t = view.tally
-  const coverage = view.proposal ? studioCovered(view) : null
+  const coverage = view.proposal ? sessionCovered(view) : null
   const reserved = t.authorized + t.capturing + t.pending
   const charging = t.capturing + t.pending
   return (

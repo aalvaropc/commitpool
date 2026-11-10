@@ -38,7 +38,7 @@ func TestNamesAnotherDate(t *testing.T) {
 		{"Saturday 21 November could also work.", true},
 		{"Nov 14 works; 115 Nov is not a date.", false},
 		{"Monday would suit Ana better.", true},
-		{"Or Tues, if the studio is free.", true},
+		{"Or Tues, if the room is free.", true},
 		{"Nov 20 is open too.", true},
 		{"The 3rd of December works.", true},
 		{"Saturday, Nov. 14 it is.", false},

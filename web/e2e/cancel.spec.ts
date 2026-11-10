@@ -2,7 +2,7 @@ import { approveCheckout, createWorkshop, enrollmentRow, expect, headline, openP
 
 test.describe('withdraw and cancel', () => {
   test('two participants withdraw, then the organizer cancels and the last hold is released', async ({ page: owner, join }) => {
-    const workshop = await createWorkshop(owner, 'Pottery evening')
+    const workshop = await createWorkshop(owner, 'Drawing evening')
     const participants = []
     for (const name of ['Ada', 'Ben', 'Cleo']) {
       const p = await join(workshop.shareURL, name)
@@ -33,7 +33,7 @@ test.describe('withdraw and cancel', () => {
 
     await owner.getByRole('button', { name: 'Cancel workshop…' }).click()
     await expect(owner.getByText('PayPal releases 1 hold.')).toBeVisible()
-    await owner.getByLabel('Reason (optional)').fill('The studio is closed that week.')
+    await owner.getByLabel('Reason (optional)').fill('The room is closed that week.')
     await owner.getByRole('button', { name: 'Yes, cancel workshop' }).click()
 
     await expect(headline(owner)).toHaveText(/^Cancelled/, { timeout: 60_000 })

@@ -4,11 +4,11 @@ import { blankForm, breakEven, DATES_RULE, dateErrors, firstInvalid, fitsBreakEv
 
 const now = Date.parse('2026-10-27T12:00:00Z')
 const form: WorkshopForm = {
-  title: 'Wheel-throwing for beginners',
+  title: 'Life drawing for beginners',
   description: '',
-  hostName: 'Maya Okafor',
+  hostName: 'Iris Calder',
   ownerEmail: '',
-  location: 'Maya’s studio · Greenpoint, Brooklyn',
+  location: 'The Long Room · Red Hook, Brooklyn',
   duration: '120',
   timezone: 'America/New_York',
   minimum: '3',
@@ -67,11 +67,11 @@ describe('validateWorkshop', () => {
   })
 
   it('takes an optional email for the organizer', () => {
-    expect(validateWorkshop({ ...form, ownerEmail: 'maya@example.com' }, now).errors).toEqual({})
-    expect(validateWorkshop({ ...form, ownerEmail: 'maya' }, now).errors.ownerEmail).toBe('Write one address, such as maya@example.com, or leave it empty.')
+    expect(validateWorkshop({ ...form, ownerEmail: 'iris@example.com' }, now).errors).toEqual({})
+    expect(validateWorkshop({ ...form, ownerEmail: 'iris' }, now).errors.ownerEmail).toBe('Write one address, such as iris@example.com, or leave it empty.')
   })
 
-  it('lets the studio cost stay empty', () => {
+  it('lets the session cost stay empty', () => {
     expect(validateWorkshop({ ...form, venueCost: '' }, now).errors).toEqual({})
   })
 
@@ -88,10 +88,10 @@ describe('validateWorkshop', () => {
 describe('fromDraft', () => {
   it('fills the form with what Claude read and keeps the rest', () => {
     const { form: got, missing } = fromDraft(
-      draft({ title: 'Wheel-throwing for beginners', price: '45.00', venue_cost: '120.00', capacity: 6, duration_min: 120, dates: [{ date: '2026-11-14', start: '10:00' }], missing: ['description', 'minimum'] }),
+      draft({ title: 'Life drawing for beginners', price: '45.00', venue_cost: '120.00', capacity: 6, duration_min: 120, dates: [{ date: '2026-11-14', start: '10:00' }], missing: ['description', 'minimum'] }),
       blankForm('America/New_York', now),
     )
-    expect(got.title).toBe('Wheel-throwing for beginners')
+    expect(got.title).toBe('Life drawing for beginners')
     expect(got.price).toBe('45')
     expect(got.venueCost).toBe('120')
     expect(got.capacity).toBe('6')
@@ -131,10 +131,10 @@ describe('date slots', () => {
 })
 
 describe('breakEven', () => {
-  it('suggests how many people cover the studio', () => {
-    expect(breakEven('45', '120')).toEqual({ seats: 3, text: '3 × $45 = $135 covers your $120 studio before fees' })
-    expect(breakEven('40', '120')).toEqual({ seats: 3, text: '3 × $40 = $120 covers your $120 studio before fees' })
-    expect(breakEven('12.50', '100')).toEqual({ seats: 8, text: '8 × $12.50 = $100 covers your $100 studio before fees' })
+  it('suggests how many people cover the session costs', () => {
+    expect(breakEven('45', '120')).toEqual({ seats: 3, text: '3 × $45 = $135 covers your $120 session costs before fees' })
+    expect(breakEven('40', '120')).toEqual({ seats: 3, text: '3 × $40 = $120 covers your $120 session costs before fees' })
+    expect(breakEven('12.50', '100')).toEqual({ seats: 8, text: '8 × $12.50 = $100 covers your $100 session costs before fees' })
   })
 
   it('only suggests what the spots allow', () => {
@@ -155,24 +155,24 @@ describe('toRequest', () => {
   it('sends the new fields and whole cents', () => {
     const { dates } = validateWorkshop(form, now)
     const req = toRequest(form, dates ?? [])
-    expect(req).toMatchObject({ title: 'Wheel-throwing for beginners', host_name: 'Maya Okafor', location: 'Maya’s studio · Greenpoint, Brooklyn', price: '45.00', venue_cost: '120.00', currency: 'USD', minimum: 3, capacity: 6, duration_min: 120, payment_window_min: 1440 })
+    expect(req).toMatchObject({ title: 'Life drawing for beginners', host_name: 'Iris Calder', location: 'The Long Room · Red Hook, Brooklyn', price: '45.00', venue_cost: '120.00', currency: 'USD', minimum: 3, capacity: 6, duration_min: 120, payment_window_min: 1440 })
     expect(toRequest({ ...form, venueCost: ' ' }, []).venue_cost).toBeUndefined()
     expect(toRequest(form, []).owner_email).toBeUndefined()
-    expect(toRequest({ ...form, ownerEmail: ' maya@example.com ' }, []).owner_email).toBe('maya@example.com')
+    expect(toRequest({ ...form, ownerEmail: ' iris@example.com ' }, []).owner_email).toBe('iris@example.com')
   })
 })
 
 describe('inviteMessage', () => {
   it('writes a message the organizer can paste in the group chat', () => {
     const created = {
-      workshop: { title: 'Wheel-throwing for beginners', location: 'Maya’s studio · Greenpoint, Brooklyn', price: { minor: 4500, currency: 'USD', value: '45.00' }, minimum: 3 },
+      workshop: { title: 'Life drawing for beginners', location: 'The Long Room · Red Hook, Brooklyn', price: { minor: 4500, currency: 'USD', value: '45.00' }, minimum: 3 },
       share_url: 'https://example.test/w/abc',
     } as CreateWorkshopResponse
     expect(inviteMessage(created)).toBe(
-      'I’m planning Wheel-throwing for beginners at Maya’s studio · Greenpoint, Brooklyn. It’s $45 a spot, and it only happens if 3 people reserve; otherwise nobody pays. Tell me when you can come: https://example.test/w/abc',
+      'I’m planning Life drawing for beginners at The Long Room · Red Hook, Brooklyn. It’s $45 a spot, and it only happens if 3 people reserve; otherwise nobody pays. Tell me when you can come: https://example.test/w/abc',
     )
     expect(inviteMessage({ ...created, workshop: { ...created.workshop, minimum: 1 } })).toContain('only happens if 1 person reserves;')
-    expect(inviteMessage({ ...created, workshop: { ...created.workshop, location: '' } })).toContain('I’m planning Wheel-throwing for beginners. It’s')
+    expect(inviteMessage({ ...created, workshop: { ...created.workshop, location: '' } })).toContain('I’m planning Life drawing for beginners. It’s')
   })
 })
 

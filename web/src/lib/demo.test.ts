@@ -40,7 +40,7 @@ describe('demoStep', () => {
   })
   const view = (over: Partial<OwnerView> = {}): OwnerView =>
     ({
-      workshop: { status: 'COLLECTING', timezone: 'America/New_York', minimum: 3, host_name: 'Maya Okafor', demo: true },
+      workshop: { status: 'COLLECTING', timezone: 'America/New_York', minimum: 3, host_name: 'Iris Calder', demo: true },
       dates: [
         { id: 'sat', starts_at: '2026-11-21T15:00:00Z', ends_at: '2026-11-21T17:00:00Z', label: '' },
         { id: 'sun', starts_at: '2026-11-22T15:00:00Z', ends_at: '2026-11-22T17:00:00Z', label: '' },
@@ -64,7 +64,7 @@ describe('demoStep', () => {
 
   it('sends the visitor to answer Claude’s question as Grace, with her reply from the scenario', () => {
     expect(demoStep(view(), cast)).toEqual({
-      text: 'Saturday has 2 of the 3 Maya needs. Act as Grace Liu and answer Claude’s question — for example: “No problem — I swapped Saturday. Sunday I\'m still at the market.”',
+      text: 'Saturday has 2 of the 3 Iris needs. Act as Grace Liu and answer Claude’s question — for example: “No problem — I swapped Saturday. Sunday I\'m still at the market.”',
       primary: 'Grace Liu',
     })
   })
@@ -81,7 +81,7 @@ describe('demoStep', () => {
 
   it('falls back to the first person who does not count yet when nobody has a question to answer', () => {
     const clear = view({ availabilities: [answer('Priya Raman'), answer('Ben Whitaker'), answer('Hannah Kim'), answer('Grace Liu')] })
-    expect(demoStep(clear, cast)).toEqual({ text: 'Saturday has 2 of the 3 Maya needs. Act as Hannah Kim and answer as them, in your own words.', primary: 'Hannah Kim' })
+    expect(demoStep(clear, cast)).toEqual({ text: 'Saturday has 2 of the 3 Iris needs. Act as Hannah Kim and answer as them, in your own words.', primary: 'Hannah Kim' })
   })
 
   it('says to open reservations only once enough people can come', () => {

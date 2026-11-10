@@ -73,7 +73,7 @@ func run(ctx context.Context, client *http.Client, opts options, out io.Writer) 
 		return res, fmt.Errorf("time zone %q: %w", opts.Timezone, err)
 	}
 	api := apiClient{client: client, base: strings.TrimRight(opts.BaseURL, "/")}
-	sc := demo.Maya
+	sc := demo.LifeDrawing
 	var info struct {
 		Workshops bool `json:"workshops"`
 	}
@@ -86,7 +86,7 @@ func run(ctx context.Context, client *http.Client, opts options, out io.Writer) 
 	}
 	res.OwnerURL, res.ShareURL = seeded.OwnerURL, seeded.ShareURL
 	ownerToken := seeded.OwnerToken
-	fmt.Fprintf(out, "%s with %s: %d needed of %d spots, %s %s a person, studio %s %s, reservations stay open %s once opened\n",
+	fmt.Fprintf(out, "%s with %s: %d needed of %d spots, %s %s a person, session cost %s %s, reservations stay open %s once opened\n",
 		sc.Title, sc.HostName, sc.Minimum, sc.Capacity, sc.Currency, seeded.Price, sc.Currency, sc.VenueCost, window(opts.WindowMin))
 	fmt.Fprintf(out, "  organizer link (keep it private): %s\n", res.OwnerURL)
 	fmt.Fprintf(out, "  invite link:                      %s\n\n", res.ShareURL)

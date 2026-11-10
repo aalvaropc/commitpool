@@ -28,7 +28,7 @@ export default function StartSentence({ demo }: { demo: boolean | undefined }) {
             onChange={(e) => setText(e.target.value)}
             maxLength={600}
             autoComplete="off"
-            placeholder="Wheel-throwing for beginners in Brooklyn, $45, two Saturdays"
+            placeholder="Life drawing for beginners in Brooklyn, $45, two Saturdays"
             className="min-h-14 flex-1 rounded-full bg-canvas px-6 text-lg text-ink transition-colors duration-150 placeholder:text-ink-faint hover:bg-surface focus-visible:bg-surface"
           />
           <Button type="submit" size="lg" variant="inverse">

@@ -12,16 +12,16 @@ import (
 	"github.com/aalvaropc/commitpool/internal/ai"
 )
 
-const mayaDescription = "I'm Maya Okafor. I teach wheel-throwing for beginners at Maya's studio in Greenpoint, Brooklyn. " +
-	"Two hours, $45 a person, and you take home what you make. The studio costs me $120 a session and I have 6 wheels. " +
+const classDescription = "I'm Iris Calder. I run life drawing for beginners at The Long Room in Red Hook, Brooklyn. " +
+	"Two hours, $45 a person, the room and the model cost me $120 a session, and I have 6 easels. " +
 	"Saturday or Sunday next week, 10 to 12."
 
 func validDraft() string {
 	return `{
-		"title": "Wheel-throwing for beginners",
-		"description": "Learn to center clay and throw your first bowls.",
-		"host_name": "Maya Okafor",
-		"location": "Maya's studio, Greenpoint, Brooklyn",
+		"title": "Life drawing for beginners",
+		"description": "Two hours of short and long poses with a live model, paper and charcoal included. No experience needed.",
+		"host_name": "Iris Calder",
+		"location": "The Long Room, Red Hook, Brooklyn",
 		"timezone": "America/New_York",
 		"duration_min": 120,
 		"price": "45",
@@ -107,8 +107,8 @@ func TestParseDraft_ReadsAValidDraft(t *testing.T) {
 		t.Fatalf("ParseDraft: %v", err)
 	}
 	want := ai.Draft{
-		Title: "Wheel-throwing for beginners", Description: "Learn to center clay and throw your first bowls.",
-		HostName: "Maya Okafor", Location: "Maya's studio, Greenpoint, Brooklyn", Timezone: "America/New_York", DurationMin: 120,
+		Title: "Life drawing for beginners", Description: "Two hours of short and long poses with a live model, paper and charcoal included. No experience needed.",
+		HostName: "Iris Calder", Location: "The Long Room, Red Hook, Brooklyn", Timezone: "America/New_York", DurationMin: 120,
 		Price: "45", VenueCost: "120", Capacity: 6,
 		Dates: []ai.DraftDate{{Date: "2026-11-14", Start: "10:00"}, {Date: "2026-11-15", Start: "10:00"}},
 	}
@@ -158,15 +158,15 @@ func TestDraftPrompt_TreatsTheDescriptionAsDataAndAnchorsDates(t *testing.T) {
 	}
 }
 
-func TestFakeDraft_ReadsMayasDescription(t *testing.T) {
+func TestFakeDraft_ReadsTheLifeDrawingDescription(t *testing.T) {
 	loc, _ := time.LoadLocation("America/New_York")
 	friday := time.Date(2026, 11, 6, 9, 0, 0, 0, loc)
-	got, meta, err := ai.Fake{}.Draft(context.Background(), ai.DraftInput{Text: mayaDescription, Timezone: "America/New_York", Today: friday})
+	got, meta, err := ai.Fake{}.Draft(context.Background(), ai.DraftInput{Text: classDescription, Timezone: "America/New_York", Today: friday})
 	if err != nil {
 		t.Fatalf("Draft: %v", err)
 	}
 	want := ai.Draft{
-		Title: "Wheel-throwing for beginners", HostName: "Maya Okafor", Location: "Maya's studio in Greenpoint, Brooklyn", Timezone: "America/New_York",
+		Title: "Life drawing for beginners", HostName: "Iris Calder", Location: "The Long Room in Red Hook, Brooklyn", Timezone: "America/New_York",
 		DurationMin: 120, Price: "45", VenueCost: "120", Capacity: 6,
 		Dates: []ai.DraftDate{{Date: "2026-11-14", Start: "10:00"}, {Date: "2026-11-15", Start: "10:00"}},
 	}
@@ -196,9 +196,9 @@ func TestFakeDraft_ReadsExplicitDatesTimesAndLimits(t *testing.T) {
 }
 
 func TestFakeDraft_ReadsTypographicApostrophes(t *testing.T) {
-	text := strings.NewReplacer("I'm", "I’m", "Maya's", "Maya’s").Replace(mayaDescription)
+	text := strings.NewReplacer("I'm", "I’m").Replace(classDescription)
 	got, _, _ := ai.Fake{}.Draft(context.Background(), ai.DraftInput{Text: text, Timezone: "UTC", Today: time.Date(2026, 11, 6, 9, 0, 0, 0, time.UTC)})
-	if got.HostName != "Maya Okafor" || got.Location != "Maya’s studio in Greenpoint, Brooklyn" {
+	if got.HostName != "Iris Calder" || got.Location != "The Long Room in Red Hook, Brooklyn" {
 		t.Errorf("host %q, location %q", got.HostName, got.Location)
 	}
 }
@@ -223,7 +223,7 @@ func TestBedrockDraft_SendsTheSchemaAndTheDescriptionAsData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Draft: %v", err)
 	}
-	if got.Title != "Wheel-throwing for beginners" || got.Capacity != 6 {
+	if got.Title != "Life drawing for beginners" || got.Capacity != 6 {
 		t.Errorf("draft = %+v, want the parsed answer", got)
 	}
 	body := m.recorded()[0].body
@@ -250,7 +250,7 @@ func TestBedrockDraft_SendsTheSchemaAndTheDescriptionAsData(t *testing.T) {
 func TestBedrockDraft_RejectsAnAnswerOutsideTheSchema(t *testing.T) {
 	m := newFakeBedrock(t, message(testModel, `{"title":"x"}`, "end_turn"))
 	b := newTestBedrock(t, m, nil)
-	if _, _, err := b.Draft(context.Background(), ai.DraftInput{Text: "pottery", Timezone: "UTC", Today: time.Now()}); err == nil {
+	if _, _, err := b.Draft(context.Background(), ai.DraftInput{Text: "life drawing", Timezone: "UTC", Today: time.Now()}); err == nil {
 		t.Error("Draft accepted an answer missing most fields")
 	}
 }

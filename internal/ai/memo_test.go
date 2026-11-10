@@ -57,7 +57,7 @@ func workshopDates(prefix string) []ai.DateOption {
 
 func priya(prefix string) ai.InterpretInput {
 	return ai.InterpretInput{
-		WorkshopTitle: "Wheel-throwing for beginners",
+		WorkshopTitle: "Life drawing for beginners",
 		Timezone:      "America/New_York",
 		Dates:         workshopDates(prefix),
 		Message:       "Saturday works for me, Sunday I can't.",
@@ -68,7 +68,7 @@ func explainIn(prefix string) ai.ExplainInput {
 	dates := workshopDates(prefix)
 	priya, ben := prefix+"-priya", prefix+"-ben"
 	return ai.ExplainInput{
-		WorkshopTitle: "Wheel-throwing for beginners",
+		WorkshopTitle: "Life drawing for beginners",
 		Dates:         dates,
 		Minimum:       3,
 		Names:         map[string]string{priya: "Priya Raman", ben: "Ben Whitaker"},
@@ -83,7 +83,7 @@ func explainIn(prefix string) ai.ExplainInput {
 }
 
 func suggestIn(question string) ai.SuggestInput {
-	return ai.SuggestInput{WorkshopTitle: "Wheel-throwing for beginners", Kind: "clarify", Name: "Grace Liu", Date: "Sat, Nov 14", Question: question}
+	return ai.SuggestInput{WorkshopTitle: "Life drawing for beginners", Kind: "clarify", Name: "Grace Liu", Date: "Sat, Nov 14", Question: question}
 }
 
 func TestMemo_EveryReadingIsFresh(t *testing.T) {
@@ -143,7 +143,7 @@ func TestMemo_ExplainHitsInANewWorkshopWithTheSamePeople(t *testing.T) {
 
 func TestMemo_EveryFieldOfAnExplanationIsPartOfTheKey(t *testing.T) {
 	edits := map[string]func(*ai.ExplainInput){
-		"title":         func(in *ai.ExplainInput) { in.WorkshopTitle = "Glazing" },
+		"title":         func(in *ai.ExplainInput) { in.WorkshopTitle = "Printmaking" },
 		"minimum":       func(in *ai.ExplainInput) { in.Minimum = 4 },
 		"meets minimum": func(in *ai.ExplainInput) { in.Recommendation.MeetsMinimum = true },
 		"start":         func(in *ai.ExplainInput) { in.Dates[0].StartsAt = in.Dates[0].StartsAt.Add(time.Hour) },
@@ -241,7 +241,7 @@ func TestMemo_DraftHitsTheSameDayOnly(t *testing.T) {
 	ctx := context.Background()
 	ny, _ := time.LoadLocation("America/New_York")
 	morning := time.Date(2026, 11, 9, 8, 0, 0, 0, ny)
-	in := ai.DraftInput{Text: "Pottery for beginners, $45, Saturday 10 to 12.", Timezone: "America/New_York", Today: morning}
+	in := ai.DraftInput{Text: "Life drawing for beginners, $45, Saturday 10 to 12.", Timezone: "America/New_York", Today: morning}
 	first, _, err := m.Draft(ctx, in)
 	if err != nil {
 		t.Fatal(err)
@@ -261,7 +261,7 @@ func TestMemo_ACallerCannotChangeACachedDraft(t *testing.T) {
 	m := ai.NewMemo(&pricedModel{}, ai.MemoSize)
 	ctx := context.Background()
 	ny, _ := time.LoadLocation("America/New_York")
-	in := ai.DraftInput{Text: "Pottery for beginners, $45, Saturday 10 to 12.", Timezone: "America/New_York", Today: time.Date(2026, 11, 9, 8, 0, 0, 0, ny)}
+	in := ai.DraftInput{Text: "Life drawing for beginners, $45, Saturday 10 to 12.", Timezone: "America/New_York", Today: time.Date(2026, 11, 9, 8, 0, 0, 0, ny)}
 	first, _, _ := m.Draft(ctx, in)
 	if len(first.Dates) == 0 {
 		t.Fatalf("draft = %+v, want a date to change", first)

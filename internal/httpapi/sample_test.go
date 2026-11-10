@@ -105,7 +105,7 @@ func TestSample_ReadsAgainstTheDemosNextWeekend(t *testing.T) {
 		t.Fatalf("Interpret called %d times, want 1", model.calls())
 	}
 	in := model.got[0]
-	if in.WorkshopTitle != "Wheel-throwing for beginners" || in.Timezone != "America/New_York" || in.Message != "Saturday works" {
+	if in.WorkshopTitle != "Life drawing for beginners" || in.Timezone != "America/New_York" || in.Message != "Saturday works" {
 		t.Errorf("input = %+v", in)
 	}
 	labels := []string{"Sat, Nov 7, 10 AM–12 PM (New York time)", "Sun, Nov 8, 10 AM–12 PM (New York time)"}
@@ -611,8 +611,8 @@ func TestSample_SignsWithTheConfiguredSecretAcrossRestarts(t *testing.T) {
 }
 
 func TestSample_TheDemoCastsReplyIsReadInContext(t *testing.T) {
-	grace := demo.Maya.People[len(demo.Maya.People)-1]
-	reply := demo.Maya.Replies[0]
+	grace := demo.LifeDrawing.People[len(demo.LifeDrawing.People)-1]
+	reply := demo.LifeDrawing.Replies[0]
 	e := newEnv(t)
 	var alone, inContext sampleJSON
 	e.call(http.MethodPost, samplePath, sampleBody(reply.Message), http.StatusOK, &alone)

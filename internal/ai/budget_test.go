@@ -46,7 +46,7 @@ var budgetStart = time.Date(2026, 11, 9, 9, 0, 0, 0, time.UTC)
 
 func budgetInput() ai.InterpretInput {
 	return ai.InterpretInput{
-		WorkshopTitle: "Wheel-throwing for beginners",
+		WorkshopTitle: "Life drawing for beginners",
 		Timezone:      "America/New_York",
 		Dates:         []ai.DateOption{{ID: "sat", Label: "Sat, Nov 14, 10 AM", StartsAt: budgetStart.Add(5 * 24 * time.Hour)}},
 		Message:       "Saturday works for me.",
@@ -120,7 +120,7 @@ func background(b *ai.Budget) map[string]func() error {
 	return map[string]func() error{
 		"explain": func() error { _, _, err := b.Explain(ctx, ai.ExplainInput{}); return err },
 		"draft": func() error {
-			_, _, err := b.Draft(ctx, ai.DraftInput{Text: "pottery", Timezone: "UTC", Today: budgetStart})
+			_, _, err := b.Draft(ctx, ai.DraftInput{Text: "life drawing", Timezone: "UTC", Today: budgetStart})
 			return err
 		},
 		"suggest": func() error { _, _, err := b.Suggest(ctx, ai.SuggestInput{Kind: "share"}); return err },

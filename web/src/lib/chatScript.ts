@@ -9,10 +9,10 @@ export interface Voice {
   reading: SampleReading
 }
 
-export const HOST = 'Maya Okafor'
+export const HOST = 'Iris Calder'
 export const NEEDED = 3
 export const PRICE = 45
-export const STUDIO = 120
+export const SESSION_COST = 120
 export const CLASS_HOURS = { start: 10, end: 12 }
 export const YOU = 'You'
 
@@ -85,12 +85,12 @@ export function leader(t: Tally): Day {
 }
 
 export function opening(dates: SampleDates): string {
-  return `Wheel-throwing for beginners! Saturday or Sunday, ${dates.sat.hours} (${dates.sat.label} or ${dates.sun.label}). The studio costs me $${STUDIO}, so I need ${NEEDED} of you at $${PRICE} each.`
+  return `Life drawing for beginners! Saturday or Sunday, ${dates.sat.hours} (${dates.sat.label} or ${dates.sun.label}). The room and model cost me $${SESSION_COST}, so I need ${NEEDED} of you at $${PRICE} each.`
 }
 
 export function crowdTally(dates: SampleDates): string {
   const t = tally(CROWD_READS)
-  return `${dates.sat.weekday}: ${t.sat} can come. ${dates.sun.weekday}: ${t.sun}. Maya needs ${NEEDED} on one day, so she needs one more — you could be the third.`
+  return `${dates.sat.weekday}: ${t.sat} can come. ${dates.sun.weekday}: ${t.sun}. Iris needs ${NEEDED} on one day, so she needs one more — you could be the third.`
 }
 
 export interface Outcome {
@@ -106,15 +106,15 @@ export function outcome(you: Counted, dates: SampleDates, unanswered: boolean): 
     const day = dates[key]
     const text =
       you.sat && you.sun
-        ? `You’re counted for both days, so each has ${NEEDED}. On a tie the earlier date wins: ${day.label}. Maya opens reservations.`
-        : `You’re counted for ${day.weekday}: that makes ${counts[key]}, enough for Maya. She opens reservations for ${day.label}.`
+        ? `You’re counted for both days, so each has ${NEEDED}. On a tie the earlier date wins: ${day.label}. Iris opens reservations.`
+        : `You’re counted for ${day.weekday}: that makes ${counts[key]}, enough for Iris. She opens reservations for ${day.label}.`
     return { key, counts, text }
   }
   const why = unanswered ? 'There’s still a question for you, so you aren’t counted yet.' : 'From what you wrote, you aren’t counted for either day.'
   return {
     key: null,
     counts,
-    text: `${why} ${dates.sat.weekday} has ${counts.sat} and ${dates.sun.weekday} has ${counts.sun}: Maya still needs one more, so nothing opens and nobody pays.`,
+    text: `${why} ${dates.sat.weekday} has ${counts.sat} and ${dates.sun.weekday} has ${counts.sun}: Iris still needs one more, so nothing opens and nobody pays.`,
   }
 }
 

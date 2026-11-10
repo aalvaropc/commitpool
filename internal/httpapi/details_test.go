@@ -7,22 +7,22 @@ import (
 )
 
 func withDetails(body map[string]any) {
-	body["host_name"] = "  Maya Okafor "
-	body["location"] = "Maya's studio · Greenpoint, Brooklyn"
+	body["host_name"] = "  Iris Calder "
+	body["location"] = "The Long Room · Red Hook, Brooklyn"
 	body["venue_cost"] = "120.00"
 	body["price"] = "45.00"
 }
 
-func TestWorkshops_CreateKeepsHostPlaceAndStudioCost(t *testing.T) {
+func TestWorkshops_CreateKeepsHostPlaceAndSessionCost(t *testing.T) {
 	e := newEnv(t)
 	h := e.createWorkshop(withDetails)
 
 	for name, w := range map[string]workshopJSON{"created": h.created.Workshop, "owner view": e.owner(h).Workshop} {
-		if w.HostName != "Maya Okafor" || w.Location != "Maya's studio · Greenpoint, Brooklyn" {
+		if w.HostName != "Iris Calder" || w.Location != "The Long Room · Red Hook, Brooklyn" {
 			t.Errorf("%s host and place = %q, %q", name, w.HostName, w.Location)
 		}
 		if w.VenueCost == nil || *w.VenueCost != (moneyJSON{Minor: 12000, Currency: "USD", Value: "120.00"}) {
-			t.Errorf("%s studio cost = %+v, want 120.00 USD", name, w.VenueCost)
+			t.Errorf("%s session cost = %+v, want 120.00 USD", name, w.VenueCost)
 		}
 		if w.BreakEvenSeats != 3 {
 			t.Errorf("%s break-even seats = %d, want 3", name, w.BreakEvenSeats)
@@ -33,12 +33,12 @@ func TestWorkshops_CreateKeepsHostPlaceAndStudioCost(t *testing.T) {
 		Workshop workshopJSON `json:"workshop"`
 	}
 	e.call(http.MethodGet, h.sharePath, nil, http.StatusOK, &public)
-	if public.Workshop.HostName != "Maya Okafor" || public.Workshop.Location != "Maya's studio · Greenpoint, Brooklyn" {
+	if public.Workshop.HostName != "Iris Calder" || public.Workshop.Location != "The Long Room · Red Hook, Brooklyn" {
 		t.Errorf("public host and place = %q, %q", public.Workshop.HostName, public.Workshop.Location)
 	}
 }
 
-func TestWorkshops_StudioCostStaysWithTheOrganizer(t *testing.T) {
+func TestWorkshops_SessionCostStaysWithTheOrganizer(t *testing.T) {
 	e := newEnv(t)
 	h := e.createWorkshop(withDetails)
 	ana := e.join(h, "Ana")
@@ -65,7 +65,7 @@ func TestWorkshops_DetailsAreOptional(t *testing.T) {
 	}
 }
 
-func TestMCP_WorkshopCarriesHostPlaceAndStudioCost(t *testing.T) {
+func TestMCP_WorkshopCarriesHostPlaceAndSessionCost(t *testing.T) {
 	e := newEnv(t)
 	cs := e.mcpSession()
 	body := workshopRequest()
@@ -75,9 +75,9 @@ func TestMCP_WorkshopCarriesHostPlaceAndStudioCost(t *testing.T) {
 	}
 	var created mcpCreated
 	e.tool(cs, "create_workshop", map[string]any{
-		"title": "Wheel-throwing for beginners", "duration_min": body["duration_min"], "timezone": body["timezone"],
+		"title": "Life drawing for beginners", "duration_min": body["duration_min"], "timezone": body["timezone"],
 		"minimum": 3, "capacity": 6, "price": "45.00", "currency": "USD", "date_starts": starts,
-		"host_name": "Maya Okafor", "location": "Maya's studio · Greenpoint, Brooklyn", "venue_cost": "120.00",
+		"host_name": "Iris Calder", "location": "The Long Room · Red Hook, Brooklyn", "venue_cost": "120.00",
 	}, &created)
 
 	var workshop struct {
@@ -85,7 +85,7 @@ func TestMCP_WorkshopCarriesHostPlaceAndStudioCost(t *testing.T) {
 		Location string `json:"location"`
 	}
 	e.tool(cs, "get_workshop", map[string]any{"share_link": created.ShareLink}, &workshop)
-	if workshop.HostName != "Maya Okafor" || workshop.Location != "Maya's studio · Greenpoint, Brooklyn" {
+	if workshop.HostName != "Iris Calder" || workshop.Location != "The Long Room · Red Hook, Brooklyn" {
 		t.Errorf("get_workshop host and place = %q, %q", workshop.HostName, workshop.Location)
 	}
 
@@ -96,8 +96,8 @@ func TestMCP_WorkshopCarriesHostPlaceAndStudioCost(t *testing.T) {
 		BreakEvenSeats int    `json:"break_even_seats"`
 	}
 	e.tool(cs, "get_status", map[string]any{"owner_link": created.OwnerLink}, &status)
-	if status.HostName != "Maya Okafor" || status.VenueCost != "120.00 USD" || status.BreakEvenSeats != 3 {
-		t.Errorf("get_status = %+v, want Maya, 120.00 USD and 3 seats to break even", status)
+	if status.HostName != "Iris Calder" || status.VenueCost != "120.00 USD" || status.BreakEvenSeats != 3 {
+		t.Errorf("get_status = %+v, want Iris, 120.00 USD and 3 seats to break even", status)
 	}
 }
 

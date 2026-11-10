@@ -16,9 +16,9 @@ func event() ics.Event {
 		Stamp:       time.Date(2026, 11, 6, 14, 30, 0, 0, time.UTC),
 		Start:       time.Date(2026, 11, 14, 10, 0, 0, 0, mustZone("America/New_York")),
 		End:         time.Date(2026, 11, 14, 12, 0, 0, 0, mustZone("America/New_York")),
-		Summary:     "Wheel-throwing for beginners",
-		Description: "With Maya Okafor.\nInvite: https://example.test/w/abc",
-		Location:    "Maya's studio · Greenpoint, Brooklyn",
+		Summary:     "Life drawing for beginners",
+		Description: "With Iris Calder.\nInvite: https://example.test/w/abc",
+		Location:    "The Long Room · Red Hook, Brooklyn",
 		URL:         "https://example.test/w/abc",
 		Status:      ics.Confirmed,
 	}
@@ -54,9 +54,9 @@ func TestCalendar_IsAValidPublishedEvent(t *testing.T) {
 		"DTSTAMP:20261106T143000Z",
 		"DTSTART:20261114T150000Z",
 		"DTEND:20261114T170000Z",
-		"SUMMARY:Wheel-throwing for beginners",
-		`DESCRIPTION:With Maya Okafor.\nInvite: https://example.test/w/abc`,
-		"LOCATION:Maya's studio · Greenpoint\\, Brooklyn",
+		"SUMMARY:Life drawing for beginners",
+		`DESCRIPTION:With Iris Calder.\nInvite: https://example.test/w/abc`,
+		"LOCATION:The Long Room · Red Hook\\, Brooklyn",
 		"URL:https://example.test/w/abc",
 		"STATUS:CONFIRMED",
 		"END:VEVENT",
@@ -69,10 +69,10 @@ func TestCalendar_IsAValidPublishedEvent(t *testing.T) {
 
 func TestCalendar_EscapesText(t *testing.T) {
 	e := event()
-	e.Summary = `Clay; glaze, fire \ repeat`
+	e.Summary = `Charcoal; smudge, erase \ repeat`
 	e.Description = "Line one\r\nLine two\nLine three"
 	got := unfold(string(ics.Calendar(e)))
-	if !strings.Contains(got, `SUMMARY:Clay\; glaze\, fire \\ repeat`+"\r\n") {
+	if !strings.Contains(got, `SUMMARY:Charcoal\; smudge\, erase \\ repeat`+"\r\n") {
 		t.Errorf("summary not escaped:\n%s", got)
 	}
 	if !strings.Contains(got, `DESCRIPTION:Line one\nLine two\nLine three`+"\r\n") {
@@ -120,8 +120,8 @@ func TestCalendar_StatusFollowsTheWorkshop(t *testing.T) {
 
 func TestCalendar_DropsControlCharacters(t *testing.T) {
 	e := event()
-	e.Summary = "Clay\x00\x07 night\tout"
-	if got := unfold(string(ics.Calendar(e))); !strings.Contains(got, "SUMMARY:Clay night\tout\r\n") {
+	e.Summary = "Charcoal\x00\x07 night\tout"
+	if got := unfold(string(ics.Calendar(e))); !strings.Contains(got, "SUMMARY:Charcoal night\tout\r\n") {
 		t.Errorf("summary:\n%s", got)
 	}
 }

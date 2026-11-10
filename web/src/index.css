@@ -39,6 +39,15 @@
   --color-attention: #f4bd4f;
   --color-attention-wash: #2b2210;
 
+  --color-paper: #f4ece0;
+  --color-paper-deep: #ebe1d2;
+  --color-paper-rule: #d6c8b4;
+  --color-charcoal: #14100d;
+  --color-graphite: #5b4a3d;
+  --color-graphite-soft: #6b5a4c;
+  --color-ember-ink: #a83c16;
+  --color-composer: #241d18;
+
   --color-avatar-amber: #f4bd4f;
   --color-avatar-amber-ink: #1a0d07;
   --color-avatar-sky: #8aa4ff;
@@ -61,6 +70,16 @@
   --text-head--line-height: 1;
   --text-lead: clamp(1.25rem, 1.1rem + 0.6vw, 1.5rem);
   --text-lead--line-height: 1.3;
+  --text-hero: clamp(3.25rem, 13.6vw, 6rem);
+  --text-hero--line-height: 0.9;
+  --text-section: clamp(2.25rem, 6.4vw, 4rem);
+  --text-section--line-height: 0.95;
+  --text-intro: clamp(1.125rem, 1rem + 0.4vw, 1.3125rem);
+  --text-intro--line-height: 1.4;
+  --text-landing-lead: clamp(1.1875rem, 1.05rem + 0.6vw, 1.5rem);
+  --text-landing-lead--line-height: 1.32;
+
+  --radius-sheet: 1.75rem;
 
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -85,6 +104,56 @@
   font-stretch: 75%;
   letter-spacing: -0.02em;
   text-transform: uppercase;
+}
+
+@utility wrap {
+  width: 100%;
+  max-width: calc(80rem + 2 * var(--gutter));
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+@utility section-pad {
+  padding-block: clamp(4rem, 9vw, 7.5rem);
+}
+
+@utility grain {
+  position: relative;
+  isolation: isolate;
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    border-radius: inherit;
+    opacity: 0.5;
+    mix-blend-mode: multiply;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.35  0 0 0 0 0.28  0 0 0 0 0.2  0 0 0 0.09 0'/></filter><rect width='220' height='220' filter='url(%23n)'/></svg>");
+  }
+}
+
+@utility paper {
+  background-color: var(--color-paper);
+  color: var(--color-charcoal);
+  & :focus-visible {
+    outline-color: var(--color-charcoal);
+  }
+  & ::selection {
+    background: var(--color-charcoal);
+    color: var(--color-paper);
+  }
+}
+
+@utility kiln {
+  color: var(--color-ink);
+  & :focus-visible {
+    outline-color: var(--color-brand);
+  }
+  & ::selection {
+    background: var(--color-brand);
+    color: var(--color-on-brand);
+  }
 }
 
 @utility rise {
@@ -115,6 +184,7 @@
 
 @layer base {
   :root {
+    --gutter: clamp(1rem, 4.2vw, 4rem);
     color-scheme: dark;
     accent-color: var(--color-brand);
     scrollbar-color: var(--color-line-strong) transparent;
@@ -166,6 +236,40 @@
   ::placeholder {
     color: var(--color-ink-faint);
     opacity: 1;
+  }
+}
+
+@keyframes sketch {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes canvas-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .sketch-line {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+    animation: sketch 900ms var(--ease-out) forwards;
+    animation-delay: calc(120ms + var(--i, 0) * 38ms);
+  }
+
+  @supports (animation-timeline: view()) {
+    .easel-canvas {
+      animation: canvas-up linear both;
+      animation-timeline: view();
+      animation-range: entry calc(20% + var(--i, 0) * 12%) cover calc(38% + var(--i, 0) * 8%);
+    }
   }
 }
 

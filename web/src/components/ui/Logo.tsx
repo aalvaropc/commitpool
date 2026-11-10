@@ -8,10 +8,10 @@ export function LogoMark({ size = 28, className = '' }: { size?: number; classNa
   )
 }
 
-export function Logo({ className = '' }: { className?: string }) {
+export function Logo({ className = '', size = 'text-xl', mark = 28 }: { className?: string; size?: string; mark?: number }) {
   return (
-    <span className={`inline-flex items-center gap-2 font-display text-xl font-extrabold tracking-tight text-ink ${className}`}>
-      <LogoMark />
+    <span className={`inline-flex items-center gap-2 font-display ${size} font-extrabold tracking-tight text-ink ${className}`}>
+      <LogoMark size={mark} />
       CommitPool
     </span>
   )

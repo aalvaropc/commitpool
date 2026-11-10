@@ -40,8 +40,8 @@ export function Dots() {
 
 export function Mark({ icon }: { icon: IconName }) {
   return (
-    <span aria-hidden="true" className="inline-grid size-10 shrink-0 place-items-center rounded-full bg-brand-wash text-brand">
-      <Icon name={icon} size={20} />
+    <span aria-hidden="true" className="inline-grid size-8 shrink-0 place-items-center rounded-full bg-brand-wash text-brand">
+      <Icon name={icon} size={17} />
     </span>
   )
 }
@@ -54,13 +54,14 @@ export function Row({ side = 'left', hidden = false, children }: { side?: 'left'
   )
 }
 
-const bubble = 'rounded-3xl px-4 py-2.5 [overflow-wrap:anywhere]'
+const bubble = 'rounded-[1.25rem] px-3.5 py-2.5 text-[0.9375rem] leading-[1.42] [overflow-wrap:anywhere]'
+const signature = 'px-0.5 text-[0.8125rem] text-ink-faint'
 
 export function Typing({ name }: { name: string }) {
   return (
     <Row hidden>
-      <Avatar name={name} />
-      <span className="rounded-3xl rounded-bl-md bg-surface-muted px-4 py-3">
+      <Avatar name={name} size="sm" />
+      <span className="rounded-[1.25rem] rounded-bl-[0.35rem] bg-surface-muted px-4 py-3">
         <Dots />
       </span>
     </Row>
@@ -70,13 +71,13 @@ export function Typing({ name }: { name: string }) {
 export function Said({ name, text, role }: { name: string; text: string; role?: string }) {
   return (
     <Row>
-      <Avatar name={name} />
+      <Avatar name={name} size="sm" />
       <div className="flex min-w-0 flex-col gap-1">
-        <span className="px-1 text-sm text-ink-soft">
+        <span className={signature}>
           {name}
-          {role && <span className="text-brand"> · {role}</span>}
+          {role && <span className="font-semibold text-brand"> · {role}</span>}
         </span>
-        <p className={`max-w-[28rem] rounded-bl-md bg-surface-muted ${bubble}`}>{text}</p>
+        <p className={`max-w-[28rem] rounded-bl-[0.35rem] bg-surface-muted ${bubble}`}>{text}</p>
       </div>
     </Row>
   )
@@ -85,7 +86,7 @@ export function Said({ name, text, role }: { name: string; text: string; role?: 
 export function SaidByYou({ text }: { text: string }) {
   return (
     <Row side="right">
-      <p className={`max-w-[80%] rounded-br-md bg-brand font-medium text-on-brand ${bubble}`}>
+      <p className={`max-w-[80%] rounded-br-[0.35rem] bg-brand font-medium text-on-brand ${bubble}`}>
         <span className="sr-only">You: </span>
         {text}
       </p>
@@ -94,10 +95,11 @@ export function SaidByYou({ text }: { text: string }) {
 }
 
 export function Reading({ reading, by, live = false }: { reading: SampleReading | null; by: Reader; live?: boolean }) {
+  const indent = live ? 'justify-end pl-10' : 'pl-[2.625rem]'
   if (reading === null) {
     if (!live) return null
     return (
-      <div className="rise flex items-center gap-2 pl-[3.125rem] text-sm text-ink-soft">
+      <div className={`rise flex items-center gap-2 text-sm text-ink-soft ${indent}`}>
         <Icon name="spark" size={16} className="text-brand" />
         Claude is reading…
         <Dots />
@@ -105,15 +107,10 @@ export function Reading({ reading, by, live = false }: { reading: SampleReading 
     )
   }
   return (
-    <div className="rise flex flex-col gap-1.5 pl-[3.125rem]">
-      <span className="flex items-center gap-1.5 text-sm text-ink-soft">
-        <Icon name={by === 'claude' ? 'spark' : by === 'prepared' ? 'quote' : 'check'} size={16} className={by === 'claude' ? 'text-brand' : undefined} />
-        {READ_LABEL[by]}
-      </span>
-      <span className="flex flex-wrap items-center gap-1.5">
-        <VerdictChip verdict={reading.sat}>{`Sat · ${dayWords(reading, 'sat')}`}</VerdictChip>
-        <VerdictChip verdict={reading.sun}>{`Sun · ${dayWords(reading, 'sun')}`}</VerdictChip>
-      </span>
+    <div className={`rise flex flex-wrap items-center gap-1.5 ${indent}`}>
+      <span className={`mr-0.5 text-xs ${by === 'claude' ? 'font-semibold text-brand' : 'text-ink-faint'}`}>{READ_LABEL[by]}</span>
+      <VerdictChip verdict={reading.sat} size="sm">{`Sat · ${dayWords(reading, 'sat')}`}</VerdictChip>
+      <VerdictChip verdict={reading.sun} size="sm">{`Sun · ${dayWords(reading, 'sun')}`}</VerdictChip>
     </div>
   )
 }
@@ -123,10 +120,10 @@ function Signed({ name, role, icon, wash, children }: { name: string; role: stri
     <Row>
       <Mark icon={icon} />
       <div className="flex min-w-0 flex-col gap-1">
-        <span className="px-1 text-sm text-ink-soft">
-          {name} <span className="text-brand">· {role}</span>
+        <span className={signature}>
+          {name} <span className="font-semibold text-brand">· {role}</span>
         </span>
-        <p className={`max-w-[28rem] rounded-bl-md ${wash ? 'bg-brand-wash' : 'bg-surface-muted'} ${bubble}`}>{children}</p>
+        <p className={`max-w-[28rem] rounded-bl-[0.35rem] ${wash ? 'bg-brand-wash' : 'bg-surface-muted'} ${bubble}`}>{children}</p>
       </div>
     </Row>
   )

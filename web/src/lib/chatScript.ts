@@ -11,6 +11,7 @@ export interface Voice {
 
 export const HOST = 'Iris Calder'
 export const NEEDED = 3
+export const SPOTS = 6
 export const PRICE = 45
 export const SESSION_COST = 120
 export const CLASS_HOURS = { start: 10, end: 12 }

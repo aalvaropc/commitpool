@@ -226,6 +226,17 @@ export interface CreateWorkshopRequest {
   dates: { starts_at: string; ends_at: string }[]
 }
 
+export interface JudgeLogin {
+  email: string
+  password: string
+}
+
+export interface DemoInfo {
+  workshops: boolean
+  video_url?: string
+  judge_login?: JudgeLogin
+}
+
 export interface DemoWorkshop {
   owner_url: string
   share_url: string
@@ -340,7 +351,7 @@ const seg = encodeURIComponent
 
 export const api = {
   createWorkshop: (req: CreateWorkshopRequest) => request<CreateWorkshopResponse>('POST', '/api/v1/workshops', req),
-  demoInfo: () => request<{ workshops: boolean }>('GET', '/api/v1/demo'),
+  demoInfo: () => request<DemoInfo>('GET', '/api/v1/demo'),
   createDemo: () => request<DemoWorkshop>('POST', '/api/v1/demo/workshops'),
   draftWorkshop: (text: string, timezone: string) => request<DraftResponse>('POST', '/api/v1/workshop-drafts', { text, timezone }),
 

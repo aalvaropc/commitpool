@@ -1,10 +1,9 @@
 import type { ReactNode } from 'react'
+import { NEEDED, PRICE, SESSION_COST } from '../../lib/chatScript'
 import { Icon, type IconName } from '../ui'
 import { Easels } from './Drawings'
 import { PaperSection, SectionHead } from './Section'
 
-const PRICE = 45
-const NEEDED = 3
 const FEE = { basisPoints: 349, fixedCents: 49 }
 
 function money(c: number): string {
@@ -53,7 +52,7 @@ export default function MoneyFlow() {
             Nobody pays for a class that doesn’t happen. Iris is paid when it starts.
           </SectionHead>
           <figure className="m-0 w-full max-w-[33.75rem] lg:col-span-6 lg:justify-self-end">
-            <Easels reserved={['Priya', 'Ben', 'Grace']} open={3} className="block h-auto w-full" />
+            <Easels reserved={['Priya', 'Ben', 'Grace']} open={3} className="w-full" />
           </figure>
         </div>
         <ol aria-label="Where the money goes" className="grid border-t-2 border-charcoal md:grid-cols-4">
@@ -75,7 +74,7 @@ export default function MoneyFlow() {
             {money(m.collected)} collected <span className="font-medium text-ink-faint">·</span> {money(m.fees)} PayPal fees <span className="font-medium text-ink-faint">·</span>{' '}
             <b className="font-extrabold text-paid">{money(m.net)} net</b>
           </p>
-          <p className="text-[0.9375rem] text-ink-soft">Covers the $120 room and model, after PayPal’s 3.49% + $0.49 on each charge.</p>
+          <p className="text-[0.9375rem] text-ink-soft">Covers the ${SESSION_COST} room and model, after PayPal’s 3.49% + $0.49 on each charge.</p>
         </div>
       </div>
     </PaperSection>

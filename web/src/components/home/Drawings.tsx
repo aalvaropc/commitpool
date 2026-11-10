@@ -98,43 +98,46 @@ const canvasMarks = ['M40 40c-6 8-4 16 2 22s2 14-4 18', 'M126 44c8 2 14 10 10 20
 
 export function Easels({ reserved, open, className = '' }: { reserved: string[]; open: number; className?: string }) {
   const label = `${reserved.length + open} easels; ${reserved.length} hold a canvas marked in ember for ${reserved.join(', ').replace(/, ([^,]*)$/, ' and $1')}, ${open} are empty`
+  const empty = easelX.slice(reserved.length, reserved.length + open)
   return (
-    <svg viewBox="0 0 560 150" role="img" aria-label={label} className={className}>
-      <g fill="none" stroke={charcoal} strokeLinecap="round" strokeLinejoin="round">
-        {easelX.map((x) => (
-          <g key={x} transform={`translate(${x} 0)`}>
-            <path d="M40 6L14 120M40 6L66 120" strokeWidth="2.2" />
-            <path d="M40 4V124" strokeWidth="1.4" opacity="0.6" />
-            <path d="M8 86h64" strokeWidth="2.4" />
-            <path d="M10 89h60" strokeWidth="1" opacity="0.4" />
-            <path d="M24 108h32" strokeWidth="1.4" />
+    <div role="img" aria-label={label} className={className}>
+      <svg viewBox="-6 0 552 126" aria-hidden="true" focusable="false" className="block h-auto w-full">
+        <g fill="none" stroke={charcoal} strokeLinecap="round" strokeLinejoin="round">
+          {easelX.map((x) => (
+            <g key={x} transform={`translate(${x} 0)`}>
+              <path d="M40 6L14 120M40 6L66 120" strokeWidth="2.2" />
+              <path d="M40 4V124" strokeWidth="1.4" opacity="0.6" />
+              <path d="M8 86h64" strokeWidth="2.4" />
+              <path d="M10 89h60" strokeWidth="1" opacity="0.4" />
+              <path d="M24 108h32" strokeWidth="1.4" />
+            </g>
+          ))}
+        </g>
+        {reserved.map((name, i) => (
+          <g key={name} className="easel-canvas" style={{ '--i': i } as CSSProperties}>
+            <rect x={easelX[i] + 17} y="30" width="46" height="56" rx="2" fill={ember} />
+            <path d={canvasMarks[i % canvasMarks.length]} transform={`translate(${easelX[i] - easelX[i % canvasMarks.length]} 0)`} stroke="var(--color-on-brand)" strokeWidth="1.8" fill="none" strokeLinecap="round" />
           </g>
         ))}
-      </g>
-      {reserved.map((name, i) => (
-        <g key={name} className="easel-canvas" style={{ '--i': i } as CSSProperties}>
-          <rect x={easelX[i] + 17} y="30" width="46" height="56" rx="2" fill={ember} />
-          <path d={canvasMarks[i % canvasMarks.length]} transform={`translate(${easelX[i] - easelX[i % canvasMarks.length]} 0)`} stroke="var(--color-on-brand)" strokeWidth="1.8" fill="none" strokeLinecap="round" />
+        <g fill="none" stroke={graphite} strokeWidth="1.6" strokeDasharray="4 5">
+          {empty.map((x) => (
+            <rect key={x} x={x + 17} y="30" width="46" height="56" rx="2" />
+          ))}
         </g>
-      ))}
-      <g fill="none" stroke={graphite} strokeWidth="1.6" strokeDasharray="4 5">
-        {easelX.slice(reserved.length, reserved.length + open).map((x) => (
-          <rect key={x} x={x + 17} y="30" width="46" height="56" rx="2" />
-        ))}
-      </g>
-      <g fontFamily="Bricolage Grotesque, sans-serif" fontSize="13" textAnchor="middle">
-        {reserved.map((name, i) => (
-          <text key={name} x={easelX[i] + 40} y="144" fill={charcoal} fontWeight="600">
+      </svg>
+      <div aria-hidden="true" className="mt-1.5 grid grid-cols-6 text-center text-[0.8125rem] leading-tight">
+        {reserved.map((name) => (
+          <span key={name} className="font-semibold text-charcoal">
             {name}
-          </text>
+          </span>
         ))}
-        {easelX.slice(reserved.length, reserved.length + open).map((x) => (
-          <text key={x} x={x + 40} y="144" fill="var(--color-graphite)" fontWeight="500">
+        {empty.map((x) => (
+          <span key={x} className="font-medium text-graphite">
             open
-          </text>
+          </span>
         ))}
-      </g>
-    </svg>
+      </div>
+    </div>
   )
 }
 

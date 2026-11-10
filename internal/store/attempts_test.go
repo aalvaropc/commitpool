@@ -290,6 +290,88 @@ func TestUpdateAttempt_NilIdentityColumnsDoNotClearStoredIDs(t *testing.T) {
 	}
 }
 
+func TestAttemptFees_WrittenOnceAndNeverCleared(t *testing.T) {
+	ctx := context.Background()
+	s := storetest.New(t)
+	a, err := s.CreateAttempt(ctx, newEnrollment(t, s).ID, 1000, "USD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantFees := func(when string, fee, net int64) {
+		t.Helper()
+		got, err := s.AttemptByID(ctx, a.ID)
+		if err != nil || got == nil {
+			t.Fatalf("AttemptByID = %+v, %v", got, err)
+		}
+		if got.CaptureFeeMinor == nil || *got.CaptureFeeMinor != fee || got.CaptureNetMinor == nil || *got.CaptureNetMinor != net {
+			t.Errorf("%s: fee %v, net %v; want %d and %d", when, deref(got.CaptureFeeMinor), deref(got.CaptureNetMinor), fee, net)
+		}
+	}
+
+	_, err = s.UpdateAttemptFunc(ctx, a.ID, func(row *store.AttemptRow) error {
+		row.CaptureID, row.CaptureStatus = ptr("CAPTURE-1"), ptr("COMPLETED")
+		row.CaptureFeeMinor, row.CaptureNetMinor = ptr(int64(84)), ptr(int64(916))
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("UpdateAttemptFunc recording the capture: %v", err)
+	}
+	wantFees("after the capture", 84, 916)
+
+	saved, err := s.UpdateAttemptFunc(ctx, a.ID, func(row *store.AttemptRow) error {
+		row.CaptureStatus = ptr("REFUNDED")
+		row.CaptureReason = nil
+		row.CaptureFeeMinor, row.CaptureNetMinor = nil, nil
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("UpdateAttemptFunc applying a REFUNDED capture: %v", err)
+	}
+	if saved.CaptureFeeMinor == nil || *saved.CaptureFeeMinor != 84 || saved.CaptureStatus == nil || *saved.CaptureStatus != "REFUNDED" {
+		t.Errorf("returned row = fee %v, status %v; want the fee kept beside REFUNDED", deref(saved.CaptureFeeMinor), deref(saved.CaptureStatus))
+	}
+	wantFees("after a REFUNDED apply that carried no fees", 84, 916)
+
+	stale := a
+	stale.RefundStatus = ptr("COMPLETED")
+	if err := s.UpdateAttempt(ctx, stale); err != nil {
+		t.Fatalf("UpdateAttempt from a row read before the capture: %v", err)
+	}
+	wantFees("after a stale update", 84, 916)
+
+	if _, err := s.UpdateAttemptFunc(ctx, a.ID, func(row *store.AttemptRow) error {
+		row.CaptureFeeMinor, row.CaptureNetMinor = ptr(int64(1)), ptr(int64(999))
+		return nil
+	}); err != nil {
+		t.Fatalf("UpdateAttemptFunc with other fees: %v", err)
+	}
+	wantFees("after an update carrying other fees", 84, 916)
+}
+
+func TestAttemptFees_RefusesANegativeNetOrHalfAPair(t *testing.T) {
+	ctx := context.Background()
+	s := storetest.New(t)
+	a, err := s.CreateAttempt(ctx, newEnrollment(t, s).ID, 1000, "USD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, fees := range map[string][2]*int64{
+		"negative net": {ptr(int64(1100)), ptr(int64(-100))},
+		"fee alone":    {ptr(int64(84)), nil},
+		"net alone":    {nil, ptr(int64(916))},
+	} {
+		row := a
+		row.CaptureFeeMinor, row.CaptureNetMinor = fees[0], fees[1]
+		if err := s.UpdateAttempt(ctx, row); err == nil {
+			t.Errorf("%s: UpdateAttempt stored it, want the constraint to refuse it", name)
+		}
+	}
+	got, _ := s.AttemptByID(ctx, a.ID)
+	if got.CaptureFeeMinor != nil || got.CaptureNetMinor != nil {
+		t.Errorf("fees = %v, %v after refused updates, want none", deref(got.CaptureFeeMinor), deref(got.CaptureNetMinor))
+	}
+}
+
 func TestUpdateAttemptFunc_ConcurrentUpdatesBothPersist(t *testing.T) {
 	ctx := context.Background()
 	s := storetest.New(t)
@@ -802,4 +884,11 @@ func TestAttemptStatuses_SpelledAsPayPalSpellsThem(t *testing.T) {
 	if store.OrderExpired != paypal.StatusExpired {
 		t.Errorf("OrderExpired = %q, want the word PayPal uses for a lapsed authorization, %q", store.OrderExpired, paypal.StatusExpired)
 	}
+}
+
+func deref[T any](p *T) any {
+	if p == nil {
+		return nil
+	}
+	return *p
 }

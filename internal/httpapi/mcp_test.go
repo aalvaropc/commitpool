@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/aalvaropc/commitpool/internal/httpapi"
 )
 
 func (e *env) mcpSession() *mcp.ClientSession {
@@ -158,11 +160,11 @@ func TestMCP_NoMoneyMovingTools(t *testing.T) {
 	}
 	slices.Sort(names)
 	want := []string{"confirm_open_payments", "create_workshop", "get_checkout_link", "get_my_status", "get_status",
-		"get_workshop", "join_workshop", "preview_open_payments", "submit_availability"}
+		"get_workshop", "join_workshop", "preview_open_payments", "submit_availability", "verify_with_paypal"}
 	if !slices.Equal(names, want) {
 		t.Errorf("tools = %v, want %v", names, want)
 	}
-	for _, name := range []string{"get_workshop", "get_my_status", "get_status"} {
+	for _, name := range []string{"get_workshop", "get_my_status", "get_status", "verify_with_paypal"} {
 		if !readOnly[name] {
 			t.Errorf("tool %q is not annotated read-only", name)
 		}
@@ -430,5 +432,68 @@ func TestMCP_BatchRequestsRefused(t *testing.T) {
 	}
 	if n != 0 {
 		t.Fatalf("workshops created by one rate-limited batch = %d, want 0", n)
+	}
+}
+
+type mcpVerify struct {
+	Summary  string `json:"summary"`
+	Records  int    `json:"records"`
+	Matching int    `json:"matching"`
+	Seats    []struct {
+		Name   string `json:"name"`
+		Checks []struct {
+			Resource   string `json:"resource"`
+			CommitPool string `json:"commitpool"`
+			PayPal     string `json:"paypal"`
+			Match      bool   `json:"match"`
+			DebugID    string `json:"debug_id"`
+		} `json:"checks"`
+	} `json:"seats"`
+	Next string `json:"next"`
+}
+
+func TestMCP_VerifyWithPayPalOnlyReads(t *testing.T) {
+	e := newEnv(t)
+	cs := e.mcpSession()
+	h, p, ps := e.fundingWorkshop()
+	ana, _ := e.paidSeat(h, ps[0], p.ID)
+	before := e.paymentSnapshot(ana.EnrollmentID)
+
+	var out mcpVerify
+	res := e.tool(cs, "verify_with_paypal", map[string]any{"owner_link": h.created.OwnerURL}, &out)
+
+	if res.IsError {
+		t.Fatalf("verify_with_paypal = %s, want a result", resultText(res))
+	}
+	if out.Summary != "3 of 3 records match PayPal." || out.Records != 3 || out.Matching != 3 || len(out.Seats) != 1 || out.Seats[0].Name != "Ana" {
+		t.Fatalf("verify_with_paypal = %+v, want Ana's three records matching", out)
+	}
+	for _, c := range out.Seats[0].Checks {
+		if !c.Match || c.CommitPool != c.PayPal {
+			t.Errorf("check %+v, want CommitPool and PayPal to agree", c)
+		}
+	}
+	if !strings.Contains(out.Next, "Nothing was changed") {
+		t.Errorf("next = %q, want the assistant told nothing was changed", out.Next)
+	}
+	e.wantUnchanged(before, ana.EnrollmentID)
+
+	e.wantToolError(e.tool(cs, "verify_with_paypal", map[string]any{"owner_link": h.created.OwnerURL}, nil), "Try again in 30 seconds")
+	e.wantToolError(e.tool(cs, "verify_with_paypal", map[string]any{"owner_link": h.created.ShareURL}, nil), "not a CommitPool owner link")
+}
+
+func TestMCP_VerifyWithPayPalSaysHowManySeatsWaited(t *testing.T) {
+	httpapi.SetVerifySeats(t, 1)
+	e := newEnv(t)
+	cs := e.mcpSession()
+	h, p, ps := e.fundingWorkshop()
+	e.checkout(ps[0], p.ID)
+	e.checkout(ps[1], p.ID)
+
+	var out mcpVerify
+	e.tool(cs, "verify_with_paypal", map[string]any{"owner_link": h.created.OwnerURL}, &out)
+
+	if out.Summary != "1 of 1 record matches PayPal. 1 more seat was not checked this time." {
+		t.Errorf("summary = %q, want one seat checked and one left", out.Summary)
 	}
 }

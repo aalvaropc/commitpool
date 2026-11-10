@@ -92,6 +92,8 @@ export interface Payment {
   capture_status: string | null
   capture_issue: string | null
   refund_status: string | null
+  fee?: Money
+  net?: Money
 }
 
 export interface Enrollment {
@@ -293,6 +295,29 @@ export interface ApprovalView {
   approve_url: string
 }
 
+export type VerifyResource = 'order' | 'authorization' | 'capture' | 'refund'
+
+export interface VerifyCheck {
+  resource: VerifyResource
+  id: string
+  local: string
+  paypal: string
+  match: boolean
+  debug_id?: string
+}
+
+export interface VerifySeat {
+  enrollment_id: string
+  seat: string
+  checks: VerifyCheck[]
+}
+
+export interface VerifyResult {
+  checked_at: string
+  summary: { records: number; matching: number; seats: number; skipped: number }
+  seats: VerifySeat[]
+}
+
 export class ApiError extends Error {
   readonly status: number
   readonly code: string
@@ -364,6 +389,7 @@ export const api = {
     request<{ enrollment: Enrollment }>('POST', `/api/v1/owner/${seg(token)}/operator/retry-refund`, { enrollment_id: enrollmentId }),
   operatorClearFlag: (token: string, enrollmentId?: string) =>
     request<{ workshop: Workshop }>('POST', `/api/v1/owner/${seg(token)}/operator/clear-flag`, enrollmentId ? { enrollment_id: enrollmentId } : {}),
+  verifyWithPayPal: (token: string) => request<VerifyResult>('POST', `/api/v1/owner/${seg(token)}/paypal/verify`),
   demoCloseNow: (token: string) => request<{ proposal: Proposal }>('POST', `/api/v1/owner/${seg(token)}/demo/close-now`),
   demoFailNextCapture: (token: string, enrollmentId: string) =>
     request<{ enrollment_id: string }>('POST', `/api/v1/owner/${seg(token)}/demo/fail-next-capture`, {

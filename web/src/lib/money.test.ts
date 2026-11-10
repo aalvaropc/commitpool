@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatMoney } from './money'
+import { formatAmount, formatMoney } from './money'
 
 describe('formatMoney', () => {
   it('formats whole US dollars without cents', () => {
@@ -14,5 +14,17 @@ describe('formatMoney', () => {
 
   it('uses the currency’s own number of decimals', () => {
     expect(formatMoney({ minor: 500, currency: 'JPY' })).toBe('¥500')
+  })
+})
+
+describe('formatAmount', () => {
+  it('always shows the cents, for a ledger line', () => {
+    expect(formatAmount({ minor: 13500, currency: 'USD' })).toBe('$135.00')
+    expect(formatAmount({ minor: 566, currency: 'USD' })).toBe('$5.66')
+    expect(formatAmount({ minor: 0, currency: 'USD' })).toBe('$0.00')
+  })
+
+  it('uses the currency’s own number of decimals', () => {
+    expect(formatAmount({ minor: 500, currency: 'JPY' })).toBe('¥500')
   })
 })

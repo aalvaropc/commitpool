@@ -1,7 +1,9 @@
 import { useState } from 'react'
-import { api, type Enrollment, type OwnerView } from '../api'
+import { api, type Enrollment, type OwnerView, type VerifyResult } from '../api'
+import { moneySummary, verifyDifferences, verifyHeadline, verifySkipped } from '../lib/payments'
 import { authorizationPending, enrollmentTone, reservedSeatNote, seatHeld } from '../lib/status'
 import { earlier, formatClock } from '../lib/time'
+import PayPalRecord from './PayPalRecord'
 import { Avatar, Button, DemoTag, Notice, Pill, Tile } from './ui'
 
 interface Props {
@@ -23,11 +25,58 @@ function paymentLine(e: Enrollment): string | null {
   return parts.length ? parts.join(', ') : null
 }
 
+const atPayPal = (e: Enrollment) => Boolean(e.payment && (e.payment.order_id || e.payment.authorization_id || e.payment.capture_id || e.payment.refund_id))
+
+function VerifyOutcome({ result, timeZone }: { result: VerifyResult; timeZone: string }) {
+  const differences = verifyDifferences(result)
+  const skipped = verifySkipped(result)
+  const { records, matching } = result.summary
+  const tone = records === 0 ? 'neutral' : matching === records ? 'paid' : 'attention'
+  return (
+    <Notice tone={tone} role={tone === 'attention' ? 'alert' : 'status'}>
+      <p>{verifyHeadline(result, timeZone)}</p>
+      {skipped && <p className="mt-1 text-sm text-ink">{skipped}</p>}
+      {differences.length > 0 && (
+        <ul className="mt-2 flex flex-col gap-1.5 text-sm text-ink">
+          {differences.map((d) => (
+            <li key={d.key} className="[overflow-wrap:anywhere]">
+              {d.text}
+              {d.debugId && (
+                <>
+                  {' '}
+                  PayPal debug ID <code className="font-mono">{d.debugId}</code>.
+                </>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Notice>
+  )
+}
+
 export default function EnrollmentList({ token, view, onChange }: Props) {
   const [busy, setBusy] = useState<string | null>(null)
   const [result, setResult] = useState<{ tone: 'paid' | 'attention'; text: string; enrollment: string; status: string } | null>(null)
+  const [verifying, setVerifying] = useState(false)
+  const [verified, setVerified] = useState<VerifyResult | null>(null)
+  const [verifyError, setVerifyError] = useState<string | null>(null)
   const tz = view.workshop.timezone
   const mocks = view.demo.sandbox_mocks
+  const summary = view.proposal ? moneySummary(view.enrollments, view.proposal.price) : null
+  const verifiable = view.enrollments.some(atPayPal)
+
+  async function verify() {
+    setVerifying(true)
+    setVerifyError(null)
+    try {
+      setVerified(await api.verifyWithPayPal(token))
+    } catch (err) {
+      setVerifyError(err instanceof Error ? err.message : 'PayPal could not be checked right now.')
+    } finally {
+      setVerifying(false)
+    }
+  }
 
   async function failNext(e: Enrollment) {
     setBusy(e.id)
@@ -45,9 +94,24 @@ export default function EnrollmentList({ token, view, onChange }: Props) {
 
   return (
     <Tile as="section" aria-labelledby="enrollments-title" className="flex flex-col gap-4 sm:p-6">
-      <h2 id="enrollments-title" className="text-2xl">
-        Payments
-      </h2>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 id="enrollments-title" className="text-2xl">
+          Payments
+        </h2>
+        {verifiable && (
+          <Button variant="secondary" size="sm" onClick={() => void verify()} busy={verifying} busyLabel="Verifying…">
+            Verify with PayPal
+          </Button>
+        )}
+      </div>
+      {summary && <p className="font-semibold tabular-nums">{summary}</p>}
+      {verifiable && <p className="text-sm text-ink-soft">Verify with PayPal reads each spot back from PayPal and compares it with these records. It changes nothing.</p>}
+      {verifyError && (
+        <Notice tone="attention" role="alert">
+          {verifyError}
+        </Notice>
+      )}
+      {verified && <VerifyOutcome result={verified} timeZone={tz} />}
       {view.enrollments.length === 0 ? (
         <p className="text-ink-soft">No one has reserved a spot yet.</p>
       ) : (
@@ -74,6 +138,7 @@ export default function EnrollmentList({ token, view, onChange }: Props) {
                       <p className="mt-1 break-words">
                         {line} · {human(e.status)}
                       </p>
+                      {e.payment && <PayPalRecord payment={e.payment} who={e.display_name ?? 'this spot'} />}
                     </details>
                   )}
                   {e.payment?.capture_issue && <p className="text-sm font-medium text-attention">PayPal answered {e.payment.capture_issue}.</p>}

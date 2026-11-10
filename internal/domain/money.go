@@ -42,6 +42,27 @@ func BreakEvenSeats(cost, price Money) (int, error) {
 	return int((cost.Minor + price.Minor - 1) / price.Minor), nil
 }
 
+func CaptureFees(amount Money, gross, fee, net, receivable *Money) (feeMinor, netMinor int64, ok bool) {
+	if gross == nil || net == nil || receivable != nil {
+		return 0, 0, false
+	}
+	charged := Money{Currency: amount.Currency}
+	if fee != nil {
+		charged = *fee
+	}
+	switch {
+	case gross.Currency != amount.Currency || charged.Currency != amount.Currency || net.Currency != amount.Currency:
+		return 0, 0, false
+	case gross.Minor != amount.Minor:
+		return 0, 0, false
+	case charged.Minor < 0 || net.Minor < 0:
+		return 0, 0, false
+	case net.Minor != gross.Minor-charged.Minor:
+		return 0, 0, false
+	}
+	return charged.Minor, net.Minor, true
+}
+
 func (m Money) String() string {
 	return fmt.Sprintf("%d.%02d", m.Minor/100, m.Minor%100)
 }

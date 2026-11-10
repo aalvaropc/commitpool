@@ -20,6 +20,12 @@ export function latestDeadline(proposal: Proposal, status: WorkshopStatus): stri
   return status === 'FUNDING' && proposal.payments_open && proposal.latest_closes_at ? proposal.latest_closes_at : null
 }
 
+export function latestDeadlineNote(proposal: Proposal): string {
+  if (proposal.extended_from) return 'It was already extended once.'
+  if (!proposal.latest_closes_at || Date.parse(proposal.latest_closes_at) <= Date.parse(proposal.closes_at)) return 'This deadline will not move.'
+  return 'The organizer can extend the deadline once, up to then.'
+}
+
 export function canSkipToLastHours(proposal: Proposal, now: number): boolean {
   return !proposal.extended_from && Date.parse(proposal.closes_at) - now > DEMO_LAST_HOURS_MS
 }

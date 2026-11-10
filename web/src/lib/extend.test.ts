@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Extension, Proposal } from '../api'
-import { canSkipToLastHours, extendLink, latestDeadline, movedDeadline } from './extend'
+import { canSkipToLastHours, extendLink, latestDeadline, latestDeadlineNote, movedDeadline } from './extend'
 
 const offer: Extension = { available: true, from: '2026-11-03T09:00:00Z', to: '2026-11-05T09:00:00Z', reason: 'You can move the deadline once.' }
 
@@ -47,6 +47,14 @@ describe('latestDeadline', () => {
     expect(latestDeadline({ ...proposal, payments_open: false }, 'FUNDING')).toBeNull()
     expect(latestDeadline(proposal, 'CONFIRMED')).toBeNull()
     expect(latestDeadline({ ...proposal, latest_closes_at: undefined }, 'FUNDING')).toBeNull()
+  })
+})
+
+describe('latestDeadlineNote', () => {
+  it('promises an extension only while one is still possible', () => {
+    expect(latestDeadlineNote(proposal)).toBe('The organizer can extend the deadline once, up to then.')
+    expect(latestDeadlineNote({ ...proposal, latest_closes_at: proposal.closes_at })).toBe('This deadline will not move.')
+    expect(latestDeadlineNote({ ...proposal, extended_from: '2026-11-02T20:00:00Z', closes_at: '2026-11-05T09:00:00Z' })).toBe('It was already extended once.')
   })
 })
 

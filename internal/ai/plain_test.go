@@ -11,7 +11,7 @@ import (
 
 func plainInput(compatible []string, meets bool) ai.ExplainInput {
 	return ai.ExplainInput{
-		WorkshopTitle: "Wheel-throwing for beginners",
+		WorkshopTitle: "Life drawing for beginners",
 		Dates:         dates,
 		Recommendation: domain.Recommendation{
 			DateID:       "sat",

@@ -34,6 +34,7 @@ func BusyWait(err error) (time.Duration, bool) {
 
 type Capacity interface {
 	Room(calls int) time.Duration
+	RoomLeaving(calls int, reserve func(limit int) int) time.Duration
 }
 
 type BudgetConfig struct {
@@ -91,7 +92,14 @@ func (w *window) wait(now time.Time, calls int, share func(int) int) time.Durati
 	if w.limit <= 0 {
 		return 0
 	}
-	over := len(w.calls) + calls - share(w.limit)
+	room := share(w.limit)
+	if calls > room && calls <= w.limit {
+		if len(w.calls) == 0 {
+			return 0
+		}
+		return w.calls[len(w.calls)-1].Add(w.span).Sub(now)
+	}
+	over := len(w.calls) + calls - room
 	switch {
 	case over <= 0:
 		return 0
@@ -118,9 +126,13 @@ func (b *Budget) take(share func(int) int) error {
 }
 
 func (b *Budget) Room(calls int) time.Duration {
+	return b.RoomLeaving(calls, func(int) int { return 0 })
+}
+
+func (b *Budget) RoomLeaving(calls int, reserve func(limit int) int) time.Duration {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.waitFor(b.clock.Now(), calls, readingShare)
+	return b.waitFor(b.clock.Now(), calls, func(limit int) int { return limit - reserve(limit) })
 }
 
 func (b *Budget) Interpret(ctx context.Context, in InterpretInput) (domain.Interpretation, Meta, error) {

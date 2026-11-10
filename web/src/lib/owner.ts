@@ -150,15 +150,15 @@ export function countFacts(c: DecisionCounts): string[] {
   return facts
 }
 
-export function studioPlan(v: OwnerView): string | null {
+export function sessionPlan(v: OwnerView): string | null {
   const { workshop: w } = v
   const cost = w.venue_cost
   if (!cost || v.proposal || w.status !== 'COLLECTING' || w.price.minor <= 0) return null
   const seats = w.break_even_seats || Math.ceil(cost.minor / w.price.minor)
   const money = (minor: number, currency: string) => usd(minor, currency)
-  const studio = `Your studio costs ${money(cost.minor, cost.currency)}`
+  const session = `Your session costs ${money(cost.minor, cost.currency)}`
   const price = money(w.price.minor, w.price.currency)
-  return seats <= w.capacity ? `${studio} — ${seats} × ${price} covers it before fees` : `${studio} — even ${w.capacity} × ${price} falls short before fees`
+  return seats <= w.capacity ? `${session} — ${seats} × ${price} covers it before fees` : `${session} — even ${w.capacity} × ${price} falls short before fees`
 }
 
 export interface Coverage {
@@ -167,13 +167,13 @@ export interface Coverage {
   text: string
 }
 
-export function studioCovered(v: OwnerView): Coverage | null {
+export function sessionCovered(v: OwnerView): Coverage | null {
   const cost = v.workshop.venue_cost
   if (!cost || v.workshop.status === 'CANCELLED') return null
   const price = v.proposal?.price ?? v.workshop.price
   const covered = v.tally.paid * price.minor
   const money = (minor: number) => usd(minor, cost.currency)
-  const text = covered >= cost.minor ? `Your ${money(cost.minor)} studio is covered before fees, with ${money(covered - cost.minor)} to spare` : `${money(covered)} toward your ${money(cost.minor)} studio (before fees)`
+  const text = covered >= cost.minor ? `Your ${money(cost.minor)} session costs are covered before fees, with ${money(covered - cost.minor)} to spare` : `${money(covered)} toward your ${money(cost.minor)} session costs (before fees)`
   return { covered, cost: cost.minor, text }
 }
 

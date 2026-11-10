@@ -28,7 +28,7 @@ import (
 const (
 	Width    = 1200
 	Height   = 630
-	Revision = "kiln-1"
+	Revision = "kiln-2"
 )
 
 var (

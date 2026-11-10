@@ -135,7 +135,7 @@ func (s *server) createDemoWorkshop(w http.ResponseWriter, r *http.Request) erro
 		return errNotFound
 	}
 	if c, ok := s.AI.(ai.Capacity); ok {
-		if wait := c.Room(demoModelCalls); wait > 0 {
+		if wait := c.RoomLeaving(demoModelCalls, windowReserve); wait > 0 {
 			retryAfter(w, wait)
 			return newError(http.StatusTooManyRequests, "demo_resting", demoResting(wait))
 		}
@@ -148,12 +148,12 @@ func (s *server) createDemoWorkshop(w http.ResponseWriter, r *http.Request) erro
 	api := inproc.Client{Handler: s.self}
 	ctx := r.Context()
 	opts := demo.Options{Now: s.Clock.Now(), Timezone: demoTimezone, WindowMin: demoWindowMin, Demo: true}
-	res, err := demo.Create(ctx, api, demo.Maya, opts)
+	res, err := demo.Create(ctx, api, demo.LifeDrawing, opts)
 	if err != nil {
 		ticket.refund()
 		return err
 	}
-	people, err := demo.Join(ctx, api, res, demo.Maya.People)
+	people, err := demo.Join(ctx, api, res, demo.LifeDrawing.People)
 	if err != nil {
 		ticket.refund()
 		return err

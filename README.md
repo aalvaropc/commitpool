@@ -1,8 +1,8 @@
 # CommitPool
 
-**The class happens, or nobody pays.**
+**Find the date that fills the class.** The class happens, or nobody pays.
 
-A pottery teacher needs 3 people at $45 to cover a $120 studio. She asks in the group chat and gets a dozen "maybe"s, no date, and no idea whether the room will be paid for.
+A life drawing teacher needs 3 people at $45 to cover $120 for the room and the model. She asks in the group chat and gets a dozen "maybe"s, no date, and no idea whether the room will be paid for.
 
 CommitPool turns that chat into one link:
 1. People say when they can come in their own words.
@@ -12,22 +12,22 @@ CommitPool turns that chat into one link:
 
 If too few reserve by the deadline, every hold is released.
 
-**[Open the demo](https://3-209-60-155.sslip.io)** and press **Try it as Maya**. You become Maya Okafor, who teaches wheel-throwing in Brooklyn, and watch six answers arrive and get read. It all runs on the PayPal Sandbox: no real money moves.
+**[Open the demo](https://3-209-60-155.sslip.io)** and press **Try it as Iris**. You become Iris Calder, who teaches life drawing in Brooklyn, and watch six answers arrive and get read. It all runs on the PayPal Sandbox: no real money moves.
 
 ![The landing page: the promise next to a group chat being read](docs/images/landing.png)
 
 ## How it works
 
-1. **Maya describes her class in a sentence.** Claude drafts the form, and the studio cost tells her how many people she needs. Nothing is created until she checks it.
+1. **Iris describes her class in a sentence.** Claude drafts the form, and the session cost tells her how many people she needs. Nothing is created until she checks it.
 2. **She shares one link in the group chat.** People join with a name, no account, and answer like they'd text a friend.
 3. **Claude reads every answer against every date.** A condition like "only if we finish before six" keeps its time. A vague answer gets a question, not a guess. CommitPool counts who can come and recommends the date.
 4. **Everyone reserves with PayPal.** Each person approves a hold. When enough have reserved, the holds are captured and the class is on. Otherwise every hold is voided and any capture refunded.
 
 ![Who can come: each answer read by Claude, per date, with the words it came from](docs/images/organizer-board.png)
 
-| The invite, opened from the group chat | Claude drafts the class, Maya checks it |
+| The invite, opened from the group chat | Claude drafts the class, Iris checks it |
 | --- | --- |
-| <img src="docs/images/invite-phone.png" alt="The invite page on a phone" width="320"> | <img src="docs/images/create-draft.png" alt="The drafted form, with the studio cost suggesting 3 people" width="420"> |
+| <img src="docs/images/invite-phone.png" alt="The invite page on a phone" width="320"> | <img src="docs/images/create-draft.png" alt="The drafted form, with the session cost suggesting 3 people" width="420"> |
 
 ## PayPal holds the money until the class is real
 
@@ -78,8 +78,7 @@ browser ── React SPA ────────┴──► Go API ──► P
                                     ▼  │ verified webhooks
                        payment worker ◄──── PayPal Sandbox (Orders v2, Payments v2)
                                     │
-                                    ├──► Claude on Amazon Bedrock
-                                    └──► Amazon SES
+                                    └──► Claude on Amazon Bedrock
 ```
 
 - **One Go binary** serves the API, the embedded SPA and the MCP server, and runs the payment worker. Migrations apply on startup.
@@ -93,7 +92,7 @@ cp .env.example .env    # your PayPal Sandbox app keys
 make db-up              # PostgreSQL on localhost:55432
 make web-build
 make run                # http://localhost:8080
-make seed               # Maya's class, with the answers already sent
+make seed               # Iris's class, with the answers already sent
 ```
 
 Set `AWS_REGION` to read with Claude on Bedrock, or `COMMITPOOL_AI_PROVIDER=fake` to run without it.

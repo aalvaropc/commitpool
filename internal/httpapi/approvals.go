@@ -34,7 +34,7 @@ const (
 
 var (
 	errApprovalNeedsPage = newError(http.StatusForbidden, "approval_needs_page",
-		"Only the organizer can approve, on the approve page in their own browser.")
+		"Only someone with the organizer link can approve, on the approve page in a browser. An assistant's tools cannot.")
 	errApprovalPending = conflict("approval_pending",
 		"The organizer has not approved these terms yet: they open the approve link and tap Approve.")
 	errApprovalExpired = conflict("approval_expired",

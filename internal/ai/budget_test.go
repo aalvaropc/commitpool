@@ -46,7 +46,7 @@ var budgetStart = time.Date(2026, 11, 9, 9, 0, 0, 0, time.UTC)
 
 func budgetInput() ai.InterpretInput {
 	return ai.InterpretInput{
-		WorkshopTitle: "Wheel-throwing for beginners",
+		WorkshopTitle: "Life drawing for beginners",
 		Timezone:      "America/New_York",
 		Dates:         []ai.DateOption{{ID: "sat", Label: "Sat, Nov 14, 10 AM", StartsAt: budgetStart.Add(5 * 24 * time.Hour)}},
 		Message:       "Saturday works for me.",
@@ -120,7 +120,7 @@ func background(b *ai.Budget) map[string]func() error {
 	return map[string]func() error{
 		"explain": func() error { _, _, err := b.Explain(ctx, ai.ExplainInput{}); return err },
 		"draft": func() error {
-			_, _, err := b.Draft(ctx, ai.DraftInput{Text: "pottery", Timezone: "UTC", Today: budgetStart})
+			_, _, err := b.Draft(ctx, ai.DraftInput{Text: "life drawing", Timezone: "UTC", Today: budgetStart})
 			return err
 		},
 		"suggest": func() error { _, _, err := b.Suggest(ctx, ai.SuggestInput{Kind: "share"}); return err },
@@ -266,5 +266,47 @@ func TestMemo_PassesTheBudgetsRoomThrough(t *testing.T) {
 	}
 	if wait := ai.NewMemo(ai.Fake{}, ai.MemoSize).Room(100); wait != 0 {
 		t.Errorf("Room on a memo without a budget = %v, want 0", wait)
+	}
+}
+
+func TestBudget_RoomLeavingKeepsAReserveInEveryWindow(t *testing.T) {
+	clk := &clock.Fake{T: budgetStart}
+	b := ai.NewBudget(&countingModel{}, ai.BudgetConfig{Hourly: 200, Daily: 1500, Clock: clk})
+	reserve := func(limit int) int { return max(20, limit/10) }
+	for range 60 {
+		if _, _, err := b.Interpret(context.Background(), ai.InterpretInput{Message: "a participant"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if wait := b.RoomLeaving(1, reserve); wait != 0 {
+		t.Errorf("RoomLeaving(1) after 60 calls with a reserve of 20 an hour = %v, want 0", wait)
+	}
+	if wait := b.RoomLeaving(120, reserve); wait != 0 {
+		t.Errorf("RoomLeaving(120) with exactly 120 calls to spare = %v, want 0", wait)
+	}
+	if wait := b.RoomLeaving(121, reserve); wait != time.Hour {
+		t.Errorf("RoomLeaving(121) into the hourly reserve = %v, want an hour", wait)
+	}
+	if wait := b.Room(140); wait != 0 {
+		t.Errorf("Room(140) with 140 calls left and no reserve = %v, want 0", wait)
+	}
+}
+
+func TestBudget_RoomLeavingFitsARequestBiggerThanTheShareOnlyInAnEmptyWindow(t *testing.T) {
+	clk := &clock.Fake{T: budgetStart}
+	b := ai.NewBudget(&countingModel{}, ai.BudgetConfig{Hourly: 15, Daily: 100, Clock: clk})
+	reserve := func(limit int) int { return limit / 2 }
+	if wait := b.RoomLeaving(10, reserve); wait != 0 {
+		t.Errorf("RoomLeaving(10) on an empty window with a share of 8 = %v, want 0", wait)
+	}
+	if _, _, err := b.Interpret(context.Background(), ai.InterpretInput{Message: "a participant"}); err != nil {
+		t.Fatal(err)
+	}
+	clk.Set(budgetStart.Add(20 * time.Minute))
+	if wait := b.RoomLeaving(10, reserve); wait != 40*time.Minute {
+		t.Errorf("RoomLeaving(10) with one call in the window = %v, want 40m until it is empty", wait)
+	}
+	if wait := b.RoomLeaving(16, reserve); wait != time.Hour {
+		t.Errorf("RoomLeaving(16) beyond the cap = %v, want a full hour", wait)
 	}
 }

@@ -90,7 +90,7 @@ func newApp(t *testing.T, edits ...func(*config.Config)) *httptest.Server {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	runner := worker.New(worker.Deps{Store: st, PayPal: pp, Clock: clk, Cfg: cfg, Log: log})
 	srv.Config.Handler = httpapi.New(httpapi.Deps{
-		Store: st, Worker: runner, PayPal: pp, AI: ai.Fake{Script: demo.Script(demo.Maya)}, Clock: clk, Cfg: cfg, Log: log,
+		Store: st, Worker: runner, PayPal: pp, AI: ai.Fake{Script: demo.Script(demo.LifeDrawing)}, Clock: clk, Cfg: cfg, Log: log,
 		Dist: fstest.MapFS{"index.html": {Data: []byte("<!doctype html><title>CommitPool</title>")}},
 	})
 	srv.Start()
@@ -146,19 +146,19 @@ func TestRun_SeedsTheDemoWorkshopWithItsCast(t *testing.T) {
 		t.Fatalf("dates = %+v, want %q", view.Dates, wantLabels)
 	}
 
-	if len(res.Participants) != len(demo.Maya.People) || len(view.Participants) != len(demo.Maya.People) || len(view.Availabilities) != len(demo.Maya.People) {
-		t.Fatalf("seeded %d participants, %d joined, %d availabilities; want %d of each", len(res.Participants), len(view.Participants), len(view.Availabilities), len(demo.Maya.People))
+	if len(res.Participants) != len(demo.LifeDrawing.People) || len(view.Participants) != len(demo.LifeDrawing.People) || len(view.Availabilities) != len(demo.LifeDrawing.People) {
+		t.Fatalf("seeded %d participants, %d joined, %d availabilities; want %d of each", len(res.Participants), len(view.Participants), len(view.Availabilities), len(demo.LifeDrawing.People))
 	}
 	for i, p := range res.Participants {
-		if p.Name != demo.Maya.People[i].Name || p.Message != demo.Maya.People[i].Message || !strings.HasPrefix(p.URL, srv.URL+"/p/") {
-			t.Errorf("participant %d = %+v, want %s with %q and a participant link", i, p, demo.Maya.People[i].Name, demo.Maya.People[i].Message)
+		if p.Name != demo.LifeDrawing.People[i].Name || p.Message != demo.LifeDrawing.People[i].Message || !strings.HasPrefix(p.URL, srv.URL+"/p/") {
+			t.Errorf("participant %d = %+v, want %s with %q and a participant link", i, p, demo.LifeDrawing.People[i].Name, demo.LifeDrawing.People[i].Message)
 		}
 	}
 	unclear := 0
 	for _, a := range view.Availabilities {
 		if a.NeedsClarification {
 			unclear++
-			if a.Message != demo.Maya.People[len(demo.Maya.People)-1].Message {
+			if a.Message != demo.LifeDrawing.People[len(demo.LifeDrawing.People)-1].Message {
 				t.Errorf("needs clarification: %q, want only the last cast message", a.Message)
 			}
 		}
@@ -208,7 +208,7 @@ func TestRun_OpenPaymentsFixesTheRecommendedDate(t *testing.T) {
 	if view.Recommendation.DateID != view.Dates[0].ID || res.CanCome != 3 || !strings.Contains(out, "3 can come, meets the minimum") {
 		t.Errorf("opened %s with %d; want Saturday with 3 once Grace answered:\n%s", view.Proposal.DateID, res.CanCome, out)
 	}
-	reply := demo.Maya.Replies[0]
+	reply := demo.LifeDrawing.Replies[0]
 	if !strings.Contains(out, reply.Name) || !strings.Contains(out, reply.Message) {
 		t.Errorf("output does not show %s's answer to Claude's question:\n%s", reply.Name, out)
 	}
@@ -231,6 +231,6 @@ func TestRun_LeavesTheLabelToADemoServer(t *testing.T) {
 	demoServer := newApp(t, func(c *config.Config) { c.DemoMode = true })
 	res, _ := seed(t, demoServer, false)
 	if got := ownerViewOf(t, demoServer, res).Workshop; !got.Demo || strings.Contains(got.Description, demo.PreparedNote) {
-		t.Errorf("with demo mode: demo %v, description %q; want the label and Maya's own description", got.Demo, got.Description)
+		t.Errorf("with demo mode: demo %v, description %q; want the label and Iris's own description", got.Demo, got.Description)
 	}
 }

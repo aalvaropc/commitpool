@@ -136,8 +136,8 @@ func interpretUserTurn(in InterpretInput) string {
 	if in.Earlier == nil {
 		return text
 	}
-	text += "\n\nIt follows their earlier message, as a JSON string:\n" + jsonString(in.Earlier.Message)
-	text += "\n\nand the questions we asked them, as a JSON list:\n" + jsonList(in.Earlier.Questions)
+	text += "\n\nIt follows their earlier messages, oldest first, as a JSON list of strings:\n" + jsonList(in.Earlier.Messages)
+	text += "\n\nand the questions we asked them about the latest of those, as a JSON list:\n" + jsonList(in.Earlier.Questions)
 	return text
 }
 
@@ -173,9 +173,14 @@ func (b *Bedrock) Explain(ctx context.Context, in ExplainInput) (string, Meta, e
 	if err != nil {
 		return "", meta, err
 	}
-	text := limitWords(answerText(msg), maxExplanationWords)
-	if text == "" {
+	answer := answerText(msg)
+	if strings.TrimSpace(answer) == "" {
 		return "", meta, errors.New("ai: explain: the answer was empty")
+	}
+	text, ok := wholeSentences(answer, maxExplanationWords)
+	if !ok {
+		b.log.Warn("explain: no whole sentence fits the word limit; using the plain explanation", "words", len(strings.Fields(answer)), "limit", maxExplanationWords)
+		return PlainExplanation(in), meta, nil
 	}
 	return text, meta, nil
 }
@@ -281,10 +286,17 @@ func callError(op string, err error) error {
 	}
 }
 
-func limitWords(s string, n int) string {
+func wholeSentences(s string, n int) (string, bool) {
 	words := strings.Fields(s)
-	if len(words) <= n {
-		return strings.Join(words, " ")
+	for i := min(len(words), n) - 1; i >= 0; i-- {
+		if endsSentence(words[i]) {
+			return strings.Join(words[:i+1], " "), true
+		}
 	}
-	return strings.Join(words[:n], " ") + "…"
+	return "", false
+}
+
+func endsSentence(word string) bool {
+	word = strings.TrimRight(word, "\"')]”’")
+	return strings.HasSuffix(word, ".") || strings.HasSuffix(word, "!") || strings.HasSuffix(word, "?")
 }

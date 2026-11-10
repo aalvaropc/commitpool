@@ -47,7 +47,7 @@ async function prepared(request: APIRequestContext, title: string): Promise<{ ow
     price: '12.00',
     currency: 'USD',
     date_starts: [daysAhead(7)],
-    host_name: 'Maya',
+    host_name: 'Iris',
   })
   const owner = created.structuredContent!.owner_link
   const joined = await tool<{ participant_link: string }>(request, 'join_workshop', { share_link: created.structuredContent!.share_link, display_name: 'Ada' })
@@ -62,7 +62,7 @@ async function prepared(request: APIRequestContext, title: string): Promise<{ ow
 
 test.describe('organizer approval for an assistant', () => {
   test('the assistant prepares, the organizer taps Approve on their own page, then reservations open', async ({ page, request }) => {
-    const { owner, dateId, preview } = await prepared(request, 'Approved glazing night')
+    const { owner, dateId, preview } = await prepared(request, 'Approved drawing night')
     expect(preview.approve_url).toBe(`${owner}/approve/${preview.approval_id}`)
     expect(preview.next).toContain('Show these terms to the organizer and ask them to open this link and tap Approve; then call confirm_open_payments.')
 
@@ -79,7 +79,7 @@ test.describe('organizer approval for an assistant', () => {
     await page.goto(preview.approve_url)
     const ask = page.getByRole('region', { name: 'Your assistant wants to open reservations on these terms:' })
     await expect(ask).toBeVisible()
-    await expect(page.getByRole('heading', { level: 1, name: 'Approved glazing night' })).toBeVisible()
+    await expect(page.getByRole('heading', { level: 1, name: 'Approved drawing night' })).toBeVisible()
     await expect(ask).toContainText('$12')
     await expect(ask).toContainText('24 hours')
     await expect(ask).toContainText('Nothing is charged until enough people reserve.')
@@ -125,7 +125,7 @@ test.describe('organizer approval for an assistant', () => {
     let refused = 0
     await page.route('**/api/v1/owner/*/approvals/*/approve', async (route) => {
       refused++
-      await route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: 'approval_needs_page', message: 'Only the organizer can approve, on the approve page in their own browser.' }) })
+      await route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: 'approval_needs_page', message: "Only someone with the organizer link can approve, on the approve page in a browser. An assistant's tools cannot." }) })
     })
     await page.goto(preview.approve_url)
     const approve = page.getByRole('button', { name: 'Approve', exact: true })

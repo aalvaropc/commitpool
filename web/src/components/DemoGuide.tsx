@@ -9,7 +9,7 @@ function Guide({ step, people, guided }: { step: DemoStep | null; people: DemoPa
     <Tile as="section" aria-labelledby="demo-guide-title" className="flex flex-col gap-2 ring-2 ring-brand/40 sm:p-6">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <h2 id="demo-guide-title" className="text-xl">
-          You are Maya now
+          You are Iris now
         </h2>
         <Pill tone="attention">Demo workshop · prepared data</Pill>
       </div>

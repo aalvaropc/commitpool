@@ -146,7 +146,7 @@ func (s *server) workshopParams(req createWorkshopRequest) (store.CreateWorkshop
 	}
 	ownerEmail, err := optionalEmail(req.OwnerEmail)
 	if err != nil {
-		return none, badRequest("invalid_owner_email", "Your email must be one plain address, such as maya@example.com.")
+		return none, badRequest("invalid_owner_email", "Your email must be one plain address, such as iris@example.com.")
 	}
 	window := store.DefaultPaymentWindowMin
 	if req.PaymentWindowMin != nil {
@@ -210,7 +210,7 @@ func optionalVenueCost(value, currency string) (*int64, error) {
 	}
 	cost, err := domain.ParseMoney(value, currency)
 	if err != nil {
-		return nil, badRequest("invalid_venue_cost", "The studio cost must be an amount with at most two decimals, such as 120 or 120.00.")
+		return nil, badRequest("invalid_venue_cost", "The session cost must be an amount with at most two decimals, such as 120 or 120.00.")
 	}
 	return &cost.Minor, nil
 }

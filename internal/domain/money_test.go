@@ -85,7 +85,7 @@ func TestBreakEvenSeats(t *testing.T) {
 		price domain.Money
 		want  int
 	}{
-		{name: "studio covered by three seats", cost: usd(12000), price: usd(4500), want: 3},
+		{name: "session costs covered by three seats", cost: usd(12000), price: usd(4500), want: 3},
 		{name: "exact multiple", cost: usd(9000), price: usd(4500), want: 2},
 		{name: "one cent over needs another seat", cost: usd(9001), price: usd(4500), want: 3},
 		{name: "free venue", cost: usd(0), price: usd(4500), want: 0},

@@ -8,7 +8,7 @@ web
 
 ## Users
 
-- **Organizers**: independent instructors who run small paid group classes (ceramics, photography, cooking, yoga and the like). Before they commit to a date and pay for a room or studio, they need to know enough people will actually pay to cover it. Today they chase a group chat full of "maybe" and absorb the no-shows.
+- **Organizers**: independent instructors who run small paid group classes (life drawing, photography, cooking, yoga and the like). Before they commit to a date and pay for a room, a model or materials, they need to know enough people will actually pay to cover it. Today they chase a group chat full of "maybe" and absorb the no-shows.
 - **Participants**: people invited through a shared link, on their phone or laptop, without an account. They say when they can come in their own words, and reserve a spot with PayPal knowing they are charged only if the class happens.
 
 ## Product Purpose
@@ -17,7 +17,7 @@ CommitPool turns "I'm in" into a commitment that only costs money when the class
 
 ## Positioning
 
-"Doodle meets Kickstarter, for small paid classes." The promise: **the class happens, or nobody pays.** What a neighbouring product cannot claim: the date comes from what people write (Claude reads each message into a verdict per date; the server, not the model, decides who can come and which date to recommend), and the money moves only when the minimum is met, through PayPal's authorize-then-capture.
+"Doodle meets Kickstarter, for small paid classes." The headline: **find the date that fills the class.** The promise behind it: the class happens, or nobody pays. What a neighbouring product cannot claim: the date comes from what people write (Claude reads each message into a verdict per date; the server, not the model, decides who can come and which date to recommend), and the money moves only when the minimum is met, through PayPal's authorize-then-capture.
 
 ## Operating Context
 
@@ -28,7 +28,7 @@ CommitPool turns "I'm in" into a commitment that only costs money when the class
 
 ## Capabilities and Constraints
 
-- Workshops: title, description, host name, place, duration, price (USD), people needed, spots, optional private studio cost (suggests the break-even minimum), one to ten candidate dates, time to reserve up to 72 hours.
+- Workshops: title, description, host name, place, duration, price (USD), people needed, spots, optional private session cost (room, model, materials) (suggests the break-even minimum), one to ten candidate dates, time to reserve up to 72 hours.
 - Availability in plain words, read by Claude on Amazon Bedrock; the participant can correct each verdict; vague messages get a clarification question instead of a guess.
 - Payments: one PayPal order per spot, hold, capture once enough people reserve, void or refund otherwise; organizer cancel; participant can give up their spot until charged; operator actions for anything PayPal leaves unsettled.
 - Terminology in the product: reserve, spot, hold (in the terms), it's on, cancelled, refunded, released. Not "authorize", "capture", "seat", "capacity" or "minimum paid seats" in what people read.
@@ -36,10 +36,10 @@ CommitPool turns "I'm in" into a commitment that only costs money when the class
 
 ## Brand Commitments
 
-- Name: CommitPool. Promise line: "The class happens, or nobody pays."
+- Name: CommitPool. Headline: "Find the date that fills the class." Promise line, kept as the secondary line: "The class happens, or nobody pays."
 - Voice: second person, short sentences, concrete numbers, no payment jargon outside the terms.
 - Country-agnostic: no country, city or tax in product copy beyond what an organizer types.
-- Demo persona: Maya Okafor, a fictional ceramics teacher running "Wheel-throwing for beginners" at "Maya's studio · Greenpoint, Brooklyn" (studio $120 a session, $45 a person, 3 needed, 6 spots). Always labelled as prepared demo data, never presented as a real customer.
+- Demo persona: Iris Calder, a fictional life drawing teacher running "Life drawing for beginners" at "The Long Room · Red Hook, Brooklyn" (room and model $120 a session, $45 a person, 3 needed, 6 spots). Always labelled as prepared demo data, never presented as a real customer.
 
 ## Evidence on Hand
 

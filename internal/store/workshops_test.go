@@ -297,7 +297,7 @@ func TestDemoLinks_KeptOnlyForADemoWorkshop(t *testing.T) {
 	ctx := context.Background()
 	s := storetest.New(t)
 	demo, _, _, err := s.CreateWorkshop(ctx, store.CreateWorkshopParams{
-		Title: "Wheel-throwing for beginners", DurationMin: 120, Timezone: "America/New_York", Minimum: 3, Capacity: 6,
+		Title: "Life drawing for beginners", DurationMin: 120, Timezone: "America/New_York", Minimum: 3, Capacity: 6,
 		PriceMinor: 4500, Currency: "USD", PaymentWindowMin: 1440, IsDemo: true,
 		Dates: []dateWindow{{StartsAt: saturday, EndsAt: saturday.Add(2 * time.Hour)}},
 	})
@@ -519,5 +519,31 @@ func TestOpenProposal_SchedulesItsCloseInTheSameTransaction(t *testing.T) {
 	}
 	if n := count(t, s, `select count(*) from jobs where workshop_id = $1`, other.ID); n != 0 {
 		t.Errorf("jobs after a failed OpenProposal = %d, want 0", n)
+	}
+}
+
+func TestRecentAvailabilitiesByParticipant_NewestFirstAndLimited(t *testing.T) {
+	ctx := context.Background()
+	s := storetest.New(t)
+	w, _, _ := newWorkshop(t, s, 1, 3)
+	ana := newParticipant(t, s, w, "Ana")
+	ben := newParticipant(t, s, w, "Ben")
+	for _, message := range []string{"one", "two", "three"} {
+		if _, err := s.SaveAvailability(ctx, store.AvailabilityRow{ParticipantID: ana.ID, RawMessage: message, Interpretation: json.RawMessage(`{"per_date":[]}`)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.SaveAvailability(ctx, store.AvailabilityRow{ParticipantID: ben.ID, RawMessage: "other", Interpretation: json.RawMessage(`{"per_date":[]}`)}); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := s.RecentAvailabilitiesByParticipant(ctx, ana.ID, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 || rows[0].RawMessage != "three" || rows[1].RawMessage != "two" {
+		t.Errorf("RecentAvailabilitiesByParticipant = %+v, want the two latest of Ana, newest first", rows)
+	}
+	if rows, err := s.RecentAvailabilitiesByParticipant(ctx, newParticipant(t, s, w, "Cy").ID, 4); err != nil || len(rows) != 0 {
+		t.Errorf("rows for a participant who never wrote = %+v, %v; want none", rows, err)
 	}
 }

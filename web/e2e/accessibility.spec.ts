@@ -35,7 +35,7 @@ test.describe('landing at phone and desktop width', () => {
     { width: 1440, height: 900 },
   ]) {
     test(`the landing at ${viewport.width} px passes axe, fits the width and keeps 44 px targets`, async ({ page }) => {
-      await page.route('https://www.youtube-nocookie.com/**', (route) => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Demo video</title>' }))
+      await page.route('https://i.ytimg.com/**', (route) => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="480" height="360"/>' }))
       await page.setViewportSize(viewport)
       await page.emulateMedia({ reducedMotion: 'reduce' })
       await page.goto('/')

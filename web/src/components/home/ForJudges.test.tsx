@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { embeddableVideo } from '../../lib/demoInfo'
-import ForJudges, { DemoVideo, SandboxBuyer } from './ForJudges'
+import ForJudges, { DemoVideo, SandboxBuyer, VideoFrame } from './ForJudges'
 
 const VIDEO = 'https://www.youtube-nocookie.com/embed/aB3_x-9Zk0Q'
 const LOGIN = { email: 'buyer@example.com', password: 'sandbox-secret-1' }
@@ -29,9 +29,16 @@ describe('For judges', () => {
     expect(html).not.toContain('testing instructions on Devpost')
   })
 
-  it('embeds the video privately, lazily and with a referrer YouTube accepts', () => {
+  it('shows the video’s poster and loads nothing from YouTube until it is played', () => {
     const html = renderToStaticMarkup(<DemoVideo url={VIDEO} />)
-    expect(html).toContain(`src="${VIDEO}"`)
+    expect(html).toContain('aria-label="Watch the demo video"')
+    expect(html).toContain('src="https://i.ytimg.com/vi/aB3_x-9Zk0Q/hqdefault.jpg"')
+    expect(html).not.toContain('<iframe')
+  })
+
+  it('embeds the video privately, lazily and with a referrer YouTube accepts', () => {
+    const html = renderToStaticMarkup(<VideoFrame src={VIDEO} autoplay />)
+    expect(html).toContain(`src="${VIDEO}?autoplay=1"`)
     expect(html).toContain('loading="lazy"')
     expect(html).toContain('referrerPolicy="strict-origin-when-cross-origin"')
     expect(html).toMatch(/title="CommitPool demo video[^"]+"/)
@@ -47,7 +54,7 @@ describe('For judges', () => {
 
   it('tells real from prepared from accelerated', () => {
     const html = renderToStaticMarkup(<ForJudges info={null} />)
-    for (const text of ['Real Sandbox calls', 'Claude on Amazon Bedrock', 'Prepared', 'Accelerated clock', 'Logged, not sent', '“Skip to the last 2 hours”']) {
+    for (const text of ['Real Sandbox calls', 'Claude on Amazon Bedrock', 'Prepared', 'Accelerated clock', 'Logged, not sent', '“Skip to the last 2 hours”', '“Fail next charge”', 'Simulated failure', 'A PayPal Sandbox mock response']) {
       expect(html).toContain(text)
     }
   })

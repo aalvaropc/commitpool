@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState, type Ref } from 'react'
 import type { DemoInfo, JudgeLogin } from '../../api'
 import { embeddableVideo } from '../../lib/demoInfo'
 import { Icon, Pill } from '../ui'
@@ -10,6 +10,7 @@ const truth: { what: string; tone: Tone; label: string; note?: string }[] = [
   { what: 'Claude on Amazon Bedrock', tone: 'paid', label: 'Real', note: 'Reads every answer live' },
   { what: 'Demo participants and their answers', tone: 'attention', label: 'Prepared', note: 'Six people and what they wrote' },
   { what: '“Close reservations now”, “Start the class now”, “Skip to the last 2 hours”', tone: 'hold', label: 'Accelerated clock' },
+  { what: '“Fail next charge”', tone: 'cancel', label: 'Simulated failure', note: 'A PayPal Sandbox mock response' },
   { what: 'Emails', tone: 'neutral', label: 'Logged, not sent' },
 ]
 
@@ -63,20 +64,45 @@ export function SandboxBuyer({ login }: { login: JudgeLogin | undefined }) {
   )
 }
 
+export function VideoFrame({ src, autoplay = false, frameRef }: { src: string; autoplay?: boolean; frameRef?: Ref<HTMLIFrameElement> }) {
+  return (
+    <iframe
+      ref={frameRef}
+      src={autoplay ? `${src}?autoplay=1` : src}
+      title="CommitPool demo video: Iris fills her class on the PayPal Sandbox"
+      loading="lazy"
+      referrerPolicy="strict-origin-when-cross-origin"
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+      allowFullScreen
+      className="block h-full w-full border-0"
+    />
+  )
+}
+
 export function DemoVideo({ url }: { url: string | undefined }) {
   const src = embeddableVideo(url)
+  const [playing, setPlaying] = useState(false)
+  const frame = useRef<HTMLIFrameElement>(null)
+  useEffect(() => {
+    if (playing) frame.current?.focus()
+  }, [playing])
   if (!src) return null
+  const id = src.slice(src.lastIndexOf('/') + 1)
   return (
     <div className="mb-14 aspect-video overflow-hidden rounded-tile bg-surface">
-      <iframe
-        src={src}
-        title="CommitPool demo video: Iris fills her class on the PayPal Sandbox"
-        loading="lazy"
-        referrerPolicy="strict-origin-when-cross-origin"
-        allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-        allowFullScreen
-        className="block h-full w-full border-0"
-      />
+      {playing ? (
+        <VideoFrame src={src} autoplay frameRef={frame} />
+      ) : (
+        <button type="button" onClick={() => setPlaying(true)} aria-label="Watch the demo video" className="group relative block h-full w-full rounded-tile">
+          <img src={`https://i.ytimg.com/vi/${id}/hqdefault.jpg`} alt="" loading="lazy" decoding="async" className="block h-full w-full object-cover" />
+          <span className="absolute bottom-[clamp(1rem,3vw,1.75rem)] left-[clamp(1rem,3vw,1.75rem)] inline-flex min-h-14 items-center gap-3 rounded-full bg-charcoal pr-[1.375rem] pl-2 font-bold text-ink transition-colors duration-200 group-hover:bg-surface-muted">
+            <span className="grid size-[2.625rem] place-items-center rounded-full bg-brand text-on-brand">
+              <Icon name="play" size={16} fill="currentColor" />
+            </span>
+            Watch the demo
+          </span>
+        </button>
+      )}
     </div>
   )
 }

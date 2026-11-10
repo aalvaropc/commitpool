@@ -36,6 +36,7 @@ const VIDEO = 'https://www.youtube-nocookie.com/embed/aB3_x-9Zk0Q'
 test.describe('landing proof', () => {
   test.beforeEach(async ({ page }) => {
     await page.route('https://www.youtube-nocookie.com/**', (route) => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Demo video</title>' }))
+    await page.route('https://i.ytimg.com/**', (route) => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="480" height="360"/>' }))
     await page.emulateMedia({ reducedMotion: 'reduce' })
   })
 
@@ -71,8 +72,12 @@ test.describe('landing proof', () => {
     await expect(judges.getByRole('status').filter({ hasText: 'Password copied.' })).toHaveCount(1)
     expect(String(await page.evaluate('navigator.clipboard.readText()'))).toBe('e2e-sandbox-password')
 
+    await expect(judges.locator('iframe')).toHaveCount(0)
+    await expect(judges.getByRole('button', { name: 'Watch the demo video' }).locator('img')).toHaveAttribute('src', 'https://i.ytimg.com/vi/aB3_x-9Zk0Q/hqdefault.jpg')
+    await judges.getByRole('button', { name: 'Watch the demo video' }).click()
     const video = judges.locator('iframe')
-    await expect(video).toHaveAttribute('src', VIDEO)
+    await expect(video).toBeFocused()
+    await expect(video).toHaveAttribute('src', `${VIDEO}?autoplay=1`)
     await expect(video).toHaveAttribute('loading', 'lazy')
     await expect(video).toHaveAttribute('referrerpolicy', 'strict-origin-when-cross-origin')
     await expect(video).toHaveAttribute('title', /^CommitPool demo video/)
@@ -82,7 +87,12 @@ test.describe('landing proof', () => {
     await expect(truth.getByRole('row', { name: /Claude on Amazon Bedrock/ })).toContainText('Real')
     await expect(truth.getByRole('row', { name: /Demo participants/ })).toContainText('Prepared')
     await expect(truth.getByRole('row', { name: /Close reservations now/ })).toContainText('Accelerated clock')
+    await expect(truth.getByRole('row', { name: /Fail next charge/ })).toContainText('Simulated failure')
     await expect(truth.getByRole('row', { name: /Emails/ })).toContainText('Logged, not sent')
+
+    const apis = page.getByRole('region', { name: 'PayPal, for real.' })
+    await expect(apis).toContainText('create · authorize')
+    await expect(apis).toContainText('capture · void · refund')
   })
 
   test('without a video or a buyer login the judge path points to the testing instructions', async ({ page }) => {
@@ -93,6 +103,7 @@ test.describe('landing proof', () => {
     await expect(judges.getByRole('heading', { name: 'PayPal Sandbox buyer' })).toHaveCount(0)
     await expect(judges.getByRole('button', { name: /^Copy/ })).toHaveCount(0)
     await expect(judges.locator('iframe')).toHaveCount(0)
+    await expect(judges.getByRole('button', { name: 'Watch the demo video' })).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Try it as Iris' }).first()).toBeVisible()
   })
 })

@@ -518,6 +518,9 @@ Once extended:
   anyone can still withdraw until charging starts;
 - the capture deadline and payments open follow the new `closes_at`, so a
   late hold is captured until then;
+- seat releases (`ReleaseExpiredSeats`, `ReleaseReservedSeats`) take the
+  workshop lock first, as reservations and the extension do, so a release
+  and an extension never wait on each other's seats;
 - shortening the window later (the demo's **Close reservations now**) keeps
   `extended_from`, and no second extension is offered;
 - a lapsed seat reserved under a consent outside `domain.ExtensionConsents`
@@ -527,13 +530,17 @@ Once extended:
 
 The owner view carries `extension` (`available`, `from`, `to` and an
 `approve_url` when on offer, or the `refusal` code, with a `reason` either
-way), and every proposal view carries `extended_from` and
-`latest_closes_at`: the later of `closes_at` and
-`floor(min(opens_at + 72 h, starts_at − 24 h), 15 min)` while the workshop is
-funding, payments are open, the deadline never moved and no seat is taken
-under an older consent; `closes_at` itself otherwise. The participant's card shows it as "Latest
-possible deadline", and both pages show "Deadline extended from X to Y" while
-the class is funding.
+way), and the proposal in the owner, participant and invite views carries
+`extended_from` and `latest_closes_at`: the option `CanExtend` offers right
+now, computed from the workshop's live seats and holds exactly as for the
+organizer, when there is one; `closes_at` itself otherwise (already extended,
+charging started, funded, under 10 minutes left, less than an hour to gain, a
+seat under an older consent, payments closed). Other responses carry
+`closes_at`. The participant's card shows it as "Latest possible deadline",
+followed by "The organizer can extend the deadline once, up to then." only in
+the first case and "This deadline will not move." (or "It was already
+extended once.") otherwise, and both pages show "Deadline extended from X to
+Y" while the class is funding.
 
 The suggestion `rescue` (see `domain.Suggestions`) appears for a `FUNDING`
 class short of its minimum with an extension on offer and at most six hours

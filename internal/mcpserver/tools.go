@@ -277,7 +277,7 @@ type StatusOut struct {
 	VenueCost          string       `json:"venue_cost,omitempty"`
 	BreakEvenSeats     int          `json:"break_even_seats,omitempty"`
 	Status             string       `json:"status"`
-	Resolution         string       `json:"resolution"`
+	Resolution         string       `json:"resolution,omitempty"`
 	PaymentsOpen       bool         `json:"payments_open"`
 	RecommendedDateID  string       `json:"recommended_date_id,omitempty"`
 	RecommendedDate    string       `json:"recommended_date,omitempty"`
@@ -292,7 +292,7 @@ type StatusOut struct {
 	Minimum            int          `json:"minimum"`
 	Capacity           int          `json:"capacity"`
 	PaymentsCloseAt    *time.Time   `json:"payments_close_at,omitempty"`
-	IfClosedNow        string       `json:"if_closed_now"`
+	IfClosedNow        string       `json:"if_closed_now,omitempty"`
 	Payout             *PayoutOut   `json:"payout,omitempty"`
 	Suggestions        []Suggestion `json:"suggestions,omitempty"`
 }
@@ -328,7 +328,7 @@ func (s *Server) owner(ctx context.Context, tok string) (ownerView, error) {
 
 func statusOf(v ownerView) StatusOut {
 	out := StatusOut{
-		Title: v.Workshop.Title, Status: v.Workshop.Status, Resolution: v.Workshop.Resolution,
+		Title: v.Workshop.Title, Status: v.Workshop.Status, Resolution: shownResolution(v.Workshop.Resolution),
 		HostName: v.Workshop.HostName, Location: v.Workshop.Location, BreakEvenSeats: v.Workshop.BreakEvenSeats,
 		RecommendedDateID: v.Recommendation.DateID, MeetsMinimum: v.Recommendation.MeetsMinimum,
 		Explanation: v.Recommendation.Explanation,
@@ -368,7 +368,9 @@ func statusOf(v ownerView) StatusOut {
 		out.PaymentsCloseAt = &closes
 		out.Minimum, out.Capacity = p.Minimum, p.Capacity
 	}
-	out.IfClosedNow = ifClosedNow(v)
+	if out.PaymentsOpen {
+		out.IfClosedNow = ifClosedNow(v)
+	}
 	out.Payout = payoutOf(v.Payout)
 	return out
 }
@@ -427,28 +429,20 @@ func payoutOf(p *payoutJSON) *PayoutOut {
 	return out
 }
 
-func ifClosedNow(v ownerView) string {
-	switch {
-	case v.Proposal == nil:
-		return "Reservations are not open yet: nothing is held or charged."
-	case v.Workshop.Status == "CANCELLED":
-		return cancelledOutcome(v.Workshop.Resolution)
-	case v.Tally.Paid >= v.Proposal.Minimum:
-		return fmt.Sprintf("The workshop is on: %d payments reach the minimum of %d. Holds not charged by then are released.", v.Tally.Paid, v.Proposal.Minimum)
-	default:
-		return fmt.Sprintf("The workshop would be cancelled: %d payments are short of the minimum of %d, so %d holds would be released and %d payments refunded.",
-			v.Tally.Paid, v.Proposal.Minimum, v.Tally.Authorized, v.Tally.Paid)
+func shownResolution(resolution string) string {
+	switch resolution {
+	case "RESOLVING", "SETTLED", "NEEDS_ATTENTION":
+		return resolution
 	}
+	return ""
 }
 
-func cancelledOutcome(resolution string) string {
-	switch resolution {
-	case "SETTLED":
-		return "The workshop is cancelled: every hold was released and every payment refunded."
-	case "NEEDS_ATTENTION":
-		return "The workshop is cancelled, and a release or a refund needs the organizer's check in the web app."
+func ifClosedNow(v ownerView) string {
+	if v.Tally.Paid >= v.Proposal.Minimum {
+		return fmt.Sprintf("The workshop is on: %d payments reach the minimum of %d. Holds not charged by then are released.", v.Tally.Paid, v.Proposal.Minimum)
 	}
-	return "The workshop is cancelled: holds are being released and payments refunded."
+	return fmt.Sprintf("The workshop would be cancelled: %d payments are short of the minimum of %d, so %d holds would be released and %d payments refunded.",
+		v.Tally.Paid, v.Proposal.Minimum, v.Tally.Authorized, v.Tally.Paid)
 }
 
 type VerifyCheck struct {

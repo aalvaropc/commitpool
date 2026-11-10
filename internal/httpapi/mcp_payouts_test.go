@@ -99,3 +99,50 @@ func TestMCP_GetStatusSaysWhereThePayoutStands(t *testing.T) {
 		t.Fatalf("payout after the start = %+v", got)
 	}
 }
+
+func TestMCP_GetStatusLeavesOutWhatNoLongerApplies(t *testing.T) {
+	e := newEnv(t, withPayouts(), withDemoMode())
+	cs := e.mcpSession()
+	status := func(h workshopHandle) map[string]any {
+		t.Helper()
+		var out map[string]any
+		if res := e.tool(cs, "get_status", map[string]any{"owner_link": appBaseURL + "/owner/" + h.ownerToken}, &out); res.IsError {
+			t.Fatalf("get_status = %q", resultText(res))
+		}
+		return out
+	}
+
+	h, _ := e.confirmedWorkshop(withPayoutEmail(payoutEmail))
+	open := status(h)
+	if open["status"] != "CONFIRMED" || open["payments_open"] != true {
+		t.Fatalf("before the close = %v, want a confirmed class still taking reservations", open)
+	}
+	if got, _ := open["if_closed_now"].(string); !strings.HasPrefix(got, "The workshop is on: 2 payments reach the minimum of 2.") {
+		t.Errorf("if_closed_now = %q, want what closing reservations now would do", got)
+	}
+	if got, ok := open["resolution"]; ok {
+		t.Errorf("resolution = %v while no money is being resolved, want it left out", got)
+	}
+
+	e.call(http.MethodPost, h.ownerPath+"/demo/close-now", nil, http.StatusAccepted, nil)
+	e.startClass(h)
+	closed := status(h)
+	if closed["status"] != "CONFIRMED" || closed["payments_open"] != false {
+		t.Fatalf("after the class started = %v, want confirmed with reservations closed", closed)
+	}
+	for _, field := range []string{"resolution", "if_closed_now"} {
+		if got, ok := closed[field]; ok {
+			t.Errorf("%s = %v for a confirmed class that is closed and paid out, want it left out", field, got)
+		}
+	}
+
+	cancelled, _, _ := e.fundingWorkshop()
+	e.call(http.MethodPost, cancelled.ownerPath+"/cancel", map[string]string{}, http.StatusOK, nil)
+	gone := status(cancelled)
+	if got := gone["resolution"]; gone["status"] != "CANCELLED" || (got != "RESOLVING" && got != "SETTLED") {
+		t.Errorf("cancelled = %v, want CANCELLED with the money resolving or settled", gone)
+	}
+	if got, ok := gone["if_closed_now"]; ok {
+		t.Errorf("if_closed_now = %v for a cancelled class, want it left out", got)
+	}
+}

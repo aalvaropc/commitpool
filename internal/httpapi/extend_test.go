@@ -277,6 +277,8 @@ func TestDemoSkipToLastHours(t *testing.T) {
 		if v.Extension == nil || !v.Extension.Available || !slices.Contains(kinds(v.Suggestions), "rescue") {
 			t.Errorf("after the skip: extension %+v, suggestions %v; want the rescue", v.Extension, kinds(v.Suggestions))
 		}
+		e.call(http.MethodPost, h.ownerPath+"/extend", extendBody(want, *v.Extension.To), http.StatusOK, nil)
+		e.wantError(http.MethodPost, h.ownerPath+"/demo/skip-to-last-hours", nil, http.StatusConflict, "already_extended")
 	})
 	t.Run("only while reservations are open", func(t *testing.T) {
 		e := newEnv(t, withDemoMode())

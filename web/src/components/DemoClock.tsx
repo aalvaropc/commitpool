@@ -13,8 +13,8 @@ export default function DemoClock({ token, view, onChange }: Props) {
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
   const p = view.proposal
-  if (!view.demo.demo_mode || view.workshop.status !== 'FUNDING' || !p?.payments_open) return null
-  const canSkip = canSkipToLastHours(p.closes_at, Date.now())
+  if (!view.demo.demo_mode || view.workshop.status !== 'FUNDING' || !p?.payments_open || p.extended_from) return null
+  const canSkip = canSkipToLastHours(p, Date.now())
   if (!canSkip && !result) return null
 
   async function skip() {

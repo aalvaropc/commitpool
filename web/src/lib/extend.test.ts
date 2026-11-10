@@ -37,6 +37,7 @@ describe('movedDeadline', () => {
     const moved = { ...proposal, extended_from: '2026-11-03T09:00:00Z', closes_at: '2026-11-05T09:00:00Z' }
     expect(movedDeadline(moved, 'FUNDING')).toEqual({ from: '2026-11-03T09:00:00Z', to: '2026-11-05T09:00:00Z' })
     expect(movedDeadline(moved, 'CONFIRMED')).toBeNull()
+    expect(movedDeadline({ ...moved, closes_at: '2026-11-02T12:00:00Z' }, 'FUNDING')).toBeNull()
   })
 })
 
@@ -50,9 +51,10 @@ describe('latestDeadline', () => {
 })
 
 describe('canSkipToLastHours', () => {
-  it('offers the skip only while more than two hours are left', () => {
-    const closes = Date.parse('2026-11-03T09:00:00Z')
-    expect(canSkipToLastHours('2026-11-03T09:00:00Z', closes - 3 * 3600_000)).toBe(true)
-    expect(canSkipToLastHours('2026-11-03T09:00:00Z', closes - 2 * 3600_000)).toBe(false)
+  it('offers the skip only while more than two hours are left and the deadline never moved', () => {
+    const closes = Date.parse(proposal.closes_at)
+    expect(canSkipToLastHours(proposal, closes - 3 * 3600_000)).toBe(true)
+    expect(canSkipToLastHours(proposal, closes - 2 * 3600_000)).toBe(false)
+    expect(canSkipToLastHours({ ...proposal, extended_from: '2026-11-02T20:00:00Z' }, closes - 3 * 3600_000)).toBe(false)
   })
 })

@@ -185,6 +185,9 @@ func (s *server) demoSkipToLastHours(w http.ResponseWriter, r *http.Request) err
 	if ws.Status != domain.WorkshopFunding || !paymentsOpen(ws, p, now) {
 		return errProposalNotOpen
 	}
+	if p.ExtendedAt != nil {
+		return conflict("already_extended", "The deadline was already extended, so the demo clock no longer moves it.")
+	}
 	shortened, err := s.Store.ShortenPaymentWindow(ctx, p.ID, now.Add(demoLastHours))
 	if err != nil {
 		return err

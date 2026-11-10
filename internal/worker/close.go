@@ -18,6 +18,9 @@ func (r *Runner) closePayments(ctx context.Context, job *store.Job) (*int, error
 		return nil, errors.New("close job has no workshop")
 	}
 	workshopID := *job.WorkshopID
+	if err := r.closeTooEarly(ctx, job); err != nil {
+		return nil, err
+	}
 	if err := r.HealWorkshop(ctx, workshopID); err != nil {
 		return nil, err
 	}

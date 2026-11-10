@@ -10,12 +10,28 @@ export interface PayoutSummary {
   detail: string
 }
 
-const WAITING: Record<string, string> = {
+const SETTLING: Record<string, string> = {
   payments_in_flight: 'A payment is still moving at PayPal.',
-  payment_flagged: 'A payment needs a check first; see Needs your check.',
-  needs_attention: 'A payment needs a check first; see Needs your check.',
   fees_missing: 'PayPal has not reported every fee yet.',
-  nothing_to_pay: 'Nobody’s payment went through, so there is nothing to pay out.',
+}
+
+function waiting(p: Payout, to: string): PayoutSummary {
+  const reason = p.waiting ?? ''
+  if (reason === 'nothing_to_pay') {
+    return { tone: 'neutral', title: 'Nothing to pay out', detail: 'Nobody’s payment went through, so there is nothing to send.' }
+  }
+  if (reason === 'payment_flagged' || reason === 'needs_attention') {
+    return {
+      tone: 'attention',
+      title: 'Your payout waits for a check',
+      detail: `A payment needs your check first, in Needs your check. Your payout to ${to} waits until it is cleared.`,
+    }
+  }
+  return {
+    tone: 'hold',
+    title: 'Waiting for payments to settle',
+    detail: `${SETTLING[reason] ?? 'A payment has not settled yet.'} Your payout to ${to} goes out on its own once it does.`,
+  }
 }
 
 const money = (p: Payout, key: 'amount' | 'gross' | 'fees') => {
@@ -53,10 +69,14 @@ export function payoutSummary(p: Payout, timeZone: string): PayoutSummary {
         detail: `CommitPool sends ${sum} to ${to} through PayPal.${amount ? ' The amount is final once the class starts.' : ''}`,
       }
     case 'waiting':
+      return waiting(p, to)
+    case 'created':
+      return { tone: 'hold', title: `Getting ${amount ?? 'your payout'} ready for ${to}`, detail: 'The amount is final. PayPal has not confirmed the payout yet.' }
+    case 'parked':
       return {
-        tone: 'hold',
-        title: 'Waiting for payments to settle',
-        detail: `${WAITING[p.waiting ?? ''] ?? 'A payment has not settled yet.'} Your payout to ${to} goes out on its own once it does.`,
+        tone: 'attention',
+        title: 'The payout needs a check',
+        detail: `PayPal did not answer clearly, so the payout of ${amount ?? 'your money'} to ${to} waits for someone to try it again. It is never sent twice.`,
       }
     case 'sending':
       return { tone: 'hold', title: `Sending ${amount ?? 'your payout'} to ${to}`, detail: 'PayPal is processing the payout.' }

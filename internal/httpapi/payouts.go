@@ -19,6 +19,8 @@ const (
 	payoutOff       = "off"
 	payoutScheduled = "scheduled"
 	payoutWaiting   = "waiting"
+	payoutCreated   = "created"
+	payoutParked    = "parked"
 	payoutSending   = "sending"
 	payoutPaid      = "paid"
 	payoutUnclaimed = "unclaimed"
@@ -28,6 +30,7 @@ const (
 
 type payoutDTO struct {
 	State         string     `json:"state"`
+	Locked        bool       `json:"locked"`
 	Receiver      string     `json:"receiver,omitempty"`
 	ScheduledAt   *time.Time `json:"scheduled_at,omitempty"`
 	Waiting       string     `json:"waiting,omitempty"`
@@ -50,7 +53,7 @@ type payoutDTO struct {
 }
 
 var payoutStates = map[domain.PayoutStatus]string{
-	domain.PayoutCreated:   payoutSending,
+	domain.PayoutCreated:   payoutCreated,
 	domain.PayoutSent:      payoutSending,
 	domain.PayoutSucceeded: payoutPaid,
 	domain.PayoutUnclaimed: payoutUnclaimed,
@@ -58,10 +61,25 @@ var payoutStates = map[domain.PayoutStatus]string{
 	domain.PayoutUnknown:   payoutUnknown,
 }
 
+func (s *server) frozenPayoutView(ctx context.Context, po store.PayoutRow) (*payoutDTO, error) {
+	d := frozenPayoutView(po)
+	if po.Status != domain.PayoutCreated {
+		return d, nil
+	}
+	j, err := s.Store.JobByKey(ctx, worker.PayoutKey(po.WorkshopID))
+	if err != nil {
+		return nil, err
+	}
+	if j != nil && j.Status == store.JobNeedsAttention {
+		d.State = payoutParked
+	}
+	return d, nil
+}
+
 func frozenPayoutView(po store.PayoutRow) *payoutDTO {
 	amount, gross, fees := money(po.AmountMinor, po.Currency), money(po.GrossMinor, po.Currency), money(po.FeeMinor, po.Currency)
 	d := &payoutDTO{
-		State: payoutStates[po.Status], Receiver: po.Receiver, Amount: &amount, Gross: &gross, Fees: &fees,
+		State: payoutStates[po.Status], Locked: true, Receiver: po.Receiver, Amount: &amount, Gross: &gross, Fees: &fees,
 		Seats: po.Seats, Early: po.Early, SenderBatchID: po.SenderBatchID,
 		PayoutBatchID: orEmpty(po.PayoutBatchID), PayoutItemID: orEmpty(po.PayoutItemID), TransactionID: orEmpty(po.TransactionID),
 		BatchStatus: orEmpty(po.BatchStatus), ItemStatus: orEmpty(po.ItemStatus), Issue: orEmpty(po.Issue), DebugID: orEmpty(po.DebugID),
@@ -79,7 +97,7 @@ func (s *server) payoutView(ctx context.Context, st workshopState, latest map[st
 		return nil, err
 	}
 	if po != nil {
-		return frozenPayoutView(*po), nil
+		return s.frozenPayoutView(ctx, *po)
 	}
 	if st.w.Status != domain.WorkshopConfirmed || st.proposal == nil {
 		return nil, nil
@@ -191,7 +209,11 @@ func (s *server) demoStartClass(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	s.Log.Info("demo: class started now", "workshop_id", ws.ID, "payout_id", po.ID, "payout_status", po.Status)
-	writeJSON(w, http.StatusAccepted, map[string]*payoutDTO{"payout": frozenPayoutView(po)})
+	view, err := s.frozenPayoutView(ctx, po)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusAccepted, map[string]*payoutDTO{"payout": view})
 	return nil
 }
 
@@ -207,7 +229,11 @@ func (s *server) operatorCheckPayout(w http.ResponseWriter, r *http.Request) err
 	if err != nil {
 		return err
 	}
-	writeJSON(w, http.StatusOK, map[string]*payoutDTO{"payout": frozenPayoutView(po)})
+	view, err := s.frozenPayoutView(r.Context(), po)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, map[string]*payoutDTO{"payout": view})
 	return nil
 }
 

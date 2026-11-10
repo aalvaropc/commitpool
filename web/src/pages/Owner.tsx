@@ -84,7 +84,7 @@ export default function Owner() {
         enrollments: d.enrollments.map((e) => e.status),
         explanationPending: pending || d.suggestions.some((s) => s.pending),
         demoFilling: d.workshop.demo === true && d.availabilities.length < d.participants.length,
-        payoutMoving: d.payout?.state === 'sending' || d.payout?.state === 'waiting',
+        payoutMoving: d.payout?.state === 'created' || d.payout?.state === 'sending' || (d.payout?.state === 'waiting' && d.payout.waiting === 'payments_in_flight'),
       })
     : null
   usePolling(view.reload, refresh ?? 0, refresh !== null)

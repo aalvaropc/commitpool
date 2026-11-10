@@ -168,10 +168,11 @@ export interface ParticipantRef {
   display_name: string
 }
 
-export type PayoutState = 'no_email' | 'off' | 'scheduled' | 'waiting' | 'sending' | 'paid' | 'unclaimed' | 'failed' | 'unknown'
+export type PayoutState = 'no_email' | 'off' | 'scheduled' | 'waiting' | 'created' | 'parked' | 'sending' | 'paid' | 'unclaimed' | 'failed' | 'unknown'
 
 export interface Payout {
   state: PayoutState
+  locked: boolean
   receiver?: string
   scheduled_at?: string
   waiting?: string

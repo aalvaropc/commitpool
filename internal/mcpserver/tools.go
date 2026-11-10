@@ -373,6 +373,18 @@ func statusOf(v ownerView) StatusOut {
 	return out
 }
 
+func waitingSummary(reason string) string {
+	switch reason {
+	case "payments_in_flight", "fees_missing":
+		return "The class has started; the payout waits for every payment to settle at PayPal and goes out on its own once they do."
+	case "payment_flagged", "needs_attention":
+		return "A payment needs the organizer's check first (Needs your check, in the web app); the payout waits until it is cleared."
+	case "nothing_to_pay":
+		return "Nobody's payment went through, so there is nothing to pay out."
+	}
+	return "The payout is waiting (" + reason + ")."
+}
+
 func payoutOf(p *payoutJSON) *PayoutOut {
 	if p == nil {
 		return nil
@@ -396,7 +408,11 @@ func payoutOf(p *payoutJSON) *PayoutOut {
 		}
 		out.Summary = fmt.Sprintf("When the class starts, CommitPool sends %s (what %s paid, less PayPal's fees) to %s through PayPal.", amount, people, p.Receiver)
 	case "waiting":
-		out.Summary = "The payout waits for every payment to settle at PayPal (" + p.Waiting + "); it goes out on its own once they do."
+		out.Summary = waitingSummary(p.Waiting)
+	case "created":
+		out.Summary = fmt.Sprintf("The payout of %s to %s is frozen and about to go to PayPal; PayPal has not confirmed it yet.", amount, p.Receiver)
+	case "parked":
+		out.Summary = fmt.Sprintf("PayPal did not answer the payout of %s to %s clearly, so it waits for an operator to try it again; it is never sent twice.", amount, p.Receiver)
 	case "sending":
 		out.Summary = fmt.Sprintf("CommitPool sent %s to %s through PayPal; PayPal is still processing it.", amount, p.Receiver)
 	case "paid":

@@ -8,6 +8,7 @@ const zone = 'America/New_York'
 function payout(over: Partial<Payout> = {}): Payout {
   return {
     state: 'scheduled',
+    locked: false,
     receiver: 'iris@example.com',
     scheduled_at: '2026-11-14T15:00:00Z',
     estimated: true,
@@ -54,6 +55,31 @@ describe('payoutSummary', () => {
     expect(titles[2].detail).toBe('A payment is still moving at PayPal. Your payout to iris@example.com goes out on its own once it does.')
     expect(titles[5].detail).toBe('PayPal answered INSUFFICIENT_FUNDS. Quote the debug ID below to PayPal support.')
     expect(titles[5].tone).toBe('attention')
+  })
+})
+
+describe('payoutSummary never promises a payout that waits for a person', () => {
+  it('tells apart a frozen payout PayPal has not confirmed and one parked for an operator', () => {
+    expect(payoutSummary(payout({ state: 'created', locked: true }), zone)).toEqual({
+      tone: 'hold',
+      title: 'Getting $128.82 ready for iris@example.com',
+      detail: 'The amount is final. PayPal has not confirmed the payout yet.',
+    })
+    const parked = payoutSummary(payout({ state: 'parked', locked: true }), zone)
+    expect(parked.tone).toBe('attention')
+    expect(parked.detail).not.toMatch(/sent to|on its own/)
+  })
+
+  it('asks for the check a flagged payment needs, and says when there is nothing to pay', () => {
+    for (const waiting of ['payment_flagged', 'needs_attention']) {
+      const s = payoutSummary(payout({ state: 'waiting', waiting }), zone)
+      expect(s.title).toBe('Your payout waits for a check')
+      expect(s.detail).not.toMatch(/on its own/)
+    }
+    expect(payoutSummary(payout({ state: 'waiting', waiting: 'nothing_to_pay' }), zone).title).toBe('Nothing to pay out')
+    expect(payoutSummary(payout({ state: 'waiting', waiting: 'fees_missing' }), zone).detail).toBe(
+      'PayPal has not reported every fee yet. Your payout to iris@example.com goes out on its own once it does.',
+    )
   })
 })
 

@@ -23,6 +23,7 @@ func withPayoutEmail(email string) func(map[string]any) {
 
 type payoutJSON struct {
 	State         string     `json:"state"`
+	Locked        bool       `json:"locked"`
 	Receiver      string     `json:"receiver"`
 	ScheduledAt   *time.Time `json:"scheduled_at"`
 	Waiting       string     `json:"waiting"`
@@ -313,5 +314,44 @@ func TestApproval_ShowsWhereThePayoutGoes(t *testing.T) {
 	e.call(http.MethodPost, h.ownerPath+"/approvals", map[string]string{"date_id": h.satID}, http.StatusCreated, &out)
 	if out.Approval.PayoutEmail != payoutEmail {
 		t.Errorf("approval payout_email = %q, want %q", out.Approval.PayoutEmail, payoutEmail)
+	}
+}
+
+func TestOwnerView_AFrozenPayoutPayPalHasNotConfirmedIsCreatedThenParked(t *testing.T) {
+	e := newEnv(t, withPayouts(), withDemoMode())
+	h, _ := e.confirmedWorkshop(withPayoutEmail(payoutEmail))
+	if got := e.ownerPayout(h).Payout; got == nil || got.Locked {
+		t.Fatalf("payout before the start = %+v, want unlocked", got)
+	}
+	e.call(http.MethodPost, h.ownerPath+"/demo/close-now", nil, http.StatusAccepted, nil)
+	e.fake.FailNext("create_payout", http.StatusServiceUnavailable, "")
+
+	got := e.startClass(h)
+	if got.State != "created" || !got.Locked || got.PayoutBatchID != "" {
+		t.Fatalf("payout after a 503 = %+v, want created, locked and unsent", got)
+	}
+	if _, err := e.st.Pool.Exec(e.ctx, `update jobs set status = 'needs_attention' where idempotency_key = $1`, "payout:"+h.created.Workshop.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.ownerPayout(h).Payout; got == nil || got.State != "parked" || !got.Locked {
+		t.Fatalf("payout whose job is parked = %+v, want parked", got)
+	}
+}
+
+func TestOperatorRetryRefund_RefusesAPaymentThatWasPaidOut(t *testing.T) {
+	e := newEnv(t, withPayouts(), withDemoMode())
+	h, _ := e.confirmedWorkshop(withPayoutEmail(payoutEmail))
+	e.call(http.MethodPost, h.ownerPath+"/demo/close-now", nil, http.StatusAccepted, nil)
+	e.startClass(h)
+	var enrollmentID string
+	if err := e.st.Pool.QueryRow(e.ctx, `select enrollment_id from payment_attempts where payout_id is not null limit 1`).Scan(&enrollmentID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.st.Pool.Exec(e.ctx, `update enrollments set status = 'REFUND_FAILED', needs_attention_at = now() where id = $1`, enrollmentID); err != nil {
+		t.Fatal(err)
+	}
+	e.wantError(http.MethodPost, h.ownerPath+"/operator/retry-refund", map[string]string{"enrollment_id": enrollmentID}, http.StatusConflict, "paid_out")
+	if n := e.fake.Requests("refund"); len(n) != 0 {
+		t.Errorf("refund requests = %d, want none", len(n))
 	}
 }

@@ -8,6 +8,8 @@ const PILL: Record<string, string> = {
   off: 'Off',
   scheduled: 'Scheduled',
   waiting: 'Waiting',
+  created: 'Getting ready',
+  parked: 'Needs a check',
   sending: 'Sending',
   paid: 'Paid out',
   unclaimed: 'Not claimed yet',

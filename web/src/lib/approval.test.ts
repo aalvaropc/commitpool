@@ -80,7 +80,13 @@ describe('approvalTerms', () => {
       ['Time to reserve', '24 hours'],
       ['Needed to happen', '3'],
       ['Spots', '8'],
+      ['Paid out at the start to', 'No PayPal email given'],
     ])
+  })
+
+  it('names the PayPal email the money is paid out to', () => {
+    const withPayout = { ...view, approval: { ...view.approval, payout_email: 'iris@example.com' } }
+    expect(approvalTerms(withPayout).at(-1)).toEqual({ label: 'Paid out at the start to', value: 'iris@example.com', kind: 'text', span: true })
   })
 })
 

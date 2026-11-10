@@ -27,6 +27,7 @@ export interface WorkshopForm {
   description: string
   hostName: string
   ownerEmail: string
+  payoutEmail: string
   location: string
   duration: string
   timezone: string
@@ -50,7 +51,7 @@ const AMOUNT = /^\d{1,7}(\.\d{1,2})?$/
 const EMAIL = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/
 const DAY_MS = 86400000
 
-const ORDER: FieldKey[] = ['title', 'description', 'hostName', 'location', 'ownerEmail', 'price', 'venueCost', 'minimum', 'capacity', 'duration', 'timezone', 'dates']
+const ORDER: FieldKey[] = ['title', 'description', 'hostName', 'location', 'ownerEmail', 'price', 'venueCost', 'minimum', 'capacity', 'payoutEmail', 'duration', 'timezone', 'dates']
 
 const DRAFT_FIELDS: Record<DraftField, FieldKey> = {
   title: 'title',
@@ -70,6 +71,7 @@ const SERVER_FIELDS: Record<string, FieldKey> = {
   invalid_description: 'description',
   invalid_host_name: 'hostName',
   invalid_owner_email: 'ownerEmail',
+  invalid_payout_email: 'payoutEmail',
   invalid_location: 'location',
   invalid_duration: 'duration',
   invalid_timezone: 'timezone',
@@ -94,6 +96,7 @@ export function blankForm(timezone: string, now: number): WorkshopForm {
     description: '',
     hostName: '',
     ownerEmail: '',
+    payoutEmail: '',
     location: '',
     duration: '120',
     timezone,
@@ -176,6 +179,7 @@ export function validateWorkshop(f: WorkshopForm, now: number): { errors: FormEr
   if (!AMOUNT.test(f.price.trim()) || Number(f.price) <= 0) errors.price = 'Write an amount above zero, such as 45 or 45.50.'
   if (f.venueCost.trim() && !AMOUNT.test(f.venueCost.trim())) errors.venueCost = 'Write an amount such as 120, or leave it empty.'
   if (f.ownerEmail.trim() && !EMAIL.test(f.ownerEmail.trim())) errors.ownerEmail = 'Write one address, such as iris@example.com, or leave it empty.'
+  if (f.payoutEmail.trim() && !EMAIL.test(f.payoutEmail.trim())) errors.payoutEmail = 'Write the email of your PayPal account, such as iris@example.com, or leave it empty.'
 
   if (f.dates.length === 0) errors.dates = 'Offer at least one date.'
   else if (f.dates.length > MAX_DATES) errors.dates = `Offer at most ${MAX_DATES} dates.`
@@ -215,6 +219,7 @@ export function toRequest(f: WorkshopForm, dates: StartsAndEnds): CreateWorkshop
     description: f.description.trim(),
     host_name: f.hostName.trim(),
     owner_email: f.ownerEmail.trim() || undefined,
+    payout_email: f.payoutEmail.trim() || undefined,
     location: f.location.trim(),
     duration_min: Number(f.duration),
     timezone: f.timezone,

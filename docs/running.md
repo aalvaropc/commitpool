@@ -45,13 +45,16 @@ Limits on starting demos:
 - A demo starts only when the Bedrock caps leave room for about 10 more calls. Otherwise it answers 429 `demo_resting` with `Retry-After` and says when to try again.
 
 Both endpoints answer 404 outside demo mode. The demo also adds the
-organizer's **Close reservations now** control, and a **Demo clock** with
+organizer's **Close reservations now** control; once the class is on and
+reservations are closed, **Start the class now**, which moves the demo clock
+to the class start and pays the organizer out right away (see
+[Payouts](#payouts)); and, while a class is funding, a **Demo clock** with
 **Skip to the last 2 hours** (`POST /api/v1/owner/{token}/demo/skip-to-last-hours`):
-while a workshop is funding and its deadline has never been extended, it
-moves `closes_at` to two hours from now (only ever earlier) and brings the
-`close:{proposal}` job forward with it, so a short class reaches the window in
-which Claude suggests rescuing it with one deadline extension. It answers 404
-outside demo mode too.
+while its deadline has never been extended, it moves `closes_at` to two hours
+from now (only ever earlier) and brings the `close:{proposal}` job forward
+with it, so a short class reaches the window in which Claude suggests
+rescuing it with one deadline extension. It answers 404 outside demo mode
+too.
 
 With `COMMITPOOL_SANDBOX_MOCKS=1` as well, **Fail next charge** makes PayPal
 answer `AUTHORIZATION_EXPIRED` to one capture through the
@@ -82,6 +85,8 @@ default.
 | `COMMITPOOL_DEMO_MODE` | `1` enables **Try it as Iris** and **Close reservations now**. |
 | `COMMITPOOL_DEMO_PACE_MS` | Milliseconds between the answers of a demo workshop (default `2000`; the end-to-end script uses `50`). |
 | `COMMITPOOL_SANDBOX_MOCKS` | `1` enables **Fail next charge** and the `PayPal-Mock-Response` header. Refused unless `PAYPAL_BASE_URL` is exactly the Sandbox URL. |
+| `COMMITPOOL_PAYOUTS` | `1` pays each confirmed class's organizer, when the class starts, what participants paid less PayPal's fees, with PayPal Payouts. Default `0`: payout jobs wait and nothing is sent. See [Payouts](#payouts). |
+| `COMMITPOOL_DEMO_PAYOUT_EMAIL` | The PayPal email demo workshops are paid out to, one plain address (a Sandbox Personal account). Default none: demo workshops have no payout. Logged only as set or not. |
 | `COMMITPOOL_MAILER`, `COMMITPOOL_MAIL_FROM` | `log` (default) logs notifications with a masked address and does not send them. `ses` sends them with Amazon SES v2 and the default AWS credentials, from `COMMITPOOL_MAIL_FROM`. That must be a verified sender identity, optionally with a name: `CommitPool <hello@example.com>`. |
 | `COMMITPOOL_RATE_LIMIT` | How many writes (POST, PUT) one client address may send a minute, in bursts of half that. `off` turns it off. Default `120`. Reads are never limited. |
 | `COMMITPOOL_MCP_SECRET` | Signs the organizer approval cookie and the landing chat's questions. Without it a random key per process is used, so an approve page opened before a restart must be reloaded before Approve works. Required when more than one instance serves the site. |
@@ -96,6 +101,32 @@ PayPal approval page.
 - The Business Sandbox account that owns the REST app (`PAYPAL_CLIENT_ID` and `PAYPAL_CLIENT_SECRET`) receives the payments.
 
 No real money moves.
+
+## Payouts
+
+With `COMMITPOOL_PAYOUTS=1`, a confirmed class's organizer is paid at the
+class start, to the PayPal email they gave when creating the workshop
+([Payments: Payouts](payments.md#payouts)). On the Sandbox this needs:
+
+- **Payouts on the REST app.** In the Developer Dashboard, under Apps &
+  Credentials, open the app behind `PAYPAL_CLIENT_ID` and turn on Payouts
+  among its features. Without it PayPal answers the payout with a 403; the
+  job retries it four times and then waits, parked, for an operator to
+  revive it once Payouts is on.
+- **A receiver.** A Personal Sandbox account whose email is the workshop's
+  payout email; for the demo, set it as `COMMITPOOL_DEMO_PAYOUT_EMAIL`
+  (`/commitpool/demo_payout_email` on EC2). An email with no Sandbox account
+  leaves the payout `unclaimed`.
+- **A Business balance.** The payout is drawn from the Business account's
+  PayPal balance, where the captures land; PayPal may charge the sender a
+  payout fee on top. A short balance is refused (`INSUFFICIENT_FUNDS`) and
+  the payout is `failed`; the runbook says how to send it again.
+- **Payout webhooks (optional).** `scripts/register-webhook.sh` subscribes to
+  `PAYMENT.PAYOUTSBATCH.*` and `PAYMENT.PAYOUTS-ITEM.*`, and adds them to an
+  existing webhook. Without them the hourly checks still find the outcome.
+
+`scripts/e2e.sh` turns payouts on against the fake PayPal, which pays every
+payout at once.
 
 ## Claude on Amazon Bedrock
 

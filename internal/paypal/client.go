@@ -33,6 +33,8 @@ type API interface {
 	GetCapture(ctx context.Context, id string) (Capture, error)
 	RefundCapture(ctx context.Context, p RefundParams) (Refund, error)
 	GetRefund(ctx context.Context, id string) (Refund, error)
+	CreatePayout(ctx context.Context, p CreatePayoutParams) (PayoutBatch, error)
+	GetPayoutBatch(ctx context.Context, id string) (PayoutBatch, error)
 	VerifyWebhookSignature(ctx context.Context, h http.Header, body []byte) (bool, error)
 }
 

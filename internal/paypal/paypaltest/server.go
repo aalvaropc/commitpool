@@ -43,8 +43,9 @@ var (
 		"token": true, "create_order": true, "authorize": true, "capture": true,
 		"void": true, "refund": true, "get_order": true, "get_authorization": true,
 		"get_capture": true, "get_refund": true, "verify_webhook": true,
+		"create_payout": true, "get_payout_batch": true,
 	}
-	replayedOps = map[string]bool{"create_order": true, "authorize": true, "capture": true, "void": true, "refund": true}
+	replayedOps = map[string]bool{"create_order": true, "authorize": true, "capture": true, "void": true, "refund": true, "create_payout": true}
 )
 
 type RecordedRequest struct {
@@ -65,6 +66,9 @@ type Server struct {
 	auths       map[string]*fakeAuth
 	captures    map[string]*fakeCapture
 	refunds     map[string]*fakeRefund
+	payouts     map[string]*fakePayout
+	senders     map[string]string
+	bareDupes   bool
 	requests    map[string][]RecordedRequest
 	failures    map[string][]fakeFailure
 	replays     map[replayKey]fakeResponse
@@ -127,6 +131,8 @@ func NewServer() *Server {
 		auths:    map[string]*fakeAuth{},
 		captures: map[string]*fakeCapture{},
 		refunds:  map[string]*fakeRefund{},
+		payouts:  map[string]*fakePayout{},
+		senders:  map[string]string{},
 		requests: map[string][]RecordedRequest{},
 		failures: map[string][]fakeFailure{},
 		replays:  map[replayKey]fakeResponse{},
@@ -299,6 +305,8 @@ func (f *Server) routes() http.Handler {
 	route("GET", "/v2/payments/captures/{id}", "get_capture", true, (*Server).getCapture)
 	route("POST", "/v2/payments/captures/{id}/refund", "refund", true, (*Server).refund)
 	route("GET", "/v2/payments/refunds/{id}", "get_refund", true, (*Server).getRefund)
+	route("POST", "/v1/payments/payouts", "create_payout", true, (*Server).createPayout)
+	route("GET", "/v1/payments/payouts/{id}", "get_payout_batch", true, (*Server).getPayoutBatch)
 	mux.HandleFunc("GET "+fakePrefix+"/approve", f.approvePage)
 	mux.HandleFunc("POST "+fakePrefix+"/approve", f.approveSubmit)
 	mux.HandleFunc("GET "+fakePrefix+"/cancel", f.cancelPage)

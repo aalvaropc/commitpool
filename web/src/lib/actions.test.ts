@@ -20,6 +20,10 @@ describe('canCancel', () => {
     expect(canCancel('CONFIRMED', '2026-11-10T12:00:00Z', now)).toBe(false)
     expect(canCancel('CONFIRMED', '2026-11-09T10:00:00Z', now)).toBe(false)
   })
+  it('refuses once the organizer’s payout has locked the class, even before its start', () => {
+    expect(canCancel('CONFIRMED', '2026-11-12T10:00:00Z', now, true)).toBe(false)
+    expect(canCancel('CONFIRMED', '2026-11-12T10:00:00Z', now, false)).toBe(true)
+  })
 })
 
 describe('cancelEffect', () => {

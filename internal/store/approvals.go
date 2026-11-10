@@ -33,8 +33,12 @@ type OpenApprovalRow struct {
 const approvalCols = `id, workshop_id, date_id, terms_hash, price_minor, currency, minimum, capacity, payment_window_min, created_at, expires_at, approved_at, used_at`
 
 func (w WorkshopRow) OpenTermsHash(dateID string) []byte {
-	sum := sha256.Sum256([]byte(strings.Join([]string{dateID, strconv.FormatInt(w.PriceMinor, 10), w.Currency,
-		strconv.Itoa(w.Minimum), strconv.Itoa(w.Capacity), strconv.Itoa(w.PaymentWindowMin)}, "|")))
+	terms := []string{dateID, strconv.FormatInt(w.PriceMinor, 10), w.Currency,
+		strconv.Itoa(w.Minimum), strconv.Itoa(w.Capacity), strconv.Itoa(w.PaymentWindowMin)}
+	if w.PayoutEmail != "" {
+		terms = append(terms, "payout:"+w.PayoutEmail)
+	}
+	sum := sha256.Sum256([]byte(strings.Join(terms, "|")))
 	return sum[:]
 }
 

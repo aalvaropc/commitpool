@@ -16,6 +16,17 @@ type Error struct {
 	Issue      string
 	DebugID    string
 	Message    string
+	Details    []ErrorDetail
+	Links      []Link
+}
+
+type ErrorDetail struct {
+	Field       string
+	Value       string
+	Location    string
+	Issue       string
+	Description string
+	Links       []Link
 }
 
 func (e *Error) Error() string {
@@ -76,15 +87,22 @@ func parseError(status int, body []byte) *Error {
 		Message string `json:"message"`
 		DebugID string `json:"debug_id"`
 		Details []struct {
-			Issue string `json:"issue"`
+			Field       string `json:"field"`
+			Value       string `json:"value"`
+			Location    string `json:"location"`
+			Issue       string `json:"issue"`
+			Description string `json:"description"`
+			Link        []Link `json:"link"`
+			Links       []Link `json:"links"`
 		} `json:"details"`
+		Links       []Link `json:"links"`
 		OAuthError  string `json:"error"`
 		OAuthDetail string `json:"error_description"`
 	}
 	if json.Unmarshal(body, &b) != nil {
 		return e
 	}
-	e.Name, e.Message, e.DebugID = b.Name, b.Message, b.DebugID
+	e.Name, e.Message, e.DebugID, e.Links = b.Name, b.Message, b.DebugID, b.Links
 	if e.Name == "" {
 		e.Name = b.OAuthError
 	}
@@ -93,6 +111,12 @@ func parseError(status int, body []byte) *Error {
 	}
 	if len(b.Details) > 0 {
 		e.Issue = b.Details[0].Issue
+	}
+	for _, d := range b.Details {
+		e.Details = append(e.Details, ErrorDetail{
+			Field: d.Field, Value: d.Value, Location: d.Location, Issue: d.Issue, Description: d.Description,
+			Links: append(d.Link, d.Links...),
+		})
 	}
 	return e
 }

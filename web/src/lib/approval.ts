@@ -70,7 +70,7 @@ export function refusedState(code: string): ApprovalState | null {
 export function approvalTerms(v: ApprovalView): TermItem[] {
   const a = v.approval
   const zone = v.workshop.timezone
-  return lockedTerms({
+  const terms = lockedTerms({
     timeZone: zone,
     dateLabel: formatDateRange(a.starts_at, a.ends_at, zone),
     price: a.price,
@@ -79,6 +79,8 @@ export function approvalTerms(v: ApprovalView): TermItem[] {
     minimum: a.minimum,
     capacity: a.capacity,
   })
+  terms.push({ label: 'Paid out at the start to', value: a.payout_email || 'No PayPal email given', kind: 'text', span: true })
+  return terms
 }
 
 export function confirmDeadline(v: ApprovalView): string {

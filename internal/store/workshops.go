@@ -30,6 +30,8 @@ type WorkshopRow struct {
 	VenueCostMinor         *int64
 	IsDemo                 bool
 	OwnerEmail             string
+	PayoutEmail            string
+	PayoutLockedAt         *time.Time
 }
 
 type CandidateDateRow struct {
@@ -60,11 +62,12 @@ type CreateWorkshopParams struct {
 	VenueCostMinor     *int64
 	IsDemo             bool
 	OwnerEmail         string
+	PayoutEmail        string
 	Dates              []struct{ StartsAt, EndsAt time.Time }
 }
 
 const (
-	workshopCols      = `id, title, description, duration_min, timezone, minimum, capacity, price_minor, currency, payment_window_min, status, resolution, created_at, coalesce(share_token, ''), cancelled_at, cancel_reason, host_name, location, venue_cost_minor, is_demo, coalesce(owner_email, '')`
+	workshopCols      = `id, title, description, duration_min, timezone, minimum, capacity, price_minor, currency, payment_window_min, status, resolution, created_at, coalesce(share_token, ''), cancelled_at, cancel_reason, host_name, location, venue_cost_minor, is_demo, coalesce(owner_email, ''), coalesce(payout_email, ''), payout_locked_at`
 	candidateDateCols = `id, workshop_id, starts_at, ends_at`
 	proposalCols      = `id, workshop_id, version, chosen_date_id, price_minor, currency, minimum, capacity, opens_at, closes_at, starts_at, extended_from, extended_at`
 )
@@ -86,11 +89,11 @@ func (s *Store) CreateWorkshop(ctx context.Context, p CreateWorkshopParams) (w W
 	err = pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 		row, err := one[WorkshopRow](ctx, tx,
 			`insert into workshops (owner_token_hash, share_token_hash, share_token, title, description, duration_min, timezone,
-				minimum, capacity, price_minor, currency, payment_window_min, host_name, location, venue_cost_minor, is_demo, owner_email)
-			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, nullif($17, ''))
+				minimum, capacity, price_minor, currency, payment_window_min, host_name, location, venue_cost_minor, is_demo, owner_email, payout_email)
+			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, nullif($17, ''), nullif($18, ''))
 			returning `+workshopCols,
 			ownerHash, shareHash, shareToken, p.Title, p.Description, p.DurationMin, p.Timezone,
-			p.Minimum, p.Capacity, p.PriceMinor, p.Currency, window, p.HostName, p.Location, p.VenueCostMinor, p.IsDemo, p.OwnerEmail)
+			p.Minimum, p.Capacity, p.PriceMinor, p.Currency, window, p.HostName, p.Location, p.VenueCostMinor, p.IsDemo, p.OwnerEmail, p.PayoutEmail)
 		if err != nil {
 			return wrap("insert workshop", err)
 		}
@@ -251,7 +254,7 @@ func transitionWorkshop(ctx context.Context, q execer, id string, fromStatus []d
 func (s *Store) CancelWorkshop(ctx context.Context, id string, from domain.WorkshopStatus, fromResolution, resolution domain.Resolution, reason string, now time.Time) (bool, error) {
 	tag, err := s.Pool.Exec(ctx,
 		`update workshops set status = $5, resolution = $4, cancelled_at = $6, cancel_reason = nullif($7, ''), updated_at = now()
-		 where id = $1 and status = $2 and resolution = $3`,
+		 where id = $1 and status = $2 and resolution = $3 and payout_locked_at is null`,
 		id, string(from), string(fromResolution), string(resolution), string(domain.WorkshopCancelled), now, reason)
 	if err != nil {
 		if isMissing(err) {

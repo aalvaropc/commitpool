@@ -107,6 +107,7 @@ func TestOpenApproval_TermsHashCoversEveryLockedTerm(t *testing.T) {
 		"minimum":  func(w *store.WorkshopRow, _ *string) { w.Minimum = 3 },
 		"capacity": func(w *store.WorkshopRow, _ *string) { w.Capacity = 7 },
 		"window":   func(w *store.WorkshopRow, _ *string) { w.PaymentWindowMin = 60 },
+		"payout":   func(w *store.WorkshopRow, _ *string) { w.PayoutEmail = "iris@example.com" },
 	}
 	for name, edit := range edits {
 		changed, date := w, "date-a"

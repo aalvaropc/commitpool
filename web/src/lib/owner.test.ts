@@ -35,6 +35,7 @@ function view(over: Partial<OwnerView> = {}): OwnerView {
     recommendation: { date_id: '', meets_minimum: false, per_date: [], explanation: '', explanation_pending: false },
     enrollments: [],
     suggestions: [],
+    payout: null,
     demo: { demo_mode: false, sandbox_mocks: false },
     ...over,
   }
@@ -157,6 +158,10 @@ describe('ownerRefresh', () => {
   it('stops once nothing can change on its own', () => {
     expect(ownerRefresh({ status: 'CANCELLED', resolution: 'SETTLED', paymentsOpen: false, enrollments: ['REFUNDED'], explanationPending: false })).toBeNull()
     expect(ownerRefresh({ status: 'CONFIRMED', resolution: 'SETTLED', paymentsOpen: false, enrollments: ['PAID'], explanationPending: false })).toBeNull()
+  })
+
+  it('keeps refreshing while the organizer’s payout is on its way', () => {
+    expect(ownerRefresh({ status: 'CONFIRMED', resolution: 'OPEN', paymentsOpen: false, enrollments: ['PAID'], explanationPending: false, payoutMoving: true })).toBe(5000)
   })
 })
 

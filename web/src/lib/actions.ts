@@ -1,8 +1,8 @@
 import type { EnrollmentStatus, WorkshopStatus } from '../api'
 import { count } from './plural'
 
-export function canCancel(status: WorkshopStatus, startsAt: string | null | undefined, now: number): boolean {
-  if (status === 'CANCELLED') return false
+export function canCancel(status: WorkshopStatus, startsAt: string | null | undefined, now: number, payoutLocked = false): boolean {
+  if (status === 'CANCELLED' || payoutLocked) return false
   return !startsAt || Date.parse(startsAt) > now
 }
 

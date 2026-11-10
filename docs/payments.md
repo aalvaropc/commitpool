@@ -1081,6 +1081,11 @@ are here.
   They move an enrollment only for its latest attempt and never back from a
   later or terminal status. A hold nobody will capture (an older attempt, a
   released seat, a declined capture) gets its `void:{attempt}`.
+- Every capture is final (`final_capture: true`), so a capture answer of
+  `COMPLETED` also records a `CREATED` authorization as `CAPTURED`, as PayPal
+  reports it, without waiting for a webhook or a reconcile to read the
+  authorization back. A later read that still says `CREATED` or `PENDING`
+  does not move a `CAPTURED` authorization back.
 
 ### Seats
 

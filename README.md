@@ -25,7 +25,7 @@ For the 5-minute run:
 
 | | Status | Notes |
 | --- | --- | --- |
-| PayPal Sandbox: orders, holds, charges, refunds, payouts, webhooks | **Real calls** | Every one is a request to PayPal's Sandbox API, and **Verify with PayPal** reads them back. No real money moves. |
+| PayPal Sandbox: orders, holds, charges, refunds, payouts, webhooks | **Real calls** | Every one is a call to PayPal's Sandbox API; incoming webhooks are checked with PayPal's verify-signature call, and the periodic reconcile covers any that do not arrive. **Verify with PayPal** reads them back. No real money moves. |
 | Claude on Amazon Bedrock | **Real** | Reads every answer, drafts the class, explains and drafts nudges live. |
 | Iris's six participants and what they wrote | **Prepared** | Labelled as demo data. You can act as any of them. |
 | **Close reservations now**, **Start the class now**, **Skip to the last 2 hours** | **Accelerated clock** | Demo controls that move the deadline or the class start so you do not wait. |
@@ -147,7 +147,7 @@ bash scripts/e2e.sh
 - The organizer is paid out when the class starts. A later refund, reversal or dispute on a payment it counted does not reduce the payout; the platform absorbs it.
 - The money passes through CommitPool's PayPal account and is paid out to the organizer. A marketplace setup where PayPal splits the payment is a next step, not built.
 - No accounts: access is by private links for the organizer, the invite and each participant.
-- Claude drafts the nudges, and the organizer sends them; CommitPool does not.
+- CommitPool never sends nudges itself; Claude drafts them and the organizer sends them.
 - Emails are logged in the demo, not sent.
 
 ## License

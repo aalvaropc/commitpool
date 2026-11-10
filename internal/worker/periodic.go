@@ -72,6 +72,10 @@ func (r *Runner) RunPeriodic(ctx context.Context) error {
 			errs = append(errs, fmt.Errorf("heal workshop %s: %w", id, err))
 		}
 	}
+
+	if err := r.backfillFees(ctx, now); err != nil {
+		errs = append(errs, fmt.Errorf("fee backfill: %w", err))
+	}
 	return errors.Join(errs...)
 }
 

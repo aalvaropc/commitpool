@@ -9,6 +9,7 @@ import (
 	"github.com/aalvaropc/commitpool/internal/domain"
 	"github.com/aalvaropc/commitpool/internal/paypal"
 	"github.com/aalvaropc/commitpool/internal/store"
+	"github.com/aalvaropc/commitpool/internal/worker"
 )
 
 func (e *env) wantFees(a store.AttemptRow, fee, net int64) {
@@ -131,5 +132,120 @@ func TestFees_RefusedWhenTheBreakdownIsConvertedOrDoesNotAddUp(t *testing.T) {
 			}
 			e.wantFees(a, 0, 1000)
 		})
+	}
+}
+
+func (e *env) forgetFees(a store.AttemptRow) {
+	e.t.Helper()
+	if _, err := e.st.Pool.Exec(e.ctx, `update payment_attempts set capture_fee_minor = null, capture_net_minor = null where id = $1`, a.ID); err != nil {
+		e.t.Fatal(err)
+	}
+}
+
+func TestFeeBackfill_RecordsTheFeesOfPaidAndRefundedSeatsAndNothingElse(t *testing.T) {
+	e := newEnv(t)
+	paidEn, paid := e.paid("Ana")
+	refundedEn, refunded := e.paid("Luis")
+	e.runKey(e.enqueue("refund", refunded))
+	e.wantStatus(refundedEn.ID, domain.EnrollmentRefunded)
+	e.forgetFees(paid)
+	e.forgetFees(refunded)
+	before := map[string]store.AttemptRow{paid.ID: e.attempt(paid.ID), refunded.ID: e.attempt(refunded.ID)}
+
+	e.runPeriodic()
+
+	for _, a := range []store.AttemptRow{paid, refunded} {
+		e.wantFees(a, 84, 916)
+		got, was := e.attempt(a.ID), before[a.ID]
+		if deref(got.CaptureStatus) != deref(was.CaptureStatus) || deref(got.RefundStatus) != deref(was.RefundStatus) ||
+			deref(got.AuthorizationStatus) != deref(was.AuthorizationStatus) || deref(got.OrderStatus) != deref(was.OrderStatus) {
+			t.Errorf("backfill changed more than the fees: %+v -> %+v", was, got)
+		}
+	}
+	e.wantStatus(paidEn.ID, domain.EnrollmentPaid)
+	e.wantStatus(refundedEn.ID, domain.EnrollmentRefunded)
+	if n := len(e.fake.Requests("get_capture")); n != 2 {
+		t.Errorf("get_capture requests = %d, want one per seat missing fees", n)
+	}
+
+	e.runPeriodic()
+	if n := len(e.fake.Requests("get_capture")); n != 2 {
+		t.Errorf("get_capture requests = %d after a second pass, want no more once the fees are recorded", n)
+	}
+}
+
+func TestFeeBackfill_LeavesSeatsThatAreNotPaidOrRefundedAlone(t *testing.T) {
+	e := newEnv(t)
+	e.authorized("Ana")
+	en, a := e.paid("Luis")
+	e.forgetFees(a)
+	e.transition(en.ID, domain.EnrollmentPaid, domain.EnrollmentRefunding)
+
+	e.runPeriodic()
+
+	if n := len(e.fake.Requests("get_capture")); n != 0 {
+		t.Errorf("get_capture requests = %d, want none: no paid or refunded seat is missing fees", n)
+	}
+	e.wantNoFees(a)
+}
+
+func TestFeeBackfill_ReadsAtMostABatchEachPass(t *testing.T) {
+	worker.SetFeeBackfillBatch(t, 1)
+	e := newEnv(t)
+	_, first := e.paid("Ana")
+	_, second := e.paid("Luis")
+	e.forgetFees(first)
+	e.forgetFees(second)
+
+	e.runPeriodic()
+
+	if n := len(e.fake.Requests("get_capture")); n != 1 {
+		t.Fatalf("get_capture requests = %d after one pass, want the batch of 1", n)
+	}
+	e.runPeriodic()
+	e.wantFees(first, 84, 916)
+	e.wantFees(second, 84, 916)
+}
+
+func TestFeeBackfill_WaitsAnHourAfterPayPalFailsOrSendsNoBreakdown(t *testing.T) {
+	e := newEnv(t)
+	_, failing := e.paid("Ana")
+	_, bare := e.paid("Luis")
+	e.forgetFees(failing)
+	e.forgetFees(bare)
+	e.fake.RespondOnce("get_capture", http.StatusInternalServerError, []byte(`{"name":"INTERNAL_SERVER_ERROR","debug_id":"f00d"}`))
+	e.fake.RespondOnce("get_capture", http.StatusOK, []byte(`{"id":"`+*bare.CaptureID+`","status":"COMPLETED","amount":{"currency_code":"USD","value":"10.00"}}`))
+
+	e.runPeriodic()
+
+	e.wantNoFees(failing)
+	e.wantNoFees(bare)
+	if !strings.Contains(e.logs.String(), "fee backfill: fees not recorded: PayPal reported the capture without a fee breakdown") {
+		t.Errorf("log does not say the capture came without a breakdown:\n%s", e.logs.String())
+	}
+	e.runPeriodic()
+	if n := len(e.fake.Requests("get_capture")); n != 2 {
+		t.Errorf("get_capture requests = %d after a second pass within the hour, want still 2", n)
+	}
+
+	e.advance(time.Hour)
+	e.runPeriodic()
+	e.wantFees(failing, 84, 916)
+	e.wantFees(bare, 84, 916)
+}
+
+func TestFees_WarnWhenACompletedCaptureCarriesNoBreakdown(t *testing.T) {
+	e := newEnv(t)
+	en, a := e.authorized("Ana")
+
+	if err := e.runner.ApplyCapture(e.ctx, a.ID, paypal.Capture{ID: "BARECAPTURE", Status: "COMPLETED", Amount: *usd("10.00")}); err != nil {
+		t.Fatalf("ApplyCapture: %v", err)
+	}
+
+	e.wantStatus(en.ID, domain.EnrollmentPaid)
+	e.wantNoFees(a)
+	logs := e.logs.String()
+	if !strings.Contains(logs, "level=WARN") || !strings.Contains(logs, "fees not recorded: PayPal reported the capture without a fee breakdown") {
+		t.Errorf("log lacks the warning about a capture without a breakdown:\n%s", logs)
 	}
 }

@@ -60,6 +60,7 @@ type Runner struct {
 	mailer   mail.Mailer
 	beats    struct{ drain, tick, periodic atomic.Int64 }
 	inline   sync.WaitGroup
+	retries  feeRetries
 }
 
 func New(d Deps) *Runner {

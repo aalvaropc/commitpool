@@ -156,6 +156,20 @@ func (s *Store) LatestAttemptsWithPendingAuthorization(ctx context.Context) ([]A
 		 order by id`, string(domain.EnrollmentSeatReserved), AuthorizationPending)
 }
 
+func (s *Store) AttemptsMissingFees(ctx context.Context, limit int, skip []string) ([]AttemptRow, error) {
+	if skip == nil {
+		skip = []string{}
+	}
+	return many[AttemptRow](ctx, s.Pool, "attempts missing fees",
+		`select `+attemptCols+` from payment_attempts
+		 where capture_id is not null and capture_fee_minor is null and capture_net_minor is null
+		   and enrollment_id in (select id from enrollments where status = any($1))
+		   and not (id = any($2::uuid[]))
+		 order by updated_at, id
+		 limit $3`,
+		texts([]domain.EnrollmentStatus{domain.EnrollmentPaid, domain.EnrollmentRefunded}), skip, limit)
+}
+
 func (s *Store) AttemptByID(ctx context.Context, id string) (*AttemptRow, error) {
 	return oneOrNil[AttemptRow](ctx, s.Pool, "attempt by id",
 		`select `+attemptCols+` from payment_attempts where id = $1`, id)

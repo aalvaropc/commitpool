@@ -297,7 +297,7 @@ func TestDemoLinks_KeptOnlyForADemoWorkshop(t *testing.T) {
 	ctx := context.Background()
 	s := storetest.New(t)
 	demo, _, _, err := s.CreateWorkshop(ctx, store.CreateWorkshopParams{
-		Title: "Wheel-throwing for beginners", DurationMin: 120, Timezone: "America/New_York", Minimum: 3, Capacity: 6,
+		Title: "Life drawing for beginners", DurationMin: 120, Timezone: "America/New_York", Minimum: 3, Capacity: 6,
 		PriceMinor: 4500, Currency: "USD", PaymentWindowMin: 1440, IsDemo: true,
 		Dates: []dateWindow{{StartsAt: saturday, EndsAt: saturday.Add(2 * time.Hour)}},
 	})

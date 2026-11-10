@@ -114,8 +114,8 @@ export default function WorkshopReview({ form, onChange, errors, missing, note, 
           <Field id="f-hostName" label="Your name" hint="Shown on the invite as the host." error={errors.hostName}>
             <input {...input('hostName', 'Shown on the invite as the host.')} maxLength={80} autoComplete="name" />
           </Field>
-          <Field id="f-location" label="Place" hint="Such as a studio and its neighbourhood." error={errors.location}>
-            <input {...input('location', 'Such as a studio and its neighbourhood.')} maxLength={160} />
+          <Field id="f-location" label="Place" hint="Such as a venue and its neighbourhood." error={errors.location}>
+            <input {...input('location', 'Such as a venue and its neighbourhood.')} maxLength={160} />
           </Field>
         </div>
         <Field id="f-ownerEmail" label="Your email" hint="Optional. We send you your organizer link and tell you when it’s on. Nobody else sees it." error={errors.ownerEmail}>
@@ -128,7 +128,7 @@ export default function WorkshopReview({ form, onChange, errors, missing, note, 
           <Field id="f-price" label="Price per person, USD" hint={hint('price')} error={errors.price}>
             <input {...input('price')} inputMode="decimal" autoComplete="off" />
           </Field>
-          <Field id="f-venueCost" label="What the studio costs you, USD" hint="Optional. Only you see it; it tells you how many people you need." error={errors.venueCost}>
+          <Field id="f-venueCost" label="What the session costs you (room, model, materials)" hint="Optional, in USD. Only you see it; it tells you how many people you need." error={errors.venueCost}>
             <input {...input('venueCost', 'Optional. Only you see it; it tells you how many people you need.')} inputMode="decimal" autoComplete="off" />
           </Field>
         </div>
@@ -144,7 +144,7 @@ export default function WorkshopReview({ form, onChange, errors, missing, note, 
             </div>
           ) : (
             <p className="rounded-control bg-attention-wash p-4 font-semibold text-attention">
-              Covering the studio takes {even.seats} people, more than the spots you offer. Raise the price, add spots or check the studio cost.
+              Covering the session costs takes {even.seats} people, more than the spots you offer. Raise the price, add spots or check the session cost.
             </p>
           ))}
         <div className="grid gap-5 sm:grid-cols-2">

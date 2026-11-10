@@ -36,8 +36,8 @@ For the organizer:
 
 | Tool | What it does |
 | --- | --- |
-| `create_workshop` | Creates a paid workshop with one or more candidate dates, the organizer's name and the place. An optional studio cost stays private to the organizer. Returns the owner link (private) and the share link (for participants). |
-| `get_status` | From the owner link: the recommended date and why, who can come, who committed or paid, how many paid seats cover the studio cost before fees, what closing payments now would do, and who CommitPool suggests nudging, each with a message Claude drafted for the organizer to send. Read-only; nothing is sent. |
+| `create_workshop` | Creates a paid workshop with one or more candidate dates, the organizer's name and the place. An optional session cost (room, model, materials) stays private to the organizer. Returns the owner link (private) and the share link (for participants). |
+| `get_status` | From the owner link: the recommended date and why, who can come, who committed or paid, how many paid seats cover the session cost before fees, what closing payments now would do, and who CommitPool suggests nudging, each with a message Claude drafted for the organizer to send. Read-only; nothing is sent. |
 | `preview_open_payments` | Prepares opening payments on a date: returns the exact terms that lock (date, price, minimum, capacity and payment window), an `approval_id`, its `state` and an `approve_url` for the organizer. The organizer has thirty minutes to approve; once they do, the assistant has thirty more to confirm. The workshop does not change. |
 | `confirm_open_payments` | Opens payments with that `approval_id`, only once the organizer has tapped Approve on the `approve_url` page. Refused while they have not, after the approval expired or was used, and when any term changed since the preview. |
 

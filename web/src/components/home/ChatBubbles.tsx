@@ -134,7 +134,7 @@ function Signed({ name, role, icon, wash, children }: { name: string; role: stri
 
 export function CommitPoolSays({ text }: { text: string }) {
   return (
-    <Signed name="CommitPool" role="counts for Maya" icon="users" wash>
+    <Signed name="CommitPool" role="counts for Iris" icon="users" wash>
       {text}
     </Signed>
   )

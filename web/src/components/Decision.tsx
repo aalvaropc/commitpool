@@ -1,6 +1,6 @@
 import type { Ref } from 'react'
 import type { OwnerView } from '../api'
-import { cancellationDetail, countFacts, decisionCounts, studioCovered, studioPlan, type DecisionCounts, type NextStep as Step } from '../lib/owner'
+import { cancellationDetail, countFacts, decisionCounts, sessionCovered, sessionPlan, type DecisionCounts, type NextStep as Step } from '../lib/owner'
 import { headline, heldAny, refundsAny, releasesAny, tone } from '../lib/status'
 import { formatDateRange } from '../lib/time'
 import CopyField from './CopyField'
@@ -72,8 +72,8 @@ export default function Decision({ view, step, onOpen, titleRef }: Props) {
   })
   const t = tone(w.status, w.resolution)
   const chosen = p ? view.dates.find((d) => d.id === p.date_id) : undefined
-  const coverage = p ? studioCovered(view) : null
-  const plan = studioPlan(view)
+  const coverage = p ? sessionCovered(view) : null
+  const plan = sessionPlan(view)
   const action = step.action
   return (
     <div className="flex flex-col gap-4 rounded-tile bg-surface p-5 sm:p-7">

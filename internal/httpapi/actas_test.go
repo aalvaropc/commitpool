@@ -33,12 +33,12 @@ func TestDemo_OwnerViewCarriesTheSixWorkingLinks(t *testing.T) {
 		ActAs []actAsJSON `json:"act_as"`
 	}
 	e.call(http.MethodGet, ownerPath, nil, http.StatusOK, &v)
-	if len(v.ActAs) != len(demo.Maya.People) {
-		t.Fatalf("act_as = %+v, want the %d people of the demo", v.ActAs, len(demo.Maya.People))
+	if len(v.ActAs) != len(demo.LifeDrawing.People) {
+		t.Fatalf("act_as = %+v, want the %d people of the demo", v.ActAs, len(demo.LifeDrawing.People))
 	}
 	for i, p := range v.ActAs {
-		if p.Name != demo.Maya.People[i].Name || p.ParticipantURL != d.Participants[i].ParticipantURL {
-			t.Errorf("act_as[%d] = %+v, want %s at %s", i, p, demo.Maya.People[i].Name, d.Participants[i].ParticipantURL)
+		if p.Name != demo.LifeDrawing.People[i].Name || p.ParticipantURL != d.Participants[i].ParticipantURL {
+			t.Errorf("act_as[%d] = %+v, want %s at %s", i, p, demo.LifeDrawing.People[i].Name, d.Participants[i].ParticipantURL)
 		}
 		var pv participantViewJSON
 		e.call(http.MethodGet, "/api/v1/p/"+participantToken(p.ParticipantURL), nil, http.StatusOK, &pv)
@@ -76,7 +76,7 @@ func TestDemo_SomeoneWhoJoinsThroughTheInviteIsNotOffered(t *testing.T) {
 	var v struct {
 		ActAs []actAsJSON `json:"act_as"`
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &v); err != nil || len(v.ActAs) != len(demo.Maya.People) {
+	if err := json.Unmarshal(rec.Body.Bytes(), &v); err != nil || len(v.ActAs) != len(demo.LifeDrawing.People) {
 		t.Errorf("act_as = %+v, %v; want only the demo's people", v.ActAs, err)
 	}
 }
@@ -120,7 +120,7 @@ func TestDemo_ParticipantLinksStayWithTheOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(structured), "Wheel-throwing for beginners") {
+	if !strings.Contains(string(structured), "Life drawing for beginners") {
 		t.Fatalf("get_status did not describe the demo; the check would be vacuous: %s", structured)
 	}
 	leaks("get_status", resultText(res)+string(structured), -1)

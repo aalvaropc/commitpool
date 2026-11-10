@@ -139,32 +139,32 @@ func TestJoin_StoresEmailAndSendsThePrivateLinkOnce(t *testing.T) {
 func TestCreate_EmailsTheOrganizerTheirLinkOnce(t *testing.T) {
 	e := newEnv(t)
 	h := e.createWorkshop(func(b map[string]any) {
-		b["owner_email"] = "maya@example.com"
-		b["host_name"] = "Maya Okafor"
+		b["owner_email"] = "iris@example.com"
+		b["host_name"] = "Iris Calder"
 	})
 	e.runner.RunPending(e.ctx)
 	sent := e.mailer.Sent()
 	if !h.created.OwnerEmailed {
 		t.Error("owner_emailed = false after queuing the organizer's link")
 	}
-	if len(sent) != 1 || sent[0].To != "maya@example.com" || !strings.Contains(sent[0].Text, h.created.OwnerURL) || !strings.Contains(sent[0].HTML, h.created.OwnerURL) {
-		t.Fatalf("sent = %+v, want one message to Maya with her organizer link", sent)
+	if len(sent) != 1 || sent[0].To != "iris@example.com" || !strings.Contains(sent[0].Text, h.created.OwnerURL) || !strings.Contains(sent[0].HTML, h.created.OwnerURL) {
+		t.Fatalf("sent = %+v, want one message to Iris with her organizer link", sent)
 	}
-	if !strings.Contains(sent[0].Text, "Hi Maya,") || !strings.Contains(sent[0].Text, h.created.ShareURL) {
+	if !strings.Contains(sent[0].Text, "Hi Iris,") || !strings.Contains(sent[0].Text, h.created.ShareURL) {
 		t.Errorf("text = %s", sent[0].Text)
 	}
 	var body, html string
-	if err := e.st.Pool.QueryRow(e.ctx, `select body, html from notifications where to_email = 'maya@example.com'`).Scan(&body, &html); err != nil || body != "" || html != "" {
+	if err := e.st.Pool.QueryRow(e.ctx, `select body, html from notifications where to_email = 'iris@example.com'`).Scan(&body, &html); err != nil || body != "" || html != "" {
 		t.Errorf("stored body %q html %q after sending, %v; want both cleared: they carried the organizer link", body, html, err)
 	}
 	for _, path := range []string{h.sharePath, h.ownerPath} {
-		if raw := e.request(http.MethodGet, path, nil).Body.String(); strings.Contains(raw, "maya@example.com") {
+		if raw := e.request(http.MethodGet, path, nil).Body.String(); strings.Contains(raw, "iris@example.com") {
 			t.Errorf("GET %s shows the organizer's email", path)
 		}
 	}
 	e.wantError(http.MethodPost, "/api/v1/workshops", func() map[string]any {
 		b := workshopRequest()
-		b["owner_email"] = "Maya <maya@example.com>"
+		b["owner_email"] = "Iris <iris@example.com>"
 		return b
 	}(), http.StatusBadRequest, "invalid_owner_email")
 }
@@ -180,7 +180,7 @@ func TestCreate_WithoutAnEmailSendsNothing(t *testing.T) {
 
 func TestCancel_BeforeReservationsTellsTheOrganizerNothingMoved(t *testing.T) {
 	e := newEnv(t)
-	h := e.createWorkshop(func(b map[string]any) { b["owner_email"] = "maya@example.com" })
+	h := e.createWorkshop(func(b map[string]any) { b["owner_email"] = "iris@example.com" })
 	e.call(http.MethodPost, h.ownerPath+"/cancel", map[string]string{"reason": "I’m ill."}, http.StatusOK, nil)
 	e.runner.RunPending(e.ctx)
 	var cancelled []string

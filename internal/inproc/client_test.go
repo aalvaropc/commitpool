@@ -25,8 +25,8 @@ func TestClient_CallsTheHandlerInProcess(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]string{"greeting": "hi " + in.Name})
 	})
 	var out struct{ Greeting string }
-	err := inproc.Client{Handler: h}.Call(context.Background(), http.MethodPost, "/x", map[string]string{"name": "Maya"}, &out)
-	if err != nil || out.Greeting != "hi Maya" || !sawInProcess {
+	err := inproc.Client{Handler: h}.Call(context.Background(), http.MethodPost, "/x", map[string]string{"name": "Iris"}, &out)
+	if err != nil || out.Greeting != "hi Iris" || !sawInProcess {
 		t.Fatalf("Call = %v, out %+v, in process %v", err, out, sawInProcess)
 	}
 }

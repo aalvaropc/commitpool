@@ -25,7 +25,7 @@ describe('the prepared crowd', () => {
 
   it('leaves both days one short', () => {
     expect(tally(CROWD_READS)).toEqual({ sat: 2, sun: 2 })
-    expect(crowdTally(dates)).toBe('Saturday: 2 can come. Sunday: 2. Maya needs 3 on one day, so she needs one more — you could be the third.')
+    expect(crowdTally(dates)).toBe('Saturday: 2 can come. Sunday: 2. Iris needs 3 on one day, so she needs one more — you could be the third.')
   })
 
   it('names everyone who can reserve on each day', () => {
@@ -41,7 +41,7 @@ describe('the prepared crowd', () => {
 describe('opening', () => {
   it('takes its dates from the calendar, not from the code', () => {
     expect(opening(dates)).toBe(
-      'Wheel-throwing for beginners! Saturday or Sunday, 10 AM–12 PM (Sat, Dec 5 or Sun, Dec 6). The studio costs me $120, so I need 3 of you at $45 each.',
+      'Life drawing for beginners! Saturday or Sunday, 10 AM–12 PM (Sat, Dec 5 or Sun, Dec 6). The room and model cost me $120, so I need 3 of you at $45 each.',
     )
     expect(opening(sampleDates(new Date('2027-01-25T12:00:00Z')))).toContain('(Sat, Jan 30 or Sun, Jan 31)')
   })
@@ -52,7 +52,7 @@ describe('outcome', () => {
     const o = outcome({ sat: true, sun: false }, dates, false)
     expect(o.key).toBe('sat')
     expect(o.counts).toEqual({ sat: 3, sun: 2 })
-    expect(o.text).toBe('You’re counted for Saturday: that makes 3, enough for Maya. She opens reservations for Sat, Dec 5.')
+    expect(o.text).toBe('You’re counted for Saturday: that makes 3, enough for Iris. She opens reservations for Sat, Dec 5.')
   })
 
   it('opens Sunday when the visitor is counted on the other day', () => {
@@ -71,7 +71,7 @@ describe('outcome', () => {
     const o = outcome(none, dates, false)
     expect(o.key).toBeNull()
     expect(o.text).toBe(
-      'From what you wrote, you aren’t counted for either day. Saturday has 2 and Sunday has 2: Maya still needs one more, so nothing opens and nobody pays.',
+      'From what you wrote, you aren’t counted for either day. Saturday has 2 and Sunday has 2: Iris still needs one more, so nothing opens and nobody pays.',
     )
   })
 

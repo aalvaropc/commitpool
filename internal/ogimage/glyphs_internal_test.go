@@ -45,11 +45,11 @@ func TestSpan_FallsBackOneCharacterAtATime(t *testing.T) {
 	cases := []struct {
 		in, want, fallback string
 	}{
-		{"Wheel-throwing for beginners", "Wheel-throwing for beginners", ""},
+		{"Life drawing for beginners", "Life drawing for beginners", ""},
 		{"Phở & bánh mì", "Phở & bánh mì", ""},
 		{"Ștefan și Țara Românească", "Ștefan și Țara Românească", ""},
 		{"éclair № 2 ≈ 3", "éclair № 2 ≈ 3", ""},
-		{"Pottery ♥ night", "Pottery ♥ night", "♥"},
+		{"Drawing ♥ night", "Drawing ♥ night", "♥"},
 		{"Пекарня Ёлка", "Пекарня Ёлка", "ПекарняЁлка"},
 		{"Sourdough面包night", "Sourdough night", ""},
 		{"🍞 Sourdough 面包 night", "Sourdough night", ""},
@@ -81,8 +81,8 @@ func TestWords_LeaveOutWhatCannotBeDrawn(t *testing.T) {
 		title, host, place string
 	}{
 		{Card{Title: "Phở & bánh mì", Host: "Lê Văn Tám", Place: "Quận 1"}, "PHỞ & BÁNH MÌ", "Lê Văn Tám", "Quận 1"},
-		{Card{Title: "面包课", Host: "王老师", Place: "Maya's studio"}, "A CLASS ON COMMITPOOL", "", "Maya's studio"},
-		{Card{Title: "Pottery ♥ night 陶艺", Host: "王小明", Place: "Studio 3 · 上海"}, "POTTERY ♥ NIGHT", "", "Studio 3"},
+		{Card{Title: "面包课", Host: "王老师", Place: "The Long Room"}, "A CLASS ON COMMITPOOL", "", "The Long Room"},
+		{Card{Title: "Drawing ♥ night 陶艺", Host: "王小明", Place: "Room 3 · 上海"}, "DRAWING ♥ NIGHT", "", "Room 3"},
 		{Card{Title: "🍞🥖", Host: "🙂", Place: "📍"}, "A CLASS ON COMMITPOOL", "", ""},
 	}
 	for _, tc := range cases {
@@ -106,10 +106,10 @@ func TestKeepTogether_JoinsDatesAndTimes(t *testing.T) {
 
 func TestWrap_BreaksBetweenLabelsAndAfterHyphens(t *testing.T) {
 	c, f := newCanvas(t)
-	sp := c.span(style{f.display, 128, -0.02}, "WHEEL-THROWING FOR ABSOLUTE BEGINNERS")
-	narrow := sp.with("WHEEL-THROWING").width() - 10
+	sp := c.span(style{f.display, 128, -0.02}, "LIFE-DRAWING FOR ABSOLUTE BEGINNERS")
+	narrow := sp.with("LIFE-DRAWING").width() - 10
 	lines, fits := sp.wrap(narrow, 6)
-	if !fits || lines[0].text != "WHEEL-" || !strings.HasPrefix(lines[1].text, "THROWING") {
+	if !fits || lines[0].text != "LIFE-" || !strings.HasPrefix(lines[1].text, "DRAWING") {
 		t.Errorf("lines = %v (fits %v); want the break after the hyphen", lines, fits)
 	}
 	lines, fits = sp.wrap(narrow, 2)
@@ -149,7 +149,7 @@ func tileRight(t *testing.T, card Card) int {
 
 func TestBand_KeepsTheDatesWide(t *testing.T) {
 	base := Card{
-		Status: "Reservations open", Tone: ToneHold, Title: "Wheel-throwing for beginners", Host: "Maya Okafor",
+		Status: "Reservations open", Tone: ToneHold, Title: "Life drawing for beginners", Host: "Iris Calder",
 		When: "Wed, Sep 30 or Wed, Dec 30 · 10:30 AM–12:45 PM", Price: "$45", Needed: 3, Capacity: 6,
 	}
 	huge := base

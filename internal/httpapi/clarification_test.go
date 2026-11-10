@@ -221,7 +221,7 @@ func TestDemo_GracesAnswerToClaudeOpensSaturday(t *testing.T) {
 			grace = "/api/v1/p/" + strings.TrimPrefix(p.ParticipantURL, appBaseURL+"/p/")
 		}
 	}
-	reply := e.say(participantHandle{path: grace}, demo.Maya.Replies[0].Message)
+	reply := e.say(participantHandle{path: grace}, demo.LifeDrawing.Replies[0].Message)
 	if reply.NeedsClarification {
 		t.Fatalf("Grace's answer still needs clarifying: %+v", reply)
 	}

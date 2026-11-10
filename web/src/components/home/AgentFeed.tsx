@@ -6,9 +6,9 @@ type StepState = 'done' | 'ask' | 'work'
 const steps: { state: StepState; title: string; detail: string }[] = [
   { state: 'done', title: 'Read 6 messages', detail: 'In English and Spanish, the way people text.' },
   { state: 'done', title: 'Matched every answer to every date', detail: 'Priya and Ben can come Saturday; Lucía and Tomás, Sunday. Hannah has to leave by 11:30, before the class ends.' },
-  { state: 'ask', title: 'Grace said “I might be able to swap one”', detail: 'She didn’t say which morning, and the class runs 10 AM–12 PM, so Claude asked her: can she make either morning, and which? Saturday has 2 of the 3 Maya needs.' },
-  { state: 'done', title: 'Grace swapped Saturday', detail: 'Claude read her answer together with her first message. Saturday reached 3, so the server let Maya open reservations.' },
-  { state: 'work', title: 'Lining up the nudges', detail: 'While reservations are open, Claude drafts a reminder for anyone who can come but hasn’t reserved. Maya decides what to send.' },
+  { state: 'ask', title: 'Grace said “I might be able to swap one”', detail: 'She didn’t say which morning, and the class runs 10 AM–12 PM, so Claude asked her: can she make either morning, and which? Saturday has 2 of the 3 Iris needs.' },
+  { state: 'done', title: 'Grace swapped Saturday', detail: 'Claude read her answer together with her first message. Saturday reached 3, so the server let Iris open reservations.' },
+  { state: 'work', title: 'Lining up the nudges', detail: 'While reservations are open, Claude drafts a reminder for anyone who can come but hasn’t reserved. Iris decides what to send.' },
 ]
 
 const marks: Record<StepState, { icon: IconName; tone: string }> = {
@@ -20,7 +20,7 @@ const marks: Record<StepState, { icon: IconName; tone: string }> = {
 export default function AgentFeed() {
   const [ref, seen] = useInView<HTMLOListElement>()
   return (
-    <ol ref={ref} aria-label="What Claude did for Maya" className="flex flex-col gap-3">
+    <ol ref={ref} aria-label="What Claude did for Iris" className="flex flex-col gap-3">
       {steps.map((s, i) => (
         <li
           key={s.title}

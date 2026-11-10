@@ -21,40 +21,40 @@ import (
 	"github.com/aalvaropc/commitpool/internal/ogimage"
 )
 
-func maya() ogimage.Card {
+func sampleData() ogimage.Card {
 	return ogimage.Card{
-		Status: "Finding the date", Title: "Wheel-throwing for beginners", Host: "Maya Okafor",
-		Place: "Maya's studio · Greenpoint, Brooklyn", When: "Sat, Nov 14 or Sun, Nov 15 · 10 AM–12 PM",
+		Status: "Finding the date", Title: "Life drawing for beginners", Host: "Iris Calder",
+		Place: "The Long Room · Red Hook, Brooklyn", When: "Sat, Nov 14 or Sun, Nov 15 · 10 AM–12 PM",
 		Price: "$45", Needed: 3, Capacity: 6,
 	}
 }
 
 func samples() map[string]ogimage.Card {
-	open := maya()
+	open := sampleData()
 	open.Status, open.Tone, open.When, open.Reserved = "Reservations open", ogimage.ToneHold, "Sat, Nov 14 · 10 AM–12 PM", 2
 	on := open
 	on.Status, on.Tone, on.Paid, on.Reserved = "It’s on", ogimage.ToneOn, 4, 0
-	long := maya()
+	long := sampleData()
 	long.Title = "Sourdough, focaccia and pizza al taglio for absolute beginners who never baked bread"
 	long.Host, long.Place = "Bartholomew Featherstonehaugh-Winterbottom", "The community kitchen on the second floor of the old library annex"
 	long.When, long.Price, long.Paid, long.Reserved = "4 possible dates from Sat, Nov 14", "$1,250.50", 1, 1
-	cancelled := maya()
+	cancelled := sampleData()
 	cancelled.Status, cancelled.Tone, cancelled.Title, cancelled.Host, cancelled.Place = "Cancelled", ogimage.ToneCancelled, "Café crème · Dvořák", "", ""
 	overflow := long
 	overflow.Title = strings.Repeat("Sourdough, pizza and focaccia for absolute beginners ", 4)
 	overflow.When, overflow.Price, overflow.Status, overflow.Tone = "Sat, Nov 14 or Sun, Nov 15 · 10:30 AM–12:45 PM", "1,250.00 EUR", "Reservations closed", ogimage.ToneNeutral
-	vietnamese := maya()
+	vietnamese := sampleData()
 	vietnamese.Title, vietnamese.Host, vietnamese.Place = "Phở & bánh mì từ đầu", "Lê Thị Hương", "Bếp nhà Hương · Quận 1"
 	romanian := open
-	romanian.Title, romanian.Host, romanian.Place = "Țesut și ceramică pentru începători", "Ștefan Țurcanu", "Atelierul din Iași"
-	cjkHost := maya()
-	cjkHost.Title, cjkHost.Host, cjkHost.Place = "Pottery ♥ night 陶艺", "王小明", "Studio 3 · 上海"
+	romanian.Title, romanian.Host, romanian.Place = "Țesut și desen pentru începători", "Ștefan Țurcanu", "Atelierul din Iași"
+	cjkHost := sampleData()
+	cjkHost.Title, cjkHost.Host, cjkHost.Place = "Drawing ♥ night 陶艺", "王小明", "Room 3 · 上海"
 	huge := open
 	huge.Price = "$92,233,720,368,547,758.07"
 	crowded := open
 	crowded.When, crowded.Price, crowded.Needed, crowded.Capacity, crowded.Reserved = "Wed, Sep 30 or Wed, Dec 30 · 10:30 AM–12:45 PM", "$1,234,567.89", 250, 500, 499
 	return map[string]ogimage.Card{
-		"collecting": maya(), "open": open, "on": on, "long": long, "cancelled": cancelled, "overflow": overflow,
+		"collecting": sampleData(), "open": open, "on": on, "long": long, "cancelled": cancelled, "overflow": overflow,
 		"vietnamese": vietnamese, "romanian": romanian, "cjk-host": cjkHost, "huge-price": huge, "crowded": crowded,
 	}
 }
@@ -146,12 +146,12 @@ func TestRender_ItsOnIsDarkTextOnEmber(t *testing.T) {
 }
 
 func TestRender_IsDeterministic(t *testing.T) {
-	a, _ := ogimage.Render(maya())
-	b, _ := ogimage.Render(maya())
+	a, _ := ogimage.Render(sampleData())
+	b, _ := ogimage.Render(sampleData())
 	if !bytes.Equal(a, b) {
 		t.Error("the same card renders differently")
 	}
-	c := maya()
+	c := sampleData()
 	c.Reserved = 1
 	if d, _ := ogimage.Render(c); bytes.Equal(a, d) {
 		t.Error("a reservation does not change the card")
@@ -159,7 +159,7 @@ func TestRender_IsDeterministic(t *testing.T) {
 }
 
 func TestRender_SurvivesLongAndMissingText(t *testing.T) {
-	c := maya()
+	c := sampleData()
 	c.Title = strings.Repeat("Sourdough, pizza and focaccia for absolute beginners ", 4)
 	c.When = strings.Repeat("Sat, Nov 14 · ", 10)
 	c.Price = "1,250,000.00 EUR"
@@ -185,7 +185,7 @@ func TestRender_ManyAtOnce(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			c := maya()
+			c := sampleData()
 			c.Title = fmt.Sprintf("%s %d", c.Title, i%2)
 			raw, err := ogimage.Render(c)
 			if err != nil {
@@ -203,26 +203,26 @@ func TestRender_ManyAtOnce(t *testing.T) {
 }
 
 func TestRender_DrawsTitlesOutsideTheBrandFont(t *testing.T) {
-	c := maya()
+	c := sampleData()
 	c.Title = "🍞 Пекарня & Łódź bread — 面包"
 	if _, err := ogimage.Render(c); err != nil {
 		t.Fatal(err)
 	}
 }
 
-const goldenRevision = "kiln-1"
+const goldenRevision = "kiln-2"
 
 var goldenPixels = map[string]string{
 	"cancelled":  "36aee1d3c66417404cab28fd21b64dd3e4924461740e982eb5761ce991659e52",
-	"cjk-host":   "61b5318ebcaaadccdfda31c597149eddc545b80d9bfe09cebfe813168779de8e",
-	"collecting": "dbe7f7521cb2682174fe6720a61241ec0b81cfc904534bffb2b0a143f843a8b0",
-	"crowded":    "8121387c5327a1ed8708c59986eeb7ada0919da028b1d9e14c43d91d6343f95f",
-	"huge-price": "69c1d5d2bb0b1cca34a14dfc4b46a777aa9ff5ce02362b48d2c677225e0e131b",
+	"cjk-host":   "ddfc6fc8a50b65f8e05c37645ba60193a2ce6347af1097f9ef0c0b08ef60a904",
+	"collecting": "099ae970504712f919ae070bd7ecc2350be9ef1e45b09f6c20f4d5c0a5c6863e",
+	"crowded":    "dc156a039bea99ba622309037915c37273ba8734bd942524d9793e79c52cef6e",
+	"huge-price": "ec8b657086085160d964eb46722ce48c7db445b8f5b26b2333ec787760fe64b1",
 	"long":       "c087b637fa0ad74a907d226ae186d8198c97608b9ec4d74f68551726e2425090",
-	"on":         "abd0d23de774f27f36d75c2c85ba059d0638d27bf63c9e26c9c96b8fe4e7289f",
-	"open":       "db6c6c11dd6abffbb33c10c7cc65db3f83692dcdd68cfc824f93dde793c040f9",
+	"on":         "4578518fe256147d7b1327a95d8921826a0991ffd52a13f481a8e9c56d89779d",
+	"open":       "24a1315b543f203ccf5cf8fbc9b0a59ed44db7d552eed53871d2fde8342bc209",
 	"overflow":   "a950eaac65d6707ed1ecbd29e56791a1185a543426a26bbd82f41b779a6798c7",
-	"romanian":   "9f3cf30ac892299de66b6f6071b4e74bc0efbddae046bceeaf93b82997839b38",
+	"romanian":   "4904f05401a5f33eba190349659b19de5e7151df6514b0d5abc9876b2cdd2a75",
 	"vietnamese": "9e80ab5b1c056d0759c75c01c3debe29df94d694e61d19e6c012e946bc43b178",
 }
 

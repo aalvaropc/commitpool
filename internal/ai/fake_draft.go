@@ -19,7 +19,7 @@ var (
 	draftPlace     = regexp.MustCompile(`\bat\s+(\D[^.;]*)`)
 	draftPrice     = regexp.MustCompile(`(?i)\$\s?(\d+(?:\.\d{1,2})?)\s*(?:a|per|each|/)\s*(?:person|head|seat|spot|participant|student)`)
 	draftVenue     = regexp.MustCompile(`(?i)\b(?:studio|room|venue|space|rent|hall)\b[^.$]*\$\s?(\d+(?:\.\d{1,2})?)`)
-	draftCapacity  = regexp.MustCompile(`(?i)\b(?:(\d+)\s+(?:wheels|spots|seats|places|mats|stations|easels)|up to\s+(\d+)|max(?:imum)?(?: of)?\s+(\d+))\b`)
+	draftCapacity  = regexp.MustCompile(`(?i)\b(?:(\d+)\s+(?:easels|spots|seats|places|mats|stations)|up to\s+(\d+)|max(?:imum)?(?: of)?\s+(\d+))\b`)
 	draftMinimum   = regexp.MustCompile(`(?i)\b(?:need|needs)\s+(?:at least\s+)?(\d+)|\bat least\s+(\d+)\s+(?:people|students|participants)`)
 	draftHours     = regexp.MustCompile(`(?i)\b(\d+|one|two|three|four|five|six)\s+hours?\b`)
 	draftMinutes   = regexp.MustCompile(`(?i)\b(\d+)\s*(?:min|mins|minutes)\b`)

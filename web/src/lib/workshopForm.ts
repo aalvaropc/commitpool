@@ -136,7 +136,7 @@ export function breakEven(price: string, venueCost: string): { seats: number; te
   const v = cents(venueCost)
   if (p <= 0 || v <= 0) return null
   const seats = Math.ceil(v / p)
-  return { seats, text: `${seats} × ${usd(p)} = ${usd(seats * p)} covers your ${usd(v)} studio before fees` }
+  return { seats, text: `${seats} × ${usd(p)} = ${usd(seats * p)} covers your ${usd(v)} session costs before fees` }
 }
 
 export function firstInvalid(errors: FormErrors, dates: DateSlot[]): FieldKey | null {
@@ -175,7 +175,7 @@ export function validateWorkshop(f: WorkshopForm, now: number): { errors: FormEr
   else if (!errors.minimum && minimum > capacity) errors.capacity = 'Offer at least as many spots as people needed.'
   if (!AMOUNT.test(f.price.trim()) || Number(f.price) <= 0) errors.price = 'Write an amount above zero, such as 45 or 45.50.'
   if (f.venueCost.trim() && !AMOUNT.test(f.venueCost.trim())) errors.venueCost = 'Write an amount such as 120, or leave it empty.'
-  if (f.ownerEmail.trim() && !EMAIL.test(f.ownerEmail.trim())) errors.ownerEmail = 'Write one address, such as maya@example.com, or leave it empty.'
+  if (f.ownerEmail.trim() && !EMAIL.test(f.ownerEmail.trim())) errors.ownerEmail = 'Write one address, such as iris@example.com, or leave it empty.'
 
   if (f.dates.length === 0) errors.dates = 'Offer at least one date.'
   else if (f.dates.length > MAX_DATES) errors.dates = `Offer at most ${MAX_DATES} dates.`

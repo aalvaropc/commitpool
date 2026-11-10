@@ -53,11 +53,11 @@ func verdicts(v ...domain.DateVerdict) []domain.DateVerdict { return v }
 
 const graceMessage = "Count me in! Mornings are tricky — I'm usually at the market — but I might be able to swap one. Not sure which day yet."
 
-var Maya = Scenario{
-	Title:       "Wheel-throwing for beginners",
-	Description: "Your first bowl on the wheel. Two hours with all the clay, tools and firing included, in a small group. No experience needed; wear clothes that can get muddy.",
-	HostName:    "Maya Okafor",
-	Location:    "Maya's studio · Greenpoint, Brooklyn",
+var LifeDrawing = Scenario{
+	Title:       "Life drawing for beginners",
+	Description: "Two hours of short and long poses with a live model, paper and charcoal included. No experience needed.",
+	HostName:    "Iris Calder",
+	Location:    "The Long Room · Red Hook, Brooklyn",
 	DurationMin: 120,
 	Minimum:     3,
 	Capacity:    6,
@@ -139,7 +139,7 @@ func Script(sc Scenario) map[string]ai.Scripted {
 }
 
 func FakeScript() map[string]ai.Scripted {
-	out := Script(Maya)
+	out := Script(LifeDrawing)
 	for _, p := range Landing {
 		out[p.Message] = p.Expect
 	}
@@ -164,7 +164,7 @@ type Result struct {
 	Price                  string
 }
 
-const PreparedNote = "Prepared demo data: Maya, her studio and the six participants were written for this demo."
+const PreparedNote = "Prepared demo data: Iris, her class and the six participants were written for this demo."
 
 const (
 	answerAttempts    = 4

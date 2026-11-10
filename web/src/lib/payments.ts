@@ -54,7 +54,7 @@ export function verifyDifferences(result: VerifyResult): VerifyDifference[] {
       .map((c) => ({
         key: `${seat.enrollment_id}-${c.resource}`,
         text: `${seat.seat || 'A spot'} — ${resourceLabel(c.resource)} ${c.id}: CommitPool has ${c.local}; PayPal has ${c.paypal}.`,
-        debugId: seat.debug_id || undefined,
+        debugId: c.debug_id || undefined,
       })),
   )
 }

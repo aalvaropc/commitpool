@@ -303,13 +303,13 @@ export interface VerifyCheck {
   local: string
   paypal: string
   match: boolean
+  debug_id?: string
 }
 
 export interface VerifySeat {
   enrollment_id: string
   seat: string
   checks: VerifyCheck[]
-  debug_id?: string
 }
 
 export interface VerifyResult {

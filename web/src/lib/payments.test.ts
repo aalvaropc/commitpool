@@ -83,10 +83,9 @@ describe('verifyDifferences', () => {
         {
           enrollment_id: 'e1',
           seat: 'Ada',
-          debug_id: 'f00d',
           checks: [
             { resource: 'order', id: 'O1', local: 'COMPLETED, 10.00 USD', paypal: 'COMPLETED, 10.00 USD', match: true },
-            { resource: 'authorization', id: 'A1', local: 'CAPTURED, 10.00 USD', paypal: 'error INTERNAL_SERVER_ERROR', match: false },
+            { resource: 'authorization', id: 'A1', local: 'CAPTURED, 10.00 USD', paypal: 'error INTERNAL_SERVER_ERROR', match: false, debug_id: 'f00d' },
             { resource: 'capture', id: 'C1', local: 'COMPLETED, 10.00 USD', paypal: 'REFUNDED, 10.00 USD', match: false },
           ],
         },
@@ -94,7 +93,7 @@ describe('verifyDifferences', () => {
     })
     expect(verifyDifferences(r)).toEqual([
       { key: 'e1-authorization', text: 'Ada — Hold A1: CommitPool has CAPTURED, 10.00 USD; PayPal has error INTERNAL_SERVER_ERROR.', debugId: 'f00d' },
-      { key: 'e1-capture', text: 'Ada — Charge C1: CommitPool has COMPLETED, 10.00 USD; PayPal has REFUNDED, 10.00 USD.', debugId: 'f00d' },
+      { key: 'e1-capture', text: 'Ada — Charge C1: CommitPool has COMPLETED, 10.00 USD; PayPal has REFUNDED, 10.00 USD.', debugId: undefined },
     ])
   })
 })

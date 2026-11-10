@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/aalvaropc/commitpool/internal/httpapi"
 )
 
 func (e *env) mcpSession() *mcp.ClientSession {
@@ -444,8 +446,8 @@ type mcpVerify struct {
 			CommitPool string `json:"commitpool"`
 			PayPal     string `json:"paypal"`
 			Match      bool   `json:"match"`
+			DebugID    string `json:"debug_id"`
 		} `json:"checks"`
-		DebugID string `json:"debug_id"`
 	} `json:"seats"`
 	Next string `json:"next"`
 }
@@ -478,4 +480,20 @@ func TestMCP_VerifyWithPayPalOnlyReads(t *testing.T) {
 
 	e.wantToolError(e.tool(cs, "verify_with_paypal", map[string]any{"owner_link": h.created.OwnerURL}, nil), "Try again in 30 seconds")
 	e.wantToolError(e.tool(cs, "verify_with_paypal", map[string]any{"owner_link": h.created.ShareURL}, nil), "not a CommitPool owner link")
+}
+
+func TestMCP_VerifyWithPayPalSaysHowManySeatsWaited(t *testing.T) {
+	httpapi.SetVerifySeats(t, 1)
+	e := newEnv(t)
+	cs := e.mcpSession()
+	h, p, ps := e.fundingWorkshop()
+	e.checkout(ps[0], p.ID)
+	e.checkout(ps[1], p.ID)
+
+	var out mcpVerify
+	e.tool(cs, "verify_with_paypal", map[string]any{"owner_link": h.created.OwnerURL}, &out)
+
+	if out.Summary != "1 of 1 record matches PayPal. 1 more seat was not checked this time." {
+		t.Errorf("summary = %q, want one seat checked and one left", out.Summary)
+	}
 }

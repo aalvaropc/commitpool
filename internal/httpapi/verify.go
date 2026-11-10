@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -51,13 +52,13 @@ type verifyCheckDTO struct {
 	Local    string `json:"local"`
 	PayPal   string `json:"paypal"`
 	Match    bool   `json:"match"`
+	DebugID  string `json:"debug_id,omitempty"`
 }
 
 type verifySeatDTO struct {
 	EnrollmentID string           `json:"enrollment_id"`
 	Seat         string           `json:"seat"`
 	Checks       []verifyCheckDTO `json:"checks"`
-	DebugID      string           `json:"debug_id,omitempty"`
 }
 
 type verifySummaryDTO struct {
@@ -83,15 +84,15 @@ func (s *server) verifyWithPayPal(w http.ResponseWriter, r *http.Request) error 
 	if s.PayPal == nil {
 		return errPayPalNotConfigured
 	}
+	subjects, skipped, err := s.verifiableSeats(r.Context(), ws.ID)
+	if err != nil {
+		return err
+	}
 	now := s.Clock.Now()
 	if wait := s.verifies.take(ws.ID, now); wait > 0 {
 		retryAfter(w, wait)
 		return newError(http.StatusTooManyRequests, "verify_too_soon",
 			"PayPal was checked for this workshop moments ago. Try again in "+seconds(wait)+".")
-	}
-	subjects, skipped, err := s.verifiableSeats(r.Context(), ws.ID)
-	if err != nil {
-		return err
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), verifyTimeout)
 	defer cancel()
@@ -170,10 +171,12 @@ type paymentFacts struct {
 	status, amount, fee, net string
 }
 
+const notRecorded = "not recorded"
+
 func (f paymentFacts) String() string {
 	parts := []string{f.status}
 	if f.status == "" {
-		parts[0] = "not recorded"
+		parts[0] = notRecorded
 	}
 	if f.amount != "" {
 		parts = append(parts, f.amount)
@@ -194,11 +197,7 @@ func (s *server) verifySeat(ctx context.Context, v verifySubject) verifySeatDTO 
 	compare := func(resource, id string, local paymentFacts, remote paymentFacts, err error) {
 		c := verifyCheckDTO{Resource: resource, ID: id, Local: local.String()}
 		if err != nil {
-			var debugID string
-			c.PayPal, debugID = payPalFailure(err)
-			if out.DebugID == "" {
-				out.DebugID = debugID
-			}
+			c.PayPal, c.DebugID = payPalFailure(err)
 		} else {
 			c.PayPal = remote.String()
 			c.Match = c.Local == c.PayPal
@@ -240,9 +239,13 @@ func (s *server) verifySeat(ctx context.Context, v verifySubject) verifySeatDTO 
 		if err == nil {
 			remote = paymentFacts{status: c.Status, amount: payPalAmount(c.Amount)}
 		}
-		if a.CaptureFeeMinor != nil && a.CaptureNetMinor != nil {
+		switch {
+		case a.CaptureFeeMinor != nil && a.CaptureNetMinor != nil:
 			local.fee = amountText(domain.Money{Minor: *a.CaptureFeeMinor, Currency: a.Currency})
 			local.net = amountText(domain.Money{Minor: *a.CaptureNetMinor, Currency: a.Currency})
+			remote.fee, remote.net = reportedFees(c.SellerReceivableBreakdown, a.Currency)
+		case is(a.CaptureStatus, paypal.StatusCompleted) || is(a.CaptureStatus, paypal.StatusRefunded):
+			local.fee, local.net = notRecorded, notRecorded
 			remote.fee, remote.net = reportedFees(c.SellerReceivableBreakdown, a.Currency)
 		}
 		compare("capture", *a.CaptureID, local, remote, err)
@@ -269,8 +272,10 @@ func expectedOrderStatus(a store.AttemptRow) string {
 	return text(a.OrderStatus)
 }
 
+var capturedAuthorization = []string{paypal.StatusCompleted, paypal.StatusPending, paypal.StatusRefunded, paypal.StatusPartiallyRefunded}
+
 func expectedAuthorizationStatus(a store.AttemptRow) string {
-	if a.CaptureID != nil {
+	if a.CaptureID != nil && a.CaptureStatus != nil && slices.Contains(capturedAuthorization, *a.CaptureStatus) {
 		return paypal.StatusCaptured
 	}
 	return text(a.AuthorizationStatus)

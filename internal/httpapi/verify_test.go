@@ -3,6 +3,7 @@ package httpapi_test
 import (
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -18,13 +19,13 @@ type verifyCheckJSON struct {
 	Local    string `json:"local"`
 	PayPal   string `json:"paypal"`
 	Match    bool   `json:"match"`
+	DebugID  string `json:"debug_id"`
 }
 
 type verifySeatJSON struct {
 	EnrollmentID string            `json:"enrollment_id"`
 	Seat         string            `json:"seat"`
 	Checks       []verifyCheckJSON `json:"checks"`
-	DebugID      string            `json:"debug_id"`
 }
 
 type verifyJSON struct {
@@ -81,9 +82,8 @@ func (e *env) wantUnchanged(before paymentSnapshot, enrollmentIDs ...string) {
 	}
 	for i := range before.attempts {
 		b, a := before.attempts[i], after.attempts[i]
-		if text(b.CaptureStatus) != text(a.CaptureStatus) || text(b.AuthorizationStatus) != text(a.AuthorizationStatus) ||
-			text(b.OrderStatus) != text(a.OrderStatus) || text(b.RefundStatus) != text(a.RefundStatus) {
-			e.t.Errorf("verify changed attempt %s: %+v -> %+v", b.ID, b, a)
+		if attemptFacts(b) != attemptFacts(a) {
+			e.t.Errorf("verify changed attempt %s:\n%s\n->\n%s", b.ID, attemptFacts(b), attemptFacts(a))
 		}
 	}
 }
@@ -93,6 +93,21 @@ func text(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+func minor(n *int64) string {
+	if n == nil {
+		return "none"
+	}
+	return strconv.FormatInt(*n, 10)
+}
+
+func attemptFacts(a store.AttemptRow) string {
+	return strings.Join([]string{
+		text(a.OrderID), text(a.AuthorizationID), text(a.CaptureID), text(a.RefundID),
+		text(a.OrderStatus), text(a.AuthorizationStatus), text(a.CaptureStatus), text(a.RefundStatus),
+		minor(a.CaptureFeeMinor), minor(a.CaptureNetMinor),
+	}, "|")
 }
 
 func seatNamed(t *testing.T, out verifyJSON, name string) verifySeatJSON {
@@ -130,8 +145,13 @@ func TestVerify_EveryRecordMatchesPayPal(t *testing.T) {
 		t.Errorf("checked_at = %v, want %v", out.CheckedAt, e.clock.Now())
 	}
 	anaSeat := seatNamed(t, out, "Ana")
-	if anaSeat.EnrollmentID != ana.EnrollmentID || anaSeat.DebugID != "" || len(anaSeat.Checks) != 3 {
-		t.Errorf("Ana's seat = %+v, want order, authorization and capture without a debug id", anaSeat)
+	if anaSeat.EnrollmentID != ana.EnrollmentID || len(anaSeat.Checks) != 3 {
+		t.Errorf("Ana's seat = %+v, want order, authorization and capture", anaSeat)
+	}
+	for _, c := range anaSeat.Checks {
+		if c.DebugID != "" {
+			t.Errorf("check %+v carries a debug id though PayPal answered", c)
+		}
 	}
 	capture := checkOf(t, anaSeat, "capture")
 	wantCapture := "COMPLETED, 10.00 USD, fee 0.84 USD, net 9.16 USD"
@@ -215,17 +235,56 @@ func TestVerify_ReportsPayPalsDebugIDWhenPayPalFails(t *testing.T) {
 
 	seat := seatNamed(t, out, "Ana")
 	c := checkOf(t, seat, "authorization")
-	if c.Match || c.PayPal != "error INTERNAL_SERVER_ERROR" || seat.DebugID == "" {
-		t.Errorf("seat = %+v, want the authorization reported as PayPal's error with its debug id", seat)
+	if c.Match || c.PayPal != "error INTERNAL_SERVER_ERROR" || c.DebugID == "" {
+		t.Errorf("authorization check = %+v, want PayPal's error with its debug id", c)
 	}
-	if o := checkOf(t, seat, "order"); !o.Match {
-		t.Errorf("order check = %+v, want it still compared", o)
+	if o := checkOf(t, seat, "order"); !o.Match || o.DebugID != "" {
+		t.Errorf("order check = %+v, want it still compared and without the authorization's debug id", o)
 	}
 	if out.Summary.Records != 2 || out.Summary.Matching != 1 {
 		t.Errorf("summary = %+v, want 1 of 2", out.Summary)
 	}
 	e.wantUnchanged(before, ana.EnrollmentID)
 }
+
+func TestVerify_APaidSeatWithoutRecordedFeesDoesNotMatch(t *testing.T) {
+	e := newEnv(t)
+	h, p, ps := e.fundingWorkshop()
+	ana, paid := e.paidSeat(h, ps[0], p.ID)
+	if _, err := e.st.Pool.Exec(e.ctx, `update payment_attempts set capture_fee_minor = null, capture_net_minor = null where id = $1`, paid.ID); err != nil {
+		t.Fatal(err)
+	}
+	before := e.paymentSnapshot(ana.EnrollmentID)
+
+	out := e.verify(h)
+
+	c := checkOf(t, seatNamed(t, out, "Ana"), "capture")
+	if c.Match || c.Local != "COMPLETED, 10.00 USD, fee not recorded, net not recorded" || c.PayPal != "COMPLETED, 10.00 USD, fee 0.84 USD, net 9.16 USD" {
+		t.Errorf("capture check = %+v, want the missing fees reported as a difference", c)
+	}
+	e.wantUnchanged(before, ana.EnrollmentID)
+}
+
+func TestVerify_ExpectsTheHoldCapturedOnlyWhenTheChargeWentThrough(t *testing.T) {
+	e := newEnv(t)
+	h, p, ps := e.fundingWorkshop()
+	ana, _ := e.checkout(ps[0], p.ID)
+	held := e.authorize(h.created.Workshop.ID, ana.EnrollmentID)
+	if _, err := e.st.UpdateAttemptFunc(e.ctx, held.ID, func(a *store.AttemptRow) error {
+		a.CaptureID, a.CaptureStatus = ptr("DECLINEDCAPTURE"), ptr("DECLINED")
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	out := e.verify(h)
+
+	if c := checkOf(t, seatNamed(t, out, "Ana"), "authorization"); c.Local != "CREATED, 10.00 USD" || !c.Match {
+		t.Errorf("authorization check = %+v, want the hold expected as recorded after a declined charge", c)
+	}
+}
+
+func ptr[T any](v T) *T { return &v }
 
 func TestVerify_ComparesTheAmountPayPalReports(t *testing.T) {
 	e := newEnv(t)

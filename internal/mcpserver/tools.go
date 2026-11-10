@@ -371,12 +371,12 @@ type VerifyCheck struct {
 	CommitPool string `json:"commitpool"`
 	PayPal     string `json:"paypal"`
 	Match      bool   `json:"match"`
+	DebugID    string `json:"debug_id,omitempty"`
 }
 
 type VerifySeat struct {
-	Name    string        `json:"name"`
-	Checks  []VerifyCheck `json:"checks"`
-	DebugID string        `json:"debug_id,omitempty"`
+	Name   string        `json:"name"`
+	Checks []VerifyCheck `json:"checks"`
 }
 
 type VerifyOut struct {
@@ -409,8 +409,8 @@ func (s *Server) verifyWithPayPal(ctx context.Context, _ *mcp.CallToolRequest, i
 				Local    string `json:"local"`
 				PayPal   string `json:"paypal"`
 				Match    bool   `json:"match"`
+				DebugID  string `json:"debug_id"`
 			} `json:"checks"`
-			DebugID string `json:"debug_id"`
 		} `json:"seats"`
 	}
 	if err := s.call(ctx, "POST", "/api/v1/owner/"+tok+"/paypal/verify", nil, &v); err != nil {
@@ -419,16 +419,19 @@ func (s *Server) verifyWithPayPal(ctx context.Context, _ *mcp.CallToolRequest, i
 	out := VerifyOut{
 		Records: v.Summary.Records, Matching: v.Summary.Matching, Skipped: v.Summary.Skipped,
 		CheckedAt: v.CheckedAt, Seats: []VerifySeat{},
-		Summary: fmt.Sprintf("%d of %d records match PayPal.", v.Summary.Matching, v.Summary.Records),
+		Summary: matchSummary(v.Summary.Matching, v.Summary.Records),
 	}
 	for _, seat := range v.Seats {
-		vs := VerifySeat{Name: seat.Seat, DebugID: seat.DebugID, Checks: []VerifyCheck{}}
+		vs := VerifySeat{Name: seat.Seat, Checks: []VerifyCheck{}}
 		for _, c := range seat.Checks {
-			vs.Checks = append(vs.Checks, VerifyCheck{Resource: c.Resource, ID: c.ID, CommitPool: c.Local, PayPal: c.PayPal, Match: c.Match})
+			vs.Checks = append(vs.Checks, VerifyCheck{Resource: c.Resource, ID: c.ID, CommitPool: c.Local, PayPal: c.PayPal, Match: c.Match, DebugID: c.DebugID})
 		}
 		out.Seats = append(out.Seats, vs)
 	}
-	if v.Summary.Skipped > 0 {
+	switch {
+	case v.Summary.Skipped == 1:
+		out.Summary += " 1 more seat was not checked this time."
+	case v.Summary.Skipped > 1:
 		out.Summary += fmt.Sprintf(" %d more seats were not checked this time.", v.Summary.Skipped)
 	}
 	switch {
@@ -440,6 +443,17 @@ func (s *Server) verifyWithPayPal(ctx context.Context, _ *mcp.CallToolRequest, i
 		out.Next = "Some records differ from what PayPal reports. Nothing was changed: this check only reads. Show the differences to the organizer, and quote a debug_id to PayPal support when there is one."
 	}
 	return nil, out, nil
+}
+
+func matchSummary(matching, records int) string {
+	noun, verb := "records", "match"
+	if records == 1 {
+		noun = "record"
+	}
+	if matching == 1 {
+		verb = "matches"
+	}
+	return fmt.Sprintf("%d of %d %s %s PayPal.", matching, records, noun, verb)
 }
 
 type PreviewIn struct {

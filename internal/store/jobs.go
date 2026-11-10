@@ -333,8 +333,8 @@ func (s *Store) PurgeSucceededJobs(ctx context.Context, before time.Time) (int, 
 	tag, err := s.Pool.Exec(ctx,
 		`delete from jobs
 		 where status = $1 and updated_at < $2
-		   and (kind = $3 or (kind = $4 and idempotency_key !~ ('^' || $4 || ':' || attempt_id::text || ':[0-9]+$')))`,
-		JobSucceeded, before, KindReleaseSeats, KindReconcile)
+		   and (kind = $3 or kind = $5 or (kind = $4 and idempotency_key !~ ('^' || $4 || ':' || attempt_id::text || ':[0-9]+$')))`,
+		JobSucceeded, before, KindReleaseSeats, KindReconcile, KindPayoutCheck)
 	if err != nil {
 		return 0, wrap("purge succeeded jobs", err)
 	}
@@ -343,6 +343,7 @@ func (s *Store) PurgeSucceededJobs(ctx context.Context, before time.Time) (int, 
 
 type QueueHealth struct {
 	Unknown, Parked, StuckPending, WorkshopsFlagged int
+	PayoutsFailed, PayoutsUnknown                   int
 }
 
 func (s *Store) Health(ctx context.Context) (QueueHealth, error) {
@@ -352,8 +353,10 @@ func (s *Store) Health(ctx context.Context) (QueueHealth, error) {
 		   (select count(*) from jobs where status = 'unknown'),
 		   (select count(*) from jobs where status = 'needs_attention'),
 		   (select count(*) from jobs where status = 'pending' and attempts >= $1),
-		   (select count(*) from workshops where resolution = 'NEEDS_ATTENTION')`, maxJobAttempts).
-		Scan(&h.Unknown, &h.Parked, &h.StuckPending, &h.WorkshopsFlagged)
+		   (select count(*) from workshops where resolution = 'NEEDS_ATTENTION'),
+		   (select count(*) from payouts where status = 'failed'),
+		   (select count(*) from payouts where status = 'unknown')`, maxJobAttempts).
+		Scan(&h.Unknown, &h.Parked, &h.StuckPending, &h.WorkshopsFlagged, &h.PayoutsFailed, &h.PayoutsUnknown)
 	if err != nil {
 		return QueueHealth{}, wrap("queue health", err)
 	}

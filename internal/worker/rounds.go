@@ -215,7 +215,7 @@ func (r *Runner) afterPaid(ctx context.Context, en store.EnrollmentRow) error {
 			if p == nil {
 				return fmt.Errorf("proposal %s: %w", en.ProposalID, store.ErrNotFound)
 			}
-			return r.lateCapture(ctx, en, w.Status, domain.LateCaptureAfterConfirm(paid, p.StartsAt, r.clock.Now()))
+			return r.lateCapture(ctx, en, w.Status, domain.LateCaptureAfterConfirm(paid, p.StartsAt, w.PayoutLockedAt, r.clock.Now()))
 		default:
 			return nil
 		}

@@ -2,8 +2,8 @@ import { Icon } from '../ui'
 import { SectionHead } from './Section'
 
 const apis = [
-  { name: 'Orders v2', calls: 'authorize · capture · void', does: 'Holds a spot, charges it at the minimum, releases it if the class falls short.' },
-  { name: 'Payments v2', calls: 'refunds', does: 'Returns a charge when a class is cancelled after charging started.' },
+  { name: 'Orders v2', calls: 'create · authorize', does: 'Opens a PayPal checkout for each spot and holds the price once the buyer approves.' },
+  { name: 'Payments v2', calls: 'capture · void · refund', does: 'Charges the holds at the minimum, releases them if the class falls short, refunds a charge if it’s cancelled later.' },
   { name: 'Payouts', calls: 'payouts batch', does: 'Pays the organizer when the class starts.' },
   { name: 'Webhooks', calls: 'verify-webhook-signature', does: 'Every event is verified with PayPal before it changes a spot.' },
 ]

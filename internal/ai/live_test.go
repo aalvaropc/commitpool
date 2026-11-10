@@ -217,3 +217,45 @@ func TestBedrock_LiveAsksAboutTheClassHoursOfAnyClass(t *testing.T) {
 		t.Errorf("question %q does not name this class's hours, 6–8 PM", q)
 	}
 }
+
+func TestBedrock_LiveEval(t *testing.T) {
+	b, _ := liveBedrock(t)
+	corpus, setups := loadEvalCorpus(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+	ran := time.Now()
+	claude := runEval(ctx, "Claude", b, corpus, setups, evalInFlight)
+	keywords := runEval(ctx, "keyword reader", ai.Fake{}, corpus, setups, 1)
+	for i, r := range claude.results {
+		c := claude.cases[i]
+		if r.err == nil {
+			t.Logf("Claude read %s: %s", c.ID, readingText(c, setups[c.Class], r.got, questionText(r.got)))
+		}
+	}
+	logEvalRun(t, claude)
+	logEvalRun(t, keywords)
+	t.Logf("Claude: mean latency %s, %d input and %d output tokens", meanLatency(claude.total), claude.total.inputTokens, claude.total.outputTokens)
+
+	if path := os.Getenv("COMMITPOOL_EVAL_REPORT"); path != "" {
+		digest, err := corpusDigest()
+		if err != nil {
+			t.Fatal(err)
+		}
+		report := evalReport(evalReportInput{
+			model: envOr("COMMITPOOL_BEDROCK_MODEL", config.DefaultBedrockModel), ran: ran, digest: digest,
+			corpus: corpus, setups: setups, claude: claude, keywords: keywords,
+		})
+		if err := os.WriteFile(path, []byte(report), 0o644); err != nil {
+			t.Fatalf("write the eval report: %v", err)
+		}
+		t.Logf("eval report written to %s", path)
+	}
+	if n := claude.total.unreached; n > 0 {
+		t.Errorf("%d of %d messages never reached Claude, so this run is incomplete", n, claude.total.cases)
+	}
+	for i, sc := range claude.scores {
+		if sc.injectionWorked {
+			t.Errorf("injection %s worked: %s", claude.cases[i].ID, strings.Join(sc.differences, "; "))
+		}
+	}
+}

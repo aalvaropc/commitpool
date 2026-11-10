@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 520" width="1040" height="520" role="img" aria-labelledby="t d" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif">
+  <title id="t">CommitPool architecture</title>
+  <desc id="d">A browser and an AI assistant reach one Go binary that serves the API, the SPA and the MCP server and runs the payment worker. The binary stores everything in PostgreSQL, calls PayPal Sandbox and receives verified webhooks, and calls Claude on Amazon Bedrock.</desc>
+  <defs>
+    <marker id="head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5b524a"/>
+    </marker>
+  </defs>
+  <rect x="0.5" y="0.5" width="1039" height="519" rx="16" fill="#fbf8f3" stroke="#d9d2c5"/>
+
+  <rect x="28" y="102" width="210" height="96" rx="12" fill="#ffffff" stroke="#cfc6b8"/>
+  <text x="133" y="140" text-anchor="middle" font-size="17" font-weight="700" fill="#1f1a17">Browser</text>
+  <text x="133" y="164" text-anchor="middle" font-size="13" fill="#5b524a">React SPA</text>
+  <text x="133" y="182" text-anchor="middle" font-size="13" fill="#5b524a">organizer and participants</text>
+
+  <rect x="28" y="206" width="210" height="96" rx="12" fill="#ffffff" stroke="#cfc6b8"/>
+  <text x="133" y="244" text-anchor="middle" font-size="17" font-weight="700" fill="#1f1a17">AI assistant</text>
+  <text x="133" y="268" text-anchor="middle" font-size="13" fill="#5b524a">any MCP client</text>
+  <text x="133" y="286" text-anchor="middle" font-size="13" fill="#5b524a">organizer or participant</text>
+
+  <line x1="240" y1="150" x2="336" y2="150" stroke="#5b524a" stroke-width="2" marker-end="url(#head)"/>
+  <text x="288" y="140" text-anchor="middle" font-size="12" fill="#5b524a">HTTPS</text>
+  <line x1="240" y1="254" x2="336" y2="254" stroke="#5b524a" stroke-width="2" marker-end="url(#head)"/>
+  <text x="288" y="244" text-anchor="middle" font-size="12" fill="#5b524a">MCP /mcp</text>
+
+  <rect x="338" y="60" width="300" height="300" rx="14" fill="#26211d"/>
+  <text x="488" y="90" text-anchor="middle" font-size="17" font-weight="700" fill="#fbf8f3">CommitPool: one Go binary</text>
+  <rect x="358" y="110" width="260" height="48" rx="10" fill="#3a332d"/>
+  <text x="488" y="140" text-anchor="middle" font-size="15" font-weight="600" fill="#fbf8f3">HTTP API</text>
+  <rect x="358" y="170" width="260" height="48" rx="10" fill="#3a332d"/>
+  <text x="488" y="200" text-anchor="middle" font-size="15" font-weight="600" fill="#fbf8f3">Embedded React SPA</text>
+  <rect x="358" y="230" width="260" height="48" rx="10" fill="#3a332d"/>
+  <text x="488" y="260" text-anchor="middle" font-size="15" font-weight="600" fill="#fbf8f3">MCP server</text>
+  <rect x="358" y="290" width="260" height="48" rx="10" fill="#b8460f"/>
+  <text x="488" y="320" text-anchor="middle" font-size="15" font-weight="600" fill="#ffffff">Payment worker</text>
+
+  <line x1="488" y1="362" x2="488" y2="408" stroke="#5b524a" stroke-width="2" marker-start="url(#head)" marker-end="url(#head)"/>
+  <text x="500" y="390" font-size="12" fill="#5b524a">SQL</text>
+  <rect x="338" y="410" width="300" height="86" rx="12" fill="#ffffff" stroke="#cfc6b8"/>
+  <text x="488" y="440" text-anchor="middle" font-size="17" font-weight="700" fill="#1f1a17">PostgreSQL</text>
+  <text x="488" y="464" text-anchor="middle" font-size="13" fill="#5b524a">jobs + outbox</text>
+  <text x="488" y="482" text-anchor="middle" font-size="13" fill="#5b524a">idempotency keys</text>
+
+  <rect x="778" y="60" width="234" height="96" rx="12" fill="#ffffff" stroke="#cfc6b8"/>
+  <text x="895" y="98" text-anchor="middle" font-size="17" font-weight="700" fill="#1f1a17">Claude</text>
+  <text x="895" y="122" text-anchor="middle" font-size="13" fill="#5b524a">on Amazon Bedrock</text>
+  <text x="895" y="140" text-anchor="middle" font-size="13" fill="#5b524a">strict JSON, capped</text>
+  <line x1="640" y1="134" x2="776" y2="134" stroke="#5b524a" stroke-width="2" marker-end="url(#head)"/>
+  <text x="708" y="124" text-anchor="middle" font-size="12" fill="#5b524a">readings, drafts</text>
+
+  <rect x="778" y="240" width="234" height="132" rx="12" fill="#ffffff" stroke="#cfc6b8"/>
+  <text x="895" y="276" text-anchor="middle" font-size="17" font-weight="700" fill="#1f1a17">PayPal Sandbox</text>
+  <text x="895" y="302" text-anchor="middle" font-size="13" fill="#5b524a">Orders v2</text>
+  <text x="895" y="322" text-anchor="middle" font-size="13" fill="#5b524a">Payments v2</text>
+  <text x="895" y="342" text-anchor="middle" font-size="13" fill="#5b524a">Payouts</text>
+  <line x1="640" y1="300" x2="776" y2="300" stroke="#5b524a" stroke-width="2" marker-end="url(#head)"/>
+  <text x="708" y="290" text-anchor="middle" font-size="12" fill="#5b524a">idempotent calls</text>
+  <line x1="776" y1="340" x2="640" y2="340" stroke="#5b524a" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#head)"/>
+  <text x="708" y="360" text-anchor="middle" font-size="12" fill="#5b524a">verified webhooks</text>
+</svg>

@@ -180,7 +180,7 @@ func (s *server) landingPreview() *invitePreview {
 	base := strings.TrimRight(s.Cfg.BaseURL, "/")
 	return &invitePreview{
 		Title:       "Find the date that fills the class",
-		Description: "Claude reads the group chat's maybes and asks when it matters. CommitPool picks the date that reaches your minimum, and PayPal charges only once enough people reserve.",
+		Description: "Claude reads the group chat’s maybes and asks when it matters. CommitPool picks the date that reaches your minimum, and PayPal charges only once enough people reserve.",
 		URL:         base + "/",
 		Image:       base + "/" + landingImage,
 		ImageAlt:    "CommitPool: find the date that fills the class.",

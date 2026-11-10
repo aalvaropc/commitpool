@@ -5,6 +5,7 @@ test.describe('landing chat', () => {
   test('reads a quick reply live, says who read it and counts it for the right day', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await page.goto('/')
+    await expect(page.getByRole('heading', { level: 1, name: 'Find the date that fills the class.' })).toBeVisible()
     const chat = page.getByRole('region', { name: 'Example: answers to Iris’s invite' })
     await expect(chat.getByText('Example chat · prepared answers · payments simulated')).toBeVisible()
     await expect(chat.getByText('Prepared reading')).toHaveCount(5)

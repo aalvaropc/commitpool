@@ -56,7 +56,7 @@ func TestLanding_LinkPreviewUsesTheDefaultCard(t *testing.T) {
 	for _, want := range []string{
 		`<title>Find the date that fills the class – CommitPool</title>`,
 		`<meta property="og:title" content="Find the date that fills the class" />`,
-		`<meta property="og:description" content="Claude reads the group chat&#39;s maybes and asks when it matters. CommitPool picks the date that reaches your minimum, and PayPal charges only once enough people reserve." />`,
+		`<meta property="og:description" content="Claude reads the group chat’s maybes and asks when it matters. CommitPool picks the date that reaches your minimum, and PayPal charges only once enough people reserve." />`,
 		`<meta property="og:image" content="` + appBaseURL + `/og-default.png" />`,
 		`<meta property="og:url" content="` + appBaseURL + `/" />`,
 		`<meta name="twitter:card" content="summary_large_image" />`,

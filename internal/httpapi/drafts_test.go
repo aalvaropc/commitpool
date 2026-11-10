@@ -94,7 +94,7 @@ func TestDrafts_AFailedModelStillAnswersWithAnEmptyDraft(t *testing.T) {
 	if got.Draft.Dates == nil {
 		t.Error("dates = null, want an empty list")
 	}
-	if !strings.Contains(e.logs.String(), "draft workshop") || strings.Contains(e.logs.String(), "Okafor") {
+	if !strings.Contains(e.logs.String(), "draft workshop") || strings.Contains(e.logs.String(), "Iris Calder") {
 		t.Errorf("logs should name the failure without the description:\n%s", e.logs)
 	}
 }

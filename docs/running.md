@@ -35,7 +35,7 @@ participant, and needs no credentials. `go run ./cmd/seed -h` lists the flags:
 ### Demo mode
 
 With `COMMITPOOL_DEMO_MODE=1`, the landing page offers **Try it as Iris**:
-- `GET /api/v1/demo` says demo workshops are on.
+- `GET /api/v1/demo` says demo workshops are on, and carries `video_url` and `judge_login` when they are configured (see below).
 - `POST /api/v1/demo/workshops` creates a workshop for Iris. It answers with the organizer link, the invite link and one link per participant. Then it sends the six answers in the background, one every `COMMITPOOL_DEMO_PACE_MS`. An answer refused because Claude is capped waits as long as the `Retry-After` says, within the three minutes the answers have.
 - The organizer view of a demo workshop lists those six participant links as `act_as`, so **Act as** works from any device that has the organizer link. Only the participants the demo created are listed, and only on a demo workshop; the plain links are kept for them alone (`participants.demo_link_token`). The MCP `get_status` never carries them.
 
@@ -66,7 +66,9 @@ Sandbox.
 
 All configuration comes from environment variables, and secrets are only ever
 read from the environment. `.env.example` lists every variable with its
-default.
+default. `commitpool check-config` loads them as the server would, prints
+`config: ok` and exits 0, or prints why the server would refuse to start and
+exits 1; the EC2 deploy runs it before it replaces the running app.
 
 | Variable | Notes |
 | --- | --- |
@@ -84,6 +86,8 @@ default.
 | `COMMITPOOL_BEDROCK_EFFORT` | Effort for every Bedrock call: `none` (default; Sonnet 4.5 takes no effort), or `low`, `medium`, `high`, `xhigh` or `max` for a model that takes one. |
 | `COMMITPOOL_SEAT_TTL_MIN` | Minutes a reserved seat is held while the buyer approves at PayPal (default `30`). |
 | `COMMITPOOL_DEMO_MODE` | `1` enables **Try it as Iris** and **Close reservations now**. |
+| `COMMITPOOL_VIDEO_URL` | Optional. A YouTube link to the demo video (`https://youtu.be/…` or `https://www.youtube.com/watch?v=…`). On a demo server, `GET /api/v1/demo` returns it as `video_url`, a privacy-enhanced `youtube-nocookie.com` embed, and the landing's **For judges** section plays it. Any other link is refused at startup. |
+| `COMMITPOOL_JUDGE_BUYER_EMAIL`, `COMMITPOOL_JUDGE_BUYER_PASSWORD` | Optional, set both or neither. A PayPal **Sandbox** Personal account for judges. On a demo server, `GET /api/v1/demo` returns them as `judge_login` and the landing shows them with copy buttons; without them, the landing points to the testing instructions instead. Never put a live PayPal login here: the page is public. |
 | `COMMITPOOL_DEMO_PACE_MS` | Milliseconds between the answers of a demo workshop (default `2000`; the end-to-end script uses `50`). |
 | `COMMITPOOL_SANDBOX_MOCKS` | `1` enables **Fail next charge** and the `PayPal-Mock-Response` header. Refused unless `PAYPAL_BASE_URL` is exactly the Sandbox URL. |
 | `COMMITPOOL_PAYOUTS` | `1` pays each confirmed class's organizer, when the class starts, what participants paid less PayPal's fees, with PayPal Payouts. Default `0`: payout jobs wait and nothing is sent. See [Payouts](#payouts). |

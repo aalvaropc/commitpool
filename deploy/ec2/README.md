@@ -112,6 +112,15 @@ export AWS_REGION=us-east-1
   always sets `COMMITPOOL_PAYOUTS=1`; see
   [Running: Payouts](../../docs/running.md#payouts) for what the Sandbox app
   needs.
+  `/commitpool/video_url` (String), a YouTube link, embeds the demo video in
+  the landing's For judges section;
+  `/commitpool/judge_buyer_email` (String) and
+  `/commitpool/judge_buyer_password` (SecureString), a PayPal Sandbox
+  Personal account, show there with copy buttons. The login is deployed only
+  when both exist. A video link that is not a YouTube video is refused, so
+  every deploy first runs the new image with `check-config` against the
+  written environment; if the configuration is refused, the deploy stops
+  there and the running app keeps serving.
 - Tear down: `terraform -chdir=deploy/ec2 destroy`, then delete the three
   PayPal parameters with `aws ssm delete-parameter`.
 

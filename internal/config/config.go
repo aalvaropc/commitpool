@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	netmail "net/mail"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -49,6 +50,9 @@ type Config struct {
 	AllowLivePayPal      bool
 	AIHourlyCap          int
 	AIDailyCap           int
+	VideoEmbedURL        string
+	JudgeBuyerEmail      string
+	JudgeBuyerPassword   string
 	Payouts              bool
 	DemoPayoutEmail      string
 }
@@ -120,6 +124,26 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	if secret := str("COMMITPOOL_MCP_SECRET", ""); secret != "" {
 		cfg.MCPSecret = []byte(secret)
+	}
+	if raw := str("COMMITPOOL_VIDEO_URL", ""); raw != "" {
+		if id, ok := youTubeID(raw); ok {
+			cfg.VideoEmbedURL = youTubeEmbedPrefix + id
+		} else {
+			problems = append(problems, "COMMITPOOL_VIDEO_URL must be a YouTube video link, such as https://youtu.be/VIDEO_ID or https://www.youtube.com/watch?v=VIDEO_ID")
+		}
+	}
+	cfg.JudgeBuyerEmail = str("COMMITPOOL_JUDGE_BUYER_EMAIL", "")
+	if password := getenv("COMMITPOOL_JUDGE_BUYER_PASSWORD"); strings.TrimSpace(password) != "" {
+		cfg.JudgeBuyerPassword = password
+	}
+	switch {
+	case cfg.JudgeBuyerEmail == "" && cfg.JudgeBuyerPassword == "":
+	case cfg.JudgeBuyerEmail == "" || cfg.JudgeBuyerPassword == "":
+		problems = append(problems, "COMMITPOOL_JUDGE_BUYER_EMAIL and COMMITPOOL_JUDGE_BUYER_PASSWORD go together: set both or neither")
+	default:
+		if a, err := netmail.ParseAddress(cfg.JudgeBuyerEmail); err != nil || a.Name != "" {
+			problems = append(problems, "COMMITPOOL_JUDGE_BUYER_EMAIL must be a plain address such as buyer@example.com")
+		}
 	}
 
 	ttl := defaultSeatTTLMin
@@ -258,6 +282,9 @@ func (c Config) LogValue() slog.Value {
 		slog.Bool("allow_live_paypal", c.AllowLivePayPal),
 		slog.Int("ai_hourly_cap", c.AIHourlyCap),
 		slog.Int("ai_daily_cap", c.AIDailyCap),
+		slog.String("video_embed_url", c.VideoEmbedURL),
+		slog.String("judge_buyer_email", c.JudgeBuyerEmail),
+		slog.String("judge_buyer_password", redact(c.JudgeBuyerPassword)),
 		slog.Bool("payouts", c.Payouts),
 		slog.Bool("demo_payout_email_set", c.DemoPayoutEmail != ""),
 	)
@@ -289,6 +316,34 @@ func redactURL(raw string) string {
 func httpsURL(raw string) bool {
 	u, err := url.Parse(raw)
 	return err == nil && u.Scheme == "https" && u.Host != "" && u.User == nil
+}
+
+const youTubeEmbedPrefix = "https://www.youtube-nocookie.com/embed/"
+
+var youTubeVideoID = regexp.MustCompile(`^[A-Za-z0-9_-]{11}$`)
+
+func youTubeID(raw string) (string, bool) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.User != nil {
+		return "", false
+	}
+	var id string
+	switch host := strings.ToLower(u.Hostname()); host {
+	case "youtu.be":
+		id = strings.Trim(u.Path, "/")
+	case "youtube.com", "www.youtube.com", "m.youtube.com", "youtube-nocookie.com", "www.youtube-nocookie.com":
+		switch rest, _ := strings.CutPrefix(u.Path, "/"); {
+		case rest == "watch":
+			id = u.Query().Get("v")
+		case strings.HasPrefix(rest, "embed/"), strings.HasPrefix(rest, "shorts/"), strings.HasPrefix(rest, "live/"):
+			_, id, _ = strings.Cut(rest, "/")
+			id = strings.TrimSuffix(id, "/")
+		}
+	}
+	if !youTubeVideoID.MatchString(id) {
+		return "", false
+	}
+	return id, true
 }
 
 func localURL(raw string) bool {

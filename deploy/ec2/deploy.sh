@@ -34,6 +34,16 @@ umask 077
   if [[ -n "$mcp_secret" ]]; then
     echo "COMMITPOOL_MCP_SECRET=$mcp_secret"
   fi
+  video_url="$(optional_param video_url)"
+  if [[ -n "$video_url" ]]; then
+    echo "COMMITPOOL_VIDEO_URL=$video_url"
+  fi
+  judge_buyer_email="$(optional_param judge_buyer_email)"
+  judge_buyer_password="$(optional_param judge_buyer_password)"
+  if [[ -n "$judge_buyer_email" && -n "$judge_buyer_password" ]]; then
+    echo "COMMITPOOL_JUDGE_BUYER_EMAIL=$judge_buyer_email"
+    echo "COMMITPOOL_JUDGE_BUYER_PASSWORD=$judge_buyer_password"
+  fi
   mail_from="$(optional_param mail_from)"
   if [[ -n "$mail_from" ]]; then
     echo "COMMITPOOL_MAILER=ses"
@@ -56,6 +66,10 @@ for _ in $(seq 1 60); do
 done
 
 docker pull --quiet "$REPOSITORY:$tag" >/dev/null
+if ! docker run --rm --env-file "$dir/app.env" "$REPOSITORY:$tag" check-config >/dev/null; then
+  echo "deploy: $tag refuses this configuration (see above); the running app is left as it is" >&2
+  exit 1
+fi
 docker stop -t 35 app >/dev/null 2>&1 || true
 docker rm app >/dev/null 2>&1 || true
 docker run -d --name app --network commitpool --restart unless-stopped \

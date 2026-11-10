@@ -1,3 +1,7 @@
+import { Icon } from '../ui'
+import { CharcoalStick } from './Drawings'
+import { PaperSection } from './Section'
+
 const faq = [
   {
     q: 'What is a hold?',
@@ -5,7 +9,11 @@ const faq = [
   },
   {
     q: 'What if not enough people reserve?',
-    a: 'At the deadline the class is cancelled: every hold is released and any charge already made is refunded. Nobody pays for a class that does not happen.',
+    a: 'At the deadline the class is cancelled: every hold is released and any charge already made is refunded. Nobody pays for a class that does not happen. The organizer can extend the deadline once, to at most three days after reservations opened, and your page always shows the latest possible deadline.',
+  },
+  {
+    q: 'Does Claude decide the date?',
+    a: 'No. Claude reads each answer and asks when something is unclear. CommitPool counts who can come and recommends the date; the organizer opens reservations.',
   },
   {
     q: 'Can I leave after reserving?',
@@ -21,32 +29,28 @@ const faq = [
   },
 ]
 
-function Sign() {
-  return (
-    <span aria-hidden="true" className="relative size-4 shrink-0 text-brand">
-      <span className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-current" />
-      <span className="absolute inset-y-0 left-1/2 w-[3px] -translate-x-1/2 rounded-full bg-current transition-transform duration-200 group-open:rotate-90" />
-    </span>
-  )
-}
-
 export default function Faq() {
   return (
-    <section aria-labelledby="faq-title" className="grid grid-cols-[minmax(0,1fr)] gap-8 lg:grid-cols-12">
-      <h2 id="faq-title" className="shout text-head lg:sticky lg:top-8 lg:col-span-4 lg:self-start">
-        Questions people ask
-      </h2>
-      <div className="flex flex-col gap-2 lg:col-span-8">
-        {faq.map((f) => (
-          <details key={f.q} name="faq" className="group rounded-3xl bg-surface transition-colors duration-200 open:bg-surface-muted">
-            <summary className="flex min-h-[4.5rem] cursor-pointer list-none items-center justify-between gap-4 px-6 py-4 text-lg font-semibold [&::-webkit-details-marker]:hidden">
-              {f.q}
-              <Sign />
-            </summary>
-            <p className="max-w-[52ch] px-6 pb-6 text-lg text-ink-soft">{f.a}</p>
-          </details>
-        ))}
+    <PaperSection id="faq" labelledBy="faq-title">
+      <div className="wrap section-pad grid gap-8 lg:grid-cols-12 lg:gap-x-8">
+        <div className="grid content-start gap-[1.375rem] lg:col-span-4">
+          <h2 id="faq-title" className="shout text-section">
+            Questions people ask
+          </h2>
+          <CharcoalStick className="h-auto w-full max-w-60" />
+        </div>
+        <div className="grid border-t-2 border-charcoal lg:col-span-7 lg:col-start-6">
+          {faq.map((f) => (
+            <details key={f.q} name="faq" className="group border-b border-paper-rule">
+              <summary className="flex min-h-[4.25rem] cursor-pointer list-none items-center justify-between gap-4 py-4 text-[1.1875rem] font-bold [&::-webkit-details-marker]:hidden">
+                {f.q}
+                <Icon name="plus" size={20} strokeWidth={2.4} className="text-ember-ink transition-transform duration-200 ease-(--ease-out) group-open:rotate-45" />
+              </summary>
+              <p className="max-w-[56ch] pb-[1.375rem] text-graphite">{f.a}</p>
+            </details>
+          ))}
+        </div>
       </div>
-    </section>
+    </PaperSection>
   )
 }

@@ -211,15 +211,30 @@ only when the net is the whole gross) and there is no `receivable_amount`, which
 PayPal adds when it converted the money; anything else records nothing and is
 logged.
 
-Fees are written once: when PayPal reports the capture `COMPLETED` with an
-accepted breakdown and the attempt holds none yet, whether the capture comes
-from the capture call, an order read back or a capture read back. A reconcile
-therefore fills in a capture recorded without them, such as one captured
-before migration 0014. Every later update keeps them (the store writes them
-through `coalesce`), including the refund path that records a capture with only
-its status, so a sum of the stored net amounts is exact. The owner view shows
-each payment's `fee` and `net`; a participant's view never does. The fake PayPal
-charges 3.49% of the gross, rounded half up, plus 0.49.
+Fees are written once, only while the attempt holds none, and get there in
+three ways:
+
+- **The capture's own answer.** When the capture call, or a reconcile reading
+  the order or the capture back, reports it `COMPLETED` with an accepted
+  breakdown. A `COMPLETED` capture without a breakdown records nothing and is
+  logged as a warning.
+- **A reconcile.** Any reconcile of the attempt (pending, unknown, webhook or
+  operator) reads the capture again, so it fills the fees of a capture still
+  `COMPLETED` at PayPal.
+- **The periodic backfill.** Each periodic pass reads back, with `GET` capture,
+  at most 20 attempts with a capture and no fees whose enrollment is `PAID` or
+  `REFUNDED` (oldest update first), and records the fees from a capture PayPal
+  reports `COMPLETED`, `REFUNDED` or `PARTIALLY_REFUNDED` under the same rule. It
+  changes nothing else: no status, no job. An attempt PayPal does not return,
+  or returns without an accepted breakdown, is logged and left for an hour (in
+  memory). This is how a seat captured before migration 0014, or refunded
+  since, gets its fees.
+
+Every later update keeps them (the store writes them through `coalesce`),
+including the refund path that records a capture with only its status, so a
+sum of the stored net amounts is exact. The owner view shows each payment's
+`fee` and `net`; a participant's view never does. The fake PayPal charges 3.49%
+of the gross, rounded half up, plus 0.49.
 
 ## Close
 
@@ -394,7 +409,8 @@ The worker, in process:
   (`reconcile:{attempt}:{n}`). Payment actions, `close` and numbered
   generations are kept whatever their age, because the worker decides from
   their existence (healing, the next generation and the last one that leaves
-  a job to an operator). The count is logged when it is not zero.
+  a job to an operator). The count is logged when it is not zero;
+- last on that tick, runs the fee backfill (see [Fees](#fees)).
 
 On shutdown the worker claims nothing new and lets the job it is running
 finish for up to ten seconds; past that the PayPal call is cancelled and its
@@ -421,11 +437,12 @@ which writes):
 
 | Route | What it does |
 |---|---|
-| `POST /api/v1/owner/{token}/paypal/verify` | Reads the order, authorization, capture and refund of each seat's latest attempt from PayPal and compares each with what the attempt implies PayPal reports: the status, the amount and, once recorded, the fee and net. Returns per seat `{enrollment_id, seat, checks: [{resource, id, local, paypal, match}], debug_id}` (PayPal's debug id when it answered with an error) and a `summary` of records, matching records, seats and skipped seats. It never runs a job or writes a row. One run per workshop every 30 seconds (`429 verify_too_soon` with `Retry-After` otherwise, kept in memory) and at most 12 seats a run, in enrollment order. The MCP tool `verify_with_paypal` calls it. |
+| `POST /api/v1/owner/{token}/paypal/verify` | Reads the order, authorization, capture and refund of each seat's latest attempt from PayPal and compares each with what the attempt implies PayPal reports: the status, the amount and, once recorded, the fee and net. Returns per seat `{enrollment_id, seat, checks: [{resource, id, local, paypal, match, debug_id}]}`, where only a check PayPal answered with an error carries PayPal's `debug_id`, and a `summary` of records, matching records, seats and skipped seats. A capture recorded `COMPLETED` or `REFUNDED` without fees shows `fee not recorded, net not recorded` against the fees PayPal reports, so the gap counts as a difference until the backfill fills it. It never runs a job or writes a row. One run per workshop every 30 seconds, counted once the seats are loaded and before PayPal is read (`429 verify_too_soon` with `Retry-After` otherwise, kept in memory), and at most 12 seats a run, in enrollment order. The MCP tool `verify_with_paypal` calls it. |
 
 What an attempt implies PayPal reports: an order with an authorization is
 `COMPLETED` and one recorded `EXPIRED` matches PayPal's not found; an
-authorization with a capture is `CAPTURED`; a capture with a completed refund is
+authorization whose capture is `COMPLETED`, `PENDING`, `REFUNDED` or
+`PARTIALLY_REFUNDED` is `CAPTURED`; a capture with a completed refund is
 `REFUNDED`; otherwise the status the attempt recorded.
 
 Run these against the application database (`psql "$DATABASE_URL"`). Read

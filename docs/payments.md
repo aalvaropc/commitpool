@@ -144,6 +144,7 @@ it and PayPal performs the action at most once.
 | `close:{proposal}` | Close payments at `closes_at`. |
 | `release_seats:{workshop}:{minute}` | Release the expired seats. |
 | `payout:{workshop}` | Pay the organizer at the class start (see [Payouts](#payouts)). Its `sender_batch_id` is `cp-{workshop}`. |
+| `reconcile:{attempt}:payout:{minute}` | Read back a paid seat whose fees the payout needs and whose capture PayPal no longer reports `COMPLETED`. |
 | `payout_check:{payout}:created:{n}` | Read the payout batch back after sending; `n` from 1 to 5, at 0 s, 30 s, 2 min, 10 min and 1 h. |
 | `payout_check:{payout}:periodic:{hour}` | Hourly read-back of a payout that is sent, unclaimed or unknown with a batch id. |
 | `payout_check:{payout}:webhook:{event_id}` | Read-back after a verified payout webhook. |
@@ -271,14 +272,17 @@ SQL, inside one transaction, under the workshop's row lock:
 | It has a payout email. | `no_payout_email` |
 | Payments have closed (`closes_at`). | `payments_open` |
 | The class has started (`starts_at`), unless the demo starts it early. | `not_started` |
-| No enrollment is `AUTHORIZED`, `CAPTURING`, `CAPTURE_PENDING`, `VOIDING`, `REFUNDING` or `REFUND_PENDING`. | `payments_in_flight` |
+| No enrollment is `AUTHORIZED`, `CAPTURING`, `CAPTURE_PENDING`, `VOIDING`, `REFUNDING` or `REFUND_PENDING`, and no `PAID` one has a refund under way (a refund job on its latest attempt that has not succeeded, or a refund recorded on it). | `payments_in_flight` |
 | No enrollment is flagged. | `payment_flagged` |
 | The latest attempt of every `PAID` enrollment has its fee and net. | `fees_missing` |
 | The net is above zero. | `nothing_to_pay` |
 
 A refusal is a typed `store.ErrPayoutNotReady{Reason}`: the job fails without
-a PayPal answer (a wait), which the periodic sweep revives, and never parks
-or flags anything.
+a PayPal answer (a wait) and never parks or flags anything. The periodic sweep
+re-arms it with its attempts reset (`store.RearmJob`), so waiting never uses
+up the retries the send needs later; a wait that no payment ends on its own
+(`nothing_to_pay`, `payment_flagged`, `needs_attention`) is re-armed an hour
+later instead of every two minutes.
 
 ### Freeze and lock
 
@@ -286,12 +290,23 @@ When the rules hold, `BeginPayout` sums the net of the latest attempt of every
 `PAID` enrollment and inserts the workshop's one `payouts` row (migration
 0015) with the amount (the net), the gross, the fee, the seats, the receiver
 and `sender_batch_id = "cp-" + workshop id`, all frozen. In the same
-transaction it sets `workshops.payout_locked_at`. The organizer cancel's
+transaction it stamps the latest attempt of every one of those `PAID`
+enrollments with the payout (`payment_attempts.payout_id`), checks that the
+stamped seats add up to exactly the frozen amounts (any difference rolls the
+whole payout back), and sets `workshops.payout_locked_at`. The organizer cancel's
 compare-and-set requires that lock to be empty, so a cancel and a payout
 racing never both win. From the lock on the class counts as started
 (`domain.EffectiveStart`, the earlier of `starts_at` and the lock): the
 organizer can no longer cancel, and a capture that completes after it is
 refunded, not kept unpaid.
+
+A payment is either paid out or refunded, never both. The refund job moves a
+seat to `REFUNDING` only under a key-share lock on the workshop row
+(`store.StartRefund`), the lock `BeginPayout` takes for update, and refuses an
+attempt the payout stamped ("paid out to the organizer"), leaving it `PAID`
+and calling nothing at PayPal. A late capture on a stamped attempt keeps its
+seat instead of queueing a refund, and the operator's retry refund refuses a
+stamped attempt (`409 paid_out`).
 
 ### Sending
 
@@ -300,7 +315,11 @@ and a payout email), to run at `starts_at`. It is not one of the kinds that
 retry forever. In order:
 
 1. A cancelled workshop pays nothing: the job succeeds without a call.
-2. A missing fee is read back first (`GET` capture, the [Fees](#fees) rule).
+2. A missing fee is read back first (`GET` capture, the [Fees](#fees) rule),
+   but only from a capture PayPal reports `COMPLETED`: any other status
+   (refunded, partially refunded, pending) enqueues
+   `reconcile:{attempt}:payout:{minute}` and the payout waits with
+   `payments_in_flight`.
 3. The payout is frozen; a refusal waits (above).
 4. A payout that already has a batch, or is no longer `created`, is only
    checked, never sent again.
@@ -339,7 +358,7 @@ mentions `sender_batch_id` with "already" or "duplicate" (such as PayPal's
 | `sent` | PayPal has the batch; the item is not final. |
 | `succeeded` | The item is `SUCCESS`: the money is in the organizer's PayPal account. |
 | `unclaimed` | The item is `UNCLAIMED`: no PayPal account has that email yet. PayPal returns it after 30 days (then `failed`). |
-| `failed` | PayPal refused the payout, or reports the item `FAILED`, `RETURNED`, `BLOCKED`, `REFUNDED` or `REVERSED`, or the batch `DENIED` or `CANCELED`. |
+| `failed` | PayPal refused the payout, or reports the item `FAILED`, `RETURNED`, `BLOCKED`, `REFUNDED`, `REVERSED`, `DENIED` or `CANCELED`, or the batch `DENIED` or `CANCELED`. |
 | `unknown` | CommitPool cannot tell whether a batch exists; it is never sent again. |
 
 `payout_check:{payout}:{bucket}` reads `GET /v1/payments/payouts/{batch}`,
@@ -365,8 +384,11 @@ cleared without fixing the payout. `/healthz` counts them instead,
 The owner view's `payout` block is `null` until the class is confirmed. Then
 it has a `state`: `no_email`, `off` (payouts switched off), `scheduled` (with
 `scheduled_at`, the start), `waiting` (the class started but a rule above
-still refuses, named in `waiting`), `sending` (`created` or `sent`), `paid`,
-`unclaimed`, `failed` or `unknown`; the receiver; the amount, gross and fees
+still refuses, named in `waiting`), `created` (frozen, PayPal has not
+confirmed a batch yet), `parked` (frozen, and its job is parked for an
+operator), `sending` (`sent`), `paid`, `unclaimed`, `failed` or `unknown`;
+`locked` once the payout is frozen (the organizer page then hides Cancel); the
+receiver; the amount, gross and fees
 with `estimated` until the row freezes them (no amount while a fee is
 unknown); and once sent the PayPal batch, item and transaction ids, their
 statuses, the issue and the debug id. The MCP `get_status` returns it with a
@@ -384,6 +406,15 @@ payout.
 inline (`payout_check:{payout}:operator:{minute}`); `409 no_payout` before
 there is one. The organizer page offers it as **Check the payout with
 PayPal** while the payout is sending, unclaimed or unknown.
+
+### Known limit: money that moves after the payout
+
+Once a payout is sent, a later refund, reversal or dispute on a payment it
+counted does not reduce it: the payout already went to the organizer, and the
+platform's PayPal account absorbs the loss. CommitPool never refunds a
+payment it paid out itself (see above), but PayPal can still move one, through
+a dispute or a refund made in the PayPal account, and a reconcile then records
+it on the seat.
 
 ### What the Sandbox probe confirms
 
@@ -589,7 +620,9 @@ The worker, in process:
 - last, the payout sweep (see [Payouts](#payouts)): with payouts on, every
   confirmed workshop with a payout email whose class has started and whose
   payout is missing or still `created` gets `payout:{workshop}` enqueued, or
-  revived when it waited (never when PayPal refused it or it is parked); and
+  re-armed with its attempts reset when it waited (an hour later for a wait
+  that needs an operator or has nothing to pay; never when PayPal refused it
+  or it is parked); and
   every payout that is `sent`, `unclaimed` or `unknown` with a batch id gets
   `payout_check:{payout}:periodic:{hour}`. Succeeded payout checks are deleted
   after 30 days like the read-only reconciles.
@@ -606,7 +639,7 @@ workshop's own enrollments only:
 | Route | What it does |
 |---|---|
 | `POST /api/v1/owner/{token}/operator/reconcile` `{enrollment_id}` | Reads the enrollment's latest attempt back from PayPal inline (`reconcile:{attempt}:operator:{minute}`); safe at any time. |
-| `POST /api/v1/owner/{token}/operator/retry-refund` `{enrollment_id}` | For a `REFUND_FAILED` enrollment only: keeps the failed refund's id in `failed_refund_ids`, sends the refund again inline under `refund:{attempt}:retry:{n}`, puts the enrollment back to `PAID` with its flag cleared and reopens the workshop's settlement. A new key is safe: a failed refund returned nothing, and PayPal refuses a refund beyond what was captured. PayPal keeps listing the failed refund on the order, so a reconcile or webhook ignores any refund in `failed_refund_ids`. |
+| `POST /api/v1/owner/{token}/operator/retry-refund` `{enrollment_id}` | For a `REFUND_FAILED` enrollment only, and never for a payment the organizer's payout counted (`409 paid_out`): keeps the failed refund's id in `failed_refund_ids`, sends the refund again inline under `refund:{attempt}:retry:{n}`, puts the enrollment back to `PAID` with its flag cleared and reopens the workshop's settlement. A new key is safe: a failed refund returned nothing, and PayPal refuses a refund beyond what was captured. PayPal keeps listing the failed refund on the order, so a reconcile or webhook ignores any refund in `failed_refund_ids`. |
 | `POST /api/v1/owner/{token}/operator/clear-flag` `{enrollment_id?}` | Clears the enrollment's flag once its money is settled: none of its jobs is unknown, running, parked or still failing after the attempt that flagged it, and PayPal keeps no hold on a seat that should hold none (failed capture, released, withdrawn or voiding); without an enrollment, clears the workshop's `NEEDS_ATTENTION` once no enrollment needs an operator and every enrollment's money is settled in the same sense (`RESOLVING` and settled again when cancelled, `OPEN` otherwise). `still_unresolved` otherwise. |
 
 The organizer page offers them as buttons in a **Needs your check** panel,
@@ -876,7 +909,9 @@ are here.
   resource or its `batch_header`) and enqueue
   `payout_check:{payout}:webhook:{event_id}`. They never set a payout status;
   the only thing they write is a missing PayPal batch id, from a delivery
-  PayPal has verified, which moves a `created` or `unknown` payout to `sent`.
+  PayPal has verified, which moves a `created` or `unknown` payout to `sent`;
+  a payout that already holds another batch keeps it, the event is logged and
+  still answered `200`.
 - The log names a verified event and its attempt, never the body, and nothing
   of an unverified delivery.
 

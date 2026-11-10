@@ -119,6 +119,7 @@ bash scripts/e2e.sh
 - Reservations stay open for at most 72 hours, the time PayPal honours an authorization; reauthorization is not built.
 - No accounts: access is by private links for the organizer, the invite and each participant.
 - Claude drafts the nudges, and the organizer sends them; CommitPool does not.
+- Once the organizer is paid out, a later refund, reversal or dispute on a payment it counted does not reduce the payout; the platform absorbs it.
 
 ## License
 

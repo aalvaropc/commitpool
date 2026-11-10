@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -399,7 +400,7 @@ func TestFake_ReplayIsVerbatimEvenAfterTheResourceChanged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("capture replay on a captured authorization: %v", err)
 	}
-	if again != first {
+	if !reflect.DeepEqual(again, first) {
 		t.Errorf("capture replay = %+v, want the recorded %+v", again, first)
 	}
 
@@ -740,4 +741,54 @@ func TestFake_ConcurrentCapturesWithDistinctKeysCaptureOnce(t *testing.T) {
 	if succeeded != 1 || f.Captures() != 1 {
 		t.Fatalf("succeeded = %d, Captures() = %d, want exactly one capture", succeeded, f.Captures())
 	}
+}
+
+func TestFake_CapturesCarryAFeeOf349BasisPointsPlus49Cents(t *testing.T) {
+	cases := []struct {
+		gross, fee, net string
+	}{
+		{"10.00", "0.84", "9.16"},
+		{"45.00", "2.06", "42.94"},
+		{"50.00", "2.24", "47.76"},
+		{"0.10", "0.10", "0.00"},
+	}
+	for _, tc := range cases {
+		b := sellerBreakdown(paypal.Money{CurrencyCode: "USD", Value: tc.gross})
+		want := paypal.SellerReceivableBreakdown{
+			GrossAmount: &paypal.Money{CurrencyCode: "USD", Value: tc.gross},
+			PayPalFee:   &paypal.Money{CurrencyCode: "USD", Value: tc.fee},
+			NetAmount:   &paypal.Money{CurrencyCode: "USD", Value: tc.net},
+		}
+		if b == nil || *b.GrossAmount != *want.GrossAmount || *b.PayPalFee != *want.PayPalFee || *b.NetAmount != *want.NetAmount || b.ReceivableAmount != nil {
+			t.Errorf("breakdown of %s = %+v, want fee %s and net %s", tc.gross, b, tc.fee, tc.net)
+		}
+	}
+	if b := sellerBreakdown(paypal.Money{CurrencyCode: "USD", Value: "ten"}); b != nil {
+		t.Errorf("breakdown of an unreadable amount = %+v, want none", b)
+	}
+
+	f := newFake(t)
+	c := newTestClient(t, f)
+	ctx := context.Background()
+	_, cp := capturedOrder(t, c, f, "1")
+	wantFee := func(where string, b *paypal.SellerReceivableBreakdown) {
+		t.Helper()
+		if b == nil || b.GrossAmount == nil || *b.GrossAmount != usd10 || b.PayPalFee == nil || b.PayPalFee.Value != "0.84" || b.NetAmount == nil || b.NetAmount.Value != "9.16" {
+			t.Errorf("%s breakdown = %+v, want 10.00 gross, 0.84 fee and 9.16 net", where, b)
+		}
+	}
+	wantFee("capture response", cp.SellerReceivableBreakdown)
+	got, err := c.GetCapture(ctx, cp.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantFee("GET capture", got.SellerReceivableBreakdown)
+	if _, err := c.RefundCapture(ctx, paypal.RefundParams{CaptureID: cp.ID, RequestID: "refund-1"}); err != nil {
+		t.Fatal(err)
+	}
+	refunded, err := c.GetCapture(ctx, cp.ID)
+	if err != nil || refunded.Status != "REFUNDED" {
+		t.Fatalf("GET capture after the refund = %+v, %v", refunded, err)
+	}
+	wantFee("refunded capture", refunded.SellerReceivableBreakdown)
 }

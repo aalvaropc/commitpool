@@ -112,3 +112,40 @@ func TestBreakEvenSeats_RefusesMismatchedOrFreePrices(t *testing.T) {
 		t.Error("negative cost: want an error")
 	}
 }
+
+func TestCaptureFees(t *testing.T) {
+	usd := func(minor int64) *domain.Money { return &domain.Money{Minor: minor, Currency: "USD"} }
+	eur := func(minor int64) *domain.Money { return &domain.Money{Minor: minor, Currency: "EUR"} }
+	price := domain.Money{Minor: 4500, Currency: "USD"}
+	tests := []struct {
+		name                        string
+		gross, fee, net, receivable *domain.Money
+		wantFee, wantNet            int64
+		wantOK                      bool
+	}{
+		{name: "fee and net add up to the price", gross: usd(4500), fee: usd(206), net: usd(4294), wantFee: 206, wantNet: 4294, wantOK: true},
+		{name: "no fee and the whole price as net", gross: usd(4500), net: usd(4500), wantFee: 0, wantNet: 4500, wantOK: true},
+		{name: "a zero fee", gross: usd(4500), fee: usd(0), net: usd(4500), wantFee: 0, wantNet: 4500, wantOK: true},
+		{name: "a fee as large as the price", gross: usd(4500), fee: usd(4500), net: usd(0), wantFee: 4500, wantNet: 0, wantOK: true},
+		{name: "no fee but a smaller net", gross: usd(4500), net: usd(4294)},
+		{name: "net that does not add up", gross: usd(4500), fee: usd(206), net: usd(4295)},
+		{name: "gross other than the price", gross: usd(4400), fee: usd(203), net: usd(4197)},
+		{name: "gross in another currency", gross: eur(4500), fee: usd(206), net: usd(4294)},
+		{name: "fee in another currency", gross: usd(4500), fee: eur(206), net: usd(4294)},
+		{name: "net in another currency", gross: usd(4500), fee: usd(206), net: eur(4294)},
+		{name: "a receivable amount after a conversion", gross: usd(4500), fee: usd(206), net: usd(4294), receivable: eur(3950)},
+		{name: "a receivable amount in the same currency", gross: usd(4500), fee: usd(206), net: usd(4294), receivable: usd(4294)},
+		{name: "no gross", fee: usd(206), net: usd(4294)},
+		{name: "no net", gross: usd(4500), fee: usd(206)},
+		{name: "a fee above the price", gross: usd(4500), fee: usd(4600), net: &domain.Money{Minor: -100, Currency: "USD"}},
+		{name: "a negative fee", gross: usd(4500), fee: &domain.Money{Minor: -10, Currency: "USD"}, net: usd(4510)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fee, net, ok := domain.CaptureFees(price, tt.gross, tt.fee, tt.net, tt.receivable)
+			if ok != tt.wantOK || fee != tt.wantFee || net != tt.wantNet {
+				t.Fatalf("CaptureFees = %d, %d, %v; want %d, %d, %v", fee, net, ok, tt.wantFee, tt.wantNet, tt.wantOK)
+			}
+		})
+	}
+}

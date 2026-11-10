@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aalvaropc/commitpool/internal/domain"
 	"github.com/aalvaropc/commitpool/internal/paypal"
 )
 
@@ -128,7 +129,7 @@ func (f *Server) capture(r *http.Request, body []byte) fakeResponse {
 		return unprocessable(code)
 	}
 	cp := &fakeCapture{
-		Capture: paypal.Capture{ID: newID(), Status: captureCompleted, Amount: a.Amount},
+		Capture: paypal.Capture{ID: newID(), Status: captureCompleted, Amount: a.Amount, SellerReceivableBreakdown: sellerBreakdown(a.Amount)},
 		orderID: a.orderID,
 	}
 	f.captures[cp.ID] = cp
@@ -136,6 +137,23 @@ func (f *Server) capture(r *http.Request, body []byte) fakeResponse {
 	o.captureIDs = append(o.captureIDs, cp.ID)
 	a.Status = authCaptured
 	return jsonResponse(http.StatusCreated, cp.Capture)
+}
+
+const (
+	feeBasisPoints = 349
+	feeFixedMinor  = 49
+)
+
+func sellerBreakdown(gross paypal.Money) *paypal.SellerReceivableBreakdown {
+	g, err := domain.ParseMoney(gross.Value, gross.CurrencyCode)
+	if err != nil {
+		return nil
+	}
+	fee := min(g.Minor, (g.Minor*feeBasisPoints+5000)/10000+feeFixedMinor)
+	money := func(minor int64) *paypal.Money {
+		return &paypal.Money{CurrencyCode: gross.CurrencyCode, Value: domain.Money{Minor: minor, Currency: g.Currency}.String()}
+	}
+	return &paypal.SellerReceivableBreakdown{GrossAmount: money(g.Minor), PayPalFee: money(fee), NetAmount: money(g.Minor - fee)}
 }
 
 func (f *Server) void(r *http.Request, body []byte) fakeResponse {

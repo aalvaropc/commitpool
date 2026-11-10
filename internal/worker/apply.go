@@ -134,6 +134,10 @@ func (r *Runner) ApplyCapture(ctx context.Context, attemptID string, c paypal.Ca
 		}
 		setStatus(&a.CaptureStatus, c.Status)
 		a.CaptureReason = reason(c.StatusDetails)
+		if !recordFees(a, c) {
+			r.log.Warn("fees not recorded: PayPal's breakdown for the capture is in another currency or does not add up to the price",
+				"attempt_id", attemptID, "capture_id", c.ID)
+		}
 		return nil
 	}, lookup(captureMoves, c.Status), c.Status == paypal.StatusCompleted || c.Status == paypal.StatusPending)
 	if !res.ok {
@@ -165,6 +169,37 @@ func (r *Runner) ApplyRefund(ctx context.Context, attemptID string, rf paypal.Re
 }
 
 var errSetAside = errors.New("refund set aside by an operator retry")
+
+func recordFees(a *store.AttemptRow, c paypal.Capture) bool {
+	b := c.SellerReceivableBreakdown
+	if c.Status != paypal.StatusCompleted || b == nil || a.CaptureFeeMinor != nil || a.CaptureNetMinor != nil {
+		return true
+	}
+	gross, okGross := breakdownMoney(b.GrossAmount)
+	fee, okFee := breakdownMoney(b.PayPalFee)
+	net, okNet := breakdownMoney(b.NetAmount)
+	receivable, okReceivable := breakdownMoney(b.ReceivableAmount)
+	if !okGross || !okFee || !okNet || !okReceivable {
+		return false
+	}
+	feeMinor, netMinor, ok := domain.CaptureFees(domain.Money{Minor: a.AmountMinor, Currency: a.Currency}, gross, fee, net, receivable)
+	if !ok {
+		return false
+	}
+	a.CaptureFeeMinor, a.CaptureNetMinor = &feeMinor, &netMinor
+	return true
+}
+
+func breakdownMoney(m *paypal.Money) (*domain.Money, bool) {
+	if m == nil {
+		return nil, true
+	}
+	d, err := domain.ParseMoney(m.Value, m.CurrencyCode)
+	if err != nil {
+		return nil, false
+	}
+	return &d, true
+}
 
 func (r *Runner) ApplyCaptureFailure(ctx context.Context, attemptID string, e *paypal.Error) error {
 	issue := e.Issue

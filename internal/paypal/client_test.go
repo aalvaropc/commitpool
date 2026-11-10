@@ -706,3 +706,58 @@ func TestDefinitive_OnlyFinalAnswersAboutTheResource(t *testing.T) {
 		}
 	}
 }
+
+func TestClient_DecodesTheSellerReceivableBreakdown(t *testing.T) {
+	f := newFake(t)
+	c := newTestClient(t, f)
+	ctx := context.Background()
+
+	f.RespondOnce("get_capture", http.StatusOK, []byte(`{
+		"id": "2GG279541U471931P",
+		"status": "COMPLETED",
+		"amount": {"currency_code": "USD", "value": "45.00"},
+		"final_capture": true,
+		"seller_protection": {"status": "ELIGIBLE"},
+		"seller_receivable_breakdown": {
+			"gross_amount": {"currency_code": "USD", "value": "45.00"},
+			"paypal_fee": {"currency_code": "USD", "value": "2.06"},
+			"net_amount": {"currency_code": "USD", "value": "42.94"}
+		}
+	}`))
+	got, err := c.GetCapture(ctx, "2GG279541U471931P")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := got.SellerReceivableBreakdown
+	if b == nil || b.GrossAmount == nil || *b.GrossAmount != (paypal.Money{CurrencyCode: "USD", Value: "45.00"}) ||
+		b.PayPalFee == nil || *b.PayPalFee != (paypal.Money{CurrencyCode: "USD", Value: "2.06"}) ||
+		b.NetAmount == nil || *b.NetAmount != (paypal.Money{CurrencyCode: "USD", Value: "42.94"}) || b.ReceivableAmount != nil {
+		t.Errorf("breakdown = %+v, want 45.00 gross, 2.06 fee, 42.94 net and no receivable amount", b)
+	}
+
+	f.RespondOnce("get_capture", http.StatusOK, []byte(`{
+		"id": "3C679366HH908993F",
+		"status": "COMPLETED",
+		"amount": {"currency_code": "USD", "value": "45.00"},
+		"seller_receivable_breakdown": {
+			"gross_amount": {"currency_code": "USD", "value": "45.00"},
+			"paypal_fee": {"currency_code": "USD", "value": "2.06"},
+			"net_amount": {"currency_code": "USD", "value": "42.94"},
+			"receivable_amount": {"currency_code": "EUR", "value": "39.50"},
+			"exchange_rate": {"source_currency": "USD", "target_currency": "EUR", "value": "0.92"}
+		}
+	}`))
+	converted, err := c.GetCapture(ctx, "3C679366HH908993F")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := converted.SellerReceivableBreakdown; b == nil || b.ReceivableAmount == nil || *b.ReceivableAmount != (paypal.Money{CurrencyCode: "EUR", Value: "39.50"}) {
+		t.Errorf("converted breakdown = %+v, want the receivable amount in EUR", b)
+	}
+
+	f.RespondOnce("get_capture", http.StatusOK, []byte(`{"id": "PENDINGCAPTURE", "status": "PENDING", "amount": {"currency_code": "USD", "value": "45.00"}}`))
+	pending, err := c.GetCapture(ctx, "PENDINGCAPTURE")
+	if err != nil || pending.SellerReceivableBreakdown != nil {
+		t.Errorf("capture without a breakdown = %+v, %v; want no breakdown", pending, err)
+	}
+}

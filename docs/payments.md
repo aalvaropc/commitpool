@@ -200,6 +200,27 @@ An authorization that lands once payments have closed, or on a cancelled
 workshop, is voided; the authorize job itself refuses to call PayPal once
 payments have closed.
 
+## Fees
+
+Every completed capture records PayPal's fee and net, in minor units, from
+the capture's `seller_receivable_breakdown` (`payment_attempts.capture_fee_minor`
+and `capture_net_minor`, migration 0014). `domain.CaptureFees` accepts a
+breakdown only when the gross is the attempt's price, the fee and net are in
+the same currency, the net is exactly gross − fee (a missing fee counts as zero
+only when the net is the whole gross) and there is no `receivable_amount`, which
+PayPal adds when it converted the money; anything else records nothing and is
+logged.
+
+Fees are written once: when PayPal reports the capture `COMPLETED` with an
+accepted breakdown and the attempt holds none yet, whether the capture comes
+from the capture call, an order read back or a capture read back. A reconcile
+therefore fills in a capture recorded without them, such as one captured
+before migration 0014. Every later update keeps them (the store writes them
+through `coalesce`), including the refund path that records a capture with only
+its status, so a sum of the stored net amounts is exact. The owner view shows
+each payment's `fee` and `net`; a participant's view never does. The fake PayPal
+charges 3.49% of the gross, rounded half up, plus 0.49.
+
 ## Close
 
 `close:{proposal}` runs at `closes_at` and first heals the workshop (see
@@ -394,6 +415,19 @@ The organizer page offers them as buttons in a **Needs your check** panel,
 shown only while a seat is flagged or has a refused refund, or the workshop is
 flagged. The SQL below remains for what these do not cover.
 
+One more route only reads, and the organizer page offers it on its Payments
+tile as **Verify with PayPal** (distinct from the panel's **Check with PayPal**,
+which writes):
+
+| Route | What it does |
+|---|---|
+| `POST /api/v1/owner/{token}/paypal/verify` | Reads the order, authorization, capture and refund of each seat's latest attempt from PayPal and compares each with what the attempt implies PayPal reports: the status, the amount and, once recorded, the fee and net. Returns per seat `{enrollment_id, seat, checks: [{resource, id, local, paypal, match}], debug_id}` (PayPal's debug id when it answered with an error) and a `summary` of records, matching records, seats and skipped seats. It never runs a job or writes a row. One run per workshop every 30 seconds (`429 verify_too_soon` with `Retry-After` otherwise, kept in memory) and at most 12 seats a run, in enrollment order. The MCP tool `verify_with_paypal` calls it. |
+
+What an attempt implies PayPal reports: an order with an authorization is
+`COMPLETED` and one recorded `EXPIRED` matches PayPal's not found; an
+authorization with a capture is `CAPTURED`; a capture with a completed refund is
+`REFUNDED`; otherwise the status the attempt recorded.
+
 Run these against the application database (`psql "$DATABASE_URL"`). Read
 before you write: every statement below is a compare-and-set that changes
 nothing when the row is not in the state it expects.
@@ -472,7 +506,7 @@ The owner view lists every enrollment with its status, its seat expiry and,
 for its latest attempt, the PayPal order, authorization, capture and refund
 ids, their statuses and `capture_issue` (the issue PayPal gave for a refused
 capture, or `AUTHORIZATION_EXPIRED_LOCAL` / `CAPTURE_DEADLINE_PASSED` /
-`WORKSHOP_CANCELLED`), plus
+`WORKSHOP_CANCELLED`), the capture's PayPal `fee` and `net` once recorded, plus
 the workshop's status and resolution.
 
 Only the `jobs` table shows which action is stuck and why: the job status,

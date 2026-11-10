@@ -35,6 +35,7 @@ If too few reserve by the deadline, every hold is released.
 - **"It's on" counts completed captures only.** An authorized hold is a promise, and a declined capture is not a seat.
 - **Every money call is idempotent.** Each capture, void and refund has its own key, saved before the request is sent. A timeout is never retried blindly: the order is read back from PayPal and the local state is reconciled to it.
 - **Webhooks and reconcile.** Webhooks are verified with PayPal before they are stored. A periodic reconcile reads back anything pending.
+- **Fees, and a check against PayPal.** Each capture keeps PayPal's fee and net from its `seller_receivable_breakdown`, so the organizer sees what was collected, what PayPal kept and the net. **Verify with PayPal** reads every seat's order, hold, charge and refund back from PayPal and compares them with CommitPool's records, without changing anything.
 - **Plans can change.** A participant can withdraw until they are charged, and the organizer can cancel until the class starts.
 
 The state machines, keys, deadlines and the operator runbook are in [docs/payments.md](docs/payments.md).
@@ -63,7 +64,7 @@ claude mcp add --transport http commitpool https://3-209-60-155.sslip.io/mcp
 ```
 
 What each side's assistant can do:
-- **Organizer:** create a class, ask who can come and why, and open reservations after the organizer approves the exact terms on their own page.
+- **Organizer:** create a class, ask who can come and why, open reservations after the organizer approves the exact terms on their own page, and check the payments against PayPal without changing anything.
 - **Participant:** join, pass on when they can come, and get their PayPal link.
 
 No tool moves money or approves anything: only the person's own approval at PayPal places a hold, and the MCP tools alone cannot open reservations, which needs the organizer's approval on their own page. Anyone holding the owner link can still open reservations from the organizer page, and a script could forge a browser's headers; [docs/mcp.md](docs/mcp.md) spells out these limits.

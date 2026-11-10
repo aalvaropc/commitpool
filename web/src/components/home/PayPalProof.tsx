@@ -9,10 +9,10 @@ const apis = [
 ]
 
 const records = [
-  { kind: 'Order', id: '8K886057PL996893M', status: 'COMPLETED' },
-  { kind: 'Authorization', id: '1AS808255V146505P', status: 'CAPTURED' },
-  { kind: 'Capture', id: '82975102TH652782Y', status: 'REFUNDED' },
-  { kind: 'Refund', id: '43G324002P691632L', status: 'COMPLETED' },
+  { kind: 'Order', id: '8CU0641389306473M', status: 'COMPLETED', check: 'Match' },
+  { kind: 'Authorization', id: '29F87239ER3603046', status: 'CAPTURED', check: 'Match' },
+  { kind: 'Capture', id: '5A184279HG6049222', status: 'COMPLETED', check: 'Match' },
+  { kind: 'Payouts batch', id: 'QW74P22YPEA8W', status: 'SUCCESS', check: 'Paid out' },
 ]
 
 export default function PayPalProof() {
@@ -34,12 +34,14 @@ export default function PayPalProof() {
           </dl>
           <figure className="m-0 grid content-start gap-[1.125rem] rounded-tile bg-surface p-[1.375rem] lg:col-span-5 lg:col-start-8">
             <figcaption>
-              <strong className="block text-[1.0625rem]">A refunded reservation</strong>
-              <span className="mt-0.5 block text-[0.8125rem] leading-snug text-ink-faint">What “Verify with PayPal” checks on Iris’s board, with IDs from a PayPal Sandbox run.</span>
+              <strong className="block text-[1.0625rem]">Three paid spots, then the payout</strong>
+              <span className="mt-0.5 block text-[0.8125rem] leading-snug text-ink-faint">
+                A real PayPal Sandbox run on Nov 10, 2026: “Verify with PayPal” on Iris’s board, Priya’s spot and Iris’s payout.
+              </span>
             </figcaption>
             <p className="flex items-center gap-3.5 rounded-control bg-paid-wash px-[1.125rem] py-4 text-paid">
               <Icon name="check" size={30} strokeWidth={2.2} />
-              <b className="shout text-[clamp(1.375rem,1rem+1.4vw,2rem)] leading-none tracking-[-0.01em] normal-case">4 of 4 records match PayPal</b>
+              <b className="shout text-[clamp(1.375rem,1rem+1.4vw,2rem)] leading-none tracking-[-0.01em] normal-case">9 of 9 records match PayPal</b>
             </p>
             <dl className="grid">
               {records.map((r) => (
@@ -47,7 +49,7 @@ export default function PayPalProof() {
                   <dt className="text-[0.8125rem] text-ink-faint">{r.kind}</dt>
                   <dd className="row-span-2 inline-flex items-center gap-1.5 text-[0.8125rem] font-semibold text-paid">
                     <Icon name="check" size={15} strokeWidth={2.2} />
-                    Match
+                    {r.check}
                   </dd>
                   <dd className="font-mono text-sm tracking-[0.02em] [overflow-wrap:anywhere]">
                     {r.id} <span className="text-[0.8125rem] text-ink-soft">{r.status}</span>

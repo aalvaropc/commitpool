@@ -107,6 +107,12 @@ export AWS_REGION=us-east-1
   (the instance role may send with `ses:SendEmail`). While the SES account is
   in its sandbox, only verified recipients get mail. Without it,
   notifications are only logged.
+  `/commitpool/video_url` (String), a YouTube link, embeds the demo video in
+  the landing's For judges section;
+  `/commitpool/judge_buyer_email` (String) and
+  `/commitpool/judge_buyer_password` (SecureString), a PayPal Sandbox
+  Personal account, show there with copy buttons. The login is deployed only
+  when both exist.
 - Tear down: `terraform -chdir=deploy/ec2 destroy`, then delete the three
   PayPal parameters with `aws ssm delete-parameter`.
 

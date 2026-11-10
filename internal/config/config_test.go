@@ -206,11 +206,13 @@ func TestConfig_LogValueAndStringRedactSecrets(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg, err := load(map[string]string{
-				"COMMITPOOL_BASE_URL":  "https://commitpool.example",
-				"DATABASE_URL":         tc.databaseURL,
-				"PAYPAL_CLIENT_ID":     "client-id-visible",
-				"PAYPAL_CLIENT_SECRET": "paypal-secret-3",
-				"AWS_REGION":           "us-east-1",
+				"COMMITPOOL_BASE_URL":             "https://commitpool.example",
+				"DATABASE_URL":                    tc.databaseURL,
+				"PAYPAL_CLIENT_ID":                "client-id-visible",
+				"PAYPAL_CLIENT_SECRET":            "paypal-secret-3",
+				"AWS_REGION":                      "us-east-1",
+				"COMMITPOOL_JUDGE_BUYER_EMAIL":    "judge-visible@example.com",
+				"COMMITPOOL_JUDGE_BUYER_PASSWORD": "judge-password-6",
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -227,12 +229,12 @@ func TestConfig_LogValueAndStringRedactSecrets(t *testing.T) {
 				"Print": fmt.Sprint(cfg),
 			}
 			for name, out := range renderings {
-				for _, secret := range append([]string{"paypal-secret-3"}, tc.secrets...) {
+				for _, secret := range append([]string{"paypal-secret-3", "judge-password-6"}, tc.secrets...) {
 					if strings.Contains(out, secret) {
 						t.Errorf("%s rendering contains %q: %s", name, secret, out)
 					}
 				}
-				for _, visible := range append([]string{"https://commitpool.example", "client-id-visible"}, tc.visible...) {
+				for _, visible := range append([]string{"https://commitpool.example", "client-id-visible", "judge-visible@example.com"}, tc.visible...) {
 					if !strings.Contains(out, visible) {
 						t.Errorf("%s rendering lacks %q: %s", name, visible, out)
 					}
@@ -435,5 +437,85 @@ func TestLoad_DemoAndMocksAreSandboxOnly(t *testing.T) {
 	env["COMMITPOOL_SANDBOX_MOCKS"] = "1"
 	if _, err := load(env); err != nil {
 		t.Errorf("demo and mocks on the Sandbox: %v", err)
+	}
+}
+
+func TestLoad_DemoVideoBecomesAPrivacyEnhancedEmbed(t *testing.T) {
+	const want = "https://www.youtube-nocookie.com/embed/aB3_x-9Zk0Q"
+	for _, link := range []string{
+		"https://youtu.be/aB3_x-9Zk0Q",
+		"https://youtu.be/aB3_x-9Zk0Q?si=share-tracking",
+		"https://www.youtube.com/watch?v=aB3_x-9Zk0Q&t=12s",
+		"https://youtube.com/watch?v=aB3_x-9Zk0Q",
+		"https://m.youtube.com/watch?v=aB3_x-9Zk0Q",
+		"https://www.youtube.com/embed/aB3_x-9Zk0Q",
+		"https://www.youtube-nocookie.com/embed/aB3_x-9Zk0Q",
+		"https://www.youtube.com/shorts/aB3_x-9Zk0Q",
+	} {
+		env := baseEnv()
+		env["COMMITPOOL_VIDEO_URL"] = link
+		cfg, err := load(env)
+		if err != nil {
+			t.Errorf("COMMITPOOL_VIDEO_URL=%q: %v", link, err)
+			continue
+		}
+		if cfg.VideoEmbedURL != want {
+			t.Errorf("COMMITPOOL_VIDEO_URL=%q: VideoEmbedURL = %q, want %q", link, cfg.VideoEmbedURL, want)
+		}
+	}
+
+	cfg, err := load(baseEnv())
+	if err != nil || cfg.VideoEmbedURL != "" {
+		t.Errorf("no video: VideoEmbedURL = %q, err = %v; want none", cfg.VideoEmbedURL, err)
+	}
+
+	for _, link := range []string{
+		"http://youtu.be/aB3_x-9Zk0Q",
+		"https://vimeo.com/123456789",
+		"https://www.youtube.com/watch?v=short",
+		"https://www.youtube.com/channel/aB3_x-9Zk0Q",
+		"https://youtu.be.evil.example/aB3_x-9Zk0Q",
+		"javascript:alert(1)",
+		"https://www.youtube.com/watch?v=aB3_x-9Zk0Q\"><script>",
+	} {
+		env := baseEnv()
+		env["COMMITPOOL_VIDEO_URL"] = link
+		if _, err := load(env); err == nil || !strings.Contains(err.Error(), "COMMITPOOL_VIDEO_URL") {
+			t.Errorf("COMMITPOOL_VIDEO_URL=%q: err = %v, want a refusal naming it", link, err)
+		}
+	}
+}
+
+func TestLoad_JudgeBuyerLoginComesAsAPair(t *testing.T) {
+	env := baseEnv()
+	env["COMMITPOOL_JUDGE_BUYER_EMAIL"] = "buyer@example.com"
+	env["COMMITPOOL_JUDGE_BUYER_PASSWORD"] = " pass word "
+	cfg, err := load(env)
+	if err != nil {
+		t.Fatalf("both set: %v", err)
+	}
+	if cfg.JudgeBuyerEmail != "buyer@example.com" || cfg.JudgeBuyerPassword != " pass word " {
+		t.Errorf("judge login = %q / %q, want the address and the password exactly as set", cfg.JudgeBuyerEmail, cfg.JudgeBuyerPassword)
+	}
+
+	for _, only := range []string{"COMMITPOOL_JUDGE_BUYER_EMAIL", "COMMITPOOL_JUDGE_BUYER_PASSWORD"} {
+		env := baseEnv()
+		env[only] = "buyer@example.com"
+		if _, err := load(env); err == nil || !strings.Contains(err.Error(), "go together") {
+			t.Errorf("only %s: err = %v, want a refusal asking for both", only, err)
+		}
+	}
+
+	env = baseEnv()
+	env["COMMITPOOL_JUDGE_BUYER_EMAIL"] = "Buyer <buyer@example.com>"
+	env["COMMITPOOL_JUDGE_BUYER_PASSWORD"] = "secret"
+	if _, err := load(env); err == nil || !strings.Contains(err.Error(), "COMMITPOOL_JUDGE_BUYER_EMAIL") {
+		t.Errorf("named address: err = %v, want a refusal naming COMMITPOOL_JUDGE_BUYER_EMAIL", err)
+	}
+
+	env = baseEnv()
+	env["COMMITPOOL_JUDGE_BUYER_PASSWORD"] = "   "
+	if cfg, err := load(env); err != nil || cfg.JudgeBuyerPassword != "" {
+		t.Errorf("blank password: %q, err = %v; want it treated as unset", cfg.JudgeBuyerPassword, err)
 	}
 }

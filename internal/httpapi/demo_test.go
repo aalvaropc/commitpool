@@ -92,3 +92,53 @@ func TestDemo_AVisitorStartsFiveThenWaits(t *testing.T) {
 		t.Errorf("message = %s, want the real wait", rec.Body)
 	}
 }
+
+type demoInfoJSON struct {
+	Workshops  bool    `json:"workshops"`
+	VideoURL   *string `json:"video_url"`
+	JudgeLogin *struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	} `json:"judge_login"`
+}
+
+func TestDemoInfo_OmitsTheJudgeKitUntilItIsConfigured(t *testing.T) {
+	e := newEnv(t, withDemoMode())
+	rec := e.request(http.MethodGet, "/api/v1/demo", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("demo info = %d %s", rec.Code, rec.Body)
+	}
+	if body := rec.Body.String(); strings.Contains(body, "video_url") || strings.Contains(body, "judge_login") {
+		t.Errorf("demo info without a video or a judge login = %s, want neither key", body)
+	}
+}
+
+func TestDemoInfo_CarriesTheVideoAndTheSandboxBuyerOnADemoServer(t *testing.T) {
+	const video = "https://www.youtube-nocookie.com/embed/aB3_x-9Zk0Q"
+	e := newEnv(t, withDemoMode(), withJudgeKit(video, "buyer@example.com", "sandbox-pass"))
+	var info demoInfoJSON
+	e.call(http.MethodGet, "/api/v1/demo", nil, http.StatusOK, &info)
+	if !info.Workshops || info.VideoURL == nil || *info.VideoURL != video {
+		t.Errorf("demo info = %+v, want workshops and the embed URL", info)
+	}
+	if info.JudgeLogin == nil || info.JudgeLogin.Email != "buyer@example.com" || info.JudgeLogin.Password != "sandbox-pass" {
+		t.Errorf("judge login = %+v", info.JudgeLogin)
+	}
+}
+
+func TestDemoInfo_AVideoWithoutALoginShowsTheVideoAlone(t *testing.T) {
+	e := newEnv(t, withDemoMode(), withJudgeKit("https://www.youtube-nocookie.com/embed/aB3_x-9Zk0Q", "", ""))
+	var info demoInfoJSON
+	e.call(http.MethodGet, "/api/v1/demo", nil, http.StatusOK, &info)
+	if info.VideoURL == nil || info.JudgeLogin != nil {
+		t.Errorf("video without a login = %+v, want the video alone", info)
+	}
+}
+
+func TestDemoInfo_NeverLeaksTheJudgeKitOutsideDemoMode(t *testing.T) {
+	e := newEnv(t, withJudgeKit("https://www.youtube-nocookie.com/embed/aB3_x-9Zk0Q", "buyer@example.com", "sandbox-pass"))
+	rec := e.request(http.MethodGet, "/api/v1/demo", nil)
+	if rec.Code != http.StatusNotFound || strings.Contains(rec.Body.String(), "sandbox-pass") || strings.Contains(rec.Body.String(), "youtube") {
+		t.Errorf("demo info outside demo mode = %d %s, want a plain 404", rec.Code, rec.Body)
+	}
+}

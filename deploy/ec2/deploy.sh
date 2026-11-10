@@ -29,6 +29,16 @@ umask 077
   if [[ -n "$mcp_secret" ]]; then
     echo "COMMITPOOL_MCP_SECRET=$mcp_secret"
   fi
+  video_url="$(optional_param video_url)"
+  if [[ -n "$video_url" ]]; then
+    echo "COMMITPOOL_VIDEO_URL=$video_url"
+  fi
+  judge_buyer_email="$(optional_param judge_buyer_email)"
+  judge_buyer_password="$(optional_param judge_buyer_password)"
+  if [[ -n "$judge_buyer_email" && -n "$judge_buyer_password" ]]; then
+    echo "COMMITPOOL_JUDGE_BUYER_EMAIL=$judge_buyer_email"
+    echo "COMMITPOOL_JUDGE_BUYER_PASSWORD=$judge_buyer_password"
+  fi
   mail_from="$(optional_param mail_from)"
   if [[ -n "$mail_from" ]]; then
     echo "COMMITPOOL_MAILER=ses"

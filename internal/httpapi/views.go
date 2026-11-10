@@ -231,7 +231,7 @@ func proposalView(p *store.ProposalRow, w store.WorkshopRow, now time.Time) *pro
 		StartsAt:     p.StartsAt.UTC(),
 		PaymentsOpen: paymentsOpen(w, p, now),
 		ExtendedFrom: extendedFrom(p),
-		LatestCloses: latestClosesAt(p, w.Status, now),
+		LatestCloses: p.ClosesAt.UTC(),
 	}
 }
 

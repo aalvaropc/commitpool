@@ -246,10 +246,14 @@ func (s *server) publicWorkshop(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	proposal, err := s.withLatest(r.Context(), st, proposalView(st.proposal, ws, s.Clock.Now()), s.Clock.Now())
+	if err != nil {
+		return err
+	}
 	writeJSON(w, http.StatusOK, publicView{
 		Workshop: publicWorkshopView(ws),
 		Dates:    dateViews(st.dates, st.loc),
-		Proposal: st.withLatest(proposalView(st.proposal, ws, s.Clock.Now())),
+		Proposal: proposal,
 		Tally:    st.tally(),
 		Group:    g,
 	})

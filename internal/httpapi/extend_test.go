@@ -130,6 +130,13 @@ func TestExtend_TheOrganizerMovesTheDeadlineOnce(t *testing.T) {
 	if !v.Proposal.LatestClosesAt.Equal(extendTo) || v.Proposal.ExtendedFrom != nil {
 		t.Errorf("proposal = %+v, want the latest possible deadline %s and no extension yet", v.Proposal, extendTo)
 	}
+	var before struct {
+		Proposal extendProposalJSON `json:"proposal"`
+	}
+	e.call(http.MethodGet, ps[1].path, nil, http.StatusOK, &before)
+	if !before.Proposal.LatestClosesAt.Equal(extendTo) {
+		t.Errorf("participant latest_closes_at = %s, want the option on offer %s", before.Proposal.LatestClosesAt, extendTo)
+	}
 	if got := kinds(v.Suggestions); len(got) < 2 || got[0] != "rescue" || got[1] != "share" {
 		t.Fatalf("suggestions = %v, want the rescue first, then sharing", got)
 	}
@@ -203,16 +210,33 @@ func TestExtend_EachRefusalHasItsOwnCode(t *testing.T) {
 		}
 		e.clock.Set(p.ClosesAt.Add(-5 * time.Minute))
 		e.wantExtendError(h, extendBody(p.ClosesAt, extendTo), http.StatusConflict, "too_late_to_extend")
+		if v := e.extendView(h); !v.Proposal.LatestClosesAt.Equal(p.ClosesAt) {
+			t.Errorf("latest_closes_at five minutes before the close = %s, want %s: it can no longer move", v.Proposal.LatestClosesAt, p.ClosesAt)
+		}
 	})
 	t.Run("someone paid", func(t *testing.T) {
 		e := newEnv(t)
-		h, p, _ := e.shortOfTheMinimum()
+		h, p, ps := e.shortOfTheMinimum()
 		v := e.owner(h)
 		e.runPayment("capture", v.Workshop.ID, e.latestAttempt(v.Enrollments[0].ID))
 		e.wantStatus(v.Enrollments[0].ID, domain.EnrollmentPaid)
 		e.wantExtendError(h, extendBody(p.ClosesAt, extendTo), http.StatusConflict, "charging_started")
 		if x := e.extendView(h).Extension; x == nil || x.Available || x.Refusal != "charging_started" || x.Reason == "" {
 			t.Errorf("extension with a paid seat = %+v", x)
+		}
+		var mine struct {
+			Proposal extendProposalJSON `json:"proposal"`
+		}
+		e.call(http.MethodGet, ps[0].path, nil, http.StatusOK, &mine)
+		if !mine.Proposal.LatestClosesAt.Equal(p.ClosesAt) {
+			t.Errorf("participant latest_closes_at with a paid seat = %s, want %s", mine.Proposal.LatestClosesAt, p.ClosesAt)
+		}
+		var shared struct {
+			Proposal extendProposalJSON `json:"proposal"`
+		}
+		e.call(http.MethodGet, h.sharePath, nil, http.StatusOK, &shared)
+		if !shared.Proposal.LatestClosesAt.Equal(p.ClosesAt) {
+			t.Errorf("invite page latest_closes_at with a paid seat = %s, want %s", shared.Proposal.LatestClosesAt, p.ClosesAt)
 		}
 	})
 	t.Run("a v4 reservation", func(t *testing.T) {
@@ -327,10 +351,16 @@ func TestExtend_ClaudeMayNameTheNewDeadlineButNoOtherDate(t *testing.T) {
 		t.Run(strconv.FormatBool(tc.kept), func(t *testing.T) {
 			e := newEnv(t, withAI(rescueAI{text: tc.text}))
 			h, _, _ := e.shortOfTheMinimum()
-			v := e.extendView(h)
-			got := v.Suggestions[0]
-			if got.Kind != "rescue" {
-				t.Fatalf("suggestions = %v", kinds(v.Suggestions))
+			var got suggestionJSON
+			for range 5 {
+				v := e.extendView(h)
+				if got = v.Suggestions[0]; got.Kind != "rescue" {
+					t.Fatalf("suggestions = %v", kinds(v.Suggestions))
+				}
+				if strings.HasPrefix(got.Message, tc.text) {
+					break
+				}
+				e.clock.Set(e.clock.Now().Add(time.Minute))
 			}
 			if kept := strings.HasPrefix(got.Message, tc.text); kept != tc.kept {
 				t.Errorf("Claude wrote %q; message = %q, kept %v, want %v", tc.text, got.Message, kept, tc.kept)

@@ -87,6 +87,10 @@ func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	extension := s.extensionView(st.extension, st, r.PathValue("token"))
+	proposal, err := s.withLatest(ctx, st, ownerProposalView(st.proposal, ws, now), now)
+	if err != nil {
+		return err
+	}
 	latest, err := s.Store.LatestAttemptsByWorkshop(ctx, ws.ID)
 	if err != nil {
 		return err
@@ -128,7 +132,7 @@ func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
 		ShareURL:       shareURL,
 		Workshop:       ownerWorkshopView(ws),
 		Dates:          dateViews(st.dates, st.loc),
-		Proposal:       st.withLatest(ownerProposalView(st.proposal, ws, now)),
+		Proposal:       proposal,
 		Extension:      extension,
 		Tally:          st.ownerTally(),
 		Participants:   participants,

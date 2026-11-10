@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"slices"
 	"strconv"
 	"time"
 
@@ -109,27 +108,21 @@ func extendedFrom(p *store.ProposalRow) *time.Time {
 	return &from
 }
 
-func latestClosesAt(p *store.ProposalRow, status domain.WorkshopStatus, now time.Time) time.Time {
-	latest := p.ClosesAt
-	if p.ExtendedAt == nil && status == domain.WorkshopFunding && now.Before(p.ClosesAt) {
-		if bound := domain.LatestDeadline(p.Domain()); bound.After(latest) {
-			latest = bound
-		}
-	}
-	return latest.UTC()
-}
-
-func (st workshopState) withLatest(d *proposalDTO) *proposalDTO {
+func (s *server) withLatest(ctx context.Context, st workshopState, d *proposalDTO, now time.Time) (*proposalDTO, error) {
 	if d == nil {
-		return d
+		return nil, nil
 	}
-	for _, en := range st.enrollments {
-		if en.Status.Occupies() && !slices.Contains(domain.ExtensionConsents, en.ConsentVersion) {
-			d.LatestCloses = d.ClosesAt
-			break
+	o := st.extension
+	if o == nil {
+		var err error
+		if o, err = s.extensionOption(ctx, st, now); err != nil {
+			return nil, err
 		}
 	}
-	return d
+	if o.available() && o.to.After(d.ClosesAt) {
+		d.LatestCloses = o.to.UTC()
+	}
+	return d, nil
 }
 
 func rescueNudge(st workshopState, deadline string, missing int) (reason, newDeadline string) {

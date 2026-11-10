@@ -48,12 +48,16 @@ func (s *server) participantView(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	now := s.Clock.Now()
+	proposal, err := s.withLatest(ctx, st, proposalView(st.proposal, ws, now), now)
+	if err != nil {
+		return err
+	}
 	view := participantViewDTO{
 		Group:       g,
 		Participant: participantDTO{ID: p.ID, DisplayName: p.DisplayName},
 		Workshop:    publicWorkshopView(ws),
 		Dates:       dateViews(st.dates, st.loc),
-		Proposal:    st.withLatest(proposalView(st.proposal, ws, now)),
+		Proposal:    proposal,
 		Tally:       st.tally(),
 		Consent:     consentDTO{Version: ConsentVersion, Text: ConsentText},
 	}

@@ -14,6 +14,7 @@ const (
 	SuggestCondition SuggestionKind = "condition"
 	SuggestReserve   SuggestionKind = "reserve"
 	SuggestShare     SuggestionKind = "share"
+	SuggestRescue    SuggestionKind = "rescue"
 )
 
 const (
@@ -39,11 +40,13 @@ type SuggestInput struct {
 	Date         DateSummary
 	Unclear      []string
 	Reserved     map[string]bool
+	CanExtend    bool
+	Extended     bool
 }
 
 func Suggestions(in SuggestInput) []Suggestion {
 	var personal []Suggestion
-	var share bool
+	var share, rescue bool
 	switch {
 	case in.Status == WorkshopCollecting:
 		for _, id := range in.Unclear {
@@ -60,9 +63,14 @@ func Suggestions(in SuggestInput) []Suggestion {
 				personal = append(personal, Suggestion{Kind: SuggestReserve, ParticipantID: id})
 			}
 		}
-		share = in.ClosesAt.Sub(in.Now) <= ShareWhenLeft
+		left := in.ClosesAt.Sub(in.Now)
+		share = left <= ShareWhenLeft || in.Extended
+		rescue = in.CanExtend && left <= RescueWhenLeft
 	}
 	var out []Suggestion
+	if rescue {
+		out = append(out, Suggestion{Kind: SuggestRescue})
+	}
 	if share {
 		out = append(out, Suggestion{Kind: SuggestShare})
 	}

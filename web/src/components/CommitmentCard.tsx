@@ -6,6 +6,7 @@ import { formatMoney } from '../lib/money'
 import { authorizationPending, canStartCheckout, enrollmentTone, seatHeld } from '../lib/status'
 import { durationLabel, earlier, formatClock, formatDateRange, formatMoment, windowLabel, zoneName } from '../lib/time'
 import { offersCalendar } from '../lib/event'
+import { latestDeadline, latestDeadlineNote } from '../lib/extend'
 import AddToCalendar from './AddToCalendar'
 import Deadline from './Deadline'
 import { Button, ConfirmDialog, Icon, Notice, Pill, Tile, TileLabel } from './ui'
@@ -32,6 +33,7 @@ export default function CommitmentCard({ token, view, onChange }: Props) {
   const date = view.dates.find((d) => d.id === proposal.date_id)
   const kind = withdrawKind(enrollment, workshop.status)
   const canWithdraw = kind === 'void' || (kind === 'release' && held)
+  const latest = latestDeadline(proposal, workshop.status)
 
   async function authorize() {
     if (!proposal) return
@@ -115,6 +117,15 @@ export default function CommitmentCard({ token, view, onChange }: Props) {
         <Deadline closesAt={proposal.closes_at} timeZone={tz} open={proposal.payments_open} size="lg" />
         {workshop.payment_window_min < 1440 && <Pill tone="attention">{windowLabel(workshop.payment_window_min)}</Pill>}
       </div>
+      {latest && (
+        <p className="-mt-3 text-sm text-ink-soft">
+          Latest possible deadline:{' '}
+          <time dateTime={latest} className="font-semibold text-ink tabular-nums">
+            {formatMoment(latest, tz)}
+          </time>
+          . {latestDeadlineNote(proposal)}
+        </p>
+      )}
 
       {enrollment?.status === 'SEAT_RESERVED' &&
         (pending ? (

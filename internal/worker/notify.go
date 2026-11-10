@@ -89,6 +89,8 @@ func (r *Runner) stale(ctx context.Context, n *store.NotificationRow) (bool, err
 			return false, err
 		}
 		return w.Status == domain.WorkshopCancelled, nil
+	case NotifyDeadlineExtended:
+		return r.deadlineNoticeStale(ctx, n)
 	}
 	return false, nil
 }

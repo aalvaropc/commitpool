@@ -117,6 +117,8 @@ func (s *server) routes(mux *http.ServeMux) {
 	api("POST /api/v1/owner/{token}/approvals/{id}/approve", s.approveOpen)
 	api("POST /api/v1/owner/{token}/approvals/{id}/open", s.openApproved)
 	api("POST /api/v1/owner/{token}/cancel", s.cancelWorkshop)
+	api("POST /api/v1/owner/{token}/extend", s.extendDeadline)
+	api("POST /api/v1/owner/{token}/demo/skip-to-last-hours", s.demoSkipToLastHours)
 	api("POST /api/v1/owner/{token}/operator/reconcile", s.operatorReconcile)
 	api("POST /api/v1/owner/{token}/operator/retry-refund", s.operatorRetryRefund)
 	api("POST /api/v1/owner/{token}/operator/clear-flag", s.operatorClearFlag)

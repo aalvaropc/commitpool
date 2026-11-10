@@ -40,6 +40,7 @@ func New(cfg Config) *Server {
 		Instructions: instructions,
 	})
 	s.addTools()
+	s.addExtendTool()
 	return s
 }
 
@@ -79,8 +80,10 @@ every charge refunded. Links are capabilities: an owner link controls the worksh
 link is a person's seat, so keep both private. You can prepare everything, but people approve for
 themselves: to open payments, call preview_open_payments, show the organizer the terms and send them
 the approve_url to tap Approve on their own page, then call confirm_open_payments; a participant
-approves their own hold at PayPal after accepting the consent text, before get_checkout_link. Never
-open an approve link or tap Approve on a person's behalf.`
+approves their own hold at PayPal after accepting the consent text, before get_checkout_link. When a
+class is short near its deadline, preview_extend_reservations says whether the deadline can move once;
+the organizer confirms on their own page from its approve_url. Never open an approve link or tap
+Approve or confirm on a person's behalf.`
 
 func (s *Server) call(ctx context.Context, method, path string, body, out any) error {
 	return s.api.Call(ctx, method, path, body, out)

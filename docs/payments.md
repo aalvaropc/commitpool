@@ -141,7 +141,7 @@ it and PayPal performs the action at most once.
 | `reconcile:{attempt}:return:{minute}` | Read back a checkout whose order PayPal did not show on the return page. |
 | `reconcile:{attempt}:periodic:{hour}` | Periodic read-back of a pending authorization, capture or refund (see Periodic work). |
 | `reconcile:{attempt}:periodic:{minute}` | Periodic read-back of an attempt with a job unknown for too long. |
-| `close:{proposal}` | Close payments at `closes_at`. |
+| `close:{proposal}` | Close payments at `closes_at`; an extension moves its `run_at` with the deadline (see [Deadline extension](#deadline-extension)). |
 | `release_seats:{workshop}:{minute}` | Release the expired seats. |
 | `payout:{workshop}` | Pay the organizer at the class start (see [Payouts](#payouts)). Its `sender_batch_id` is `cp-{workshop}`. |
 | `reconcile:{attempt}:payout:{minute}` | Read back a paid seat whose fees the payout needs and whose capture PayPal no longer reports `COMPLETED`. |
@@ -449,6 +449,10 @@ below). Then:
 | `FUNDING`, below the minimum | `CANCELLED`, `RESOLVING` | `AUTHORIZED` | `PAID` | `CAPTURING`, `CAPTURE_PENDING` |
 | `CONFIRMED` | unchanged | `AUTHORIZED` whose capture has not started | none | `CAPTURING`, `CAPTURE_PENDING` |
 
+A close that runs more than a minute before its proposal's `closes_at` does
+nothing: it is refused as a skip (`failed`, no PayPal answer), which never
+flags the workshop, and the periodic work runs it again once it is overdue.
+
 Captures still in flight are never counted as paid. The status is written by
 compare-and-set before anything is enqueued; when the workshop changed
 meanwhile the decision is taken again. Once a cancellation is written, what
@@ -460,6 +464,92 @@ A payment that completes after a cancellation is refunded. One that
 completes after a confirmation keeps its seat until the workshop starts, or
 until its payout locked the workshop if that came first
 (`domain.EffectiveStart`), and is refunded after that.
+
+## Deadline extension
+
+When a class is short of its minimum near its deadline, the organizer can
+move the deadline later, once (`domain.CanExtend`, migration 0016). The one
+option on offer is
+
+```
+ExtendedDeadline = floor(min(opens_at + 72 h, starts_at − 24 h), 15 min)
+```
+
+and never later than 72 hours after the oldest hold that may still be live
+(each payment attempt of the workshop that holds an authorization, or belongs
+to a seat still taken, counts from its `created_at`, which precedes its
+authorization), so every hold is still within the three days PayPal honours
+it and the class keeps its day between the close and the start.
+
+It is refused, each with its own code:
+
+| Refusal | When |
+|---|---|
+| `not_funding` | The workshop is not `FUNDING`, or payments have closed. |
+| `too_late_to_extend` | Less than 10 minutes are left. |
+| `already_extended` | The proposal was extended once (`extended_at` is set). |
+| `already_funded` | Completed payments reach the minimum. |
+| `charging_started` | Any seat is `PAID`, `CAPTURING` or `CAPTURE_PENDING`, a capture job exists for a seat still taken, or the holds alone reach the minimum (charging is about to start): those people could no longer leave during the extra time. |
+| `consent_predates_extension` | A seat still taken was reserved under a consent version outside `domain.ExtensionConsents` (an explicit list, `consent-v5` today), so its holder never agreed that the deadline could move. |
+| `extension_too_small` | The option adds less than an hour. |
+
+`POST /api/v1/owner/{token}/extend` `{from, to}` (the current `closes_at` and
+the option the page showed) runs `store.ExtendPaymentWindow` in one
+transaction: it locks the workshop, then the proposal, then (`for update`, in
+id order) every seat still taken and every released one, so a hold or a charge
+landing meanwhile either commits first and is seen or waits for the
+extension; `REFUND_FAILED` rows, which the refund retry locks before the
+workshop, stay outside. It evaluates `CanExtend` again on those rows,
+requires the stored
+`closes_at` to equal `from` and the option to equal `to` (`409
+extension_changed` otherwise), writes `closes_at`, `extended_from` and
+`extended_at` (both null or both set), and moves the pending
+`close:{proposal}` job to the new deadline. That update must touch exactly one
+pending row; a close that is running, finished, failed or missing rolls the
+whole extension back (`409 close_in_progress`). An in-process caller (an MCP
+tool) is refused with `403 approval_required`, and a request without a
+browser's same-origin headers (`Sec-Fetch-Site: same-origin`, or a matching
+`Origin`) with `403 extension_needs_page`: only the organizer's page extends.
+
+Once extended:
+
+- every seat still taken whose participant left an email is told
+  (`notify:deadline_extended:{enrollment}`); holds stay as they are, and
+  anyone can still withdraw until charging starts;
+- the capture deadline and payments open follow the new `closes_at`, so a
+  late hold is captured until then;
+- seat releases (`ReleaseExpiredSeats`, `ReleaseReservedSeats`) take the
+  workshop lock first, as reservations and the extension do, so a release
+  and an extension never wait on each other's seats;
+- shortening the window later (the demo's **Close reservations now**) keeps
+  `extended_from`, and no second extension is offered;
+- a lapsed seat reserved under a consent outside `domain.ExtensionConsents`
+  is never taken again (`store.ReReserveSeat` refuses it, so a late PayPal
+  return or reconcile does not authorize it); its holder never agreed to the
+  later deadline.
+
+The owner view carries `extension` (`available`, `from`, `to` and an
+`approve_url` when on offer, or the `refusal` code, with a `reason` either
+way), and the proposal in the owner, participant and invite views carries
+`extended_from` and `latest_closes_at`: the option `CanExtend` offers right
+now, computed from the workshop's live seats and holds exactly as for the
+organizer, when there is one; `closes_at` itself otherwise (already extended,
+charging started, funded, under 10 minutes left, less than an hour to gain, a
+seat under an older consent, payments closed). Other responses carry
+`closes_at`. The participant's card shows it as "Latest possible deadline",
+followed by "The organizer can extend the deadline once, up to then." only in
+the first case and "This deadline will not move." (or "It was already
+extended once.") otherwise, and both pages show "Deadline extended from X to
+Y" while the class is funding.
+
+The suggestion `rescue` (see `domain.Suggestions`) appears for a `FUNDING`
+class short of its minimum with an extension on offer and at most six hours
+left (`domain.RescueWhenLeft`). The server writes its reason; Claude drafts
+the message for the group once the deadline moves (the new deadline and how
+many are missing), under the same rules as every suggestion, with the plain
+message as the fallback and a filter that only lets it name the class's date,
+the current deadline and the new one. After an extension the `share`
+suggestion appears whatever the time left.
 
 ## Participant withdrawal
 
@@ -481,7 +571,7 @@ it, so a later PayPal return or reconcile does not bring it back); the
 person can still commit again with a new enrollment while payments are
 open. Its seat reads **Gave up the spot**, **Gave up the spot — releasing the hold** while
 the void is under way, and **Gave up the spot — hold released** once it went
-through, never "Reservation expired". The consent (`consent-v4`, see
+through, never "Reservation expired". The consent (`consent-v5`, see
 [Consent versions](#consent-versions)) says all this before anyone
 reserves.
 
@@ -502,7 +592,8 @@ block a money move: a notification that cannot be queued is logged.
 Each message is rendered once, when it is queued, by `internal/notice` into a
 text and an HTML part. When its turn comes, the worker checks it is still
 true and marks it `skipped` otherwise: a "spot reserved" whose hold was
-already charged or released, or an "It's on" for a workshop cancelled since.
+already charged or released, an "It's on" for a workshop cancelled since, or a
+moved deadline once the class is decided.
 
 | Key | To | When |
 |---|---|---|
@@ -511,6 +602,7 @@ already charged or released, or an "It's on" for a workshop cancelled since.
 | `notify:confirmed:{enrollment}` | Participant | The workshop is confirmed (by a capture round or at the close), for each paid seat, and for a seat paid after. Carries the `.ics`; if SES refuses the message, it goes again once without the attachment. |
 | `notify:cancelled:{participant}` | Participant | The workshop is cancelled, at the close (not enough people by the deadline) or by the organizer (with the reason). |
 | `notify:payment_failed:{enrollment}` | Participant | A charge failed and the hold is released. |
+| `notify:deadline_extended:{enrollment}` | Participant | The organizer extended the deadline, for each seat still taken: both deadlines, and that the spot and hold stay. Skipped once the workshop is no longer `FUNDING` or the seat was given up. |
 | `notify:refund_completed:{enrollment}` | Participant | A refund completed. |
 | `notify:owner_created:{workshop}` | Organizer | On creation, queued in the same request: the only moment the organizer link exists. Carries it and the invite message. |
 | `notify:owner_confirmed:{workshop}` | Organizer | The workshop is confirmed: how many paid and the total. |
@@ -605,8 +697,9 @@ The worker, in process:
   `CAPTURE_FAILED`, which frees the seat), and `reconcile:{attempt}:periodic:{minute}`
   for every attempt with a job unknown for more than five minutes, unless its
   fifth reconcile generation has run; runs again the close of every workshop
-  still `FUNDING` more than five minutes past its `closes_at` (enqueued, or
-  revived when it failed or was parked); then heals every `FUNDING` workshop and
+  still `FUNDING` more than five minutes past its `closes_at`, extended or not
+  (enqueued, or revived when it failed, was refused as early or was parked);
+  then heals every `FUNDING` workshop and
   every workshop whose money is not settled (`RESOLVING`, or cancelled and
   not `SETTLED`, `NEEDS_ATTENTION` included);
 - on the same two-minute tick deletes the `succeeded` jobs last updated
@@ -816,7 +909,27 @@ names the version in force, so nobody reserves on text they did not see. A
 page left open while the version changes gets `consent_version_mismatch` and
 shows the new text before the participant tries again.
 
-`consent-v4` (current):
+`consent-v5` (current):
+
+> Reserving your spot places a temporary hold for the price on your PayPal
+> account. Nothing is charged yet. Holds are charged once enough people have
+> reserved, and the workshop is on when the minimum number of payments has
+> gone through. If the minimum is not reached by the deadline, the workshop is
+> cancelled: every hold is released and any charge already made is refunded.
+> You can leave and have your hold released until charging starts; after
+> that, your payment is refunded only if the workshop is cancelled, including
+> when the organizer cancels it. Refunds can take a few days, and you can
+> follow yours on your page. The organizer can extend the deadline once, to
+> at most three days after reservations opened. Your page always shows the
+> current deadline and the latest possible one, and you can leave and release
+> your hold until charging starts.
+
+v5 adds the last two sentences. Only enrollments that accepted a version in
+`domain.ExtensionConsents` (v5) allow an extension; a workshop with a seat
+still taken under v4 or earlier keeps its deadline.
+
+`consent-v4` (from 8 November 2026 until v5), kept for the enrollments that
+accepted it:
 
 > Reserving your spot places a temporary hold for the price on your PayPal
 > account. Nothing is charged yet. Holds are charged once enough people have

@@ -122,9 +122,15 @@ organizer decides. No tool and no approvals table is involved beyond a link:
    shows "This extension link is out of date" with the reason instead.
 3. **Extend to {date}** posts `POST /api/v1/owner/{token}/extend` `{from, to}`.
    That endpoint refuses the in-process calls the tools make (`403
-   approval_required`), so the MCP tools alone cannot move a deadline, and it
-   refuses an option that changed since the page showed it (`409
-   extension_changed`).
+   approval_required`), so the MCP tools alone cannot move a deadline; it
+   refuses a request without the browser headers that pass Go's cross-origin
+   protection (`Sec-Fetch-Site: same-origin`, or a matching `Origin`) with `403
+   extension_needs_page` ("Only the organizer can extend the deadline, from
+   their own page in a browser."), so an assistant posting with a general HTTP
+   tool is refused too; and it refuses an option that changed since the page
+   showed it (`409 extension_changed`). The same honest limit as for approving
+   applies: a program that forges those headers, or an assistant driving a
+   real browser with the owner link, could still press the button.
 
 The same organizer page offers the extension without an assistant: Claude's
 `rescue` suggestion carries the **Extend to {date}** button and the message

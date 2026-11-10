@@ -52,7 +52,8 @@ to the class start and pays the organizer out right away (see
 **Skip to the last 2 hours** (`POST /api/v1/owner/{token}/demo/skip-to-last-hours`):
 while its deadline has never been extended, it moves `closes_at` to two hours
 from now (only ever earlier) and brings the `close:{proposal}` job forward
-with it, so a short class reaches the window in which Claude suggests
+with it, in one transaction guarded by `extended_at is null`
+(`store.SkipToLastHours`), so a short class reaches the window in which Claude suggests
 rescuing it with one deadline extension. It answers 404 outside demo mode
 too.
 

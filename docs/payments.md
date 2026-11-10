@@ -495,16 +495,21 @@ It is refused, each with its own code:
 
 `POST /api/v1/owner/{token}/extend` `{from, to}` (the current `closes_at` and
 the option the page showed) runs `store.ExtendPaymentWindow` in one
-transaction: it locks the workshop, then the proposal, evaluates
-`CanExtend` again on rows read inside the transaction, requires the stored
+transaction: it locks the workshop, then the proposal, then (`for update`, in
+id order) every seat still taken and every released one, so a hold or a charge
+landing meanwhile either commits first and is seen or waits for the
+extension; `REFUND_FAILED` rows, which the refund retry locks before the
+workshop, stay outside. It evaluates `CanExtend` again on those rows,
+requires the stored
 `closes_at` to equal `from` and the option to equal `to` (`409
 extension_changed` otherwise), writes `closes_at`, `extended_from` and
 `extended_at` (both null or both set), and moves the pending
 `close:{proposal}` job to the new deadline. That update must touch exactly one
 pending row; a close that is running, finished, failed or missing rolls the
 whole extension back (`409 close_in_progress`). An in-process caller (an MCP
-tool) is refused with `403 approval_required`: only the organizer's page
-extends.
+tool) is refused with `403 approval_required`, and a request without a
+browser's same-origin headers (`Sec-Fetch-Site: same-origin`, or a matching
+`Origin`) with `403 extension_needs_page`: only the organizer's page extends.
 
 Once extended:
 
@@ -514,14 +519,19 @@ Once extended:
 - the capture deadline and payments open follow the new `closes_at`, so a
   late hold is captured until then;
 - shortening the window later (the demo's **Close reservations now**) keeps
-  `extended_from`, and no second extension is offered.
+  `extended_from`, and no second extension is offered;
+- a lapsed seat reserved under a consent outside `domain.ExtensionConsents`
+  is never taken again (`store.ReReserveSeat` refuses it, so a late PayPal
+  return or reconcile does not authorize it); its holder never agreed to the
+  later deadline.
 
 The owner view carries `extension` (`available`, `from`, `to` and an
 `approve_url` when on offer, or the `refusal` code, with a `reason` either
 way), and every proposal view carries `extended_from` and
-`latest_closes_at`: the deadline as it stands once extended, otherwise the
-later of `closes_at` and `floor(min(opens_at + 72 h, starts_at − 24 h), 15 min)`
-while the workshop is funding. The participant's card shows it as "Latest
+`latest_closes_at`: the later of `closes_at` and
+`floor(min(opens_at + 72 h, starts_at − 24 h), 15 min)` while the workshop is
+funding, payments are open, the deadline never moved and no seat is taken
+under an older consent; `closes_at` itself otherwise. The participant's card shows it as "Latest
 possible deadline", and both pages show "Deadline extended from X to Y" while
 the class is funding.
 

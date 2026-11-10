@@ -23,6 +23,8 @@ test.describe('payout', () => {
     await expect(payout).toContainText('So far: $30.00 paid by 3 people · $2.52 PayPal fees · $27.48 to you')
 
     await owner.getByRole('button', { name: /Close reservations now/ }).click()
+    const cancel = owner.getByRole('button', { name: 'Cancel workshop…' })
+    await expect(cancel).toBeVisible()
     const start = owner.getByRole('button', { name: /Start the class now/ })
     await expect(start).toBeVisible()
     await expect(owner.getByText('Demo clock: jumps ahead to the class start')).toBeVisible()
@@ -31,6 +33,7 @@ test.describe('payout', () => {
     await expect(payout.getByRole('status')).toHaveText(/^Paid out \$27\.48 to iris@example\.com · PayPal batch \w+$/, { timeout: 30_000 })
     await expect(payout.getByText('Paid out', { exact: true })).toBeVisible()
     await expect(start).toBeHidden()
+    await expect(cancel).toBeHidden()
     await payout.getByText('PayPal details').click()
     await expect(payout.getByText('Transaction', { exact: true })).toBeVisible()
     await expectAccessible(owner, 'the organizer page once paid out')

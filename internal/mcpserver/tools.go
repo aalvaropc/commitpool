@@ -17,7 +17,7 @@ import (
 func (s *Server) addTools() {
 	readOnly := &mcp.ToolAnnotations{ReadOnlyHint: true}
 	mcp.AddTool(s.srv, &mcp.Tool{Name: "create_workshop", Annotations: &mcp.ToolAnnotations{},
-		Description: "Create a paid workshop with one or more candidate dates, the organizer's name and the place. An optional session cost (room, model, materials) stays private and lets get_status say how many paid seats cover it before fees. Returns the private owner link (keep it secret: it controls the workshop) and the share link to send to participants."},
+		Description: "Create a paid workshop with one or more candidate dates, the organizer's name and the place. An optional session cost (room, model, materials) stays private and lets get_status say how many paid seats cover it before fees. An optional payout_email is the organizer's PayPal email: when the class starts, CommitPool sends it what participants paid, less PayPal's fees. Only set it to an address the organizer gave you. Returns the private owner link (keep it secret: it controls the workshop) and the share link to send to participants."},
 		logged(s, "create_workshop", s.createWorkshop))
 	mcp.AddTool(s.srv, &mcp.Tool{Name: "get_workshop", Annotations: readOnly,
 		Description: "Read a workshop from its share link: terms, candidate dates, whether payments are open and how many committed."},
@@ -35,14 +35,14 @@ func (s *Server) addTools() {
 		Description: "After the person has read and accepted the consent text, get their PayPal approval link. Only the person's approval at PayPal places a hold; nothing is charged unless the group reaches its minimum."},
 		logged(s, "get_checkout_link", s.getCheckoutLink))
 	mcp.AddTool(s.srv, &mcp.Tool{Name: "get_status", Annotations: readOnly,
-		Description: "Read a workshop from its owner link: the recommended date and why, who can come, who has committed or paid, what would happen if payments closed now, and who the organizer could nudge, each with a message Claude drafted for the organizer to send. Nothing is sent: show the messages to the organizer and let them decide."},
+		Description: "Read a workshop from its owner link: the recommended date and why, who can come, who has committed or paid, what would happen if payments closed now, where the organizer's payout stands, and who the organizer could nudge, each with a message Claude drafted for the organizer to send. Nothing is sent: show the messages to the organizer and let them decide."},
 		logged(s, "get_status", s.getStatus))
 	mcp.AddTool(s.srv, &mcp.Tool{Name: "verify_with_paypal", Annotations: readOnly,
 		Description: "Compare CommitPool's payment records for a workshop with PayPal's live records, from its owner link: for each seat's PayPal order, hold, charge and refund, the status and amount CommitPool expects, what PayPal reports, whether they match, and PayPal's debug id when PayPal answers with an error. Only reads: nothing is changed at PayPal or in CommitPool. One check per workshop every 30 seconds, at most 12 seats each."},
 		logged(s, "verify_with_paypal", s.verifyWithPayPal))
 	additive := false
 	mcp.AddTool(s.srv, &mcp.Tool{Name: "preview_open_payments", Annotations: &mcp.ToolAnnotations{DestructiveHint: &additive, IdempotentHint: true},
-		Description: "Prepare opening payments on a candidate date: returns the exact terms that will be locked (date, price, minimum, capacity, payment window) and an approve_url for the organizer. Nothing about the workshop changes. Show the terms to the organizer and ask them to open the approve_url and tap Approve on their own page. They have thirty minutes to approve; once they do, you have thirty more to call confirm_open_payments. A repeated preview returns the same approval while it has ten minutes left, with its state."},
+		Description: "Prepare opening payments on a candidate date: returns the exact terms that will be locked (date, price, minimum, capacity, payment window, and the PayPal email the money is paid out to) and an approve_url for the organizer. Nothing about the workshop changes. Show the terms to the organizer and ask them to open the approve_url and tap Approve on their own page. They have thirty minutes to approve; once they do, you have thirty more to call confirm_open_payments. A repeated preview returns the same approval while it has ten minutes left, with its state."},
 		logged(s, "preview_open_payments", s.previewOpenPayments))
 	mcp.AddTool(s.srv, &mcp.Tool{Name: "confirm_open_payments", Annotations: &mcp.ToolAnnotations{},
 		Description: "Open payments with the approval_id from preview_open_payments. Works only after the organizer tapped Approve on the approve_url page; refused while they have not, after the approval expired or was used, or when any term changed since the preview."},
@@ -72,6 +72,22 @@ type workshopJSON struct {
 	Location         string `json:"location"`
 	VenueCost        *money `json:"venue_cost"`
 	BreakEvenSeats   int    `json:"break_even_seats"`
+	PayoutEmail      string `json:"payout_email"`
+}
+
+type payoutJSON struct {
+	State         string     `json:"state"`
+	Receiver      string     `json:"receiver"`
+	ScheduledAt   *time.Time `json:"scheduled_at"`
+	Waiting       string     `json:"waiting"`
+	Estimated     bool       `json:"estimated"`
+	Amount        *money     `json:"amount"`
+	Gross         *money     `json:"gross"`
+	Fees          *money     `json:"fees"`
+	Seats         int        `json:"seats"`
+	PayoutBatchID string     `json:"payout_batch_id"`
+	TransactionID string     `json:"transaction_id"`
+	Issue         string     `json:"issue"`
 }
 
 type dateJSON struct {
@@ -129,6 +145,7 @@ type ownerView struct {
 		Explanation string `json:"explanation"`
 	} `json:"recommendation"`
 	Suggestions []Suggestion `json:"suggestions"`
+	Payout      *payoutJSON  `json:"payout"`
 }
 
 type Suggestion struct {
@@ -192,6 +209,7 @@ type CreateWorkshopIn struct {
 	HostName         string   `json:"host_name,omitempty" jsonschema:"the organizer's name as participants will see it"`
 	Location         string   `json:"location,omitempty" jsonschema:"where the workshop takes place, such as a venue and neighbourhood"`
 	VenueCost        string   `json:"venue_cost,omitempty" jsonschema:"what the session costs the organizer (room, model, materials), in the price's currency, such as 120.00; private to the organizer"`
+	PayoutEmail      string   `json:"payout_email,omitempty" jsonschema:"the organizer's PayPal email; when the class starts CommitPool pays it what participants paid, less PayPal's fees. Only an address the organizer gave you"`
 }
 
 type CreateWorkshopOut struct {
@@ -217,7 +235,7 @@ func (s *Server) createWorkshop(ctx context.Context, _ *mcp.CallToolRequest, in 
 	body := map[string]any{
 		"title": in.Title, "description": in.Description, "duration_min": in.DurationMin, "timezone": in.Timezone,
 		"minimum": in.Minimum, "capacity": in.Capacity, "price": in.Price, "currency": in.Currency, "dates": dates,
-		"host_name": in.HostName, "location": in.Location, "venue_cost": in.VenueCost,
+		"host_name": in.HostName, "location": in.Location, "venue_cost": in.VenueCost, "payout_email": in.PayoutEmail,
 	}
 	if in.PaymentWindowMin > 0 {
 		body["payment_window_min"] = in.PaymentWindowMin
@@ -275,7 +293,20 @@ type StatusOut struct {
 	Capacity           int          `json:"capacity"`
 	PaymentsCloseAt    *time.Time   `json:"payments_close_at,omitempty"`
 	IfClosedNow        string       `json:"if_closed_now"`
+	Payout             *PayoutOut   `json:"payout,omitempty"`
 	Suggestions        []Suggestion `json:"suggestions,omitempty"`
+}
+
+type PayoutOut struct {
+	State         string     `json:"state"`
+	Receiver      string     `json:"receiver,omitempty"`
+	Amount        string     `json:"amount,omitempty"`
+	Estimated     bool       `json:"estimated"`
+	ScheduledAt   *time.Time `json:"scheduled_at,omitempty"`
+	PayPalBatchID string     `json:"paypal_batch_id,omitempty"`
+	TransactionID string     `json:"transaction_id,omitempty"`
+	Issue         string     `json:"issue,omitempty"`
+	Summary       string     `json:"summary"`
 }
 
 func (s *Server) getStatus(ctx context.Context, _ *mcp.CallToolRequest, in OwnerIn) (*mcp.CallToolResult, StatusOut, error) {
@@ -338,6 +369,41 @@ func statusOf(v ownerView) StatusOut {
 		out.Minimum, out.Capacity = p.Minimum, p.Capacity
 	}
 	out.IfClosedNow = ifClosedNow(v)
+	out.Payout = payoutOf(v.Payout)
+	return out
+}
+
+func payoutOf(p *payoutJSON) *PayoutOut {
+	if p == nil {
+		return nil
+	}
+	out := &PayoutOut{State: p.State, Receiver: p.Receiver, Estimated: p.Estimated, ScheduledAt: p.ScheduledAt,
+		PayPalBatchID: p.PayoutBatchID, TransactionID: p.TransactionID, Issue: p.Issue}
+	amount := "the amount once PayPal reports its fees"
+	if p.Amount != nil {
+		out.Amount = p.Amount.String()
+		amount = out.Amount
+	}
+	switch p.State {
+	case "no_email":
+		out.Summary = "No PayPal payout email was given when the workshop was created, so CommitPool does not pay the organizer out automatically."
+	case "off":
+		out.Summary = "Payouts are switched off on this server, so the organizer is not paid out automatically."
+	case "scheduled":
+		out.Summary = fmt.Sprintf("When the class starts, CommitPool sends %s (what %d paid, less PayPal's fees) to %s through PayPal.", amount, p.Seats, p.Receiver)
+	case "waiting":
+		out.Summary = "The payout waits for every payment to settle at PayPal (" + p.Waiting + "); it goes out on its own once they do."
+	case "sending":
+		out.Summary = fmt.Sprintf("CommitPool sent %s to %s through PayPal; PayPal is still processing it.", amount, p.Receiver)
+	case "paid":
+		out.Summary = fmt.Sprintf("Paid out %s to %s through PayPal (batch %s).", amount, p.Receiver, p.PayoutBatchID)
+	case "unclaimed":
+		out.Summary = fmt.Sprintf("PayPal holds %s for %s until that address claims it with a PayPal account; unclaimed money returns after 30 days.", amount, p.Receiver)
+	case "failed":
+		out.Summary = "PayPal did not complete the payout (" + p.Issue + "). The organizer's page shows the details for PayPal support."
+	default:
+		out.Summary = "CommitPool cannot tell yet whether PayPal made the payout; an operator checks it at PayPal."
+	}
 	return out
 }
 
@@ -463,6 +529,7 @@ type PreviewIn struct {
 
 type PreviewOut struct {
 	DateID           string    `json:"date_id"`
+	PayoutEmail      string    `json:"payout_email"`
 	Date             string    `json:"date"`
 	Price            string    `json:"price"`
 	Minimum          int       `json:"minimum"`
@@ -486,6 +553,7 @@ type approvalJSON struct {
 		Minimum          int       `json:"minimum"`
 		Capacity         int       `json:"capacity"`
 		PaymentWindowMin int       `json:"payment_window_min"`
+		PayoutEmail      string    `json:"payout_email"`
 		ExpiresAt        time.Time `json:"expires_at"`
 	} `json:"approval"`
 	ApproveURL string `json:"approve_url"`
@@ -516,7 +584,7 @@ func (s *Server) previewOpenPayments(ctx context.Context, _ *mcp.CallToolRequest
 	}
 	out := PreviewOut{
 		DateID: a.Approval.DateID, Date: a.Approval.DateLabel, Price: a.Approval.Price.String(), Minimum: a.Approval.Minimum,
-		Capacity: a.Approval.Capacity, PaymentWindowMin: a.Approval.PaymentWindowMin,
+		Capacity: a.Approval.Capacity, PaymentWindowMin: a.Approval.PaymentWindowMin, PayoutEmail: a.Approval.PayoutEmail,
 		ApprovalID: a.Approval.ID, State: a.Approval.State, ApproveURL: a.ApproveURL, ExpiresAt: a.Approval.ExpiresAt,
 	}
 	for _, p := range v.Recommendation.PerDate {
@@ -526,6 +594,11 @@ func (s *Server) previewOpenPayments(ctx context.Context, _ *mcp.CallToolRequest
 	}
 	locked := fmt.Sprintf("Once reservations open, the date, the price of %s, the minimum of %d and the capacity of %d are locked and every participant who reserves places a PayPal hold; nothing is charged until enough people reserve.",
 		out.Price, out.Minimum, out.Capacity)
+	if out.PayoutEmail != "" {
+		locked += " When the class starts, what participants paid, less PayPal's fees, is paid out to " + out.PayoutEmail + "; tell the organizer that address."
+	} else {
+		locked += " No PayPal payout email is set, so the organizer is not paid out automatically."
+	}
 	if out.State == "approved" {
 		out.Next = fmt.Sprintf("The organizer already approved these terms on their own page. Call confirm_open_payments with this approval_id before %s. %s",
 			out.ExpiresAt.Format(time.RFC3339), locked)

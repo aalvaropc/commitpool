@@ -116,7 +116,7 @@ To use Bedrock:
 3. **Check it end to end.** This smoke test calls Bedrock for real:
 
    ```sh
-   COMMITPOOL_LIVE_AI=1 go test ./internal/ai/ -run Live -count=1 -v
+   COMMITPOOL_LIVE_AI=1 go test ./internal/ai/ -run Live -skip LiveEval -count=1 -v
    ```
 
 ## Run with Docker
@@ -184,6 +184,8 @@ bash scripts/e2e.sh        # Playwright journeys and axe checks against a fresh 
 - `go test ./internal/httpapi -fuzz FuzzCleanInterpretation`
 
 **Bedrock.** No test calls Bedrock unless `COMMITPOOL_LIVE_AI=1` is set.
+
+**Reading eval.** [docs/eval.md](eval.md) compares Claude's readings with the keyword reader on the hand-written messages in `internal/ai/testdata/eval/readings.json`. In CI, `go test ./internal/ai` checks the corpus and scores the keyword reader without calling Bedrock. To measure Claude, export Bedrock credentials as above and run `COMMITPOOL_LIVE_AI=1 COMMITPOOL_EVAL_REPORT=$PWD/docs/eval.md go test ./internal/ai -run LiveEval -count=1 -timeout 20m -v`. It makes one Bedrock call per message, four at a time, retries throttled calls until each message has an answer, and rewrites the report. Claude's answers vary a little from run to run, so a rerun can move a miss from one message to another. CI fails when the report no longer matches the corpus, so a change to the corpus needs a new run. It fails only if a prompt injection worked or a message got no answer from Bedrock; accuracy is reported, not gated.
 
 **No code comments.** The code carries none; names, tests and the docs say why.
 - `go test ./internal/codestyle` fails on a comment in Go, SQL, shell, Terraform, YAML, CSS or HTML.

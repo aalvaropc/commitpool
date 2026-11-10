@@ -61,6 +61,8 @@ export interface Proposal {
   starts_at: string
   payments_open: boolean
   calendar_path?: string
+  extended_from?: string | null
+  latest_closes_at?: string
 }
 
 export interface Tally {
@@ -172,6 +174,7 @@ export interface OwnerView {
   workshop: Workshop
   dates: CandidateDate[]
   proposal: Proposal | null
+  extension?: Extension | null
   tally: OwnerTally
   participants: ParticipantRef[]
   availabilities: Availability[]
@@ -182,8 +185,26 @@ export interface OwnerView {
   act_as?: { name: string; participant_url: string }[]
 }
 
+export type ExtensionRefusal =
+  | 'not_funding'
+  | 'too_late_to_extend'
+  | 'already_extended'
+  | 'already_funded'
+  | 'charging_started'
+  | 'consent_predates_extension'
+  | 'extension_too_small'
+
+export interface Extension {
+  available: boolean
+  from: string
+  to?: string
+  refusal?: ExtensionRefusal
+  reason: string
+  approve_url?: string
+}
+
 export interface Suggestion {
-  kind: 'clarify' | 'condition' | 'reserve' | 'share'
+  kind: 'clarify' | 'condition' | 'reserve' | 'share' | 'rescue'
   participant_id?: string
   name?: string
   reason: string
@@ -383,6 +404,8 @@ export const api = {
   approveOpen: (token: string, id: string) => request<ApprovalView>('POST', `/api/v1/owner/${seg(token)}/approvals/${seg(id)}/approve`),
   cancelWorkshop: (token: string, reason: string) =>
     request<{ workshop: Workshop }>('POST', `/api/v1/owner/${seg(token)}/cancel`, reason ? { reason } : {}),
+  extendDeadline: (token: string, from: string, to: string) => request<{ proposal: Proposal }>('POST', `/api/v1/owner/${seg(token)}/extend`, { from, to }),
+  demoSkipToLastHours: (token: string) => request<{ proposal: Proposal }>('POST', `/api/v1/owner/${seg(token)}/demo/skip-to-last-hours`),
   operatorReconcile: (token: string, enrollmentId: string) =>
     request<{ enrollment: Enrollment }>('POST', `/api/v1/owner/${seg(token)}/operator/reconcile`, { enrollment_id: enrollmentId }),
   operatorRetryRefund: (token: string, enrollmentId: string) =>

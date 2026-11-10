@@ -4,6 +4,7 @@ import { api } from '../api'
 import AvailabilityPanel from '../components/AvailabilityPanel'
 import CommitmentCard from '../components/CommitmentCard'
 import Deadline from '../components/Deadline'
+import DeadlineMoved from '../components/DeadlineMoved'
 import { EventDetails, EventHero } from '../components/EventHeader'
 import { Loading, LoadError, RefreshError } from '../components/PageState'
 import StatusBanner from '../components/StatusBanner'
@@ -74,6 +75,7 @@ export default function Participant() {
         >
           {w.status === 'FUNDING' && d.proposal && <Deadline closesAt={d.proposal.closes_at} timeZone={w.timezone} open={d.proposal.payments_open} />}
         </StatusBanner>
+        <DeadlineMoved proposal={d.proposal} status={w.status} timeZone={w.timezone} audience="participant" />
         {checking && (
           <Notice tone="hold" title="Checking your payment…">
             {now - checkingSince < CHECK_PATIENCE_MS

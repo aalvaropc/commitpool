@@ -1,21 +1,25 @@
 import { useEffect, useRef, useState } from 'react'
-import { useParams } from 'react-router'
+import { useParams, useSearchParams } from 'react-router'
 import { api, type OwnerView } from '../api'
 import AvailabilityGrid from '../components/AvailabilityGrid'
 import AddToCalendar from '../components/AddToCalendar'
 import CancelWorkshop from '../components/CancelWorkshop'
 import ClaudeRead from '../components/ClaudeRead'
 import ClaudeSuggests from '../components/ClaudeSuggests'
+import DeadlineMoved from '../components/DeadlineMoved'
 import Decision, { InviteLink } from '../components/Decision'
+import DemoClock from '../components/DemoClock'
 import DemoControls from '../components/DemoControls'
 import DemoGuide from '../components/DemoGuide'
 import EnrollmentList from '../components/EnrollmentList'
 import OpenReservationsDialog from '../components/OpenReservationsDialog'
 import OperatorPanel from '../components/OperatorPanel'
 import { Loading, LoadError, RefreshError } from '../components/PageState'
+import { ExtendDialog } from '../components/RescueCard'
 import SpotsTile from '../components/SpotsTile'
 import { TermsList } from '../components/Terms'
-import { Icon, Page, Tile, TileLabel } from '../components/ui'
+import { Button, Icon, Notice, Page, Tile, TileLabel } from '../components/ui'
+import { extendLink } from '../lib/extend'
 import { usePolling, useResource } from '../lib/hooks'
 import { nextStep, ownerRefresh } from '../lib/owner'
 import { lockedTerms, workshopTerms } from '../lib/terms'
@@ -68,6 +72,8 @@ export default function Owner() {
   const { token = '' } = useParams()
   const view = useResource(() => api.owner(token), token)
   const [opening, setOpening] = useState<string | null>(null)
+  const [extending, setExtending] = useState(false)
+  const [params, setParams] = useSearchParams()
   const pendingSince = useRef<number | null>(null)
   const decisionTitle = useRef<HTMLHeadingElement>(null)
   const focusDecision = useRef(false)
@@ -86,6 +92,22 @@ export default function Owner() {
       })
     : null
   usePolling(view.reload, refresh ?? 0, refresh !== null)
+  const linked = d ? extendLink(params.get('extend'), d.extension) : null
+  useEffect(() => {
+    if (linked === 'open') setExtending(true)
+  }, [linked])
+  const forgetLink = () =>
+    setParams(
+      (p) => {
+        p.delete('extend')
+        return p
+      },
+      { replace: true },
+    )
+  const closeExtend = () => {
+    setExtending(false)
+    if (params.has('extend')) forgetLink()
+  }
   const proposalId = d?.proposal?.date_id
   useEffect(() => {
     if (!focusDecision.current || !proposalId) return
@@ -122,9 +144,18 @@ export default function Owner() {
         <div className="flex min-w-0 flex-col gap-4 lg:gap-5">
           {view.error && <RefreshError polling={refresh !== null} onRetry={() => void view.reload()} />}
           <Decision view={d} step={step} onOpen={setOpening} titleRef={decisionTitle} />
+          {linked === 'stale' && (
+            <Notice tone="attention" title="This extension link is out of date">
+              <p>{d.extension?.reason ?? 'Reservations are not open, so there is no deadline to extend.'}</p>
+              <Button variant="quiet" size="sm" className="-ml-4" onClick={forgetLink}>
+                Dismiss
+              </Button>
+            </Notice>
+          )}
+          <DeadlineMoved proposal={d.proposal} status={w.status} timeZone={w.timezone} audience="owner" />
           <OperatorPanel token={token} view={d} onChange={view.reload} />
           <DemoGuide view={d} />
-          <ClaudeSuggests suggestions={d.suggestions} />
+          <ClaudeSuggests suggestions={d.suggestions} rescue={{ extension: d.extension ?? null, timeZone: w.timezone, onExtend: () => setExtending(true) }} />
           <ClaudeRead view={d} stalled={stalled} onCheck={() => void view.reload()} />
           {d.proposal && <EnrollmentList token={token} view={d} onChange={view.reload} />}
           <AgreedTerms view={d} />
@@ -160,12 +191,14 @@ export default function Owner() {
               <p className="text-sm">{w.payment_window_min < 1440 ? windowLabel(w.payment_window_min) : `Reservations stay open ${windowLabel(w.payment_window_min)}`}</p>
             </div>
             <CancelWorkshop token={token} view={d} onChange={view.reload} />
+            <DemoClock token={token} view={d} onChange={view.reload} />
             <DemoControls token={token} view={d} onChange={view.reload} />
           </Tile>
         </div>
       </div>
 
       <OpenReservationsDialog token={token} view={d} dateId={opening} onClose={() => setOpening(null)} onOpened={openedReservations} />
+      <ExtendDialog token={token} view={d} open={extending} onClose={closeExtend} onExtended={view.reload} />
     </Page>
   )
 }

@@ -136,8 +136,8 @@ func (q *sampleQuota) refund(addr string, at time.Time) {
 	q.day.remove(at)
 }
 
-func sampleReserve(dailyCap int) int {
-	return max(minSampleReserve, dailyCap/sampleReserveDivisor)
+func windowReserve(limit int) int {
+	return max(minSampleReserve, limit/sampleReserveDivisor)
 }
 
 func newSigningKey(secret []byte) []byte {
@@ -212,7 +212,7 @@ func (s *server) sampleContext(e *sampleEarlier) (*ai.EarlierAnswer, error) {
 		}
 		questions = append(questions, q)
 	}
-	out := &ai.EarlierAnswer{Message: message, Questions: []string{}}
+	out := &ai.EarlierAnswer{Messages: []string{message}, Questions: []string{}}
 	if s.askedByUs(questions, e.QuestionSigs) {
 		out.Questions = questions
 	}
@@ -280,7 +280,7 @@ func (s *server) sampleReading(w http.ResponseWriter, r *http.Request) error {
 	}
 	defer release()
 	if c, ok := s.AI.(ai.Capacity); ok {
-		if wait := c.Room(sampleReserve(s.Cfg.AIDailyCap)); wait > 0 {
+		if wait := c.RoomLeaving(1, windowReserve); wait > 0 {
 			s.samples.refund(addr, now)
 			s.Log.Warn("sample reading: keeping Claude's last readings for participants", "length", length, "retry_after", wait)
 			return modelCapped(w, wait, now, loc)

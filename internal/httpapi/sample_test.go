@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -15,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/aalvaropc/commitpool/internal/ai"
+	"github.com/aalvaropc/commitpool/internal/clock"
 	"github.com/aalvaropc/commitpool/internal/config"
 	"github.com/aalvaropc/commitpool/internal/demo"
 	"github.com/aalvaropc/commitpool/internal/domain"
@@ -356,12 +356,20 @@ func TestSample_ACappedModelIs429WithTheRealWaitAndDoesNotUseTheCap(t *testing.T
 
 type roomlessAI struct {
 	cannedReadingAI
-	wait  time.Duration
-	asked atomic.Int64
+	wait     time.Duration
+	asked    atomic.Int64
+	reserves sync.Map
 }
 
 func (r *roomlessAI) Room(calls int) time.Duration {
+	return r.RoomLeaving(calls, func(int) int { return 0 })
+}
+
+func (r *roomlessAI) RoomLeaving(calls int, reserve func(limit int) int) time.Duration {
 	r.asked.Store(int64(calls))
+	for _, limit := range []int{0, 100, 200, 1500, 3000} {
+		r.reserves.Store(limit, reserve(limit))
+	}
 	return r.wait
 }
 
@@ -377,19 +385,44 @@ func TestSample_LeavesTheLastReadingsOfTheBudgetToParticipants(t *testing.T) {
 	}
 }
 
-func TestSample_SizesTheReserveFromTheDailyCap(t *testing.T) {
-	cases := []struct {
-		daily, want int
-	}{{0, 20}, {100, 20}, {200, 20}, {1500, 150}, {3000, 300}}
+func TestSample_KeepsAReservePerWindowForParticipants(t *testing.T) {
+	cases := []struct{ limit, want int }{{0, 20}, {100, 20}, {200, 20}, {1500, 150}, {3000, 300}}
+	model := &roomlessAI{}
+	e := newEnv(t, withAI(model))
+	e.call(http.MethodPost, samplePath, sampleBody("Saturday works"), http.StatusOK, nil)
+	if got := model.asked.Load(); got != 1 {
+		t.Errorf("the sample asked for room for %d calls, want 1", got)
+	}
 	for _, tc := range cases {
-		t.Run(strconv.Itoa(tc.daily), func(t *testing.T) {
-			model := &roomlessAI{}
-			e := newEnv(t, withAI(model), withDailyCap(tc.daily))
-			e.call(http.MethodPost, samplePath, sampleBody("Saturday works"), http.StatusOK, nil)
-			if got := model.asked.Load(); got != int64(tc.want) {
-				t.Errorf("Room(%d) asked with a daily cap of %d, want Room(%d)", got, tc.daily, tc.want)
-			}
-		})
+		got, _ := model.reserves.Load(tc.limit)
+		if got != tc.want {
+			t.Errorf("reserve for a window of %d = %v, want %d", tc.limit, got, tc.want)
+		}
+	}
+}
+
+func TestSample_StillReadsWithClaudeAfterSixtyCallsInTheHourWithDefaultCaps(t *testing.T) {
+	stub := &cannedReadingAI{}
+	clk := &clock.Fake{T: time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)}
+	budget := ai.NewBudget(stub, ai.BudgetConfig{Hourly: 200, Daily: 1500, Clock: clk})
+	e := newEnv(t, withAI(budget))
+	for i := range 60 {
+		if _, _, err := budget.Interpret(context.Background(), ai.InterpretInput{Message: fmt.Sprintf("a participant %d", i)}); err != nil {
+			t.Fatalf("participant reading %d: %v", i, err)
+		}
+	}
+	e.call(http.MethodPost, samplePath, sampleBody("Saturday works"), http.StatusOK, nil)
+	if got := stub.calls(); got != 61 {
+		t.Fatalf("model calls = %d, want 61: the landing read after 60 recorded calls must still go to Claude", got)
+	}
+	for i := 61; i < 180; i++ {
+		if _, _, err := budget.Interpret(context.Background(), ai.InterpretInput{Message: fmt.Sprintf("a participant %d", i)}); err != nil {
+			t.Fatalf("participant reading %d: %v", i, err)
+		}
+	}
+	e.wantError(http.MethodPost, samplePath, sampleBody("Saturday works again"), http.StatusTooManyRequests, "ai_capped")
+	if _, _, err := budget.Interpret(context.Background(), ai.InterpretInput{Message: "the last reserved reading"}); err != nil {
+		t.Errorf("a participant's reading inside the hourly reserve: %v", err)
 	}
 }
 
@@ -400,10 +433,9 @@ func TestSample_StopsThroughTheRealBudgetBeforeParticipantsRunShort(t *testing.T
 	for i := range 5 {
 		e.call(http.MethodPost, samplePath, sampleBody(fmt.Sprintf("Saturday works %d", i)), http.StatusOK, nil)
 	}
-	e.call(http.MethodPost, samplePath, sampleBody("Saturday works 5"), http.StatusOK, nil)
-	e.wantError(http.MethodPost, samplePath, sampleBody("Saturday works 6"), http.StatusTooManyRequests, "ai_capped")
-	if stub.calls() != 6 {
-		t.Errorf("Claude read %d answers, want 6: past that fewer than 20 of the 25 readings would be left", stub.calls())
+	e.wantError(http.MethodPost, samplePath, sampleBody("Saturday works 5"), http.StatusTooManyRequests, "ai_capped")
+	if stub.calls() != 5 {
+		t.Errorf("Claude read %d answers, want 5: past that fewer than 20 of the 25 readings would be left", stub.calls())
 	}
 	if _, _, err := budget.Interpret(context.Background(), ai.InterpretInput{Message: "a participant"}); err != nil {
 		t.Errorf("a participant's reading after the sample stopped: %v", err)
@@ -528,7 +560,7 @@ func TestSample_ReadsAnAnswerToAQuestionWithTheEarlierAnswerAsData(t *testing.T)
 	if model.got[0].Earlier != nil {
 		t.Errorf("a first answer carries earlier context %+v", model.got[0].Earlier)
 	}
-	want := &ai.EarlierAnswer{Message: "ideally afternoons", Questions: []string{askedQuestion}}
+	want := &ai.EarlierAnswer{Messages: []string{"ideally afternoons"}, Questions: []string{askedQuestion}}
 	if got := model.got[1]; got.Message != "Saturday morning works" || !reflect.DeepEqual(got.Earlier, want) {
 		t.Errorf("second answer = %q with earlier %+v, want the new message alone and %+v as context", got.Message, got.Earlier, want)
 	}
@@ -551,7 +583,7 @@ func TestSample_PassesOnOnlyQuestionsItSigned(t *testing.T) {
 		before := model.calls()
 		e.call(http.MethodPost, samplePath, body, http.StatusOK, nil)
 		got := model.got[before].Earlier
-		if got == nil || got.Message != "ideally afternoons" || len(got.Questions) != 0 {
+		if got == nil || !reflect.DeepEqual(got.Messages, []string{"ideally afternoons"}) || len(got.Questions) != 0 {
 			t.Errorf("%s: earlier = %+v, want the earlier message without questions", name, got)
 		}
 	}

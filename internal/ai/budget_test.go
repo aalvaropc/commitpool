@@ -268,3 +268,26 @@ func TestMemo_PassesTheBudgetsRoomThrough(t *testing.T) {
 		t.Errorf("Room on a memo without a budget = %v, want 0", wait)
 	}
 }
+
+func TestBudget_RoomLeavingKeepsAReserveInEveryWindow(t *testing.T) {
+	clk := &clock.Fake{T: budgetStart}
+	b := ai.NewBudget(&countingModel{}, ai.BudgetConfig{Hourly: 200, Daily: 1500, Clock: clk})
+	reserve := func(limit int) int { return max(20, limit/10) }
+	for range 60 {
+		if _, _, err := b.Interpret(context.Background(), ai.InterpretInput{Message: "a participant"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if wait := b.RoomLeaving(1, reserve); wait != 0 {
+		t.Errorf("RoomLeaving(1) after 60 calls with a reserve of 20 an hour = %v, want 0", wait)
+	}
+	if wait := b.RoomLeaving(120, reserve); wait != 0 {
+		t.Errorf("RoomLeaving(120) with exactly 120 calls to spare = %v, want 0", wait)
+	}
+	if wait := b.RoomLeaving(121, reserve); wait != time.Hour {
+		t.Errorf("RoomLeaving(121) into the hourly reserve = %v, want an hour", wait)
+	}
+	if wait := b.Room(140); wait != 0 {
+		t.Errorf("Room(140) with 140 calls left and no reserve = %v, want 0", wait)
+	}
+}

@@ -135,7 +135,7 @@ func (s *server) createDemoWorkshop(w http.ResponseWriter, r *http.Request) erro
 		return errNotFound
 	}
 	if c, ok := s.AI.(ai.Capacity); ok {
-		if wait := c.Room(demoModelCalls); wait > 0 {
+		if wait := c.RoomLeaving(demoModelCalls, windowReserve); wait > 0 {
 			retryAfter(w, wait)
 			return newError(http.StatusTooManyRequests, "demo_resting", demoResting(wait))
 		}

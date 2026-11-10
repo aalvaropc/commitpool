@@ -147,6 +147,9 @@ closing band and the footer.
   lazy, carry width and height, and say in their alt text what the screen
   shows. `web/scripts/capture.mjs <base-url>` walks the demo with Playwright
   and rewrites them, along with the README images in `docs/images/`.
+- **The demo video** (For judges, only when the server sends `video_url`)
+  shows its YouTube poster with a charcoal "Watch the demo" pill and loads
+  the youtube-nocookie player only when pressed, then moves focus to it.
 - **Section heads** are a `shout` `text-section` h2 with an intro paragraph
   beside it (columns 8 to 12) or under it when stacked. No eyebrows or
   kickers above them.

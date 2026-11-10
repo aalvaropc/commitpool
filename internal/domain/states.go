@@ -88,6 +88,7 @@ type Enrollment struct {
 	SeatExpiresAt     time.Time
 	CaptureStartedAt  *time.Time
 	NeedsAttention    bool
+	ConsentVersion    string
 }
 
 func (e Enrollment) NeedsOperator() bool {

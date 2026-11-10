@@ -137,7 +137,7 @@ func (q *sampleQuota) refund(addr string, at time.Time) {
 }
 
 func windowReserve(limit int) int {
-	return max(minSampleReserve, limit/sampleReserveDivisor)
+	return min(max(minSampleReserve, limit/sampleReserveDivisor), limit/2)
 }
 
 func newSigningKey(secret []byte) []byte {

@@ -162,6 +162,24 @@ func TestAvailability_AClarificationChainKeepsAtMostTwoThousandCharacters(t *tes
 	}
 }
 
+func TestAvailability_ACorrectedReadingEndsTheClarificationChain(t *testing.T) {
+	rec := &recordingAI{}
+	e := newEnv(t, withAI(rec))
+	h := e.createWorkshop()
+	grace := e.join(h, "Grace Liu")
+	older := e.say(grace, "I can make it either day, ideally in the afternoon.")
+	corrected := older.Interpretation
+	corrected.NeedsClarification, corrected.Ambiguities = true, []domain.Ambiguity{{Question: "Which day?", Why: "It decides the date."}}
+	e.call(http.MethodPut, grace.path+"/availability/"+older.ID, map[string]any{"corrected": corrected}, http.StatusOK, nil)
+	newer := "Maybe an evening, I am not sure yet."
+	e.say(grace, newer)
+	e.say(grace, "Saturday works")
+	got := rec.earlier()
+	if len(got) != 3 || got[2] == nil || !reflect.DeepEqual(got[2].Messages, []string{newer}) {
+		t.Errorf("the reply came with %+v, want only the newer message %q after the corrected one", got, newer)
+	}
+}
+
 func TestAvailability_ACorrectedReadingIsNotReopened(t *testing.T) {
 	rec := &recordingAI{}
 	e := newEnv(t, withAI(rec))

@@ -433,7 +433,8 @@ func TestBedrock_ExplainCutsAnOverlongAnswerAtTheLastWholeSentence(t *testing.T)
 func TestBedrock_ExplainWithoutAWholeSentenceInTheLimitFallsBackToThePlainText(t *testing.T) {
 	long := strings.TrimSpace(strings.Repeat("Saturday suits most people here and ", 20)) + "."
 	m := newFakeBedrock(t, message(testModel, long, "end_turn"))
-	b := newTestBedrock(t, m, nil)
+	var logs strings.Builder
+	b := newTestBedrock(t, m, &logs)
 
 	text, meta, err := b.Explain(context.Background(), explainInput())
 	if err != nil {
@@ -444,6 +445,30 @@ func TestBedrock_ExplainWithoutAWholeSentenceInTheLimitFallsBackToThePlainText(t
 	}
 	if meta.Provider != "bedrock" {
 		t.Errorf("meta = %+v", meta)
+	}
+	if !strings.Contains(logs.String(), "level=WARN") || !strings.Contains(logs.String(), "words=120") || strings.Contains(logs.String(), "Saturday suits") {
+		t.Errorf("log = %q, want a warning with the word count and none of the answer", logs.String())
+	}
+}
+
+func TestBedrock_ExplainCutsAShortAnswerWithoutAnEndingAtItsLastSentence(t *testing.T) {
+	m := newFakeBedrock(t, message(testModel, "Saturday suits most people here. Ana and Luis can both come but Marta", "end_turn"))
+	b := newTestBedrock(t, m, nil)
+	text, _, err := b.Explain(context.Background(), explainInput())
+	if err != nil {
+		t.Fatalf("Explain: %v", err)
+	}
+	if want := "Saturday suits most people here."; text != want {
+		t.Errorf("explanation = %q, want %q", text, want)
+	}
+	m = newFakeBedrock(t, message(testModel, "Saturday suits most people here and Ana", "end_turn"))
+	b = newTestBedrock(t, m, nil)
+	text, _, err = b.Explain(context.Background(), explainInput())
+	if err != nil {
+		t.Fatalf("Explain: %v", err)
+	}
+	if want := ai.PlainExplanation(explainInput()); text != want {
+		t.Errorf("explanation = %q, want the plain text %q", text, want)
 	}
 }
 

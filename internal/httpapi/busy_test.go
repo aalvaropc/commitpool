@@ -184,7 +184,7 @@ func TestDemo_RestsWhileTheBudgetHasNoRoomForOne(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			budgetClock := &clock.Fake{T: t0}
 			budget := ai.NewBudget(ai.Fake{}, ai.BudgetConfig{Hourly: tc.hourly, Daily: tc.daily, Clock: budgetClock})
-			for range 3 {
+			for range 6 {
 				if _, _, err := budget.Interpret(context.Background(), ai.InterpretInput{Dates: []ai.DateOption{{ID: "d"}}, Message: "any day"}); err != nil {
 					t.Fatal(err)
 				}

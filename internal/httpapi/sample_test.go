@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -367,7 +368,7 @@ func (r *roomlessAI) Room(calls int) time.Duration {
 
 func (r *roomlessAI) RoomLeaving(calls int, reserve func(limit int) int) time.Duration {
 	r.asked.Store(int64(calls))
-	for _, limit := range []int{0, 100, 200, 1500, 3000} {
+	for _, limit := range []int{0, 10, 40, 100, 200, 1500, 3000} {
 		r.reserves.Store(limit, reserve(limit))
 	}
 	return r.wait
@@ -386,7 +387,7 @@ func TestSample_LeavesTheLastReadingsOfTheBudgetToParticipants(t *testing.T) {
 }
 
 func TestSample_KeepsAReservePerWindowForParticipants(t *testing.T) {
-	cases := []struct{ limit, want int }{{0, 20}, {100, 20}, {200, 20}, {1500, 150}, {3000, 300}}
+	cases := []struct{ limit, want int }{{0, 0}, {10, 5}, {40, 20}, {100, 20}, {200, 20}, {1500, 150}, {3000, 300}}
 	model := &roomlessAI{}
 	e := newEnv(t, withAI(model))
 	e.call(http.MethodPost, samplePath, sampleBody("Saturday works"), http.StatusOK, nil)
@@ -428,14 +429,14 @@ func TestSample_StillReadsWithClaudeAfterSixtyCallsInTheHourWithDefaultCaps(t *t
 
 func TestSample_StopsThroughTheRealBudgetBeforeParticipantsRunShort(t *testing.T) {
 	stub := &cannedReadingAI{}
-	budget := ai.NewBudget(stub, ai.BudgetConfig{Hourly: 25, Daily: 100})
+	budget := ai.NewBudget(stub, ai.BudgetConfig{Hourly: 40, Daily: 100})
 	e := newEnv(t, withAI(ai.NewMemo(budget, ai.MemoSize)), withDailyCap(100))
-	for i := range 5 {
+	for i := range 20 {
 		e.call(http.MethodPost, samplePath, sampleBody(fmt.Sprintf("Saturday works %d", i)), http.StatusOK, nil)
 	}
-	e.wantError(http.MethodPost, samplePath, sampleBody("Saturday works 5"), http.StatusTooManyRequests, "ai_capped")
-	if stub.calls() != 5 {
-		t.Errorf("Claude read %d answers, want 5: past that fewer than 20 of the 25 readings would be left", stub.calls())
+	e.wantError(http.MethodPost, samplePath, sampleBody("Saturday works 20"), http.StatusTooManyRequests, "ai_capped")
+	if stub.calls() != 20 {
+		t.Errorf("Claude read %d answers, want 20: past that fewer than 20 of the 40 hourly readings would be left", stub.calls())
 	}
 	if _, _, err := budget.Interpret(context.Background(), ai.InterpretInput{Message: "a participant"}); err != nil {
 		t.Errorf("a participant's reading after the sample stopped: %v", err)
@@ -650,4 +651,24 @@ func TestSample_RefusesAnEarlierAnswerOutOfBounds(t *testing.T) {
 	if model.calls() != 1 {
 		t.Errorf("Interpret called %d times, want only the valid request read", model.calls())
 	}
+}
+
+func TestSample_ReadsWithClaudeOnAnEmptyWindowUnderSmallCaps(t *testing.T) {
+	for _, cap := range []int{2, 10, 20, 25} {
+		t.Run(strconv.Itoa(cap), func(t *testing.T) {
+			stub := &cannedReadingAI{}
+			budget := ai.NewBudget(stub, ai.BudgetConfig{Hourly: cap, Daily: 1500})
+			e := newEnv(t, withAI(budget))
+			e.call(http.MethodPost, samplePath, sampleBody("Saturday works"), http.StatusOK, nil)
+			if stub.calls() != 1 {
+				t.Errorf("Claude read %d answers on an empty window with an hourly cap of %d, want 1", stub.calls(), cap)
+			}
+		})
+	}
+}
+
+func TestDemo_CreatesOnAnEmptyWindowUnderASmallCap(t *testing.T) {
+	budget := ai.NewBudget(ai.Fake{}, ai.BudgetConfig{Hourly: 15, Daily: 1500})
+	e := newEnv(t, withDemoMode(), withAI(budget))
+	e.call(http.MethodPost, "/api/v1/demo/workshops", nil, http.StatusCreated, nil)
 }

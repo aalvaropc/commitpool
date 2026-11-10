@@ -179,6 +179,7 @@ func (b *Bedrock) Explain(ctx context.Context, in ExplainInput) (string, Meta, e
 	}
 	text, ok := wholeSentences(answer, maxExplanationWords)
 	if !ok {
+		b.log.Warn("explain: no whole sentence fits the word limit; using the plain explanation", "words", len(strings.Fields(answer)), "limit", maxExplanationWords)
 		return PlainExplanation(in), meta, nil
 	}
 	return text, meta, nil
@@ -287,10 +288,7 @@ func callError(op string, err error) error {
 
 func wholeSentences(s string, n int) (string, bool) {
 	words := strings.Fields(s)
-	if len(words) <= n {
-		return strings.Join(words, " "), len(words) > 0
-	}
-	for i := n - 1; i >= 0; i-- {
+	for i := min(len(words), n) - 1; i >= 0; i-- {
 		if endsSentence(words[i]) {
 			return strings.Join(words[:i+1], " "), true
 		}

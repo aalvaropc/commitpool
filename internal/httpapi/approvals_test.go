@@ -115,7 +115,7 @@ func (e *env) approveInBrowser(approveURL string) approvalViewJSON {
 	return v
 }
 
-const needsPageMessage = "Only someone with the organizer link can approve, here in a browser. An assistant's tools cannot."
+const needsPageMessage = "Only someone with the organizer link can approve, on the approve page in a browser. An assistant's tools cannot."
 
 func wantRefusal(t *testing.T, rec *httptest.ResponseRecorder, status int, code string) {
 	t.Helper()

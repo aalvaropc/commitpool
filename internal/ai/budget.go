@@ -92,7 +92,14 @@ func (w *window) wait(now time.Time, calls int, share func(int) int) time.Durati
 	if w.limit <= 0 {
 		return 0
 	}
-	over := len(w.calls) + calls - share(w.limit)
+	room := share(w.limit)
+	if calls > room && calls <= w.limit {
+		if len(w.calls) == 0 {
+			return 0
+		}
+		return w.calls[len(w.calls)-1].Add(w.span).Sub(now)
+	}
+	over := len(w.calls) + calls - room
 	switch {
 	case over <= 0:
 		return 0

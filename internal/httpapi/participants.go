@@ -211,10 +211,6 @@ func (s *server) openQuestion(ctx context.Context, workshopID, participantID str
 	return &ai.EarlierAnswer{Messages: newestFirst, Questions: questions}
 }
 
-func isCorrected(a store.AvailabilityRow) bool {
-	return len(a.Corrected) > 0 && string(a.Corrected) != "null"
-}
-
 func (s *server) correctAvailability(w http.ResponseWriter, r *http.Request) error {
 	p, ws, err := s.participant(r)
 	if err != nil {

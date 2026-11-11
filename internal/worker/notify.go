@@ -157,19 +157,29 @@ func (r *Runner) noticeData(ctx context.Context, w store.WorkshopRow) (notice.Da
 	d.Price = present.Price(domain.Money{Minor: p.PriceMinor, Currency: p.Currency})
 	d.Needed = p.Minimum
 	d.Deadline = present.Moment(p.ClosesAt, loc)
-	dates, err := r.st.CandidateDates(ctx, w.ID)
+	when, err := r.proposalWhen(ctx, w, *p)
 	if err != nil {
 		return d, err
 	}
+	d.When = when
+	return d, nil
+}
+
+func (r *Runner) proposalWhen(ctx context.Context, w store.WorkshopRow, p store.ProposalRow) (string, error) {
+	loc, err := time.LoadLocation(w.Timezone)
+	if err != nil {
+		loc = time.UTC
+	}
+	dates, err := r.st.CandidateDates(ctx, w.ID)
+	if err != nil {
+		return "", err
+	}
 	for _, c := range dates {
 		if c.ID == p.ChosenDateID {
-			d.When = present.DateLabel(c.StartsAt, c.EndsAt, loc)
+			return present.DateLabel(c.StartsAt, c.EndsAt, loc), nil
 		}
 	}
-	if d.When == "" {
-		d.When = present.Moment(p.StartsAt, loc)
-	}
-	return d, nil
+	return present.Moment(p.StartsAt, loc), nil
 }
 
 func (r *Runner) queueNotice(ctx context.Context, kind notice.Kind, d notice.Data, n store.Notification) error {

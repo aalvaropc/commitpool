@@ -8,9 +8,55 @@ import (
 
 	"github.com/aalvaropc/commitpool/internal/domain"
 	"github.com/aalvaropc/commitpool/internal/paypal"
+	"github.com/aalvaropc/commitpool/internal/present"
 	"github.com/aalvaropc/commitpool/internal/store"
 	"github.com/aalvaropc/commitpool/internal/worker"
 )
+
+func TestCreateOrder_NamesTheClassAndTheDateAtCheckout(t *testing.T) {
+	e := newEnv(t)
+	_, a := e.enroll("Ana")
+
+	e.runKey(e.enqueue("create_order", a))
+
+	reqs := e.fake.Requests("create_order")
+	if len(reqs) != 1 {
+		t.Fatalf("create_order requests = %d, want 1", len(reqs))
+	}
+	var body struct {
+		PurchaseUnits []paypal.PurchaseUnit `json:"purchase_units"`
+		PaymentSource struct {
+			PayPal struct {
+				ExperienceContext struct {
+					BrandName string `json:"brand_name"`
+					Locale    string `json:"locale"`
+				} `json:"experience_context"`
+			} `json:"paypal"`
+		} `json:"payment_source"`
+	}
+	if err := json.Unmarshal(reqs[0].Body, &body); err != nil {
+		t.Fatalf("create_order body: %v", err)
+	}
+	loc, err := time.LoadLocation(e.workshop.Timezone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	starts := t0.Add(48 * time.Hour)
+	label := present.DateLabel(starts, starts.Add(3*time.Hour), loc)
+	unit := body.PurchaseUnits[0]
+	if want := "Go for operators · " + label + " · hold for 1 spot"; unit.Description != want {
+		t.Errorf("description = %q, want %q", unit.Description, want)
+	}
+	if unit.SoftDescriptor != "COMMITPOOL" {
+		t.Errorf("soft_descriptor = %q, want COMMITPOOL", unit.SoftDescriptor)
+	}
+	if ec := body.PaymentSource.PayPal.ExperienceContext; ec.BrandName != "CommitPool" || ec.Locale != "en-US" {
+		t.Errorf("brand_name/locale = %q/%q, want CommitPool/en-US", ec.BrandName, ec.Locale)
+	}
+	if unit.Amount != (paypal.Money{CurrencyCode: "USD", Value: "10.00"}) {
+		t.Errorf("amount = %+v, want 10.00 USD unchanged", unit.Amount)
+	}
+}
 
 func TestCreateOrder_PersistsKeyBeforeSendAndStoresApproveURL(t *testing.T) {
 	e := newEnv(t)

@@ -411,6 +411,74 @@ func TestBedrock_ExplainGetsOnlyTheRecommendedDateAndStaysShort(t *testing.T) {
 	}
 }
 
+func tiedExplainInput() ai.ExplainInput {
+	in := explainInput()
+	in.Recommendation.MeetsMinimum = false
+	in.Recommendation.Tied = true
+	in.Recommendation.PerDate = []domain.DateSummary{
+		{DateID: "sat", Compatible: []string{"p1", "p2"}, Blockers: map[string]string{"p3": "ends after 18:00"}},
+		{DateID: "sun", Compatible: []string{"p1", "p3"}, Blockers: map[string]string{"p2": "unavailable"}},
+	}
+	return in
+}
+
+func TestExplainFacts_GiveATieNotARecommendation(t *testing.T) {
+	facts := ai.ExplainFacts(tiedExplainInput())
+	for _, want := range []string{
+		"Tied dates: Sat, Nov 14 and Sun, Nov 15 (Sat, Nov 14 comes first)",
+		"Call the dates: Sat, Nov 14 and Sun, Nov 15",
+		"The tied dates reach the minimum: no",
+		`Participants who can attend Sat, Nov 14 (2): ["Ana","Luis"]`,
+		`Participants who can attend Sun, Nov 15 (2): ["Ana","Marta"]`,
+	} {
+		if !strings.Contains(facts, want) {
+			t.Errorf("tie facts do not contain %q:\n%s", want, facts)
+		}
+	}
+	if strings.Contains(strings.ToLower(facts), "recommend") {
+		t.Errorf("tie facts still call a date recommended:\n%s", facts)
+	}
+	plain := ai.ExplainFacts(explainInput())
+	if !strings.Contains(plain, "Recommended date: Sat, Nov 14, 3 PM–6 PM (Lima time)") || strings.Contains(plain, "Tied") {
+		t.Errorf("facts without a tie changed:\n%s", plain)
+	}
+}
+
+func TestExplainPrompt_ExplainsATieWithoutRecommending(t *testing.T) {
+	m := newFakeBedrock(t, message(testModel, "Sat, Nov 14 comes first.", "end_turn"))
+	if _, _, err := newTestBedrock(t, m, nil).Explain(context.Background(), tiedExplainInput()); err != nil {
+		t.Fatalf("Explain: %v", err)
+	}
+	system := strings.ToLower(toString(m.recorded()[0].body["system"]))
+	for _, want := range []string{"if the facts say the dates are tied", "do not call either date recommended"} {
+		if !strings.Contains(system, want) {
+			t.Errorf("explain system prompt does not contain %q", want)
+		}
+	}
+	user, _ := json.Marshal(m.recorded()[0].body["messages"])
+	if !strings.Contains(string(user), "Tied dates") || strings.Contains(strings.ToLower(string(user)), "recommended date") {
+		t.Errorf("the model was not given the tie: %s", user)
+	}
+}
+
+func TestExplainPrompt_DoesNotRecommend(t *testing.T) {
+	m := newFakeBedrock(t, message(testModel, "Sat, Nov 14 works for Ana and Luis.", "end_turn"))
+	if _, _, err := newTestBedrock(t, m, nil).Explain(context.Background(), explainInput()); err != nil {
+		t.Fatalf("Explain: %v", err)
+	}
+	system := strings.ToLower(toString(m.recorded()[0].body["system"]))
+	for _, banned := range []string{"we recommend", "i recommend"} {
+		if strings.Contains(system, banned) {
+			t.Errorf("explain system prompt contains %q", banned)
+		}
+	}
+	for _, want := range []string{"works for", "never phrase it as a recommendation"} {
+		if !strings.Contains(system, want) {
+			t.Errorf("explain system prompt does not contain %q", want)
+		}
+	}
+}
+
 func TestBedrock_ExplainCutsAnOverlongAnswerAtTheLastWholeSentence(t *testing.T) {
 	sentence := "Saturday suits most of the people on your list. "
 	long := strings.TrimSpace(strings.Repeat(sentence, 10) + "Ana and Luis can both come but Marta")

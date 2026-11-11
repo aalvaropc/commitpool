@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/aalvaropc/commitpool/internal/domain"
 	"github.com/aalvaropc/commitpool/internal/inproc"
@@ -88,7 +89,9 @@ func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
 	}
 	availabilities := make([]availabilityDTO, len(avails))
 	readings := make(map[string]domain.Interpretation, len(avails))
+	answered := make([]time.Time, len(avails))
 	for i, a := range avails {
+		answered[i] = a.CreatedAt
 		in, err := inForce(a)
 		if err != nil {
 			return err
@@ -158,7 +161,7 @@ func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
 		Availabilities: availabilities,
 		Recommendation: recommendation,
 		Enrollments:    enrollments,
-		Suggestions:    s.suggestions(ctx, st, rec, readings, names, shareURL),
+		Suggestions:    s.suggestions(ctx, st, rec, readings, names, answered, shareURL),
 		Payout:         payout,
 		Demo:           demoDTO{DemoMode: s.Cfg.DemoMode, SandboxMocks: s.Cfg.SandboxMocks},
 		ActAs:          actAs,

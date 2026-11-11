@@ -160,6 +160,7 @@ export interface DateSummary {
 export interface Recommendation {
   date_id: string
   meets_minimum: boolean
+  tied: boolean
   per_date: DateSummary[] | null
   explanation: string
   explanation_pending: boolean
@@ -271,7 +272,7 @@ export interface Extension {
 }
 
 export interface Suggestion {
-  kind: 'clarify' | 'condition' | 'reserve' | 'share' | 'rescue'
+  kind: 'clarify' | 'condition' | 'reserve' | 'share' | 'rescue' | 'group_reply'
   participant_id?: string
   name?: string
   reason: string
@@ -282,6 +283,7 @@ export interface Suggestion {
 export interface Group {
   answered: number
   can_come: Record<string, number>
+  tied: boolean
 }
 
 export interface PublicView {

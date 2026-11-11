@@ -50,7 +50,7 @@ function groupState(view: PublicView): string | null {
   return null
 }
 
-export function EventDetails({ view }: { view: PublicView }) {
+export function EventDetails({ view, counting = true }: { view: PublicView; counting?: boolean }) {
   const { workshop: w, proposal, tally, group } = view
   const rows = dateRows(view.dates, group, proposal?.date_id ?? null, w.timezone)
   const reserving = proposal?.payments_open ?? false
@@ -84,7 +84,7 @@ export function EventDetails({ view }: { view: PublicView }) {
                 {group.answered > 0 && !proposal && (
                   <span className="text-right text-sm font-semibold">
                     {r.canCome} can come
-                    {r.best && <span className="block font-medium text-on-brand/80">most so far</span>}
+                    {r.best && <span className="block font-medium text-on-brand/80">{r.tied ? 'tied, comes first' : 'most so far'}</span>}
                   </span>
                 )}
               </li>
@@ -125,7 +125,7 @@ export function EventDetails({ view }: { view: PublicView }) {
         ) : proposal ? (
           <>
             <Meter capacity={tally.capacity} needed={tally.minimum} paid={tally.paid} reserved={tally.authorized + tally.charging} />
-            {reserving && <Deadline closesAt={proposal.closes_at} timeZone={w.timezone} open />}
+            {reserving && <Deadline closesAt={proposal.closes_at} timeZone={w.timezone} open counting={counting} />}
           </>
         ) : (
           <>
@@ -134,7 +134,7 @@ export function EventDetails({ view }: { view: PublicView }) {
               {summary.count !== null && <span className="font-display text-3xl font-bold tabular-nums">{summary.count} </span>}
               {summary.text}
             </p>
-            {summary.count !== null && interest > 0 && <p className="text-sm text-ink-soft">{interest} can come on the best date.</p>}
+            {summary.count !== null && interest > 0 && <p className="text-sm text-ink-soft">{interest} can come on {group.tied ? 'the date that comes first' : 'the best date'}.</p>}
           </>
         )}
       </section>

@@ -99,6 +99,10 @@ func (r *Runner) createOrder(ctx context.Context, job *store.Job) (*int, error) 
 		return s.skipOlderAttempt()
 	}
 	returnURL, cancelURL := r.ReturnURLs(s.enrollment.ID)
+	description, err := r.orderDescription(ctx, s.enrollment)
+	if err != nil {
+		return nil, err
+	}
 	o, err := r.pp.CreateOrder(ctx, paypal.CreateOrderParams{
 		RequestID:   job.IdempotencyKey,
 		ReferenceID: a.ID,
@@ -107,8 +111,10 @@ func (r *Runner) createOrder(ctx context.Context, job *store.Job) (*int, error) 
 			CurrencyCode: a.Currency,
 			Value:        domain.Money{Minor: a.AmountMinor, Currency: a.Currency}.String(),
 		},
-		ReturnURL: returnURL,
-		CancelURL: cancelURL,
+		ReturnURL:      returnURL,
+		CancelURL:      cancelURL,
+		Description:    description,
+		SoftDescriptor: paypal.SoftDescriptor,
 	})
 	if err != nil {
 		if pe := paypal.Definitive(err); pe != nil {
@@ -124,6 +130,25 @@ func (r *Runner) createOrder(ctx context.Context, job *store.Job) (*int, error) 
 		return s.refuse("PayPal returned a different order than the attempt holds")
 	}
 	return nil, r.st.UpdateJobPayload(ctx, job.ID, orderPayload{ApproveURL: o.ApproveURL(), OrderID: o.ID})
+}
+
+func (r *Runner) orderDescription(ctx context.Context, en store.EnrollmentRow) (string, error) {
+	w, err := r.st.WorkshopByID(ctx, en.WorkshopID)
+	if err != nil {
+		return "", err
+	}
+	p, err := r.st.ProposalByID(ctx, en.ProposalID)
+	if err != nil {
+		return "", err
+	}
+	if p == nil {
+		return "", fmt.Errorf("proposal %s: %w", en.ProposalID, store.ErrNotFound)
+	}
+	when, err := r.proposalWhen(ctx, w, *p)
+	if err != nil {
+		return "", err
+	}
+	return paypal.OrderDescription(w.Title, when), nil
 }
 
 func (r *Runner) authorize(ctx context.Context, job *store.Job) (*int, error) {

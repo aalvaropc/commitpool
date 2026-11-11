@@ -20,22 +20,43 @@ function useCopy() {
 const card = 'flex flex-col gap-3 rounded-control p-4 ring-1 ring-line ring-inset'
 const bubble = 'rounded-control bg-surface-muted px-4 py-3 whitespace-pre-line [overflow-wrap:anywhere]'
 
-function SuggestionItem({ s }: { s: Suggestion }) {
+const groupCard = 'flex flex-col gap-3 rounded-control bg-brand-wash p-4 ring-1 ring-brand/40 ring-inset'
+const groupBubble = 'rounded-control bg-surface px-4 py-3 whitespace-pre-line [overflow-wrap:anywhere]'
+
+function SuggestionItem({ s, label }: { s: Suggestion; label?: string }) {
   const { copied, copy } = useCopy()
   return (
-    <li className={card}>
-      <p className="flex min-w-0 items-center gap-2.5 font-semibold">
-        {s.name ? <Avatar name={s.name} size="sm" /> : <Icon name="users" className="text-brand" />}
-        <span className="min-w-0 [overflow-wrap:anywhere]">{s.reason}</span>
-      </p>
-      <p className={bubble}>{s.message}</p>
+    <li className={label ? groupCard : card}>
+      {label ? (
+        <div className="flex flex-col gap-1">
+          <p className="flex min-w-0 items-center gap-2.5 font-semibold">
+            <Icon name="users" className="shrink-0 text-brand" />
+            {label}
+          </p>
+          <p className="text-sm text-ink-soft [overflow-wrap:anywhere]">{s.reason}</p>
+        </div>
+      ) : (
+        <p className="flex min-w-0 items-center gap-2.5 font-semibold">
+          {s.name ? <Avatar name={s.name} size="sm" /> : <Icon name="users" className="text-brand" />}
+          <span className="min-w-0 [overflow-wrap:anywhere]">{s.reason}</span>
+        </p>
+      )}
+      <p className={label ? groupBubble : bubble}>{s.message}</p>
       <div className="flex flex-wrap items-center gap-3">
         <Button variant="secondary" size="sm" onClick={() => void copy(s)}>
           <Icon name="copy" size={16} />
           Copy message<span className="sr-only"> for {s.name ?? 'the group'}</span>
         </Button>
         <span role="status" className="text-sm text-ink-soft">
-          {copied ? 'Copied. Paste it where you talk to them.' : copied === false ? 'Copying is blocked here; select the message and copy it.' : s.pending ? 'Claude is rewording this message…' : ''}
+          {copied
+            ? label
+              ? 'Copied. Paste it in the group chat.'
+              : 'Copied. Paste it where you talk to them.'
+            : copied === false
+              ? 'Copying is blocked here; select the message and copy it.'
+              : s.pending
+                ? 'Claude is rewording this message…'
+                : ''}
         </span>
       </div>
     </li>
@@ -101,6 +122,8 @@ function SuggestionGroup({ people, pending }: { people: Suggestion[]; pending: b
   )
 }
 
+const groupFirst = (list: Suggestion[]) => [...list.filter((s) => s.kind === 'group_reply'), ...list.filter((s) => s.kind !== 'group_reply')]
+
 export default function ClaudeSuggests({ suggestions, rescue }: { suggestions: Suggestion[]; rescue?: Rescue }) {
   if (suggestions.length === 0) return null
   return (
@@ -113,9 +136,11 @@ export default function ClaudeSuggests({ suggestions, rescue }: { suggestions: S
         <p className="text-sm text-ink-soft">CommitPool picks who to nudge; Claude drafts the words. You decide whether to send them.</p>
       </div>
       <ul className="flex flex-col gap-3">
-        {groupSuggestions(suggestions).map((c) =>
+        {groupSuggestions(groupFirst(suggestions)).map((c) =>
           c.kind === 'group' ? (
             <SuggestionGroup key={c.key} people={c.people} pending={c.pending} />
+          ) : c.suggestion.kind === 'group_reply' ? (
+            <SuggestionItem key={c.key} s={c.suggestion} label="Claude’s reply for the group" />
           ) : c.suggestion.kind === 'rescue' ? (
             <RescueCard key={c.key} s={c.suggestion} rescue={rescue} />
           ) : (

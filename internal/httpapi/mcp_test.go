@@ -104,6 +104,7 @@ type mcpStatus struct {
 	Status            string `json:"status"`
 	PaymentsOpen      bool   `json:"payments_open"`
 	RecommendedDateID string `json:"recommended_date_id"`
+	Tied              bool   `json:"tied"`
 	Paid              int    `json:"paid"`
 	Minimum           int    `json:"minimum"`
 	IfClosedNow       string `json:"if_closed_now"`
@@ -116,6 +117,19 @@ type mcpCheckout struct {
 
 func (e *env) mcpWorkshop(cs *mcp.ClientSession) (mcpCreated, []mcpJoined) {
 	e.t.Helper()
+	created := e.mcpCreate(cs)
+	var joined []mcpJoined
+	for name, message := range map[string]string{"Ana": "Saturday works if we finish before six", "Luis": "Any day works for me"} {
+		var j mcpJoined
+		e.tool(cs, "join_workshop", map[string]any{"share_link": created.ShareLink, "display_name": name}, &j)
+		e.tool(cs, "submit_availability", map[string]any{"participant_link": j.ParticipantLink, "message": message}, nil)
+		joined = append(joined, j)
+	}
+	return created, joined
+}
+
+func (e *env) mcpCreate(cs *mcp.ClientSession) mcpCreated {
+	e.t.Helper()
 	var created mcpCreated
 	body := workshopRequest()
 	var starts []string
@@ -127,14 +141,33 @@ func (e *env) mcpWorkshop(cs *mcp.ClientSession) (mcpCreated, []mcpJoined) {
 		"timezone": body["timezone"], "minimum": body["minimum"], "capacity": body["capacity"],
 		"price": body["price"], "currency": body["currency"], "date_starts": starts,
 	}, &created)
-	var joined []mcpJoined
-	for name, message := range map[string]string{"Ana": "Saturday works if we finish before six", "Luis": "Any day works for me"} {
+	return created
+}
+
+func TestMCP_GetStatusSaysWhenTheBestDatesAreTied(t *testing.T) {
+	e := newEnv(t)
+	cs := e.mcpSession()
+	created := e.mcpCreate(cs)
+	answer := func(name, message string) {
 		var j mcpJoined
 		e.tool(cs, "join_workshop", map[string]any{"share_link": created.ShareLink, "display_name": name}, &j)
 		e.tool(cs, "submit_availability", map[string]any{"participant_link": j.ParticipantLink, "message": message}, nil)
-		joined = append(joined, j)
 	}
-	return created, joined
+	answer("Ana", "Saturday works for me, Sunday I can't")
+	answer("Luis", "Sunday works for me, Saturday I can't")
+
+	var tied mcpStatus
+	e.tool(cs, "get_status", map[string]any{"owner_link": created.OwnerLink}, &tied)
+	if !tied.Tied || tied.RecommendedDateID == "" {
+		t.Fatalf("status = %+v, want the earliest date flagged as tied", tied)
+	}
+
+	answer("Marta", "Saturday works for me, Sunday I can't")
+	var lead mcpStatus
+	e.tool(cs, "get_status", map[string]any{"owner_link": created.OwnerLink}, &lead)
+	if lead.Tied {
+		t.Fatalf("status = %+v, want Saturday ahead 2 to 1 and not tied", lead)
+	}
 }
 
 func TestMCP_NoMoneyMovingTools(t *testing.T) {

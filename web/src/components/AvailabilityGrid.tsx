@@ -22,7 +22,7 @@ interface Actions {
 
 export const COPIED_FOR_MS = 4000
 
-const markTone = (c: DateColumn, meets: boolean) => (c.mark === 'Recommended' ? (meets ? 'paid' : 'neutral') : 'hold')
+const markTone = (c: DateColumn, meets: boolean) => (c.mark === 'Recommended' ? (meets ? 'paid' : 'neutral') : c.mark === 'Tied' ? 'neutral' : 'hold')
 const wrap = 'min-w-0 [overflow-wrap:anywhere]'
 
 function Cell({ a, dateId, summary }: { a: Availability; dateId: string; summary?: DateSummary }) {

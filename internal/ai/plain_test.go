@@ -23,6 +23,12 @@ func plainInput(compatible []string, meets bool) ai.ExplainInput {
 	}
 }
 
+func tiedInput(compatible []string) ai.ExplainInput {
+	in := plainInput(compatible, false)
+	in.Recommendation.Tied = true
+	return in
+}
+
 func TestPlainExplanation_SpeaksToTheOrganizer(t *testing.T) {
 	cases := []struct {
 		name string
@@ -32,6 +38,7 @@ func TestPlainExplanation_SpeaksToTheOrganizer(t *testing.T) {
 		{"reaches the minimum", plainInput([]string{"p1", "p2", "p3"}, true), "Sat, Nov 14 works for 3 people: Priya, Ben and Lucía. You need 3."},
 		{"short of the minimum", plainInput([]string{"p1", "p2"}, false), "Sat, Nov 14 works for the most people so far: Priya and Ben. You need 3."},
 		{"one person", plainInput([]string{"p1"}, false), "Sat, Nov 14 works for the most people so far: Priya. You need 3."},
+		{"tied", tiedInput([]string{"p1", "p2"}), "Sat, Nov 14 comes first and ties with a later date: Priya and Ben can come. You need 3."},
 		{"nobody yet", plainInput(nil, false), "Sat, Nov 14 is the earliest date, but nobody can come yet."},
 		{"no date", ai.ExplainInput{Dates: dates}, "There is no date to recommend yet."},
 	}

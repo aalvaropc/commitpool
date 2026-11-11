@@ -78,3 +78,65 @@ func TestSuggestions_NothingOnceDecided(t *testing.T) {
 		t.Errorf("reservations closed: %+v", got)
 	}
 }
+
+func TestSuggestions_GroupReplyFirstWhileCollecting(t *testing.T) {
+	in := domain.SuggestInput{
+		Status:     domain.WorkshopCollecting,
+		GroupReply: true,
+		Unclear:    []string{"grace"},
+		Date: domain.DateSummary{DateID: "sat", Compatible: []string{"priya", "ben"}, Blockers: map[string]string{
+			"grace": "needs clarification", "hannah": "ends after 11:30",
+		}},
+	}
+	want := []domain.Suggestion{
+		{Kind: domain.SuggestGroupReply},
+		{Kind: domain.SuggestClarify, ParticipantID: "grace"},
+		{Kind: domain.SuggestCondition, ParticipantID: "hannah", Blocker: "ends after 11:30"},
+	}
+	if got := domain.Suggestions(in); !reflect.DeepEqual(got, want) {
+		t.Errorf("suggestions = %+v\nwant %+v", got, want)
+	}
+
+	in.Unclear = []string{"a", "b", "c", "d", "e"}
+	if got := domain.Suggestions(in); len(got) != 1+domain.MaxPersonalSuggestions || got[0].Kind != domain.SuggestGroupReply {
+		t.Errorf("with many people to ask = %+v, want the group reply plus %d people", got, domain.MaxPersonalSuggestions)
+	}
+
+	funding := domain.SuggestInput{
+		Status: domain.WorkshopFunding, PaymentsOpen: true, ClosesAt: noon.Add(30 * time.Hour), Now: noon, Minimum: 3,
+		GroupReply: true, Date: domain.DateSummary{DateID: "sat", Compatible: []string{"priya"}},
+	}
+	for _, sg := range domain.Suggestions(funding) {
+		if sg.Kind == domain.SuggestGroupReply {
+			t.Errorf("reservations open: %+v, want no group reply once the date is chosen", sg)
+		}
+	}
+}
+
+func TestSuggestions_NoGroupReplyWithFewerThanTwoAnswers(t *testing.T) {
+	cases := []struct {
+		name     string
+		answered []time.Time
+		want     bool
+	}{
+		{"nobody", nil, false},
+		{"one answer", []time.Time{noon.Add(-time.Hour)}, false},
+		{"two answers, one today", []time.Time{noon.Add(-72 * time.Hour), noon.Add(-time.Hour)}, true},
+		{"two answers, one just inside a day", []time.Time{noon.Add(-72 * time.Hour), noon.Add(-domain.GroupReplyFreshFor)}, true},
+		{"two answers, both older than a day", []time.Time{noon.Add(-72 * time.Hour), noon.Add(-domain.GroupReplyFreshFor - time.Minute)}, false},
+	}
+	for _, c := range cases {
+		if got := domain.GroupReplyDue(c.answered, noon); got != c.want {
+			t.Errorf("%s: GroupReplyDue = %v, want %v", c.name, got, c.want)
+		}
+	}
+	got := domain.Suggestions(domain.SuggestInput{
+		Status:     domain.WorkshopCollecting,
+		GroupReply: domain.GroupReplyDue([]time.Time{noon}, noon),
+		Unclear:    []string{"grace"},
+		Date:       domain.DateSummary{DateID: "sat", Compatible: []string{}, Blockers: map[string]string{"grace": "needs clarification"}},
+	})
+	if want := []domain.Suggestion{{Kind: domain.SuggestClarify, ParticipantID: "grace"}}; !reflect.DeepEqual(got, want) {
+		t.Errorf("one answer: suggestions = %+v, want only Grace's question", got)
+	}
+}

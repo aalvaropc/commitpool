@@ -386,6 +386,7 @@ type consentDTO struct {
 type recommendationDTO struct {
 	DateID             string           `json:"date_id"`
 	MeetsMinimum       bool             `json:"meets_minimum"`
+	Tied               bool             `json:"tied"`
 	PerDate            []dateSummaryDTO `json:"per_date"`
 	Explanation        string           `json:"explanation"`
 	ExplanationPending bool             `json:"explanation_pending"`
@@ -398,7 +399,7 @@ type dateSummaryDTO struct {
 }
 
 func recommendationView(rec domain.Recommendation) recommendationDTO {
-	out := recommendationDTO{DateID: rec.DateID, MeetsMinimum: rec.MeetsMinimum, PerDate: make([]dateSummaryDTO, len(rec.PerDate))}
+	out := recommendationDTO{DateID: rec.DateID, MeetsMinimum: rec.MeetsMinimum, Tied: rec.Tied, PerDate: make([]dateSummaryDTO, len(rec.PerDate))}
 	for i, d := range rec.PerDate {
 		out.PerDate[i] = dateSummaryDTO{DateID: d.DateID, Compatible: d.Compatible, Blockers: d.Blockers}
 	}
@@ -456,6 +457,7 @@ func (st workshopState) tally() tallyDTO {
 type groupDTO struct {
 	Answered int            `json:"answered"`
 	CanCome  map[string]int `json:"can_come"`
+	Tied     bool           `json:"tied"`
 }
 
 func (s *server) group(ctx context.Context, st workshopState) (groupDTO, error) {
@@ -474,7 +476,7 @@ func (s *server) group(ctx context.Context, st workshopState) (groupDTO, error) 
 	for _, a := range avails {
 		answered[a.ParticipantID] = true
 	}
-	g := groupDTO{Answered: len(answered), CanCome: make(map[string]int, len(st.dates))}
+	g := groupDTO{Answered: len(answered), Tied: rec.Tied, CanCome: make(map[string]int, len(st.dates))}
 	for _, d := range st.dates {
 		g.CanCome[d.ID] = 0
 	}

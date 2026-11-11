@@ -32,7 +32,7 @@ function view(over: Partial<OwnerView> = {}): OwnerView {
     tally: { interested: 0, authorized: 0, paid: 0, charging: 0, minimum: 3, capacity: 6, reserved: 0, capturing: 0, pending: 0, failed: 0, seats_taken: 0 },
     participants: [],
     availabilities: [],
-    recommendation: { date_id: '', meets_minimum: false, per_date: [], explanation: '', explanation_pending: false },
+    recommendation: { date_id: '', meets_minimum: false, tied: false, per_date: [], explanation: '', explanation_pending: false },
     enrollments: [],
     suggestions: [],
     payout: null,
@@ -51,16 +51,35 @@ describe('nextStep', () => {
   it('offers to open reservations once a date reaches the minimum', () => {
     const v = view({
       availabilities: answered(['p1', 'p2', 'p3', 'p4']),
-      recommendation: { date_id: 'sat', meets_minimum: true, per_date: [{ date_id: 'sat', compatible: ['p1', 'p2', 'p3', 'p4'], blockers: null }], explanation: '', explanation_pending: false },
+      recommendation: { date_id: 'sat', meets_minimum: true, tied: false, per_date: [{ date_id: 'sat', compatible: ['p1', 'p2', 'p3', 'p4'], blockers: null }], explanation: '', explanation_pending: false },
     })
     expect(nextStep(v)).toEqual({ title: 'Sat, Nov 14 works for 4 — you need 3.', detail: 'Open reservations and people can reserve their spot with PayPal.', action: { kind: 'open', dateId: 'sat', day: 'Sat, Nov 14' } })
+  })
+
+  it('says tied instead of best so far when two dates share the most', () => {
+    const v = view({
+      availabilities: answered(['p1', 'p2', 'p3', 'p4']),
+      recommendation: { date_id: 'sat', meets_minimum: false, tied: true, per_date: [{ date_id: 'sat', compatible: ['p1', 'p2'], blockers: null }, { date_id: 'sun', compatible: ['p3', 'p4'], blockers: null }], explanation: '', explanation_pending: false },
+    })
+    const step = nextStep(v)
+    expect(step.title).toBe('Tied: Sat, Nov 14 comes first')
+    expect(step.detail).toBe('2 can come on Sat, Nov 14, and as many on at least one later date. You need 3. Share the invite to reach more people.')
+    expect(step.action).toEqual({ kind: 'share' })
+  })
+
+  it('still offers to open reservations on a tied date that reaches the minimum', () => {
+    const v = view({
+      availabilities: answered(['p1', 'p2', 'p3']),
+      recommendation: { date_id: 'sat', meets_minimum: true, tied: true, per_date: [{ date_id: 'sat', compatible: ['p1', 'p2', 'p3'], blockers: null }], explanation: '', explanation_pending: false },
+    })
+    expect(nextStep(v)).toMatchObject({ title: 'Tied: Sat, Nov 14 comes first', action: { kind: 'open', dateId: 'sat', day: 'Sat, Nov 14' } })
   })
 
   it('names who still has to clarify', () => {
     const v = view({
       participants: [{ id: 'p5', display_name: 'Fay' }],
       availabilities: [...answered(['p1', 'p2']), { ...answered(['p5'])[0], display_name: 'Fay', needs_clarification: true }],
-      recommendation: { date_id: 'sat', meets_minimum: false, per_date: [{ date_id: 'sat', compatible: ['p1', 'p2'], blockers: null }], explanation: '', explanation_pending: false },
+      recommendation: { date_id: 'sat', meets_minimum: false, tied: false, per_date: [{ date_id: 'sat', compatible: ['p1', 'p2'], blockers: null }], explanation: '', explanation_pending: false },
     })
     expect(nextStep(v)).toEqual({ title: 'Best so far: Sat, Nov 14, with 2 of the 3 needed.', detail: 'Fay’s message needs clarifying. Share the invite to reach more people.', action: { kind: 'share' } })
   })
@@ -90,7 +109,7 @@ describe('decisionCounts', () => {
   it('counts who can come on the best date while the date is open', () => {
     const v = view({
       availabilities: answered(['p1', 'p2']),
-      recommendation: { date_id: 'sat', meets_minimum: false, per_date: [{ date_id: 'sat', compatible: ['p1', 'p2'], blockers: null }], explanation: '', explanation_pending: false },
+      recommendation: { date_id: 'sat', meets_minimum: false, tied: false, per_date: [{ date_id: 'sat', compatible: ['p1', 'p2'], blockers: null }], explanation: '', explanation_pending: false },
       tally: { ...view().tally, interested: 6 },
     })
     expect(decisionCounts(v)).toEqual({ bar: { kind: 'interest', can: 2 }, needed: 3, capacity: 6, joined: 6, charging: 0, failed: 0 })
@@ -138,9 +157,44 @@ describe('sessionPlan', () => {
 })
 
 describe('sessionCovered', () => {
-  it('says how much of the session costs the payments cover', () => {
+  const paidWithFees = (n: number, fee: number | null) =>
+    Array.from({ length: n }, (_, i) => ({
+      id: `e${i}`,
+      status: 'PAID' as const,
+      status_label: 'Paid',
+      seat_expires_at: '',
+      approval_cancelled_at: null,
+      payment: { attempt_id: 'a', attempt_no: 1, order_id: null, authorization_id: null, capture_id: 'c', refund_id: null, order_status: null, authorization_status: null, capture_status: null, capture_issue: null, refund_status: null, ...(fee === null ? {} : { fee: usd(fee), net: usd(4500 - fee) }) },
+    }))
+
+  it('says how much of the session costs the payments cover before fees are known', () => {
     expect(sessionCovered(view({ tally: { ...view().tally, paid: 2 } }))).toEqual({ covered: 9000, cost: 12000, text: '$90 toward your $120 session costs (before fees)' })
-    expect(sessionCovered(view({ tally: { ...view().tally, paid: 3 } }))?.text).toBe('Your $120 session costs are covered before fees, with $15 to spare')
+    expect(sessionCovered(view({ tally: { ...view().tally, paid: 3 } }))?.text).toBe('Your $120 session costs are covered before fees')
+  })
+
+  it('shows the spare only after PayPal fees', () => {
+    const v = view({ tally: { ...view().tally, paid: 3 }, enrollments: paidWithFees(3, 273) })
+    expect(sessionCovered(v)).toEqual({ covered: 12681, cost: 12000, text: 'Your $120 session costs are covered, with $6.81 to spare after PayPal fees' })
+  })
+
+  it('hides the spare when the fees leave the costs uncovered', () => {
+    const v = view({ tally: { ...view().tally, paid: 3 }, enrollments: paidWithFees(3, 600) })
+    expect(sessionCovered(v)?.text).toBe('$117 toward your $120 session costs (after PayPal fees)')
+  })
+
+  it('falls back to the figure before fees when one paid seat has no fee yet', () => {
+    const enrollments = [...paidWithFees(2, 273), ...paidWithFees(1, null)]
+    expect(sessionCovered(view({ tally: { ...view().tally, paid: 3 }, enrollments }))?.text).toBe('Your $120 session costs are covered before fees')
+  })
+
+  it('leaves a refunded or flagged seat out of the spare', () => {
+    const seats = paidWithFees(4, 273)
+    const refunded = { ...seats[3], payment: { ...seats[3].payment, refund_id: 'r1' } }
+    const flagged = { ...seats[2], needs_attention: true }
+    const base = { tally: { ...view().tally, paid: 4 } }
+    expect(sessionCovered(view({ ...base, enrollments: [...seats.slice(0, 3), refunded] }))?.text).toBe('Your $120 session costs are covered, with $6.81 to spare after PayPal fees')
+    expect(sessionCovered(view({ ...base, enrollments: [seats[0], seats[1], flagged, seats[3]] }))?.text).toBe('Your $120 session costs are covered, with $6.81 to spare after PayPal fees')
+    expect(sessionCovered(view({ ...base, enrollments: [seats[0], seats[1], flagged, refunded] }))?.text).toBe('$84.54 toward your $120 session costs (after PayPal fees)')
   })
 
   it('is absent without a session cost', () => {
@@ -223,14 +277,14 @@ describe('nextStep never gets ahead of the money', () => {
   it('says when nobody can make any date yet', () => {
     const v = view({
       availabilities: answered(['p1']),
-      recommendation: { date_id: 'sat', meets_minimum: false, per_date: [{ date_id: 'sat', compatible: [], blockers: null }], explanation: '', explanation_pending: false },
+      recommendation: { date_id: 'sat', meets_minimum: false, tied: false, per_date: [{ date_id: 'sat', compatible: [], blockers: null }], explanation: '', explanation_pending: false },
     })
     expect(nextStep(v).title).toBe('Nobody can make a date yet.')
   })
 
   it('names at most three people who need to clarify', () => {
     const many = ['A', 'B', 'C', 'D', 'E'].map((n) => ({ ...answered([n])[0], display_name: n, needs_clarification: true }))
-    const v = view({ availabilities: many, recommendation: { date_id: 'sat', meets_minimum: false, per_date: [{ date_id: 'sat', compatible: ['A'], blockers: null }], explanation: '', explanation_pending: false } })
+    const v = view({ availabilities: many, recommendation: { date_id: 'sat', meets_minimum: false, tied: false, per_date: [{ date_id: 'sat', compatible: ['A'], blockers: null }], explanation: '', explanation_pending: false } })
     expect(nextStep(v).detail).toContain('A, B, C and 2 others need to clarify their message.')
   })
 
@@ -241,7 +295,7 @@ describe('nextStep never gets ahead of the money', () => {
         { id: 'pm', starts_at: '2026-11-14T20:00:00Z', ends_at: '2026-11-14T22:00:00Z', label: '' },
       ],
       availabilities: answered(['p1', 'p2', 'p3']),
-      recommendation: { date_id: 'pm', meets_minimum: true, per_date: [{ date_id: 'pm', compatible: ['p1', 'p2', 'p3'], blockers: null }], explanation: '', explanation_pending: false },
+      recommendation: { date_id: 'pm', meets_minimum: true, tied: false, per_date: [{ date_id: 'pm', compatible: ['p1', 'p2', 'p3'], blockers: null }], explanation: '', explanation_pending: false },
     })
     expect(nextStep(v).action).toEqual({ kind: 'open', dateId: 'pm', day: 'Sat, Nov 14 at 3 PM' })
   })
@@ -266,6 +320,7 @@ describe('dateColumns', () => {
       recommendation: {
         date_id: 'sat',
         meets_minimum: true,
+        tied: true,
         per_date: [
           { date_id: 'sat', compatible: ['p1', 'p2', 'p3'], blockers: null },
           { date_id: 'sun', compatible: ['p1', 'p2', 'p3'], blockers: null },
@@ -277,9 +332,21 @@ describe('dateColumns', () => {
 
   it('counts who can come and marks the recommended date', () => {
     expect(dateColumns(ready())).toEqual([
-      { id: 'sat', name: 'Sat, Nov 14', time: '10 AM–12 PM', can: 3, mark: 'Recommended', canOpen: false },
+      { id: 'sat', name: 'Sat, Nov 14', time: '10 AM–12 PM', can: 3, mark: 'Tied', canOpen: false },
       { id: 'sun', name: 'Sun, Nov 15', time: '10 AM–12 PM', can: 3, mark: null, canOpen: true },
     ])
+  })
+
+  it('marks no date when nobody can come on the leading one', () => {
+    const v = ready()
+    const empty = { ...v.recommendation, tied: false, per_date: v.recommendation.per_date?.map((d) => ({ ...d, compatible: [] })) ?? [] }
+    expect(dateColumns({ ...v, recommendation: empty }).map((c) => c.mark)).toEqual([null, null])
+  })
+
+  it('marks the lead as Recommended only when no other date shares the most', () => {
+    const v = ready()
+    const alone = dateColumns({ ...v, recommendation: { ...v.recommendation, tied: false } })
+    expect(alone.map((c) => c.mark)).toEqual(['Recommended', null])
   })
 
   it('marks no date before anyone answered', () => {

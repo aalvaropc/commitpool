@@ -12,7 +12,7 @@ import { Avatar, Icon, Notice, Page, Tile } from '../components/ui'
 import { hostFirstName } from '../lib/chat'
 import { useNow, usePolling, useResource } from '../lib/hooks'
 import { rememberParticipant } from '../lib/participant'
-import { authorizationPending, headline, returnCheckSettled, seatHeld, shouldPollParticipant, tone } from '../lib/status'
+import { authorizationPending, countdownShown, headline, returnCheckSettled, seatHeld, shouldPollParticipant, tone } from '../lib/status'
 
 const CHECK_PATIENCE_MS = 30000
 
@@ -105,7 +105,7 @@ export default function Participant() {
           <FromTheChat host={w.host_name} message={d.participant.chat_message} canAnswer={w.status === 'COLLECTING' || (d.proposal?.payments_open ?? false)} />
         )}
         <AvailabilityPanel token={token} view={d} onSaved={view.reload} />
-        <EventDetails view={d} />
+        <EventDetails view={d} counting={countdownShown(w.status, own)} />
       </div>
     </Page>
   )

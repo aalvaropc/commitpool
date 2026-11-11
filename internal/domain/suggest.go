@@ -10,16 +10,20 @@ import (
 type SuggestionKind string
 
 const (
-	SuggestClarify   SuggestionKind = "clarify"
-	SuggestCondition SuggestionKind = "condition"
-	SuggestReserve   SuggestionKind = "reserve"
-	SuggestShare     SuggestionKind = "share"
-	SuggestRescue    SuggestionKind = "rescue"
+	SuggestClarify    SuggestionKind = "clarify"
+	SuggestCondition  SuggestionKind = "condition"
+	SuggestReserve    SuggestionKind = "reserve"
+	SuggestShare      SuggestionKind = "share"
+	SuggestRescue     SuggestionKind = "rescue"
+	SuggestGroupReply SuggestionKind = "group_reply"
 )
 
 const (
 	MaxPersonalSuggestions = 4
 	ShareWhenLeft          = 12 * time.Hour
+	MaxGroupReplyQuestions = 4
+	GroupReplyAnswers      = 2
+	GroupReplyFreshFor     = 24 * time.Hour
 )
 
 type Suggestion struct {
@@ -42,13 +46,22 @@ type SuggestInput struct {
 	Reserved     map[string]bool
 	CanExtend    bool
 	Extended     bool
+	GroupReply   bool
+}
+
+func GroupReplyDue(answeredAt []time.Time, now time.Time) bool {
+	if len(answeredAt) < GroupReplyAnswers {
+		return false
+	}
+	return slices.ContainsFunc(answeredAt, func(t time.Time) bool { return now.Sub(t) <= GroupReplyFreshFor })
 }
 
 func Suggestions(in SuggestInput) []Suggestion {
 	var personal []Suggestion
-	var share, rescue bool
+	var share, rescue, reply bool
 	switch {
 	case in.Status == WorkshopCollecting:
+		reply = in.GroupReply
 		for _, id := range in.Unclear {
 			personal = append(personal, Suggestion{Kind: SuggestClarify, ParticipantID: id})
 		}
@@ -68,6 +81,9 @@ func Suggestions(in SuggestInput) []Suggestion {
 		share = !rescue && (left <= ShareWhenLeft || in.Extended)
 	}
 	var out []Suggestion
+	if reply {
+		out = append(out, Suggestion{Kind: SuggestGroupReply})
+	}
 	if rescue {
 		out = append(out, Suggestion{Kind: SuggestRescue})
 	}

@@ -8,7 +8,7 @@ RUN pnpm -C web install --frozen-lockfile
 COPY web/ web/
 RUN pnpm -C web install --frozen-lockfile && pnpm -C web build
 
-FROM --platform=$BUILDPLATFORM golang:1.26.10-alpine AS go
+FROM --platform=$BUILDPLATFORM golang:1.26.11-alpine AS go
 ARG TARGETOS TARGETARCH
 WORKDIR /src
 COPY go.mod go.sum ./

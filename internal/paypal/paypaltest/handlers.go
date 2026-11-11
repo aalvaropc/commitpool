@@ -44,6 +44,8 @@ func (f *Server) createOrder(r *http.Request, body []byte) fakeResponse {
 		PaymentSource struct {
 			PayPal struct {
 				ExperienceContext struct {
+					BrandName string `json:"brand_name"`
+					Locale    string `json:"locale"`
 					ReturnURL string `json:"return_url"`
 					CancelURL string `json:"cancel_url"`
 				} `json:"experience_context"`
@@ -65,6 +67,10 @@ func (f *Server) createOrder(r *http.Request, body []byte) fakeResponse {
 		amount:      unit.Amount,
 		returnURL:   ctx.ReturnURL,
 		cancelURL:   ctx.CancelURL,
+		brandName:   ctx.BrandName,
+		locale:      ctx.Locale,
+		description: unit.Description,
+		descriptor:  unit.SoftDescriptor,
 	}
 	f.orders[o.id] = o
 	return jsonResponse(http.StatusCreated, f.orderView(o, false))
@@ -218,7 +224,13 @@ func (f *Server) liveOrder(id string) (*fakeOrder, bool) {
 }
 
 func (f *Server) orderView(o *fakeOrder, forGet bool) paypal.Order {
-	unit := paypal.PurchaseUnit{ReferenceID: o.referenceID, CustomID: o.customID, Amount: o.amount}
+	unit := paypal.PurchaseUnit{
+		ReferenceID:    o.referenceID,
+		CustomID:       o.customID,
+		Description:    o.description,
+		SoftDescriptor: o.descriptor,
+		Amount:         o.amount,
+	}
 	if forGet && o.reported != nil {
 		unit.Amount = *o.reported
 	}
@@ -253,6 +265,8 @@ var approveTemplate = template.Must(template.New("approve").Parse(`<!doctype htm
 <head><meta charset="utf-8"><title>Fake PayPal checkout</title></head>
 <body>
 <h1>Fake PayPal checkout</h1>
+{{if .Brand}}<p>{{.Brand}}</p>{{end}}
+{{if .Description}}<p>{{.Description}}</p>{{end}}
 <p>Authorize {{.Value}} {{.Currency}} for order {{.ID}}.</p>
 <form method="post" action="` + fakePrefix + `/approve">
 <input type="hidden" name="order" value="{{.ID}}">
@@ -266,9 +280,10 @@ var approveTemplate = template.Must(template.New("approve").Parse(`<!doctype htm
 func (f *Server) approvePage(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	o, ok := f.liveOrder(r.URL.Query().Get("order"))
-	var data struct{ ID, Value, Currency string }
+	var data struct{ ID, Value, Currency, Brand, Description string }
 	if ok {
 		data.ID, data.Value, data.Currency = o.id, o.amount.Value, o.amount.CurrencyCode
+		data.Brand, data.Description = o.brandName, o.description
 	}
 	f.mu.Unlock()
 	if !ok {

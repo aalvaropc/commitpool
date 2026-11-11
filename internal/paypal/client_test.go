@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/aalvaropc/commitpool/internal/paypal"
 )
@@ -470,6 +472,8 @@ func TestClient_CreateOrderBodyMatchesContract(t *testing.T) {
 			"amount": {"currency_code": "USD", "value": "10.00"}
 		}],
 		"payment_source": {"paypal": {"experience_context": {
+			"brand_name": "CommitPool",
+			"locale": "en-US",
 			"user_action": "CONTINUE",
 			"shipping_preference": "NO_SHIPPING",
 			"return_url": "https://app.example/paypal/return",
@@ -759,5 +763,96 @@ func TestClient_DecodesTheSellerReceivableBreakdown(t *testing.T) {
 	pending, err := c.GetCapture(ctx, "PENDINGCAPTURE")
 	if err != nil || pending.SellerReceivableBreakdown != nil {
 		t.Errorf("capture without a breakdown = %+v, %v; want no breakdown", pending, err)
+	}
+}
+
+func TestCreateOrder_SendsBrandAndDescription(t *testing.T) {
+	f := newFake(t)
+	c := newTestClient(t, f)
+	p := createParams("1")
+	p.Description = paypal.OrderDescription("Go for operators", "Sat, Nov 14, 10 AM–12 PM (New York time)")
+	p.SoftDescriptor = paypal.SoftDescriptor
+
+	order, err := c.CreateOrder(context.Background(), p)
+	if err != nil {
+		t.Fatalf("CreateOrder: %v", err)
+	}
+
+	reqs := f.Requests("create_order")
+	if len(reqs) != 1 {
+		t.Fatalf("create_order requests = %d, want 1", len(reqs))
+	}
+	var body struct {
+		PurchaseUnits []struct {
+			Description    string            `json:"description"`
+			SoftDescriptor string            `json:"soft_descriptor"`
+			Items          []json.RawMessage `json:"items"`
+		} `json:"purchase_units"`
+		PaymentSource struct {
+			PayPal struct {
+				ExperienceContext struct {
+					BrandName string `json:"brand_name"`
+					Locale    string `json:"locale"`
+				} `json:"experience_context"`
+			} `json:"paypal"`
+		} `json:"payment_source"`
+	}
+	if err := json.Unmarshal(reqs[0].Body, &body); err != nil {
+		t.Fatalf("create_order body: %v", err)
+	}
+	ec := body.PaymentSource.PayPal.ExperienceContext
+	if ec.BrandName != "CommitPool" || ec.Locale != "en-US" {
+		t.Errorf("experience_context brand_name/locale = %q/%q, want CommitPool/en-US", ec.BrandName, ec.Locale)
+	}
+	unit := body.PurchaseUnits[0]
+	if want := "Go for operators · Sat, Nov 14, 10 AM–12 PM (New York time) · hold for 1 spot"; unit.Description != want {
+		t.Errorf("description = %q, want %q", unit.Description, want)
+	}
+	if unit.SoftDescriptor != "COMMITPOOL" {
+		t.Errorf("soft_descriptor = %q, want COMMITPOOL", unit.SoftDescriptor)
+	}
+	if len(unit.Items) != 0 {
+		t.Errorf("items = %d, want none", len(unit.Items))
+	}
+	if got := order.PurchaseUnits[0].Description; got != p.Description {
+		t.Errorf("order description = %q, want the fake to echo %q", got, p.Description)
+	}
+}
+
+func TestOrderDescription_Truncates(t *testing.T) {
+	title := strings.Repeat("é", 200)
+	got := paypal.OrderDescription(title, "Sat, Nov 14, 10 AM–12 PM (New York time)")
+	if n := len([]rune(got)); n > 127 {
+		t.Errorf("description runes = %d, want at most 127", n)
+	}
+	if !strings.HasSuffix(got, " · Sat, Nov 14, 10 AM–12 PM (New York time) · hold for 1 spot") {
+		t.Errorf("description = %q, want the date and the hold kept after a long title", got)
+	}
+	if n := len([]rune(paypal.OrderDescription("Go", strings.Repeat("x", 300)))); n != 127 {
+		t.Errorf("description with an oversized date = %d runes, want 127", n)
+	}
+}
+
+func TestOrderDescription_CollapsesNewlines(t *testing.T) {
+	got := paypal.OrderDescription("Go\n\nfor \t operators\r\n\x00now", "Sat, Nov 14")
+	if want := "Go for operators now · Sat, Nov 14 · hold for 1 spot"; got != want {
+		t.Errorf("description = %q, want %q", got, want)
+	}
+}
+
+func TestOrderDescription_EmojiTitleFitsUTF16Limit(t *testing.T) {
+	label := "Sat, Nov 14, 10 AM–12 PM (New York time)"
+	got := paypal.OrderDescription(strings.Repeat("🎨", 120), label)
+	if n := len(utf16.Encode([]rune(got))); n > 127 {
+		t.Errorf("description UTF-16 units = %d, want at most 127", n)
+	}
+	if !strings.HasSuffix(got, " · "+label+" · hold for 1 spot") {
+		t.Errorf("description = %q, want the date and the hold kept", got)
+	}
+	if !utf8.ValidString(got) || strings.ContainsRune(got, '\uFFFD') {
+		t.Errorf("description = %q, want valid text", got)
+	}
+	if n := len(utf16.Encode([]rune(paypal.OrderDescription(strings.Repeat("🎨", 120), strings.Repeat("🎨", 100))))); n > 127 {
+		t.Errorf("description with an oversized emoji date = %d units, want at most 127", n)
 	}
 }

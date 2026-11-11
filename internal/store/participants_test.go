@@ -111,11 +111,11 @@ func TestImportChatParticipants_CountsOnlyImportsThatAddPeople(t *testing.T) {
 	newParticipant(t, s, w, "Ana")
 	imports := func() int {
 		t.Helper()
-		var n int
-		if err := s.Pool.QueryRow(ctx, `select chat_imports from workshops where id = $1`, w.ID).Scan(&n); err != nil {
+		row, err := s.WorkshopByID(ctx, w.ID)
+		if err != nil {
 			t.Fatal(err)
 		}
-		return n
+		return row.ChatImports
 	}
 
 	refused := errors.New("refused by the plan")

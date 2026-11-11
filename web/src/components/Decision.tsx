@@ -20,16 +20,16 @@ export function InviteLink({ url, hint }: { url?: string; hint: string }) {
   return <CopyField id="share-url" label="Invite link" value={url} hint={hint} />
 }
 
-export function StatusLine() {
+export function StatusLine({ canPaste = true }: { canPaste?: boolean }) {
   return (
     <section aria-label="Workshop status" className="flex items-center gap-2.5 px-1">
       <span aria-hidden="true" className={`grid size-7 shrink-0 place-items-center rounded-full ${toneWash.neutral} ${toneText.neutral}`}>
         <Icon name={statusIcons.neutral} size={14} />
       </span>
       <p role="status" className="leading-snug font-semibold text-ink-soft">
-        No answers yet. Paste the group chat, or{' '}
+        {canPaste ? 'No answers yet. Paste the group chat, or ' : 'No answers yet. '}
         <a href="#share-url" className="text-brand underline">
-          share the invite
+          {canPaste ? 'share the invite' : 'Share the invite'}
         </a>
         .
       </p>

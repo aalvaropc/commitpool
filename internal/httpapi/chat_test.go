@@ -410,8 +410,9 @@ func TestImport_DemoLimits(t *testing.T) {
 		e.call(http.MethodDelete, h.ownerPath+"/participants/"+p.ID, nil, http.StatusNoContent, nil)
 	}
 	e.wantError(http.MethodPost, h.ownerPath+"/chat/import", importBody(lifeDrawingChat(), castNames()...), http.StatusUnprocessableEntity, "demo_import_used")
-	if n := e.countParticipants(h); n != 0 {
-		t.Errorf("%d participants after removing everyone and importing again, want 0", n)
+	emptied := e.owner(h)
+	if len(emptied.Participants) != 0 || !emptied.ChatImported {
+		t.Errorf("after removing everyone: %d participants, chat_imported %v; want 0 and true, so the board does not offer the chat again", len(emptied.Participants), emptied.ChatImported)
 	}
 }
 

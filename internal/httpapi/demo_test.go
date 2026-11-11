@@ -48,8 +48,8 @@ func TestCreateDemo_StartsEmptyWithItsChat(t *testing.T) {
 	if v.Workshop.HostName != "Iris Calder" || v.Workshop.Title != "Life drawing for beginners" {
 		t.Fatalf("workshop = %+v", v.Workshop)
 	}
-	if len(v.Participants) != 0 || len(v.Availabilities) != 0 {
-		t.Errorf("a new demo has %d participants and %d answers, want none until the chat is read", len(v.Participants), len(v.Availabilities))
+	if len(v.Participants) != 0 || len(v.Availabilities) != 0 || v.ChatImported {
+		t.Errorf("a new demo has %d participants, %d answers and chat_imported %v; want none until the chat is read", len(v.Participants), len(v.Availabilities), v.ChatImported)
 	}
 	var public struct {
 		Group struct {
@@ -102,8 +102,8 @@ func TestCreateDemo_ImportReadsTheCast(t *testing.T) {
 
 	e.background.Wait()
 	v := e.settledOwner(h)
-	if len(v.Availabilities) != 6 || v.Reading.Pending != 0 || v.Reading.Total != 6 {
-		t.Fatalf("%d of 6 answered, reading %+v", len(v.Availabilities), v.Reading)
+	if len(v.Availabilities) != 6 || v.Reading.Pending != 0 || v.Reading.Total != 6 || !v.ChatImported {
+		t.Fatalf("%d of 6 answered, reading %+v, chat_imported %v", len(v.Availabilities), v.Reading, v.ChatImported)
 	}
 	grace := participantNamed(t, v, "Grace Liu")
 	for _, a := range v.Availabilities {

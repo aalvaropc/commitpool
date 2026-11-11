@@ -604,6 +604,7 @@ type ownerViewJSON struct {
 	Suggestions    []suggestionJSON       `json:"suggestions"`
 	Reading        readingJSON            `json:"reading"`
 	DemoChat       *string                `json:"demo_chat"`
+	ChatImported   bool                   `json:"chat_imported"`
 	Demo           struct {
 		DemoMode     bool `json:"demo_mode"`
 		SandboxMocks bool `json:"sandbox_mocks"`

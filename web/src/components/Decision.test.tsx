@@ -10,4 +10,7 @@ describe('StatusLine', () => {
     expect(html).toMatch(/role="status"/)
     expect(html).toMatch(/href="#share-url"/)
   })
+  it('drops the paste when a demo already read its chat', () => {
+    expect(renderToStaticMarkup(<StatusLine canPaste={false} />).replace(/<[^>]+>/g, '')).toBe('No answers yet. Share the invite.')
+  })
 })

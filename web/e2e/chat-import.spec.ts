@@ -2,7 +2,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Page } from '@playwright/test'
 import { expectAccessible } from './a11y'
-import { createdLinks, createWorkshop, expect, fillTheFormMyself, test } from './helpers'
+import { createdLinks, createWorkshop, expect, fillTheFormMyself, importDemoChat, test } from './helpers'
 
 const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'whatsapp-ios.txt')
 
@@ -24,7 +24,7 @@ async function readingHalfway(page: Page): Promise<() => Promise<void>> {
     }
     await route.fulfill({ response, json: view })
   })
-  return () => page.unroute(ownerView)
+  return () => page.unrouteAll({ behavior: 'ignoreErrors' })
 }
 
 test.describe('the group chat on the first screen', () => {
@@ -72,13 +72,16 @@ test.describe('paste your group chat', () => {
     await expectAccessible(page, 'the preview of Iris’s chat')
 
     const stopFaking = await readingHalfway(page)
-    await card.getByRole('button', { name: 'Add 6 people' }).click()
-    await expect(page.getByText('Claude is reading the chat… 2 of 6')).toBeVisible()
-    await expect(page.getByRole('heading', { name: 'Who can come', exact: true })).toBeFocused()
-    await expect(page.getByRole('region', { name: 'Who can come, by date' }).getByText('Claude is reading…')).toHaveCount(4)
-    await expect(page.getByRole('region', { name: 'You are Iris now' })).toContainText('Claude is reading each person’s messages against Iris’s dates.')
-    await expectAccessible(page, 'the board while Claude reads the chat')
-    await stopFaking()
+    try {
+      await card.getByRole('button', { name: 'Add 6 people' }).click()
+      await expect(page.getByText('Claude is reading the chat… 2 of 6')).toBeVisible()
+      await expect(page.getByRole('heading', { name: 'Who can come', exact: true })).toBeFocused()
+      await expect(page.getByRole('region', { name: 'Who can come, by date' }).getByText('Claude is reading…')).toHaveCount(4)
+      await expect(page.getByRole('region', { name: 'You are Iris now' })).toContainText('Claude is reading each person’s messages against Iris’s dates.')
+      await expectAccessible(page, 'the board while Claude reads the chat')
+    } finally {
+      await stopFaking()
+    }
 
     await expect(page.getByText('6 of 6 answered', { exact: false })).toBeVisible()
     await expect(page.getByText(/^Claude is reading the chat…/)).toHaveCount(0)
@@ -89,6 +92,26 @@ test.describe('paste your group chat', () => {
     await expect(page.getByRole('region', { name: 'Next step' })).toContainText('Grace Liu’s message needs clarifying.')
     await expect(page.getByRole('region', { name: 'You are Iris now' })).toContainText('Act as Grace Liu and answer Claude’s question')
     await expectAccessible(page, 'the demo board after the chat was read')
+  })
+
+  test('a demo emptied after its one chat does not offer the chat again', async ({ page }) => {
+    await page.goto('/')
+    await page.getByRole('button', { name: 'Try it as Iris' }).first().click()
+    await importDemoChat(page)
+    await expect(page.getByText('6 of 6 answered', { exact: false })).toBeVisible()
+    const token = new URL(page.url()).pathname.split('/').pop() ?? ''
+    const view = await (await page.request.get(`/api/v1/owner/${token}`)).json()
+    for (const p of view.participants as { id: string }[]) {
+      expect((await page.request.delete(`/api/v1/owner/${token}/participants/${p.id}`)).status()).toBe(204)
+    }
+    await page.reload()
+    const used = page.getByRole('region', { name: 'Iris’s group chat' })
+    await expect(used).toHaveText(/^This demo already read Iris’s chat\. Start a new demo to read it again\./)
+    await expect(page.getByRole('region', { name: 'Workshop status' })).toHaveText('No answers yet. Share the invite.')
+    await expect(page.getByRole('region', { name: /^Paste / })).toHaveCount(0)
+    await expectAccessible(page, 'an emptied demo board')
+    await used.getByRole('link', { name: /Back to Try it as Iris/ }).click()
+    await expect(page.getByRole('button', { name: 'Try it as Iris' }).first()).toBeVisible()
   })
 
   test('a real class: three pasted lines become three people, each with their own link', async ({ page: owner }) => {
@@ -115,6 +138,7 @@ test.describe('paste your group chat', () => {
     const adaRow = owner.getByRole('region', { name: 'Who can come, by date' }).getByRole('row').filter({ hasText: 'Ada' })
     await adaRow.getByRole('button', { name: 'Copy their link for Ada' }).click()
     await expect(adaRow.getByRole('status')).toHaveText('Copied. Send it to Ada.')
+    await expect(adaRow.getByRole('status')).toHaveCount(0, { timeout: 8000 })
     const link = String(await owner.evaluate('navigator.clipboard.readText()'))
     expect(link).toMatch(/\/p\/[\w-]+$/)
     const ada = await owner.context().newPage()

@@ -20,7 +20,7 @@ import { Loading, LoadError, RefreshError } from '../components/PageState'
 import { ExtendDialog } from '../components/RescueCard'
 import SpotsTile from '../components/SpotsTile'
 import { TermsList } from '../components/Terms'
-import { Button, Icon, Notice, Page, Pill, Tile, TileLabel } from '../components/ui'
+import { Button, ButtonLink, Icon, Notice, Page, Pill, Tile, TileLabel } from '../components/ui'
 import { extendLink } from '../lib/extend'
 import { usePolling, useResource } from '../lib/hooks'
 import { nextStep, ownerRefresh } from '../lib/owner'
@@ -66,6 +66,18 @@ function AgreedTerms({ view }: { view: OwnerView }) {
         />
       </details>
       {w.status !== 'CANCELLED' && <AddToCalendar path={p.calendar_path} />}
+    </Tile>
+  )
+}
+
+export function DemoChatUsed() {
+  return (
+    <Tile as="section" aria-label="Iris’s group chat" tone="muted" className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <p className="font-semibold">This demo already read Iris’s chat. Start a new demo to read it again.</p>
+      <ButtonLink to="/" variant="secondary" size="sm" className="shrink-0">
+        Back to Try it as Iris
+        <Icon name="arrowRight" size={16} />
+      </ButtonLink>
     </Tile>
   )
 }
@@ -146,7 +158,8 @@ export default function Owner() {
   const stalled = pendingSince.current !== null && Date.now() - pendingSince.current > STALLED_AFTER_MS
   const collecting = w.status === 'COLLECTING'
   const empty = collecting && d.participants.length === 0
-  const pasting = collecting && !(w.demo && d.participants.length > 0)
+  const demoUsed = w.demo === true && (d.chat_imported === true || d.participants.length > 0)
+  const pasting = collecting && !demoUsed
   const later = (
     <>
       <ClaudeSuggests suggestions={d.suggestions} rescue={{ extension: d.extension ?? null, timeZone: w.timezone, onExtend: () => setExtending(true) }} />
@@ -177,7 +190,7 @@ export default function Owner() {
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-5">
         <div className="flex min-w-0 flex-col gap-4 lg:gap-5">
           {view.error && <RefreshError polling={refresh !== null} onRetry={() => void view.reload()} />}
-          {empty ? <StatusLine /> : <Decision view={d} step={step} onOpen={setOpening} titleRef={decisionTitle} />}
+          {empty ? <StatusLine canPaste={!demoUsed} /> : <Decision view={d} step={step} onOpen={setOpening} titleRef={decisionTitle} />}
           {linked === 'stale' && (
             <Notice tone="attention" title="This extension link is out of date">
               <p>{d.extension?.reason ?? 'Reservations are not open, so there is no deadline to extend.'}</p>
@@ -192,6 +205,7 @@ export default function Owner() {
           {collecting ? (
             <>
               {pasting && <ChatImportCard token={token} view={d} onImported={imported} />}
+              {empty && demoUsed && <DemoChatUsed />}
               <ChatReading reading={d.reading} />
             </>
           ) : (

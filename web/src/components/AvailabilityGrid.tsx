@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api, type Availability, type DateSummary, type OwnerParticipant, type OwnerView } from '../api'
 import { cellNotes, cellStatus, dateColumns, type DateColumn } from '../lib/owner'
 import { count } from '../lib/plural'
@@ -19,6 +19,8 @@ interface Actions {
   remove: (p: OwnerParticipant) => void
   removable: (p: OwnerParticipant) => boolean
 }
+
+export const COPIED_FOR_MS = 4000
 
 const markTone = (c: DateColumn, meets: boolean) => (c.mark === 'Recommended' ? (meets ? 'paid' : 'neutral') : 'hold')
 const wrap = 'min-w-0 [overflow-wrap:anywhere]'
@@ -155,7 +157,14 @@ export default function AvailabilityGrid({ token, view, onOpen, onChange }: Prop
   const stuck = people.filter((p) => unreadOf(p) === 'stuck')
   const readStuck = stuck.length === 1 ? `Read ${stuck[0].display_name}’s message again` : `Read the ${count(stuck.length, 'person', 'people')} Claude couldn’t read yet`
 
+  useEffect(() => {
+    if (!copied) return
+    const t = setTimeout(() => setCopied(null), COPIED_FOR_MS)
+    return () => clearTimeout(t)
+  }, [copied])
+
   async function readAgain() {
+    setCopied(null)
     setBusy('retry')
     setAgain('')
     try {
@@ -181,6 +190,7 @@ export default function AvailabilityGrid({ token, view, onOpen, onChange }: Prop
       }
     },
     remove(p) {
+      setCopied(null)
       setRemoveError(null)
       setRemoving(p)
     },

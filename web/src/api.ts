@@ -241,6 +241,7 @@ export interface OwnerView {
   participants: OwnerParticipant[]
   reading?: Reading
   demo_chat?: string | null
+  chat_imported?: boolean
   availabilities: Availability[]
   recommendation: Recommendation
   enrollments: Enrollment[]

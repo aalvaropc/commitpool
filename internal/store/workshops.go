@@ -32,6 +32,7 @@ type WorkshopRow struct {
 	OwnerEmail             string
 	PayoutEmail            string
 	PayoutLockedAt         *time.Time
+	ChatImports            int
 }
 
 type CandidateDateRow struct {
@@ -67,7 +68,7 @@ type CreateWorkshopParams struct {
 }
 
 const (
-	workshopCols      = `id, title, description, duration_min, timezone, minimum, capacity, price_minor, currency, payment_window_min, status, resolution, created_at, coalesce(share_token, ''), cancelled_at, cancel_reason, host_name, location, venue_cost_minor, is_demo, coalesce(owner_email, ''), coalesce(payout_email, ''), payout_locked_at`
+	workshopCols      = `id, title, description, duration_min, timezone, minimum, capacity, price_minor, currency, payment_window_min, status, resolution, created_at, coalesce(share_token, ''), cancelled_at, cancel_reason, host_name, location, venue_cost_minor, is_demo, coalesce(owner_email, ''), coalesce(payout_email, ''), payout_locked_at, chat_imports`
 	candidateDateCols = `id, workshop_id, starts_at, ends_at`
 	proposalCols      = `id, workshop_id, version, chosen_date_id, price_minor, currency, minimum, capacity, opens_at, closes_at, starts_at, extended_from, extended_at`
 )

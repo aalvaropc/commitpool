@@ -259,3 +259,40 @@ func TestBedrock_LiveEval(t *testing.T) {
 		}
 	}
 }
+
+func TestBedrock_LiveGroupReply(t *testing.T) {
+	b, ctx := liveBedrock(t)
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dates := classDates(t)
+	sat, sun := present.Day(dates[0].StartsAt, ny), present.Day(dates[1].StartsAt, ny)
+	var question string
+	for _, p := range demo.LifeDrawing.People {
+		if p.Name == "Grace Liu" {
+			question = p.Expect.Question
+		}
+	}
+	in := ai.SuggestInput{
+		WorkshopTitle: demo.LifeDrawing.Title, Kind: "group_reply", Date: sat, Hours: "10 AM–12 PM",
+		CanCome: 2, Needed: demo.LifeDrawing.Minimum, Missing: 1, Tied: []string{sat, sun},
+		Questions: []ai.NamedQuestion{{Name: "Grace Liu", Question: question}},
+	}
+	text, meta, err := b.Suggest(ctx, in)
+	if err != nil {
+		t.Fatalf("Suggest: %v", err)
+	}
+	t.Logf("group reply (%s): %s", meta.Model, text)
+	for _, want := range []string{sat, sun, "Grace", "10 AM–12 PM"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("group reply %q does not contain %q", text, want)
+		}
+	}
+	if !strings.Contains(text, "2 of you") && !strings.Contains(text, "two of you") {
+		t.Errorf("group reply %q does not say how many of the group can come", text)
+	}
+	if lower := strings.ToLower(text); strings.Contains(lower, "recommend") || strings.Contains(lower, "best") || strings.Contains(lower, "$") {
+		t.Errorf("group reply %q picks a tied date or names an amount", text)
+	}
+}

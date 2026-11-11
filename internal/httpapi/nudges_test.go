@@ -15,10 +15,11 @@ func TestSuggestions_AskTheVagueOneWhileFindingTheDate(t *testing.T) {
 	e.joinAndSay(h, "Ana", "Saturday works for me")
 	e.joinAndSay(h, "Grace Liu", "I can make it either day, ideally in the afternoon.")
 	v := e.settledOwner(h)
-	if len(v.Suggestions) != 1 {
+	nudges := personal(v.Suggestions)
+	if len(nudges) != 1 {
 		t.Fatalf("suggestions = %+v, want one for Grace", v.Suggestions)
 	}
-	sg := v.Suggestions[0]
+	sg := nudges[0]
 	if sg.Kind != "clarify" || sg.Name != "Grace Liu" || sg.Reason != "Grace Liu’s message needs clarifying." || sg.Pending {
 		t.Errorf("suggestion = %+v", sg)
 	}
@@ -84,8 +85,12 @@ func TestSuggestions_ReachTheAssistantThroughGetStatus(t *testing.T) {
 		Suggestions []suggestionJSON `json:"suggestions"`
 	}
 	e.tool(cs, "get_status", map[string]any{"owner_link": created.OwnerLink}, &status)
-	if len(status.Suggestions) != 1 || status.Suggestions[0].Kind != "clarify" || !strings.HasPrefix(status.Suggestions[0].Message, "Hi Grace!") {
+	nudges := personal(status.Suggestions)
+	if len(nudges) != 1 || nudges[0].Kind != "clarify" || !strings.HasPrefix(nudges[0].Message, "Hi Grace!") {
 		t.Errorf("get_status suggestions = %+v", status.Suggestions)
+	}
+	if reply := status.Suggestions[0]; reply.Kind != "group_reply" || !strings.HasSuffix(reply.Message, "\n"+created.ShareLink) {
+		t.Errorf("get_status group reply = %+v, want it first with the invite link", reply)
 	}
 }
 

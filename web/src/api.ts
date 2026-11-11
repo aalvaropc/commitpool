@@ -234,7 +234,7 @@ export interface Extension {
 }
 
 export interface Suggestion {
-  kind: 'clarify' | 'condition' | 'reserve' | 'share' | 'rescue'
+  kind: 'clarify' | 'condition' | 'reserve' | 'share' | 'rescue' | 'group_reply'
   participant_id?: string
   name?: string
   reason: string

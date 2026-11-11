@@ -304,3 +304,36 @@ func TestParse_NoSpaceAfterColon(t *testing.T) {
 		t.Fatalf("names = %v", names(c))
 	}
 }
+
+func TestParse_KeepsRealMessagesThatLookLikeNotices(t *testing.T) {
+	rows := []struct{ name, text string }{
+		{"missed voice call sentence", "Missed voice call yesterday sorry, Sunday works"},
+		{"missed video call sentence", "Missed video call earlier. Saturday works"},
+		{"encryption sentence", "Messages and calls are end-to-end encrypted, ok Saturday"},
+		{"encryption sentence with period", "Messages and calls are end-to-end encrypted. Fine, Saturday"},
+	}
+	for _, r := range rows {
+		t.Run(r.name, func(t *testing.T) {
+			c := mustParse(t, "11/10/26, 21:14 - Ana: "+r.text)
+			if got := messagesOf(c, "Ana"); !reflect.DeepEqual(got, []string{r.text}) {
+				t.Fatalf("ana = %q (skipped %d)", got, c.Skipped)
+			}
+		})
+	}
+}
+
+func TestParse_SkipsExactCallPlaceholders(t *testing.T) {
+	for _, row := range []string{"Missed voice call", "Missed video call", "Missed voice call, Tap to call back", "Missed group video call"} {
+		c := mustParse(t, "11/10/26, 21:14 - Iris: Saturday\n11/10/26, 21:15 - Ben: "+row)
+		if got := names(c); !reflect.DeepEqual(got, []string{"Iris"}) || c.Skipped != 1 {
+			t.Fatalf("%q: names = %v skipped = %d", row, got, c.Skipped)
+		}
+	}
+}
+
+func TestParse_MonthAndDomingoNamesAreSenders(t *testing.T) {
+	c := mustParse(t, "Iris: Saturday works\nApril: Sunday works\nDomingo: Saturday")
+	if got := names(c); !reflect.DeepEqual(got, []string{"Iris", "April", "Domingo"}) {
+		t.Fatalf("names = %v", got)
+	}
+}

@@ -33,8 +33,7 @@ var (
 		"today", "tomorrow", "tonight", "morning", "afternoon", "evening", "weekend",
 		"mon", "tue", "tues", "wed", "thu", "thur", "thurs", "fri", "sat", "sun",
 		"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
-		"january", "february", "march", "april", "june", "july", "august", "september", "october", "november", "december",
-		"lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo",
+		"lunes", "martes", "miercoles", "jueves", "viernes", "sabado",
 		"segunda", "terca", "quarta", "quinta", "sexta",
 		"lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche",
 	}

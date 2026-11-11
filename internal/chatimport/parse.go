@@ -71,11 +71,11 @@ var (
 		`.+ \(file attached\)|` +
 		`<attached: .+>|` +
 		`location: https?://\S+|` +
-		`missed (?:voice|video) call.*|` +
+		`missed (?:group )?(?:voice|video) call(?:, tap to call back)?\.?|` +
 		`this message was deleted\.?|you deleted this message\.?|` +
 		`this message was deleted by admin .+|` +
 		`waiting for this message.*|` +
-		`messages and calls are end-to-end encrypted.*` +
+		`messages and calls are end-to-end encrypted\.(?: no one outside of this chat.*)?` +
 		`)$`)
 
 	encryptionNotice = regexp.MustCompile(`(?i)^messages and calls are end-to-end encrypted`)

@@ -104,6 +104,28 @@ type Recommendation struct {
 	PerDate      []DateSummary
 }
 
+func (r Recommendation) LeadingDateIDs() []string {
+	if r.DateID == "" {
+		return nil
+	}
+	if !r.Tied {
+		return []string{r.DateID}
+	}
+	lead := -1
+	for _, s := range r.PerDate {
+		if s.DateID == r.DateID {
+			lead = len(s.Compatible)
+		}
+	}
+	var ids []string
+	for _, s := range r.PerDate {
+		if len(s.Compatible) == lead {
+			ids = append(ids, s.DateID)
+		}
+	}
+	return ids
+}
+
 func Recommend(w Workshop, dates []CandidateDate, ins map[string]Interpretation, loc *time.Location) Recommendation {
 	sorted := slices.Clone(dates)
 	slices.SortStableFunc(sorted, func(a, b CandidateDate) int { return a.StartsAt.Compare(b.StartsAt) })

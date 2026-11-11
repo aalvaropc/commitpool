@@ -247,6 +247,12 @@ func TestRecommend_TieIsMarked(t *testing.T) {
 	if lead.Tied || lead.DateID != "d14" {
 		t.Fatalf("3-1 Recommend() = date %q tied=%v, want d14 and not tied", lead.DateID, lead.Tied)
 	}
+	if ids := tied.LeadingDateIDs(); !slices.Equal(ids, []string{"d14", "d15"}) {
+		t.Fatalf("tied LeadingDateIDs = %v, want [d14 d15]", ids)
+	}
+	if ids := lead.LeadingDateIDs(); !slices.Equal(ids, []string{"d14"}) {
+		t.Fatalf("clear LeadingDateIDs = %v, want [d14]", ids)
+	}
 	if none := domain.Recommend(w, dates, map[string]domain.Interpretation{"p1": interpretation(verdictFor("d14", domain.VerdictUnavailable), verdictFor("d15", domain.VerdictUnavailable))}, time.UTC); none.Tied {
 		t.Fatalf("nobody can come anywhere, got tied=%v", none.Tied)
 	}

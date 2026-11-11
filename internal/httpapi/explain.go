@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -80,7 +81,7 @@ func (s *server) writeExplanation(ctx context.Context, st workshopState, in ai.E
 	case err != nil:
 		s.Log.Error("explain recommendation", "workshop_id", st.w.ID, "error", err)
 		return ai.PlainExplanation(in), s.Clock.Now().Add(explanationRetryAfter)
-	case namesAnotherDate(text, datesStarting(st.dates, func(d store.CandidateDateRow) bool { return d.ID == in.Recommendation.DateID }), st.loc):
+	case namesAnotherDate(text, datesStarting(st.dates, func(d store.CandidateDateRow) bool { return slices.Contains(in.Recommendation.LeadingDateIDs(), d.ID) }), st.loc):
 		s.Log.Warn("explanation named a date the server did not recommend; using the plain explanation",
 			"workshop_id", st.w.ID, "model", meta.Model)
 		return ai.PlainExplanation(in), time.Time{}

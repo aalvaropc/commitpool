@@ -17,8 +17,8 @@ import (
 const demoLastHours = 2 * time.Hour
 
 type extensionOption struct {
-	from, to time.Time
-	refusal  error
+	from, to, latest time.Time
+	refusal          error
 }
 
 func (o *extensionOption) available() bool { return o != nil && o.refusal == nil }
@@ -76,7 +76,7 @@ func (s *server) extensionOption(ctx context.Context, st workshopState, now time
 		}
 	}
 	to, refusal := domain.CanExtend(check)
-	return &extensionOption{from: p.ClosesAt, to: to, refusal: refusal}, nil
+	return &extensionOption{from: p.ClosesAt, to: to, latest: domain.LatestPossibleDeadline(check), refusal: refusal}, nil
 }
 
 func (s *server) extensionView(o *extensionOption, st workshopState, ownerToken string) *extensionDTO {
@@ -119,8 +119,8 @@ func (s *server) withLatest(ctx context.Context, st workshopState, d *proposalDT
 			return nil, err
 		}
 	}
-	if o.available() && o.to.After(d.ClosesAt) {
-		d.LatestCloses = o.to.UTC()
+	if o.latest.After(d.ClosesAt) {
+		d.LatestCloses = o.latest.UTC()
 	}
 	return d, nil
 }

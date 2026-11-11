@@ -753,6 +753,49 @@ func TestRefund_CompletedMarksRefunded(t *testing.T) {
 	e.wantJob(key, "succeeded")
 }
 
+func TestRefund_TheRefundJobAloneRecordsTheChargeRefunded(t *testing.T) {
+	e := newEnv(t)
+	en, a := e.paid("Ana")
+	readBacks := len(e.fake.Requests("get_order")) + len(e.fake.Requests("get_capture"))
+
+	e.runKey(e.enqueue("refund", a))
+
+	if n := len(e.fake.Requests("get_order")) + len(e.fake.Requests("get_capture")); n != readBacks {
+		t.Fatalf("read-backs = %d, want none after the refund job", n-readBacks)
+	}
+	got := e.attempt(a.ID)
+	wantString(t, "refund_status", got.RefundStatus, "COMPLETED")
+	wantString(t, "capture_status", got.CaptureStatus, "REFUNDED")
+	e.wantStatus(en.ID, domain.EnrollmentRefunded)
+	e.wantFees(a, 84, 916)
+}
+
+func TestRefund_OnlyAFullRefundMarksTheChargeAndItStaysMarked(t *testing.T) {
+	e := newEnv(t)
+	_, part := e.paid("Ana")
+	_, unsized := e.paid("Ben")
+	_, full := e.paid("Cleo")
+	refunds := map[string]paypal.Refund{
+		part.ID:    {ID: "REFUND-PART", Status: paypal.StatusCompleted, Amount: *usd("4.00")},
+		unsized.ID: {ID: "REFUND-UNSIZED", Status: paypal.StatusCompleted},
+		full.ID:    {ID: "REFUND-FULL", Status: paypal.StatusCompleted, Amount: *usd("10.00")},
+	}
+	for id, rf := range refunds {
+		if err := e.runner.ApplyRefund(e.ctx, id, rf); err != nil {
+			t.Fatal(err)
+		}
+	}
+	wantString(t, "capture_status after a smaller refund", e.attempt(part.ID).CaptureStatus, "COMPLETED")
+	wantString(t, "capture_status after a refund without an amount", e.attempt(unsized.ID).CaptureStatus, "COMPLETED")
+	wantString(t, "capture_status after a full refund", e.attempt(full.ID).CaptureStatus, "REFUNDED")
+
+	if err := e.runner.ApplyCapture(e.ctx, full.ID, paypal.Capture{ID: *full.CaptureID, Status: paypal.StatusCompleted}); err != nil {
+		t.Fatal(err)
+	}
+	wantString(t, "capture_status after a stale completed capture", e.attempt(full.ID).CaptureStatus, "REFUNDED")
+	e.wantFees(full, 84, 916)
+}
+
 func TestRefund_CaptureFullyRefundedCountsAsRefunded(t *testing.T) {
 	e := newEnv(t)
 	en, a := e.paid("Ana")

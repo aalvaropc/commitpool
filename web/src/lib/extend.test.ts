@@ -52,8 +52,10 @@ describe('latestDeadline', () => {
 
 describe('latestDeadlineNote', () => {
   it('promises an extension only while one is still possible', () => {
-    expect(latestDeadlineNote(proposal)).toBe('The organizer can extend the deadline once, up to then.')
+    expect(latestDeadlineNote(proposal)).toBe('The organizer can extend the deadline once, up to this date.')
     expect(latestDeadlineNote({ ...proposal, latest_closes_at: proposal.closes_at })).toBe('This deadline will not move.')
+    expect(latestDeadlineNote({ ...proposal, latest_closes_at: '2026-11-03T08:45:00Z' })).toBe('This deadline will not move.')
+    expect(latestDeadlineNote({ ...proposal, latest_closes_at: undefined })).toBe('This deadline will not move.')
     expect(latestDeadlineNote({ ...proposal, extended_from: '2026-11-02T20:00:00Z', closes_at: '2026-11-05T09:00:00Z' })).toBe('It was already extended once.')
   })
 })

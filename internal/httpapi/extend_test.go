@@ -135,7 +135,7 @@ func TestExtend_TheOrganizerMovesTheDeadlineOnce(t *testing.T) {
 	}
 	e.call(http.MethodGet, ps[1].path, nil, http.StatusOK, &before)
 	if !before.Proposal.LatestClosesAt.Equal(extendTo) {
-		t.Errorf("participant latest_closes_at = %s, want the option on offer %s", before.Proposal.LatestClosesAt, extendTo)
+		t.Errorf("participant latest_closes_at = %s, want three days after opening %s", before.Proposal.LatestClosesAt, extendTo)
 	}
 	if got := kinds(v.Suggestions); len(got) == 0 || got[0] != "rescue" || slices.Contains(got, "share") {
 		t.Fatalf("suggestions = %v, want the rescue first and no group message naming the old deadline", got)
@@ -250,16 +250,38 @@ func TestExtend_EachRefusalHasItsOwnCode(t *testing.T) {
 		if v.Extension == nil || v.Extension.Refusal != "consent_predates_extension" || slices.Contains(kinds(v.Suggestions), "rescue") {
 			t.Errorf("extension = %+v, suggestions %v; want it refused and no rescue offered", v.Extension, kinds(v.Suggestions))
 		}
-		if !v.Proposal.LatestClosesAt.Equal(p.ClosesAt) {
-			t.Errorf("latest_closes_at = %s, want the deadline itself %s: nothing can move it", v.Proposal.LatestClosesAt, p.ClosesAt)
+		if !v.Proposal.LatestClosesAt.Equal(extendTo) {
+			t.Errorf("latest_closes_at = %s, want %s: the v4 seat can still be released, and the deadline move after it", v.Proposal.LatestClosesAt, extendTo)
 		}
 		var mine struct {
 			Proposal extendProposalJSON `json:"proposal"`
 		}
 		e.call(http.MethodGet, ps[1].path, nil, http.StatusOK, &mine)
-		if !mine.Proposal.LatestClosesAt.Equal(p.ClosesAt) {
-			t.Errorf("participant latest_closes_at = %s, want %s", mine.Proposal.LatestClosesAt, p.ClosesAt)
+		if !mine.Proposal.LatestClosesAt.Equal(extendTo) {
+			t.Errorf("participant latest_closes_at = %s, want %s", mine.Proposal.LatestClosesAt, extendTo)
 		}
+	})
+	t.Run("capped by an old hold", func(t *testing.T) {
+		e := newEnv(t)
+		h, p, ps := e.shortOfTheMinimum()
+		if _, err := e.st.Pool.Exec(e.ctx, `update payment_attempts set created_at = $1`, p.OpensAt.Add(-2*time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+		capped := extendTo.Add(-2 * time.Hour)
+		v := e.extendView(h)
+		if x := v.Extension; x == nil || !x.Available || x.To == nil || !x.To.Equal(capped) {
+			t.Fatalf("extension = %+v, want %s on offer: 72 hours after the oldest hold", x, capped)
+		}
+		var mine struct {
+			Proposal extendProposalJSON `json:"proposal"`
+		}
+		e.call(http.MethodGet, ps[1].path, nil, http.StatusOK, &mine)
+		if !v.Proposal.LatestClosesAt.Equal(extendTo) || !mine.Proposal.LatestClosesAt.Equal(extendTo) {
+			t.Errorf("latest_closes_at = %s on the board, %s for a participant; want %s: the option grows once that hold leaves",
+				v.Proposal.LatestClosesAt, mine.Proposal.LatestClosesAt, extendTo)
+		}
+		e.wantExtendError(h, extendBody(p.ClosesAt, extendTo), http.StatusConflict, "extension_changed")
+		e.extend(h, extendBody(p.ClosesAt, capped), http.StatusOK, nil)
 	})
 	t.Run("close running", func(t *testing.T) {
 		e := newEnv(t)

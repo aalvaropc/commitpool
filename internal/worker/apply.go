@@ -132,7 +132,7 @@ func (r *Runner) ApplyCapture(ctx context.Context, attemptID string, c paypal.Ca
 		if err := setID(&a.CaptureID, c.ID); err != nil {
 			return err
 		}
-		setStatus(&a.CaptureStatus, c.Status)
+		setCaptureStatus(a, c.Status)
 		a.CaptureReason = reason(c.StatusDetails)
 		if c.Status == paypal.StatusCompleted {
 			holdCaptured(a)
@@ -161,6 +161,9 @@ func (r *Runner) ApplyRefund(ctx context.Context, attemptID string, rf paypal.Re
 		}
 		setStatus(&a.RefundStatus, rf.Status)
 		a.RefundReason = reason(rf.StatusDetails)
+		if refundsTheWholeCharge(*a, rf) {
+			setStatus(&a.CaptureStatus, paypal.StatusRefunded)
+		}
 		return nil
 	}, lookup(refundMoves, rf.Status), true)
 	if errors.Is(err, errSetAside) {
@@ -355,6 +358,21 @@ func setAuthorizationStatus(a *store.AttemptRow, status string) {
 		return
 	}
 	setStatus(&a.AuthorizationStatus, status)
+}
+
+func setCaptureStatus(a *store.AttemptRow, status string) {
+	if is(a.CaptureStatus, paypal.StatusRefunded) {
+		return
+	}
+	setStatus(&a.CaptureStatus, status)
+}
+
+func refundsTheWholeCharge(a store.AttemptRow, rf paypal.Refund) bool {
+	if rf.Status != paypal.StatusCompleted || !is(a.CaptureStatus, paypal.StatusCompleted) && !is(a.CaptureStatus, paypal.StatusPartiallyRefunded) {
+		return false
+	}
+	amount, err := domain.ParseMoney(rf.Amount.Value, rf.Amount.CurrencyCode)
+	return err == nil && amount == domain.Money{Minor: a.AmountMinor, Currency: a.Currency}
 }
 
 func holdCaptured(a *store.AttemptRow) {

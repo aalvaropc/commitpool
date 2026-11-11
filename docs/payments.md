@@ -469,10 +469,10 @@ until its payout locked the workshop if that came first
 
 When a class is short of its minimum near its deadline, the organizer can
 move the deadline later, once (`domain.CanExtend`, migration 0016). The one
-option on offer is
+option on offer (`domain.ExtendedDeadline`) is
 
 ```
-ExtendedDeadline = floor(min(opens_at + 72 h, starts_at − 24 h), 15 min)
+LatestDeadline = floor(min(opens_at + 72 h, starts_at − 24 h), 15 min)
 ```
 
 and never later than 72 hours after the oldest hold that may still be live
@@ -531,16 +531,25 @@ Once extended:
 The owner view carries `extension` (`available`, `from`, `to` and an
 `approve_url` when on offer, or the `refusal` code, with a `reason` either
 way), and the proposal in the owner, participant and invite views carries
-`extended_from` and `latest_closes_at`: the option `CanExtend` offers right
-now, computed from the workshop's live seats and holds exactly as for the
-organizer, when there is one; `closes_at` itself otherwise (already extended,
-charging started, funded, under 10 minutes left, less than an hour to gain, a
-seat under an older consent, payments closed). Other responses carry
-`closes_at`. The participant's card shows it as "Latest possible deadline",
-followed by "The organizer can extend the deadline once, up to then." only in
-the first case and "This deadline will not move." (or "It was already
-extended once.") otherwise, and both pages show "Deadline extended from X to
-Y" while the class is funding.
+`extended_from` and `latest_closes_at` (`domain.LatestPossibleDeadline`), a
+date a later extension cannot pass. While the deadline may still move (the
+workshop is `FUNDING`, at least 10 minutes are left, it was never extended and
+no seat is `PAID`), it is `LatestDeadline`, the option without the cap of the
+holds, which only rises as old holds leave. It stays published while a refusal
+can still lift: a seat under an older consent that may be released, holds that
+reach the minimum and may drop before charging, a charge (`CAPTURING`,
+`CAPTURE_PENDING`) that may be declined and free its seat, or a gain under an
+hour that grows once the oldest hold leaves. It is `closes_at` itself once the
+deadline cannot move (already extended, a seat paid or the class funded, under
+10 minutes left, payments closed, or `LatestDeadline` adds less than an hour).
+While the class is funding, a paid seat leaves `PAID` only through a refund or
+dispute made in the PayPal account, outside the app. The organizer's
+`extension.to` and the rescue keep the hold-capped option, the one the server
+accepts now. Other responses carry `closes_at`. The participant's card shows
+it as "Latest possible deadline", followed by "The organizer can extend the
+deadline once, up to this date." when it is later than `closes_at`, and "This
+deadline will not move." (or "It was already extended once.") otherwise, and
+both pages show "Deadline extended from X to Y" while the class is funding.
 
 The suggestion `rescue` (see `domain.Suggestions`) appears for a `FUNDING`
 class short of its minimum with an extension on offer and at most six hours
@@ -1088,6 +1097,12 @@ are here.
   reports it, without waiting for a webhook or a reconcile to read the
   authorization back. A later read that still says `CREATED` or `PENDING`
   does not move a `CAPTURED` authorization back.
+- Likewise, a `COMPLETED` refund of the whole captured amount (the attempt's
+  amount and currency) records the capture as `REFUNDED`, as PayPal reports
+  it. A smaller refund leaves the capture as it is, since it cannot tell a
+  partial refund from the rest of an earlier one; a read of the capture
+  settles it. Once `REFUNDED`, a capture is never recorded as anything else.
+  Fees are untouched either way.
 
 ### Seats
 

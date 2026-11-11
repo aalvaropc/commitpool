@@ -1,6 +1,6 @@
-import type { Money, Workshop } from '../api'
+import type { CandidateDate, Money, Workshop } from '../api'
 import { formatMoney } from './money'
-import { durationLabel, formatMoment, windowLabel } from './time'
+import { durationLabel, formatDateRange, formatMoment, windowLabel } from './time'
 
 export interface TermItem {
   label: string
@@ -30,6 +30,7 @@ export interface LockedTermsInput {
   closesAt?: string
   paymentsOpen?: boolean
   closesAbout?: string
+  payoutTo?: string
 }
 
 export function lockedTerms(t: LockedTermsInput): TermItem[] {
@@ -43,5 +44,23 @@ export function lockedTerms(t: LockedTermsInput): TermItem[] {
   if (t.opensAt) items.push({ label: 'Reservations opened', value: formatMoment(t.opensAt, t.timeZone), kind: 'text' })
   if (t.closesAt) items.push({ label: t.paymentsOpen ? 'Reservations close' : 'Reservations closed', value: formatMoment(t.closesAt, t.timeZone), kind: 'text' })
   if (t.closesAbout) items.push({ label: 'Reservations would close about', value: formatMoment(t.closesAbout, t.timeZone), kind: 'text', span: true })
+  if (t.payoutTo) items.push({ label: 'Paid out at the start to', value: t.payoutTo, kind: 'text', span: true })
   return items
+}
+
+export function openReservationsTerms(
+  w: Pick<Workshop, 'timezone' | 'price' | 'payment_window_min' | 'minimum' | 'capacity' | 'payout_email'>,
+  date: Pick<CandidateDate, 'starts_at' | 'ends_at'>,
+  now: number,
+): TermItem[] {
+  return lockedTerms({
+    timeZone: w.timezone,
+    dateLabel: formatDateRange(date.starts_at, date.ends_at, w.timezone),
+    price: w.price,
+    windowMin: w.payment_window_min,
+    minimum: w.minimum,
+    capacity: w.capacity,
+    closesAbout: new Date(now + w.payment_window_min * 60000).toISOString(),
+    payoutTo: w.payout_email,
+  })
 }

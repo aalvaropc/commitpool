@@ -306,6 +306,21 @@ func TestAnswer_WaitsOutABusyReaderAndMovesOnPastARefusal(t *testing.T) {
 	}
 }
 
+func TestAnswerOne_PostsTheMessageAndBacksOffWhileThrottled(t *testing.T) {
+	api := &fakeAPI{throttledOn: map[string]int{"/p/P1/": 2}}
+	var paced int
+	err := demo.AnswerOne(context.Background(), api, demo.Participant{Name: "Priya", Message: "Saturday works", Token: "P1"}, func(context.Context) error { paced++; return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := api.answers(); len(got) != 3 || got[2] != "Saturday works" || api.calls[2].Path != "/api/v1/p/P1/availability" {
+		t.Errorf("calls = %+v, want the message posted three times to Priya's page", api.calls)
+	}
+	if paced != 1+2 {
+		t.Errorf("paced %d times, want 1 and 2 steps of backoff and no step before the first try", paced)
+	}
+}
+
 func TestAnswer_GivesUpOnAReaderThatStaysBusy(t *testing.T) {
 	people := []demo.Participant{{Name: "Priya", Message: "a", Token: "P1"}}
 	api := &fakeAPI{busyOn: map[string]int{"/p/P1/": 10}}

@@ -14,8 +14,22 @@ import (
 const mockAuthorizationExpired = "AUTHORIZATION_EXPIRED"
 
 type participantDTO struct {
-	ID          string `json:"id"`
-	DisplayName string `json:"display_name"`
+	ID          string  `json:"id"`
+	DisplayName string  `json:"display_name"`
+	Source      string  `json:"source"`
+	ChatMessage *string `json:"chat_message"`
+}
+
+type ownerParticipantDTO struct {
+	participantDTO
+	Unread         bool    `json:"unread"`
+	ParticipantURL *string `json:"participant_url"`
+}
+
+type readingDTO struct {
+	Pending int  `json:"pending"`
+	Total   int  `json:"total"`
+	Active  bool `json:"active"`
 }
 
 type demoDTO struct {
@@ -29,20 +43,22 @@ type actAsDTO struct {
 }
 
 type ownerViewDTO struct {
-	ShareURL       string            `json:"share_url"`
-	Workshop       workshopDTO       `json:"workshop"`
-	Dates          []dateDTO         `json:"dates"`
-	Proposal       *proposalDTO      `json:"proposal"`
-	Extension      *extensionDTO     `json:"extension"`
-	Tally          ownerTallyDTO     `json:"tally"`
-	Participants   []participantDTO  `json:"participants"`
-	Availabilities []availabilityDTO `json:"availabilities"`
-	Recommendation recommendationDTO `json:"recommendation"`
-	Enrollments    []enrollmentDTO   `json:"enrollments"`
-	Suggestions    []suggestionDTO   `json:"suggestions"`
-	Payout         *payoutDTO        `json:"payout"`
-	Demo           demoDTO           `json:"demo"`
-	ActAs          *[]actAsDTO       `json:"act_as,omitempty"`
+	ShareURL       string                `json:"share_url"`
+	Workshop       workshopDTO           `json:"workshop"`
+	Dates          []dateDTO             `json:"dates"`
+	Proposal       *proposalDTO          `json:"proposal"`
+	Extension      *extensionDTO         `json:"extension"`
+	Tally          ownerTallyDTO         `json:"tally"`
+	Participants   []ownerParticipantDTO `json:"participants"`
+	Reading        readingDTO            `json:"reading"`
+	DemoChat       *string               `json:"demo_chat"`
+	Availabilities []availabilityDTO     `json:"availabilities"`
+	Recommendation recommendationDTO     `json:"recommendation"`
+	Enrollments    []enrollmentDTO       `json:"enrollments"`
+	Suggestions    []suggestionDTO       `json:"suggestions"`
+	Payout         *payoutDTO            `json:"payout"`
+	Demo           demoDTO               `json:"demo"`
+	ActAs          *[]actAsDTO           `json:"act_as,omitempty"`
 }
 
 func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
@@ -65,10 +81,9 @@ func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	names := make(map[string]string, len(st.participants))
-	participants := make([]participantDTO, len(st.participants))
-	for i, p := range st.participants {
+	participants, reading := s.ownerParticipants(ws.ID, st.participants, avails)
+	for _, p := range st.participants {
 		names[p.ID] = p.DisplayName
-		participants[i] = participantDTO{ID: p.ID, DisplayName: p.DisplayName}
 	}
 	availabilities := make([]availabilityDTO, len(avails))
 	readings := make(map[string]domain.Interpretation, len(avails))
@@ -136,6 +151,7 @@ func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
 		Extension:      extension,
 		Tally:          st.ownerTally(),
 		Participants:   participants,
+		Reading:        reading,
 		Availabilities: availabilities,
 		Recommendation: recommendation,
 		Enrollments:    enrollments,

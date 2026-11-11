@@ -64,6 +64,7 @@ type server struct {
 	crossOrigin  *http.CrossOriginProtection
 	aiSem        chan struct{}
 	verifies     *verifyQuota
+	chats        *chatImports
 }
 
 func New(d Deps) http.Handler {
@@ -76,7 +77,7 @@ func New(d Deps) http.Handler {
 	if d.Background == nil {
 		d.Background = &sync.WaitGroup{}
 	}
-	s := &server{Deps: d, explanations: newTextCache(), nudges: newTextCache(), nudgeSlots: make(chan struct{}, nudgeSlots), aiSem: make(chan struct{}, aiSlots), verifies: newVerifyQuota()}
+	s := &server{Deps: d, explanations: newTextCache(), nudges: newTextCache(), nudgeSlots: make(chan struct{}, nudgeSlots), aiSem: make(chan struct{}, aiSlots), verifies: newVerifyQuota(), chats: newChatImports()}
 	if d.Cfg.RateLimitPerMin > 0 {
 		s.limiter = newRateLimiter(d.Cfg.RateLimitPerMin)
 	}
@@ -127,6 +128,10 @@ func (s *server) routes(mux *http.ServeMux) {
 	api("POST /api/v1/owner/{token}/demo/close-now", s.demoCloseNow)
 	api("POST /api/v1/owner/{token}/demo/fail-next-capture", s.demoFailNextCapture)
 	api("POST /api/v1/owner/{token}/demo/start-class", s.demoStartClass)
+	api("POST /api/v1/owner/{token}/chat/preview", s.previewChat)
+	api("POST /api/v1/owner/{token}/chat/import", s.importChat)
+	api("POST /api/v1/owner/{token}/chat/retry", s.retryChat)
+	api("DELETE /api/v1/owner/{token}/participants/{id}", s.removeParticipant)
 
 	api("GET /api/v1/p/{token}", s.participantView)
 	api("POST /api/v1/p/{token}/availability", s.submitAvailability)
@@ -202,8 +207,11 @@ func (s *server) observe(next http.Handler) http.Handler {
 		}
 		sw := &statusWriter{ResponseWriter: w}
 		limit := int64(maxBodyBytes)
-		if r.URL.Path == webhookPath {
+		switch {
+		case r.URL.Path == webhookPath:
 			limit = maxWebhookBytes
+		case chatTextPath(r.URL.Path):
+			limit = maxChatBodyBytes
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, limit)
 		defer func() {

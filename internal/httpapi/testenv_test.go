@@ -592,29 +592,45 @@ type suggestionJSON struct {
 }
 
 type ownerViewJSON struct {
-	ShareURL     string        `json:"share_url"`
-	Workshop     workshopJSON  `json:"workshop"`
-	Dates        []dateJSON    `json:"dates"`
-	Proposal     *proposalJSON `json:"proposal"`
-	Tally        tallyJSON     `json:"tally"`
-	Participants []struct {
-		ID          string `json:"id"`
-		DisplayName string `json:"display_name"`
-	} `json:"participants"`
-	Availabilities []availabilityJSON `json:"availabilities"`
-	Recommendation recommendationJSON `json:"recommendation"`
-	Enrollments    []enrollmentJSON   `json:"enrollments"`
-	Suggestions    []suggestionJSON   `json:"suggestions"`
+	ShareURL       string                 `json:"share_url"`
+	Workshop       workshopJSON           `json:"workshop"`
+	Dates          []dateJSON             `json:"dates"`
+	Proposal       *proposalJSON          `json:"proposal"`
+	Tally          tallyJSON              `json:"tally"`
+	Participants   []ownerParticipantJSON `json:"participants"`
+	Availabilities []availabilityJSON     `json:"availabilities"`
+	Recommendation recommendationJSON     `json:"recommendation"`
+	Enrollments    []enrollmentJSON       `json:"enrollments"`
+	Suggestions    []suggestionJSON       `json:"suggestions"`
+	Reading        readingJSON            `json:"reading"`
+	DemoChat       *string                `json:"demo_chat"`
 	Demo           struct {
 		DemoMode     bool `json:"demo_mode"`
 		SandboxMocks bool `json:"sandbox_mocks"`
 	} `json:"demo"`
 }
 
+type ownerParticipantJSON struct {
+	ID             string  `json:"id"`
+	DisplayName    string  `json:"display_name"`
+	Source         string  `json:"source"`
+	ChatMessage    *string `json:"chat_message"`
+	Unread         bool    `json:"unread"`
+	ParticipantURL *string `json:"participant_url"`
+}
+
+type readingJSON struct {
+	Pending int  `json:"pending"`
+	Total   int  `json:"total"`
+	Active  bool `json:"active"`
+}
+
 type participantViewJSON struct {
 	Participant struct {
-		ID          string `json:"id"`
-		DisplayName string `json:"display_name"`
+		ID          string  `json:"id"`
+		DisplayName string  `json:"display_name"`
+		Source      string  `json:"source"`
+		ChatMessage *string `json:"chat_message"`
 	} `json:"participant"`
 	Workshop     workshopJSON      `json:"workshop"`
 	Dates        []dateJSON        `json:"dates"`

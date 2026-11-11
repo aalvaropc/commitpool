@@ -265,7 +265,7 @@ func Answer(ctx context.Context, api Caller, people []Participant, pace Pace) er
 		if err := wait(ctx, pace, 1); err != nil {
 			return errors.Join(append(errs, err)...)
 		}
-		if err := answer(ctx, api, p, pace); err != nil {
+		if err := AnswerOne(ctx, api, p, pace); err != nil {
 			errs = append(errs, fmt.Errorf("availability of %s: %w", p.Name, err))
 		}
 	}
@@ -282,14 +282,14 @@ func Reply(ctx context.Context, api Caller, people []Participant, replies []Pers
 		}
 		p := people[i]
 		p.Message = r.Message
-		if err := answer(ctx, api, p, pace); err != nil {
+		if err := AnswerOne(ctx, api, p, pace); err != nil {
 			errs = append(errs, fmt.Errorf("reply of %s: %w", r.Name, err))
 		}
 	}
 	return errors.Join(errs...)
 }
 
-func answer(ctx context.Context, api Caller, p Participant, pace Pace) error {
+func AnswerOne(ctx context.Context, api Caller, p Participant, pace Pace) error {
 	for attempt := 1; ; attempt++ {
 		err := api.Call(ctx, http.MethodPost, "/api/v1/p/"+p.Token+"/availability", map[string]any{"message": p.Message}, nil)
 		if err == nil || attempt >= attempts(err) {

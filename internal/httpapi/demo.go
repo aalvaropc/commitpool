@@ -184,28 +184,32 @@ func (s *server) createDemoWorkshop(w http.ResponseWriter, r *http.Request) erro
 	return nil
 }
 
+func (s *server) pace() demo.Pace {
+	pace := s.Cfg.DemoPace
+	return func(ctx context.Context) error {
+		if pace <= 0 {
+			return nil
+		}
+		t := time.NewTimer(pace)
+		defer t.Stop()
+		select {
+		case <-t.C:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
 func (s *server) answerInBackground(ctx context.Context, api inproc.Client, people []demo.Participant, ticket *demoTicket) {
 	bctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), demoAnswerTimeout)
-	pace := s.Cfg.DemoPace
+	pace := s.pace()
 	s.Background.Add(1)
 	go func() {
 		defer s.Background.Done()
 		defer ticket.done()
 		defer cancel()
-		err := demo.Answer(bctx, api, people, func(ctx context.Context) error {
-			if pace <= 0 {
-				return nil
-			}
-			t := time.NewTimer(pace)
-			defer t.Stop()
-			select {
-			case <-t.C:
-				return nil
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		})
-		if err != nil {
+		if err := demo.Answer(bctx, api, people, pace); err != nil {
 			s.Log.Warn("demo: some answers did not arrive", "error", err)
 		}
 	}()

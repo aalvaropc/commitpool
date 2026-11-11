@@ -24,6 +24,7 @@ const (
 	chatImportsAllowed = 3
 	chatImportWindow   = 10 * time.Minute
 	demoChatPeople     = 8
+	demoChatReads      = 2
 	chatReaders        = 2
 	chatReadTimeout    = 5 * time.Minute
 	chatEditTimeout    = 30 * time.Second
@@ -33,6 +34,7 @@ const (
 	skippedHost        = "host"
 	skippedAlreadyHere = "already_here"
 	skippedNotInChat   = "not_in_chat"
+	skippedReading     = "still_reading"
 )
 
 var (
@@ -49,6 +51,8 @@ var (
 		"This demo class already has its people. Start a new demo to paste another chat.")
 	errDemoTooManyPeople = newError(http.StatusUnprocessableEntity, "demo_too_many_people",
 		"A demo class takes at most 8 people from the chat.")
+	errDemoUpdateUsed = newError(http.StatusUnprocessableEntity, "demo_update_used",
+		"This demo already read new messages from the chat once. Start a new demo to try it again.")
 	errCannotRemove = conflict("cannot_remove",
 		"Only someone added from the chat who has not reserved can be removed, and only while you are still finding the date.")
 	errStillReading = conflict("cannot_remove", "Claude is still reading this person's message. Try again in a moment.")
@@ -153,11 +157,12 @@ type chatReading struct {
 }
 
 type chatPersonDTO struct {
-	Name     string `json:"name"`
-	Excerpt  string `json:"excerpt"`
-	Messages int    `json:"messages"`
-	Host     bool   `json:"host"`
-	Joined   bool   `json:"joined"`
+	Name        string `json:"name"`
+	Excerpt     string `json:"excerpt"`
+	Messages    int    `json:"messages"`
+	NewMessages int    `json:"new_messages"`
+	Host        bool   `json:"host"`
+	Joined      bool   `json:"joined"`
 }
 
 type chatPreviewDTO struct {
@@ -177,6 +182,7 @@ type chatSkippedDTO struct {
 
 type chatImportDTO struct {
 	Imported []chatImportedDTO `json:"imported"`
+	Updated  []chatImportedDTO `json:"updated"`
 	Skipped  []chatSkippedDTO  `json:"skipped"`
 }
 
@@ -224,15 +230,56 @@ func joinedAs(name string, participants []store.ParticipantRow) bool {
 	return slices.ContainsFunc(participants, func(p store.ParticipantRow) bool { return chatimport.SameName(name, p.DisplayName) })
 }
 
-func excerpt(p chatimport.Person) string {
-	if len(p.Messages) == 0 {
-		return ""
-	}
-	text := strings.Join(strings.Fields(p.Messages[0]), " ")
+func excerpt(message string) string {
+	text := strings.Join(strings.Fields(message), " ")
 	if r := []rune(text); len(r) > chatExcerptRunes {
 		return strings.TrimSpace(string(r[:chatExcerptRunes])) + "…"
 	}
 	return text
+}
+
+type chatUpdate struct {
+	participant store.ParticipantRow
+	fresh       []string
+	stored      string
+}
+
+func chatParticipant(name string, participants []store.ParticipantRow) (store.ParticipantRow, bool) {
+	i := slices.IndexFunc(participants, func(p store.ParticipantRow) bool {
+		return p.Source == store.SourceChat && p.ChatMessage != nil && p.ChatLinkToken != nil && chatimport.SameName(name, p.DisplayName)
+	})
+	if i < 0 {
+		return store.ParticipantRow{}, false
+	}
+	return participants[i], true
+}
+
+func messagesAfter(p chatimport.Person, stored string) []string {
+	for i := len(p.Messages); i > 0; i-- {
+		if (chatimport.Person{Messages: p.Messages[:i]}).Text(chatimport.MaxTextRunes) == stored {
+			return p.Messages[i:]
+		}
+	}
+	return nil
+}
+
+func updateFor(p chatimport.Person, participants []store.ParticipantRow) (chatUpdate, bool) {
+	row, ok := chatParticipant(p.Name, participants)
+	if !ok {
+		return chatUpdate{}, false
+	}
+	fresh := messagesAfter(p, *row.ChatMessage)
+	if len(fresh) == 0 {
+		return chatUpdate{}, false
+	}
+	return chatUpdate{participant: row, fresh: fresh, stored: p.Text(chatimport.MaxTextRunes)}, true
+}
+
+func (u chatUpdate) followUp(answered bool) string {
+	if !answered {
+		return u.stored
+	}
+	return chatimport.Person{Messages: u.fresh}.Text(chatimport.MaxTextRunes)
 }
 
 func (s *server) previewChat(w http.ResponseWriter, r *http.Request) error {
@@ -256,13 +303,18 @@ func (s *server) previewChat(w http.ResponseWriter, r *http.Request) error {
 	}
 	out := chatPreviewDTO{People: make([]chatPersonDTO, len(chat.People)), Skipped: chat.Skipped}
 	for i, p := range chat.People {
-		out.People[i] = chatPersonDTO{
+		person := chatPersonDTO{
 			Name:     p.Name,
-			Excerpt:  excerpt(p),
+			Excerpt:  excerpt(p.Messages[0]),
 			Messages: len(p.Messages),
 			Host:     isHost(p.Name, ws.HostName),
 			Joined:   joinedAs(p.Name, existing),
 		}
+		if u, ok := updateFor(p, existing); ok && person.Joined && !person.Host {
+			person.NewMessages = len(u.fresh)
+			person.Excerpt = excerpt(u.fresh[len(u.fresh)-1])
+		}
+		out.People[i] = person
 	}
 	writeJSON(w, http.StatusOK, out)
 	return nil
@@ -282,22 +334,36 @@ func validNames(names []string) error {
 
 type importPlan struct {
 	people  []chatimport.Person
+	updates []chatUpdate
 	skipped []chatSkippedDTO
 }
 
-func planImport(chat chatimport.Chat, names []string, host string, existing []store.ParticipantRow) importPlan {
+func (p importPlan) readings() int {
+	return len(p.people) + len(p.updates)
+}
+
+func planImport(chat chatimport.Chat, names []string, host string, existing []store.ParticipantRow, reading func(string) bool) importPlan {
 	plan := importPlan{skipped: []chatSkippedDTO{}}
 	for _, p := range chat.People {
 		if !slices.ContainsFunc(names, sameNameAs(p.Name)) {
 			continue
 		}
-		switch {
-		case isHost(p.Name, host):
+		if isHost(p.Name, host) {
 			plan.skipped = append(plan.skipped, chatSkippedDTO{Name: p.Name, Reason: skippedHost})
-		case joinedAs(p.Name, existing):
-			plan.skipped = append(plan.skipped, chatSkippedDTO{Name: p.Name, Reason: skippedAlreadyHere})
-		default:
+			continue
+		}
+		if !joinedAs(p.Name, existing) {
 			plan.people = append(plan.people, p)
+			continue
+		}
+		u, ok := updateFor(p, existing)
+		switch {
+		case !ok:
+			plan.skipped = append(plan.skipped, chatSkippedDTO{Name: p.Name, Reason: skippedAlreadyHere})
+		case reading(u.participant.ID):
+			plan.skipped = append(plan.skipped, chatSkippedDTO{Name: p.Name, Reason: skippedReading})
+		default:
+			plan.updates = append(plan.updates, u)
 		}
 	}
 	var missing []string
@@ -311,6 +377,18 @@ func planImport(chat chatimport.Chat, names []string, host string, existing []st
 		plan.skipped = append(plan.skipped, chatSkippedDTO{Name: n, Reason: skippedNotInChat})
 	}
 	return plan
+}
+
+func demoAllows(plan importPlan, st store.ChatImportState) error {
+	switch {
+	case len(plan.people) > 0 && (st.Imports > 0 || len(st.Participants) > 0):
+		return errDemoImportUsed
+	case len(plan.people) > demoChatPeople:
+		return errDemoTooManyPeople
+	case len(plan.updates) > 0 && st.Imports >= demoChatReads:
+		return errDemoUpdateUsed
+	}
+	return nil
 }
 
 func (s *server) roomToRead(w http.ResponseWriter, ws store.WorkshopRow, readings int) error {
@@ -365,36 +443,40 @@ func (s *server) importChat(w http.ResponseWriter, r *http.Request) error {
 	now := s.Clock.Now()
 	counted := false
 	var plan importPlan
-	imported, err := s.Store.ImportChatParticipants(ctx, ws.ID, func(st store.ChatImportState) ([]store.ChatPerson, error) {
+	followUps := map[string]string{}
+	res, err := s.Store.ImportChatParticipants(ctx, ws.ID, func(st store.ChatImportState) (store.ChatPlan, error) {
 		cur := st.Workshop
 		if cur.Status != domain.WorkshopCollecting {
-			return nil, errNotCollecting
+			return store.ChatPlan{}, errNotCollecting
 		}
-		if cur.IsDemo && (st.Imports > 0 || len(st.Participants) > 0) {
-			return nil, errDemoImportUsed
+		plan = planImport(chat, req.Names, cur.HostName, st.Participants, s.chats.isReading)
+		if cur.IsDemo {
+			if err := demoAllows(plan, st); err != nil {
+				return store.ChatPlan{}, err
+			}
 		}
-		plan = planImport(chat, req.Names, cur.HostName, st.Participants)
-		if cur.IsDemo && len(plan.people) > demoChatPeople {
-			return nil, errDemoTooManyPeople
-		}
-		if len(plan.people) == 0 {
-			return nil, nil
+		if plan.readings() == 0 {
+			return store.ChatPlan{}, nil
 		}
 		if len(st.Participants)+len(plan.people) > maxParticipantsPerWorkshop {
-			return nil, conflict("too_many_participants", "This workshop already has as many participants as it can take.")
+			return store.ChatPlan{}, conflict("too_many_participants", "This workshop already has as many participants as it can take.")
 		}
-		if err := s.roomToRead(w, cur, len(plan.people)); err != nil {
-			return nil, err
+		if err := s.roomToRead(w, cur, plan.readings()); err != nil {
+			return store.ChatPlan{}, err
 		}
 		if err := s.countRead(w, cur.ID, now); err != nil {
-			return nil, err
+			return store.ChatPlan{}, err
 		}
 		counted = true
-		people := make([]store.ChatPerson, len(plan.people))
-		for i, p := range plan.people {
-			people[i] = store.ChatPerson{DisplayName: p.Name, Message: p.Text(chatimport.MaxTextRunes)}
+		todo := store.ChatPlan{}
+		for _, p := range plan.people {
+			todo.Add = append(todo.Add, store.ChatPerson{DisplayName: p.Name, Message: p.Text(chatimport.MaxTextRunes)})
 		}
-		return people, nil
+		for _, u := range plan.updates {
+			todo.Update = append(todo.Update, store.ChatUpdate{ParticipantID: u.participant.ID, Message: u.stored})
+			followUps[u.participant.ID] = u.followUp(st.Answered[u.participant.ID])
+		}
+		return todo, nil
 	})
 	if err != nil {
 		if counted {
@@ -402,9 +484,13 @@ func (s *server) importChat(w http.ResponseWriter, r *http.Request) error {
 		}
 		return err
 	}
-	out := chatImportDTO{Imported: make([]chatImportedDTO, 0, len(imported)), Skipped: plan.skipped}
-	readings := make([]chatReading, 0, len(imported))
-	for _, p := range imported {
+	out := chatImportDTO{
+		Imported: make([]chatImportedDTO, 0, len(res.Imported)),
+		Updated:  make([]chatImportedDTO, 0, len(res.Updated)),
+		Skipped:  plan.skipped,
+	}
+	readings := make([]chatReading, 0, len(res.Imported)+len(res.Updated))
+	for _, p := range res.Imported {
 		link := s.Cfg.BaseURL + "/p/" + p.Token
 		message := ""
 		if p.ChatMessage != nil {
@@ -413,8 +499,13 @@ func (s *server) importChat(w http.ResponseWriter, r *http.Request) error {
 		readings = append(readings, chatReading{id: p.ID, p: demo.Participant{Name: p.DisplayName, Message: message, URL: link, Token: p.Token}})
 		out.Imported = append(out.Imported, chatImportedDTO{Name: p.DisplayName, ParticipantURL: link})
 	}
+	for _, p := range res.Updated {
+		link := s.Cfg.BaseURL + "/p/" + p.Token
+		readings = append(readings, chatReading{id: p.ID, p: demo.Participant{Name: p.DisplayName, Message: followUps[p.ID], URL: link, Token: p.Token}})
+		out.Updated = append(out.Updated, chatImportedDTO{Name: p.DisplayName, ParticipantURL: link})
+	}
 	s.readInBackground(ctx, ws.ID, readings)
-	s.Log.Info("chat import", "workshop_id", ws.ID, "imported", len(out.Imported), "skipped", len(out.Skipped))
+	s.Log.Info("chat import", "workshop_id", ws.ID, "imported", len(out.Imported), "updated", len(out.Updated), "skipped", len(out.Skipped))
 	writeJSON(w, http.StatusAccepted, out)
 	return nil
 }

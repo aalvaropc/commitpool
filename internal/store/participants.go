@@ -67,10 +67,20 @@ type ChatImportState struct {
 	Workshop     WorkshopRow
 	Imports      int
 	Participants []ParticipantRow
+	Answered     map[string]bool
 }
 
 type ChatPerson struct {
 	DisplayName, Message string
+}
+
+type ChatUpdate struct {
+	ParticipantID, Message string
+}
+
+type ChatPlan struct {
+	Add    []ChatPerson
+	Update []ChatUpdate
 }
 
 type ImportedParticipant struct {
@@ -78,15 +88,19 @@ type ImportedParticipant struct {
 	Token string
 }
 
-func (s *Store) ImportChatParticipants(ctx context.Context, workshopID string, plan func(ChatImportState) ([]ChatPerson, error)) ([]ImportedParticipant, error) {
-	var imported []ImportedParticipant
+type ChatImportResult struct {
+	Imported, Updated []ImportedParticipant
+}
+
+func (s *Store) ImportChatParticipants(ctx context.Context, workshopID string, plan func(ChatImportState) (ChatPlan, error)) (ChatImportResult, error) {
+	var out ChatImportResult
 	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
-		imported = nil
+		out = ChatImportResult{}
 		w, err := lockWorkshopRow(ctx, tx, workshopID)
 		if err != nil {
 			return err
 		}
-		st := ChatImportState{Workshop: w}
+		st := ChatImportState{Workshop: w, Answered: map[string]bool{}}
 		if err := tx.QueryRow(ctx, `select chat_imports from workshops where id = $1`, workshopID).Scan(&st.Imports); err != nil {
 			return wrap("count chat imports", err)
 		}
@@ -94,11 +108,23 @@ func (s *Store) ImportChatParticipants(ctx context.Context, workshopID string, p
 			`select `+participantCols+` from participants where workshop_id = $1 order by created_at, id`, workshopID); err != nil {
 			return err
 		}
-		people, err := plan(st)
-		if err != nil || len(people) == 0 {
+		rows, err := tx.Query(ctx,
+			`select distinct a.participant_id from availabilities a join participants p on p.id = a.participant_id where p.workshop_id = $1`, workshopID)
+		if err != nil {
+			return wrap("answered participants", err)
+		}
+		answered, err := pgx.CollectRows(rows, pgx.RowTo[string])
+		if err != nil {
+			return wrap("answered participants", err)
+		}
+		for _, id := range answered {
+			st.Answered[id] = true
+		}
+		todo, err := plan(st)
+		if err != nil || (len(todo.Add) == 0 && len(todo.Update) == 0) {
 			return err
 		}
-		for _, p := range people {
+		for _, p := range todo.Add {
 			row, token, err := insertParticipant(ctx, tx, workshopID, p.DisplayName, SourceChat, p.Message)
 			if err != nil {
 				return err
@@ -108,7 +134,20 @@ func (s *Store) ImportChatParticipants(ctx context.Context, workshopID string, p
 					return err
 				}
 			}
-			imported = append(imported, ImportedParticipant{ParticipantRow: row, Token: token})
+			out.Imported = append(out.Imported, ImportedParticipant{ParticipantRow: row, Token: token})
+		}
+		for _, u := range todo.Update {
+			row, err := one[ParticipantRow](ctx, tx,
+				`update participants set chat_message = $3
+				where id = $1 and workshop_id = $2 and source = 'chat' and chat_link_token is not null
+				returning `+participantCols, u.ParticipantID, workshopID, u.Message)
+			if isMissing(err) {
+				return ErrConflict
+			}
+			if err != nil {
+				return wrap("update chat message", err)
+			}
+			out.Updated = append(out.Updated, ImportedParticipant{ParticipantRow: row, Token: *row.ChatLinkToken})
 		}
 		if _, err := tx.Exec(ctx, `update workshops set chat_imports = chat_imports + 1 where id = $1`, workshopID); err != nil {
 			return wrap("count chat import", err)
@@ -116,9 +155,9 @@ func (s *Store) ImportChatParticipants(ctx context.Context, workshopID string, p
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return ChatImportResult{}, err
 	}
-	return imported, nil
+	return out, nil
 }
 
 func (s *Store) RemoveChatParticipant(ctx context.Context, workshopID, participantID string) error {

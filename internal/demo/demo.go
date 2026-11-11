@@ -37,6 +37,9 @@ const (
 	chatStartsAtHour   = 19
 	chatStartsAtMinute = 5
 	chatStartsAtSecond = 14
+	repliesAtHour      = 19
+	repliesAtMinute    = 52
+	repliesAtSecond    = 7
 )
 
 var chatGaps = []time.Duration{
@@ -49,28 +52,51 @@ var chatGaps = []time.Duration{
 	11*time.Minute + 41*time.Second,
 }
 
-func (sc Scenario) Chat(now time.Time, loc *time.Location) string {
-	type line struct{ name, text string }
-	lines := []line{{sc.HostName, sc.Opener}}
+type chatLine struct {
+	name, text string
+	at         time.Time
+}
+
+func (sc Scenario) chatLines(now time.Time, loc *time.Location) ([]chatLine, time.Time) {
+	lines := []chatLine{{name: sc.HostName, text: sc.Opener}}
 	for _, p := range sc.People {
-		lines = append(lines, line{p.Name, p.Message})
+		lines = append(lines, chatLine{name: p.Name, text: p.Message})
 	}
-	lines = append(lines, line{sc.HostName, sc.Closing})
+	lines = append(lines, chatLine{name: sc.HostName, text: sc.Closing})
 	today := now.In(loc)
-	at := time.Date(today.Year(), today.Month(), today.Day()-1, chatStartsAtHour, chatStartsAtMinute, chatStartsAtSecond, 0, loc)
-	stamps := make([]time.Time, len(lines))
+	evening := time.Date(today.Year(), today.Month(), today.Day()-1, chatStartsAtHour, chatStartsAtMinute, chatStartsAtSecond, 0, loc)
+	at := evening
 	for i := range lines {
-		stamps[i] = at
+		lines[i].at = at
 		at = at.Add(chatGaps[i%len(chatGaps)])
 	}
+	return lines, evening
+}
+
+func writeChat(lines []chatLine) string {
 	var b strings.Builder
 	for i, l := range lines {
 		if i > 0 {
 			b.WriteByte('\n')
 		}
-		fmt.Fprintf(&b, "[%s\u202f%s] %s: %s", stamps[i].Format("1/2/06, 3:04:05"), stamps[i].Format("PM"), l.name, l.text)
+		fmt.Fprintf(&b, "[%s\u202f%s] %s: %s", l.at.Format("1/2/06, 3:04:05"), l.at.Format("PM"), l.name, l.text)
 	}
 	return b.String()
+}
+
+func (sc Scenario) Chat(now time.Time, loc *time.Location) string {
+	lines, _ := sc.chatLines(now, loc)
+	return writeChat(lines)
+}
+
+func (sc Scenario) ChatWithReplies(now time.Time, loc *time.Location) string {
+	lines, evening := sc.chatLines(now, loc)
+	at := time.Date(evening.Year(), evening.Month(), evening.Day(), repliesAtHour, repliesAtMinute, repliesAtSecond, 0, loc)
+	for i, r := range sc.Replies {
+		lines = append(lines, chatLine{name: r.Name, text: r.Message, at: at})
+		at = at.Add(chatGaps[i%len(chatGaps)])
+	}
+	return writeChat(lines)
 }
 
 var noCondition = domain.Condition{Type: domain.ConditionNone}

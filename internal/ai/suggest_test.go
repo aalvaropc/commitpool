@@ -395,3 +395,91 @@ func TestBedrockSuggest_RejectsWhatTheServerDidNotSay(t *testing.T) {
 		}
 	}
 }
+
+func TestHasContact_CatchesShortNumbersAndShortLinks(t *testing.T) {
+	cases := []struct {
+		text    string
+		contact bool
+	}{
+		{"call me at 555-0199", true},
+		{"call me at 5550199", true},
+		{"call me at 555 0199", true},
+		{"call me at 555.0199", true},
+		{"text 12345678 to join", true},
+		{"see goo.gl/abc first", true},
+		{"see bit.ly/x first", true},
+		{"join at example.dev/path", true},
+		{"join at my-site.page/join", true},
+		{"The class runs 10:00–12:00.", false},
+		{"Sat, Nov 21 works for 2 of you so far.", false},
+		{"See you in 2026!", false},
+		{"Sat, Nov 21, 2026 at 10 AM (New York time)", false},
+		{"It runs 10 AM–12 PM, or 3 PM–6 PM on Sun, Nov 22.", false},
+		{"Can you stay until 11:30?", false},
+		{"1 of 3 so far, and/or Sat/Sun.", false},
+		{"Mornings, e.g. 10 a.m./11 a.m., work.", false},
+		{"Reservations close Fri, Nov 13 at 10:00 UTC.", false},
+	}
+	for _, c := range cases {
+		if got := ai.HasContact(c.text); got != c.contact {
+			t.Errorf("HasContact(%q) = %v, want %v", c.text, got, c.contact)
+		}
+	}
+}
+
+func TestQuotable_DropsInvisibleQuestions(t *testing.T) {
+	cases := []struct {
+		text, want string
+		ok         bool
+	}{
+		{"\u200b", "", false},
+		{"\u200e\u200f", "", false},
+		{"\ufeff \u200b\n", "", false},
+		{"\u00ad", "", false},
+		{"\u202e\u2066\u2069", "", false},
+		{" \t\r\n", "", false},
+		{"Which\u200b day works?", "Which day works?", true},
+		{"\u202eWhich day works?\u202c", "Which day works?", true},
+		{"call me at 555-0199", "", false},
+		{"see goo.gl/abc first?", "", false},
+	}
+	for _, c := range cases {
+		if got, ok := ai.Quotable(c.text); got != c.want || ok != c.ok {
+			t.Errorf("Quotable(%q) = %q, %v; want %q, %v", c.text, got, ok, c.want, c.ok)
+		}
+		in := groupReply()
+		in.Questions = []ai.NamedQuestion{{Name: "Mallory", Question: c.text}}
+		if plain := ai.PlainSuggestion(in); strings.Contains(plain, "Mallory") != c.ok {
+			t.Errorf("question %q: plain group reply = %q, want Mallory asked only when the question is kept", c.text, plain)
+		}
+	}
+}
+
+func TestBedrockSuggest_TiedReplyMayNotPickADate(t *testing.T) {
+	tied := groupReply()
+	tied.Tied = []string{"Sat, Nov 21", "Sun, Nov 22"}
+	both := " Sat, Nov 21 and Sun, Nov 22 each work for 2 of you."
+	cases := []struct {
+		reply string
+		kept  bool
+	}{
+		{"Life drawing for beginners: Sat, Nov 21 it is then!" + both, false},
+		{"Life drawing for beginners: Saturday wins." + both, false},
+		{"Life drawing for beginners: we’ll pick Saturday." + both, false},
+		{"Life drawing for beginners: we'll pick Saturday." + both, false},
+		{"Life drawing for beginners: let’s go for Saturday." + both, false},
+		{"Life drawing for beginners: let's go with Saturday." + both, false},
+		{"Life drawing for beginners: let’s go, Saturday." + both, false},
+		{"Life drawing for beginners: we go for Saturday." + both, false},
+		{"Life drawing for beginners: Sat, Nov 21 is the best." + both, false},
+		{"Life drawing for beginners: it’s then Saturday." + both, false},
+		{"Life drawing for beginners: thanks, all! Sat, Nov 21 and Sun, Nov 22 are tied at 2 of you each, and Sat, Nov 21 comes first. It is close: we need 1 more.", true},
+		{"Life drawing for beginners: thanks, all! Sat, Nov 21 and Sun, Nov 22 are tied: each works for 2 of you so far, and Sat, Nov 21 comes first. The class needs 1 more person.", true},
+	}
+	for _, c := range cases {
+		got, err := acceptsSuggestion(t, tied, c.reply)
+		if kept := err == nil && got == c.reply; kept != c.kept {
+			t.Errorf("tied reply %q: kept = %v (%v), want %v", c.reply, kept, err, c.kept)
+		}
+	}
+}

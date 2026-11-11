@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/anthropics/anthropic-sdk-go/v2"
@@ -24,7 +25,7 @@ const (
 //go:embed prompts/suggest_system.txt
 var suggestSystemPrompt string
 
-var contactLike = regexp.MustCompile(`(?i)https?://|www\.|\b[a-z0-9-]+\.(?:com|net|org|io|me|ly|co|app|link|gg|xyz|info|biz|us|uk|es|pe|mx|ar|de|fr)\b|[a-z0-9._%+-]+@[a-z0-9-]+\.|\+?\d[\d\s().-]{7,}\d`)
+var contactLike = regexp.MustCompile(`(?i)https?://|www\.|\b[a-z0-9-]+\.(?:com|net|org|io|me|ly|co|app|link|gg|xyz|info|biz|us|uk|es|pe|mx|ar|de|fr)\b|\b[a-z0-9-]+\.[a-z]{2,}/|[a-z0-9._%+-]+@[a-z0-9-]+\.|\+?\d[\d\s().-]{7,}\d|\b\d{3}[-. ]?\d{4}\b|\b\d{7,}\b`)
 
 func HasContact(s string) bool {
 	return contactLike.MatchString(s)
@@ -35,8 +36,18 @@ type NamedQuestion struct {
 	Question string
 }
 
+func visibleText(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if unicode.Is(unicode.Cf, r) {
+			return -1
+		}
+		return r
+	}, s)
+	return strings.Join(strings.Fields(s), " ")
+}
+
 func Quotable(s string) (string, bool) {
-	s = strings.Join(strings.Fields(s), " ")
+	s = visibleText(s)
 	if s == "" || HasContact(s) || len([]rune(s)) > maxQuestionRunes || MentionsMoney(s) {
 		return "", false
 	}
@@ -44,7 +55,7 @@ func Quotable(s string) (string, bool) {
 }
 
 func askable(q string) string {
-	if q = strings.Join(strings.Fields(q), " "); q == "" || HasContact(q) || len([]rune(q)) > maxQuestionRunes {
+	if q = visibleText(q); q == "" || HasContact(q) || len([]rune(q)) > maxQuestionRunes {
 		return defaultQuestion
 	}
 	return q
@@ -86,7 +97,7 @@ func withoutFold(text, part string) string {
 	return sb.String()
 }
 
-var picksOne = regexp.MustCompile(`(?i)\brecommend|\bbest\b|\bgo(?:ing)? with\b|\bwinners?\b|\blet['’]?s do\b|\bit is\s*(?:[.!,;:]|$)|\bit['’]s\s*(?:[.!,;:]|$)`)
+var picksOne = regexp.MustCompile(`(?i)\brecommend|\bbest\b|\bgo(?:ing)? (?:with|for)\b|\bwins\b|\bwinners?\b|\bpick(?:s|ed|ing)?\b|\blet['’]?s (?:do|go)\b|\bit is then\b|\bit['’]s then\b|\bit is\s*(?:[.!,;:]|$)|\bit['’]s\s*(?:[.!,;:]|$)`)
 
 func picksATiedDate(text string, in SuggestInput) bool {
 	if len(in.Tied) < 2 {

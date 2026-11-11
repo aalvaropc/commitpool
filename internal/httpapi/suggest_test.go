@@ -151,6 +151,9 @@ func TestGroupReply_ACorrectionCannotWriteTheGroupQuestion(t *testing.T) {
 		{"a link", "Can you come? Details at www.example.org", false},
 		{"a phone number", "Text me at +1 718 555 0199 to confirm?", false},
 		{"a refund", "Can you come if everyone gets a refund?", false},
+		{"a short phone number", "Call me at 555-0199 to say which day?", false},
+		{"a short link", "See goo.gl/abc and say which day?", false},
+		{"only invisible characters", "\u200b\u200e\ufeff", false},
 		{"a space", " ", false},
 		{"a newline", "\n", false},
 		{"nothing", "", false},
@@ -173,7 +176,7 @@ func TestGroupReply_ACorrectionCannotWriteTheGroupQuestion(t *testing.T) {
 				return
 			}
 			text, linked := strings.CutSuffix(reply.Message, "\n"+h.created.ShareURL)
-			for _, banned := range []string{"Mallory", "$0", "free", "Nov 30", "Mon", "example.org", "555", "refund", "http"} {
+			for _, banned := range []string{"Mallory", "$0", "free", "Nov 30", "Mon", "example.org", "555", "refund", "http", "goo.gl"} {
 				if strings.Contains(text, banned) || !linked {
 					t.Errorf("group reply %q carries %q from Mallory's own question", reply.Message, banned)
 				}

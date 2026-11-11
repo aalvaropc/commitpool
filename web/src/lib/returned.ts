@@ -1,3 +1,4 @@
+import type { Tally } from '../api'
 import { storedParticipant } from './participant'
 import type { Tone } from './status'
 
@@ -79,8 +80,16 @@ export function isReturnResult(value: string | null): value is ReturnResult {
   return value !== null && (RESULTS as readonly string[]).includes(value)
 }
 
-export function returnedMessage(result: string | null): ReturnedMessage {
-  return isReturnResult(result) ? MESSAGES[result] : UNKNOWN
+export function minimumReached(tally: Tally | null | undefined): boolean {
+  return !!tally && tally.minimum > 0 && tally.paid + tally.authorized + tally.charging >= tally.minimum
+}
+
+export function returnedMessage(result: string | null, tally?: Tally | null): ReturnedMessage {
+  if (!isReturnResult(result)) return UNKNOWN
+  if (result === 'authorized' && tally && minimumReached(tally)) {
+    return { ...MESSAGES.authorized, body: `That made ${tally.minimum}. Charging everyone now.` }
+  }
+  return MESSAGES[result]
 }
 
 export function returnPath(result: string | null): string | null {

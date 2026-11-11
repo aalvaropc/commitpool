@@ -160,6 +160,7 @@ export interface DateSummary {
 export interface Recommendation {
   date_id: string
   meets_minimum: boolean
+  tied: boolean
   per_date: DateSummary[] | null
   explanation: string
   explanation_pending: boolean
@@ -244,6 +245,7 @@ export interface Suggestion {
 export interface Group {
   answered: number
   can_come: Record<string, number>
+  tied: boolean
 }
 
 export interface PublicView {

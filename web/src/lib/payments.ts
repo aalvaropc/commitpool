@@ -16,6 +16,24 @@ export function moneySummary(enrollments: readonly Enrollment[], price: Money): 
   return parts.join(' · ')
 }
 
+export function netCollected(enrollments: readonly Enrollment[], expected: number): number | null {
+  const paid = enrollments.filter((e) => (e.money_status ?? e.status) === 'PAID')
+  if (paid.length === 0 || paid.length !== expected) return null
+  let net = 0
+  for (const e of paid) {
+    if (!e.payment?.fee || !e.payment.net) return null
+    net += e.payment.net.minor
+  }
+  return net
+}
+
+export function feesAreShown(enrollments: readonly Enrollment[]): boolean {
+  const paid = enrollments.filter((e) => (e.money_status ?? e.status) === 'PAID')
+  return paid.length > 0 && paid.every((e) => e.payment?.fee && e.payment.net)
+}
+
+export const INTERNATIONAL_FEE_NOTE = 'The Sandbox merchant is registered outside the US, so PayPal charges its international rate.'
+
 const RESOURCE_LABELS: Record<VerifyResource, string> = {
   order: 'PayPal order',
   authorization: 'Hold',

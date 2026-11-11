@@ -73,7 +73,7 @@ export default function Participant() {
           headline={headline({ status: w.status, resolution: w.resolution, enrollment: own, seatHeld: held, authPending: pending, paymentsOpen: d.proposal?.payments_open ?? false })}
           tone={tone(w.status, w.resolution, own)}
         >
-          {w.status === 'FUNDING' && d.proposal && <Deadline closesAt={d.proposal.closes_at} timeZone={w.timezone} open={d.proposal.payments_open} />}
+          {w.status === 'FUNDING' && d.proposal && <Deadline closesAt={d.proposal.closes_at} timeZone={w.timezone} open={d.proposal.payments_open} counting={own !== 'PAID'} />}
         </StatusBanner>
         <DeadlineMoved proposal={d.proposal} status={w.status} timeZone={w.timezone} audience="participant" />
         {checking && (
@@ -87,7 +87,7 @@ export default function Participant() {
 
         {d.proposal && <CommitmentCard token={token} view={d} onChange={view.reload} />}
         <AvailabilityPanel token={token} view={d} onSaved={view.reload} />
-        <EventDetails view={d} />
+        <EventDetails view={d} counting={own !== 'PAID'} />
       </div>
     </Page>
   )

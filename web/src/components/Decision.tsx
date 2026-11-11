@@ -101,7 +101,7 @@ export default function Decision({ view, step, onOpen, titleRef }: Props) {
                 {formatDateRange(chosen.starts_at, chosen.ends_at, w.timezone)}
               </p>
             )}
-            {p?.payments_open && <Deadline closesAt={p.closes_at} timeZone={w.timezone} open />}
+            {p?.payments_open && <Deadline closesAt={p.closes_at} timeZone={w.timezone} open counting={w.status !== 'CONFIRMED'} />}
           </div>
         )}
         <div className="flex flex-col gap-3 lg:hidden">

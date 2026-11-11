@@ -8,6 +8,7 @@ export interface DateRow {
   label: string
   canCome: number
   best: boolean
+  tied: boolean
   chosen: boolean
 }
 
@@ -22,6 +23,7 @@ export function dateRows(dates: CandidateDate[], group: Group, chosenId: string 
     label: formatDateRange(d.starts_at, d.ends_at, timeZone),
     canCome: group.can_come[d.id] ?? 0,
     best: d.id === bestId,
+    tied: d.id === bestId && group.tied,
     chosen: d.id === chosenId,
   }))
 }

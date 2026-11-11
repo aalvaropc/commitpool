@@ -1,6 +1,7 @@
 import type { Availability, DateSummary, OwnerView, Verdict } from '../api'
 import { dateNames } from './event'
 import { formatMoney } from './money'
+import { netCollected } from './payments'
 import { count } from './plural'
 import { heldAny, shouldPollOwner } from './status'
 import { verdictText } from './reading'
@@ -49,6 +50,16 @@ function collecting(v: OwnerView): NextStep {
   const can = rec.per_date?.find((d) => d.date_id === rec.date_id)?.compatible?.length ?? 0
   if (can === 0) {
     return { title: 'Nobody can make a date yet.', detail: `${clarifying(v)}Share the invite to reach more people.`, action: { kind: 'share' } }
+  }
+  if (rec.tied) {
+    const same = `${can} can come on ${day} and the same number on a later date.`
+    return {
+      title: `Tied: ${day} comes first`,
+      detail: rec.meets_minimum
+        ? `${same} ${clarifying(v)}Open reservations and people can reserve their spot with PayPal.`
+        : `${same} You need ${w.minimum}. ${clarifying(v)}Share the invite to reach more people.`,
+      action: rec.meets_minimum ? { kind: 'open', dateId: rec.date_id, day } : { kind: 'share' },
+    }
   }
   if (rec.meets_minimum) {
     return {
@@ -171,10 +182,12 @@ export function sessionCovered(v: OwnerView): Coverage | null {
   const cost = v.workshop.venue_cost
   if (!cost || v.workshop.status === 'CANCELLED') return null
   const price = v.proposal?.price ?? v.workshop.price
-  const covered = v.tally.paid * price.minor
+  const gross = v.tally.paid * price.minor
+  const net = netCollected(v.enrollments, v.tally.paid)
   const money = (minor: number) => usd(minor, cost.currency)
-  const text = covered >= cost.minor ? `Your ${money(cost.minor)} session costs are covered before fees, with ${money(covered - cost.minor)} to spare` : `${money(covered)} toward your ${money(cost.minor)} session costs (before fees)`
-  return { covered, cost: cost.minor, text }
+  if (net === null) return { covered: gross, cost: cost.minor, text: `${money(gross)} toward your ${money(cost.minor)} session costs (before fees)` }
+  const text = net >= cost.minor ? `Your ${money(cost.minor)} session costs are covered, with ${money(net - cost.minor)} to spare after PayPal fees` : `${money(net)} toward your ${money(cost.minor)} session costs (after PayPal fees)`
+  return { covered: net, cost: cost.minor, text }
 }
 
 interface RefreshInput {
@@ -200,13 +213,14 @@ export interface DateColumn {
   name: string
   time: string
   can: number
-  mark: 'Recommended' | 'Chosen date' | null
+  mark: 'Recommended' | 'Tied' | 'Chosen date' | null
   canOpen: boolean
 }
 
 function markFor(v: OwnerView, id: string): DateColumn['mark'] {
   if (v.proposal) return v.proposal.date_id === id ? 'Chosen date' : null
-  return v.availabilities.length > 0 && v.recommendation.date_id === id ? 'Recommended' : null
+  if (v.availabilities.length === 0 || v.recommendation.date_id !== id) return null
+  return v.recommendation.tied ? 'Tied' : 'Recommended'
 }
 
 export function dateColumns(v: OwnerView): DateColumn[] {

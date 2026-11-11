@@ -50,6 +50,13 @@ describe('returnedMessage', () => {
     )
   })
 
+  it('tells the reserver who reaches the minimum that everyone is being charged now', () => {
+    const tally = { interested: 5, authorized: 3, paid: 0, charging: 0, minimum: 3, capacity: 6 }
+    expect(returnedMessage('authorized', tally).body).toBe('That made 3. Charging everyone now.')
+    expect(returnedMessage('authorized', { ...tally, authorized: 2 }).body).toContain('nothing is charged yet')
+    expect(returnedMessage('declined', tally).body).toBe(returnedMessage('declined').body)
+  })
+
   it('has a distinct message for every result the server sends', () => {
     expect(RESULTS).toEqual([
       'authorized',

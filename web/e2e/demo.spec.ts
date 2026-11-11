@@ -14,7 +14,8 @@ test.describe('one-click demo', () => {
     await expect(page.getByText('6 of 6 answered', { exact: false })).toBeVisible({ timeout: 30_000 })
 
     const next = page.getByRole('region', { name: 'Next step' })
-    await expect(next).toContainText(/Best so far: Sat, \w{3} \d{1,2}, with 2 of the 3 needed\./)
+    await expect(next).toContainText(/Tied: Sat, \w{3} \d{1,2} comes first/)
+    await expect(next).toContainText('You need 3.')
     await expect(next).toContainText('Grace Liu’s message needs clarifying.')
     await expect(page.getByRole('button', { name: /Open reservations/ })).toHaveCount(0)
 
@@ -26,6 +27,7 @@ test.describe('one-click demo', () => {
 
     const grid = page.getByRole('region', { name: 'Who can come, by date' })
     await expect(grid).toContainText('Not counted — needs clarifying')
+    await expect(grid).toContainText('Tied')
 
     const guide = page.getByRole('region', { name: 'You are Iris now' })
     await expect(guide).toContainText('Saturday has 2 of the 3 Iris needs. Act as Grace Liu and answer Claude’s question')

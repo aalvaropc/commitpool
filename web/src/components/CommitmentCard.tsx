@@ -114,7 +114,7 @@ export default function CommitmentCard({ token, view, onChange }: Props) {
       </div>
 
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <Deadline closesAt={proposal.closes_at} timeZone={tz} open={proposal.payments_open} size="lg" />
+        <Deadline closesAt={proposal.closes_at} timeZone={tz} open={proposal.payments_open} size="lg" counting={enrollment?.status !== 'PAID'} />
         {workshop.payment_window_min < 1440 && <Pill tone="attention">{windowLabel(workshop.payment_window_min)}</Pill>}
       </div>
       {latest && (

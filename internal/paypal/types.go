@@ -60,10 +60,12 @@ type Refund struct {
 }
 
 type PurchaseUnit struct {
-	ReferenceID string `json:"reference_id,omitempty"`
-	CustomID    string `json:"custom_id,omitempty"`
-	Amount      Money  `json:"amount"`
-	Payments    struct {
+	ReferenceID    string `json:"reference_id,omitempty"`
+	CustomID       string `json:"custom_id,omitempty"`
+	Description    string `json:"description,omitempty"`
+	SoftDescriptor string `json:"soft_descriptor,omitempty"`
+	Amount         Money  `json:"amount"`
+	Payments       struct {
 		Authorizations []Authorization `json:"authorizations,omitempty"`
 		Captures       []Capture       `json:"captures,omitempty"`
 		Refunds        []Refund        `json:"refunds,omitempty"`
@@ -89,12 +91,14 @@ func (o Order) ApproveURL() string {
 }
 
 type CreateOrderParams struct {
-	RequestID   string
-	ReferenceID string
-	CustomID    string
-	Amount      Money
-	ReturnURL   string
-	CancelURL   string
+	RequestID      string
+	ReferenceID    string
+	CustomID       string
+	Amount         Money
+	ReturnURL      string
+	CancelURL      string
+	Description    string
+	SoftDescriptor string
 }
 
 type CaptureParams struct {

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf16"
 )
 
 const (
@@ -66,6 +68,46 @@ func New(cfg Config) (*Client, error) {
 	return &Client{cfg: cfg, base: cfg.BaseURL, hc: hc, now: time.Now}, nil
 }
 
+const (
+	BrandName           = "CommitPool"
+	Locale              = "en-US"
+	SoftDescriptor      = "COMMITPOOL"
+	maxDescriptionUnits = 127
+)
+
+func OrderDescription(title, dateLabel string) string {
+	tail := []rune(" · " + dateLabel + " · hold for 1 spot")
+	room := maxDescriptionUnits - utf16Units(tail)
+	head := []rune(collapseSpace(title))
+	if room < 1 {
+		return string(takeUnits(append(head, tail...), maxDescriptionUnits))
+	}
+	if utf16Units(head) > room {
+		head = append(takeUnits(head, room-1), '…')
+	}
+	return string(append(head, tail...))
+}
+
+func collapseSpace(s string) string {
+	return strings.Join(strings.FieldsFunc(s, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }), " ")
+}
+
+func utf16Units(rs []rune) int {
+	return len(utf16.Encode(rs))
+}
+
+func takeUnits(rs []rune, limit int) []rune {
+	units := 0
+	for i, r := range rs {
+		w := len(utf16.Encode([]rune{r}))
+		if units+w > limit {
+			return rs[:i:i]
+		}
+		units += w
+	}
+	return rs
+}
+
 type createOrderRequest struct {
 	Intent        string               `json:"intent"`
 	PurchaseUnits []createOrderUnit    `json:"purchase_units"`
@@ -73,9 +115,11 @@ type createOrderRequest struct {
 }
 
 type createOrderUnit struct {
-	ReferenceID string `json:"reference_id"`
-	CustomID    string `json:"custom_id"`
-	Amount      Money  `json:"amount"`
+	ReferenceID    string `json:"reference_id"`
+	CustomID       string `json:"custom_id"`
+	Description    string `json:"description,omitempty"`
+	SoftDescriptor string `json:"soft_descriptor,omitempty"`
+	Amount         Money  `json:"amount"`
 }
 
 type createOrderPaySource struct {
@@ -85,6 +129,8 @@ type createOrderPaySource struct {
 }
 
 type experienceContext struct {
+	BrandName          string `json:"brand_name"`
+	Locale             string `json:"locale"`
 	UserAction         string `json:"user_action"`
 	ShippingPreference string `json:"shipping_preference"`
 	ReturnURL          string `json:"return_url"`
@@ -93,10 +139,18 @@ type experienceContext struct {
 
 func (c *Client) CreateOrder(ctx context.Context, p CreateOrderParams) (Order, error) {
 	body := createOrderRequest{
-		Intent:        "AUTHORIZE",
-		PurchaseUnits: []createOrderUnit{{ReferenceID: p.ReferenceID, CustomID: p.CustomID, Amount: p.Amount}},
+		Intent: "AUTHORIZE",
+		PurchaseUnits: []createOrderUnit{{
+			ReferenceID:    p.ReferenceID,
+			CustomID:       p.CustomID,
+			Description:    p.Description,
+			SoftDescriptor: p.SoftDescriptor,
+			Amount:         p.Amount,
+		}},
 	}
 	body.PaymentSource.PayPal.ExperienceContext = experienceContext{
+		BrandName:          BrandName,
+		Locale:             Locale,
 		UserAction:         "CONTINUE",
 		ShippingPreference: "NO_SHIPPING",
 		ReturnURL:          p.ReturnURL,

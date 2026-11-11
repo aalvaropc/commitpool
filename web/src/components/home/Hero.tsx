@@ -12,8 +12,8 @@ export default function Hero({ demo }: { demo: boolean | undefined }) {
           <h1 id="hero-title" className="shout text-hero">
             Find the date that <span className="text-brand">fills the class.</span>
           </h1>
-          <p className="mt-7 max-w-[31ch] text-landing-lead text-ink-soft">
-            Claude reads the group chat’s maybes and asks when it matters. CommitPool picks the date that reaches your minimum, and PayPal charges only once enough people reserve.
+          <p className="mt-7 max-w-[34ch] text-landing-lead text-ink-soft">
+            Paste your group chat. Claude reads everyone’s maybes and asks when it matters. CommitPool picks the date that reaches your minimum, and PayPal charges only once enough people reserve.
           </p>
           <div className="mt-8 flex flex-wrap items-start gap-3">
             {demo !== false && <TryDemo pending={demo === undefined} />}

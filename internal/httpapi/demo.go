@@ -110,6 +110,7 @@ func (t *demoTicket) refund() {
 type demoInfoDTO struct {
 	Workshops  bool           `json:"workshops"`
 	VideoURL   string         `json:"video_url,omitempty"`
+	DevpostURL string         `json:"devpost_url,omitempty"`
 	JudgeLogin *judgeLoginDTO `json:"judge_login,omitempty"`
 }
 
@@ -133,7 +134,7 @@ func (s *server) demoInfo(w http.ResponseWriter, _ *http.Request) error {
 	if !s.Cfg.DemoMode {
 		return errNotFound
 	}
-	info := demoInfoDTO{Workshops: true, VideoURL: s.Cfg.VideoEmbedURL}
+	info := demoInfoDTO{Workshops: true, VideoURL: s.Cfg.VideoEmbedURL, DevpostURL: s.Cfg.DevpostURL}
 	if s.Cfg.JudgeBuyerEmail != "" && s.Cfg.JudgeBuyerPassword != "" {
 		info.JudgeLogin = &judgeLoginDTO{Email: s.Cfg.JudgeBuyerEmail, Password: s.Cfg.JudgeBuyerPassword}
 	}

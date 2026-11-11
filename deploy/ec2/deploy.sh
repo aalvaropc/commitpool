@@ -38,6 +38,10 @@ umask 077
   if [[ -n "$video_url" ]]; then
     echo "COMMITPOOL_VIDEO_URL=$video_url"
   fi
+  devpost_url="$(optional_param devpost_url)"
+  if [[ -n "$devpost_url" ]]; then
+    echo "COMMITPOOL_DEVPOST_URL=$devpost_url"
+  fi
   judge_buyer_email="$(optional_param judge_buyer_email)"
   judge_buyer_password="$(optional_param judge_buyer_password)"
   if [[ -n "$judge_buyer_email" && -n "$judge_buyer_password" ]]; then

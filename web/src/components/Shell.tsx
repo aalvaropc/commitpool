@@ -1,4 +1,7 @@
 import { Link, Outlet, useLocation } from 'react-router'
+import { REPO_URL, safeHttps } from '../lib/links'
+import { useDemoInfo } from '../lib/demoInfo'
+import ExternalLink from './ExternalLink'
 import TryDemo, { useDemoAvailable } from './TryDemo'
 import { ButtonLink, Logo } from './ui'
 
@@ -31,6 +34,23 @@ function LandingAction() {
     )
   }
   return <TryDemo size="sm" pending={demo === undefined} floatingError />
+}
+
+function FooterLinks() {
+  const devpost = safeHttps(useDemoInfo()?.devpost_url)
+  const link = 'inline-flex min-h-11 items-center gap-1.5 rounded-control font-semibold text-ink-soft underline-offset-4 hover:text-ink'
+  return (
+    <nav aria-label="Project links" className="flex flex-wrap gap-x-5">
+      <ExternalLink href={REPO_URL} className={link}>
+        Code on GitHub
+      </ExternalLink>
+      {devpost && (
+        <ExternalLink href={devpost} className={link}>
+          Devpost
+        </ExternalLink>
+      )}
+    </nav>
+  )
 }
 
 export default function Shell() {
@@ -70,6 +90,7 @@ export default function Shell() {
         <footer>
           <div className="wrap flex flex-col gap-4 pt-9 pb-11 text-sm text-ink-faint sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
             <Logo size="text-lg" mark={24} />
+            <FooterLinks />
             <p>Payments by PayPal · Reading by Claude on Amazon Bedrock · Sandbox only, no real money</p>
           </div>
         </footer>

@@ -327,6 +327,7 @@ export interface JudgeLogin {
 export interface DemoInfo {
   workshops: boolean
   video_url?: string
+  devpost_url?: string
   judge_login?: JudgeLogin
 }
 

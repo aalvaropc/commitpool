@@ -78,6 +78,7 @@ test.describe('payout', () => {
       await expect(owner.getByRole('heading', { name: 'Demo controls' })).toHaveCount(0)
       await guide.getByRole('button', { name: /Close reservations now/ }).click()
       await expect(guide).toContainText('Start the class now. The demo clock jumps to the start and CommitPool pays Iris.')
+      await expect(guide).not.toContainText('Reservations closed.')
       await expect(guide.getByRole('button', { name: /Close reservations now/ })).toHaveCount(0)
       await expectAccessible(owner, 'the demo guide pointing at Start the class now')
       await owner.setViewportSize({ width: 390, height: 844 })
@@ -89,6 +90,7 @@ test.describe('payout', () => {
       await expect(headline(owner)).toHaveText(/^Class started · Iris paid \$\d+\.\d{2}$/, { timeout: 30_000 })
       await expect(owner.getByRole('region', { name: 'Workshop status' })).toContainText(/PayPal batch \w+ · \w+/)
       await expect(guide.getByRole('button', { name: /Start the class now/ })).toHaveCount(0)
+      await expect(guide).not.toContainText('The class has started')
       await expectAccessible(owner, 'the demo organizer page once paid out')
     } finally {
       await Promise.all(contexts.map((c) => c.close()))

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { OwnerView } from '../api'
 import { demoParticipants, demoStep, type DemoParticipant, type DemoStep } from '../lib/demo'
 import { DEMO_ACTIONS, useDemoAction } from '../lib/demoActions'
@@ -13,9 +13,12 @@ interface GuideProps {
 }
 
 function Guide({ token, step, people, guided, onChange }: GuideProps) {
-  const [openAtFirst] = useState(guided)
   const { busy, result, run } = useDemoAction(token, onChange)
   const action = step?.action
+  const [open, setOpen] = useState(guided || Boolean(action))
+  useEffect(() => {
+    if (action) setOpen(true)
+  }, [action])
   return (
     <Tile as="section" aria-labelledby="demo-guide-title" className="flex flex-col gap-2 ring-2 ring-brand/40 sm:p-6">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
@@ -24,7 +27,19 @@ function Guide({ token, step, people, guided, onChange }: GuideProps) {
         </h2>
         <Pill tone="attention">Demo workshop · prepared data</Pill>
       </div>
-      <details open={openAtFirst || undefined} className="group">
+      {action && (
+        <div>
+          <Button variant="demo" onClick={() => void run(action)} busy={busy} busyLabel={DEMO_ACTIONS[action].busy}>
+            <DemoTag /> {DEMO_ACTIONS[action].label}
+          </Button>
+        </div>
+      )}
+      {result && result.action === action && (
+        <Notice tone={result.ok ? 'neutral' : 'attention'} role={result.ok ? 'status' : 'alert'}>
+          {result.text}
+        </Notice>
+      )}
+      <details open={open} onToggle={(e) => setOpen(e.currentTarget.open)} className="group">
         <summary className="-mx-2 flex min-h-11 w-fit cursor-pointer list-none items-center gap-2 rounded-control px-2 font-semibold text-brand [&::-webkit-details-marker]:hidden">
           <Icon name="arrowRight" size={18} className="shrink-0 transition-transform duration-200 group-open:rotate-90" />
           Demo steps
@@ -41,18 +56,6 @@ function Guide({ token, step, people, guided, onChange }: GuideProps) {
               </p>
             )}
           </div>
-          {action && (
-            <div>
-              <Button variant="demo" onClick={() => void run(action)} busy={busy} busyLabel={DEMO_ACTIONS[action].busy}>
-                <DemoTag /> {DEMO_ACTIONS[action].label}
-              </Button>
-            </div>
-          )}
-          {result && (
-            <Notice tone={result.ok ? 'neutral' : 'attention'} role={result.ok ? 'status' : 'alert'}>
-              {result.text}
-            </Notice>
-          )}
           {people.length > 0 && (
             <div className="flex flex-col gap-2">
               <p aria-hidden="true" className="text-sm font-semibold text-ink-soft">

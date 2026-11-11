@@ -137,8 +137,8 @@ export function classStarted(v: Pick<OwnerView, 'workshop' | 'payout'>): ClassSt
   const p = v.payout
   const amount = p?.state === 'paid' && p.amount ? formatAmount(p.amount) : null
   const host = v.workshop.host_name?.trim().split(/\s+/)[0]
-  if (!p || !amount || !host || v.workshop.status !== 'CONFIRMED') return null
+  if (!p || !amount || v.workshop.status !== 'CONFIRMED') return null
   const status = p.batch_status ?? p.item_status
   const sub = p.payout_batch_id ? `PayPal batch ${p.payout_batch_id}${status ? ` · ${status}` : ''}` : null
-  return { headline: `Class started · ${host} paid ${amount}`, sub }
+  return { headline: host ? `Class started · ${host} paid ${amount}` : `Class started · Paid out ${amount}`, sub }
 }

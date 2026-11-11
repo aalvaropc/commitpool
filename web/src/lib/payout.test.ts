@@ -150,6 +150,14 @@ describe('classStarted', () => {
     expect(classStarted(v({ payout: null }))).toBeNull()
     expect(classStarted(v({}, { amount: undefined }))).toBeNull()
     expect(classStarted(v({ workshop: { status: 'CANCELLED', host_name: 'Iris Calder' } } as Partial<Parameters<typeof classStarted>[0]>))).toBeNull()
-    expect(classStarted(v({ workshop: { status: 'CONFIRMED', host_name: '' } } as Partial<Parameters<typeof classStarted>[0]>))).toBeNull()
+  })
+
+  it('works the same for a real workshop, with or without a host name', () => {
+    const named = { workshop: { status: 'CONFIRMED', host_name: 'Ann Lee' } } as Partial<Parameters<typeof classStarted>[0]>
+    expect(classStarted(v(named))).toEqual({ headline: 'Class started · Ann paid $27.48', sub: 'PayPal batch BATCH42 · SUCCESS' })
+    for (const host_name of ['', '   ']) {
+      const nameless = { workshop: { status: 'CONFIRMED', host_name } } as Partial<Parameters<typeof classStarted>[0]>
+      expect(classStarted(v(nameless))).toEqual({ headline: 'Class started · Paid out $27.48', sub: 'PayPal batch BATCH42 · SUCCESS' })
+    }
   })
 })

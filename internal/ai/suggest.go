@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"strconv"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -30,63 +30,73 @@ func HasContact(s string) bool {
 	return contactLike.MatchString(s)
 }
 
-var amountLike = regexp.MustCompile(`(?i)[$€£¥]\s?\d[\d,]*(?:\.\d+)?|\b(?:usd|eur|gbp)\s?\d[\d,]*(?:\.\d+)?|\b\d[\d,]*(?:\.\d+)?\s?(?:[$€£¥]|(?:usd|eur|gbp|dollars?|euros?|pounds?|bucks)\b)`)
-
-func amounts(s string) map[string]bool {
-	out := map[string]bool{}
-	for _, m := range amountLike.FindAllString(s, -1) {
-		digits := strings.Map(func(r rune) rune {
-			if r == '.' || r >= '0' && r <= '9' {
-				return r
-			}
-			return -1
-		}, m)
-		if f, err := strconv.ParseFloat(digits, 64); err == nil {
-			digits = strconv.FormatFloat(f, 'f', -1, 64)
-		}
-		out[digits] = true
-	}
-	return out
-}
-
-func namesAnAmountNotIn(text, facts string) bool {
-	given := amounts(facts)
-	for a := range amounts(text) {
-		if !given[a] {
-			return true
-		}
-	}
-	return false
-}
-
 type NamedQuestion struct {
 	Name     string
 	Question string
 }
 
+func Quotable(s string) (string, bool) {
+	s = strings.Join(strings.Fields(s), " ")
+	if s == "" || HasContact(s) || len([]rune(s)) > maxQuestionRunes || MentionsMoney(s) {
+		return "", false
+	}
+	return s, true
+}
+
 func askable(q string) string {
-	if q == "" || HasContact(q) || len([]rune(q)) > maxQuestionRunes {
+	if q = strings.Join(strings.Fields(q), " "); q == "" || HasContact(q) || len([]rune(q)) > maxQuestionRunes {
 		return defaultQuestion
 	}
 	return q
 }
 
-func WithoutQuestions(text string, in SuggestInput) string {
+func groupQuestions(in SuggestInput) []NamedQuestion {
+	var out []NamedQuestion
 	for _, q := range in.Questions {
-		ask := strings.Join(strings.Fields(askable(q.Question)), " ")
-		var sb strings.Builder
-		for i := 0; i < len(text); {
-			if end := i + len(ask); end <= len(text) && strings.EqualFold(text[i:end], ask) {
-				i = end
-				continue
-			}
-			_, size := utf8.DecodeRuneInString(text[i:])
-			sb.WriteString(text[i : i+size])
-			i += size
+		name, okName := Quotable(q.Name)
+		question, ok := Quotable(q.Question)
+		if okName && ok {
+			out = append(out, NamedQuestion{Name: name, Question: question})
 		}
-		text = sb.String()
+	}
+	return out
+}
+
+func WithoutQuestions(text string, in SuggestInput) string {
+	for _, q := range groupQuestions(in) {
+		text = withoutFold(text, q.Question)
 	}
 	return text
+}
+
+func withoutFold(text, part string) string {
+	if part == "" {
+		return text
+	}
+	var sb strings.Builder
+	for i := 0; i < len(text); {
+		if end := i + len(part); end <= len(text) && strings.EqualFold(text[i:end], part) {
+			i = end
+			continue
+		}
+		_, size := utf8.DecodeRuneInString(text[i:])
+		sb.WriteString(text[i : i+size])
+		i += size
+	}
+	return sb.String()
+}
+
+var picksOne = regexp.MustCompile(`(?i)\brecommend|\bbest\b|\bgo(?:ing)? with\b|\bwinners?\b|\blet['’]?s do\b|\bit is\s*(?:[.!,;:]|$)|\bit['’]s\s*(?:[.!,;:]|$)`)
+
+func picksATiedDate(text string, in SuggestInput) bool {
+	if len(in.Tied) < 2 {
+		return false
+	}
+	own := WithoutQuestions(text, in)
+	if picksOne.MatchString(own) {
+		return true
+	}
+	return slices.ContainsFunc(in.Tied, func(d string) bool { return !strings.Contains(own, d) })
 }
 
 type SuggestInput struct {
@@ -150,7 +160,7 @@ func plainGroupReply(in SuggestInput) string {
 		fmt.Fprintf(&sb, "%s works for %d of you so far", in.Date, in.CanCome)
 	}
 	if in.CanCome > 0 && in.Missing == 0 && in.Needed > 0 {
-		fmt.Fprintf(&sb, ", the %d the class needs", in.Needed)
+		fmt.Fprintf(&sb, ", enough for the %d the class needs", in.Needed)
 	}
 	if in.CanCome > 0 && len(in.Tied) > 1 {
 		fmt.Fprintf(&sb, ", and %s comes first", in.Tied[0])
@@ -164,10 +174,11 @@ func plainGroupReply(in SuggestInput) string {
 	case in.Missing > 0:
 		fmt.Fprintf(&sb, " The class needs %s.", morePeople(in.Missing))
 	}
-	for _, q := range in.Questions {
-		fmt.Fprintf(&sb, " %s: %s", firstName(q.Name), askable(q.Question))
+	questions := groupQuestions(in)
+	for _, q := range questions {
+		fmt.Fprintf(&sb, " %s: %s", firstName(q.Name), q.Question)
 	}
-	if len(in.Questions) > 0 {
+	if len(questions) > 0 {
 		sb.WriteString(" Answer on your CommitPool page.")
 	}
 	sb.WriteString(" Anyone who hasn’t answered yet: say when you can come.")
@@ -188,7 +199,9 @@ func SuggestFacts(in SuggestInput) string {
 	if in.Kind != "share" && in.Kind != "rescue" && in.Kind != groupReplyKind {
 		fmt.Fprintf(&sb, "Person: %s\n", jsonString(in.Name))
 	}
-	fmt.Fprintf(&sb, "Date: %s\n", jsonString(in.Date))
+	if in.Kind != groupReplyKind || len(in.Tied) < 2 {
+		fmt.Fprintf(&sb, "Date: %s\n", jsonString(in.Date))
+	}
 	if in.Hours != "" {
 		fmt.Fprintf(&sb, "Hours: %s\n", jsonString(in.Hours))
 	}
@@ -226,15 +239,15 @@ func groupReplyFacts(sb *strings.Builder, in SuggestInput) {
 	} else {
 		fmt.Fprintf(sb, "People who can come on that date so far: %d\n", in.CanCome)
 	}
-	for _, q := range in.Questions {
-		fmt.Fprintf(sb, "Open question for %s: %s\n", jsonString(q.Name), jsonString(askable(q.Question)))
+	for _, q := range groupQuestions(in) {
+		fmt.Fprintf(sb, "Open question for %s: %s\n", jsonString(q.Name), jsonString(q.Question))
 	}
 }
 
 func wordLimit(in SuggestInput) int {
 	limit := maxSuggestionWords
-	for _, q := range in.Questions {
-		limit += 1 + len(strings.Fields(askable(q.Question)))
+	for _, q := range groupQuestions(in) {
+		limit += 1 + len(strings.Fields(q.Question))
 	}
 	return limit
 }
@@ -262,10 +275,10 @@ func (b *Bedrock) Suggest(ctx context.Context, in SuggestInput) (string, Meta, e
 		return "", meta, errors.New("ai: suggest: the answer was too long")
 	case HasContact(text):
 		return "", meta, errors.New("ai: suggest: the answer carried a link or contact")
-	case namesAnAmountNotIn(text, SuggestFacts(in)):
-		return "", meta, errors.New("ai: suggest: the answer named an amount the facts do not give")
-	case len(in.Tied) > 1 && strings.Contains(strings.ToLower(text), "recommend"):
-		return "", meta, errors.New("ai: suggest: the answer called a tied date recommended")
+	case moneyNotIn(text, in):
+		return "", meta, errors.New("ai: suggest: the answer spoke of money the facts do not give")
+	case picksATiedDate(text, in):
+		return "", meta, errors.New("ai: suggest: the answer picked one of the tied dates")
 	}
 	return text, meta, nil
 }

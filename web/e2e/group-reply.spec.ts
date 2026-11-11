@@ -14,7 +14,10 @@ test.describe('Claude’s reply for the group', () => {
     const reply = suggests.getByRole('listitem').filter({ hasText: 'Claude’s reply for the group' })
     await expect(reply).toContainText('2 people have answered. Tell the group where things stand.', { timeout: 30_000 })
     await expect(reply).toContainText('Group reply check: thanks for answering, everyone!')
-    await expect(reply).toContainText(/works for 1 of you so far/)
+    const next = owner.getByRole('region', { name: 'Next step' })
+    await expect(next).toContainText(/Tied: \w{3}, \w{3} \d{1,2} comes first/)
+    const first = /Tied: (\w{3}, \w{3} \d{1,2}) comes first/.exec(await next.innerText())?.[1] ?? 'no date'
+    await expect(reply).toContainText(new RegExp(`${first} and \\w{3}, \\w{3} \\d{1,2} are tied: each works for 1 of you so far, and ${first} comes first\\.`))
     await expect(reply).toContainText('The class needs 2 more people.')
     await expect(reply).toContainText('Grace: The class runs')
     await expect(reply).toContainText(workshop.shareURL)

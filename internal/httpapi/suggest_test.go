@@ -2,12 +2,15 @@ package httpapi_test
 
 import (
 	"context"
+	"net/http"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/aalvaropc/commitpool/internal/ai"
+	"github.com/aalvaropc/commitpool/internal/domain"
 )
 
 const (
@@ -73,7 +76,7 @@ func TestGroupReply_TiedDatesComeFirstAndNeitherIsRecommended(t *testing.T) {
 	e.joinAndSay(h, "Priya Raman", saturdayOnly)
 	e.joinAndSay(h, "Tomás Silva", sundayOnly)
 	reply := groupReplyOf(t, e.settledOwner(h))
-	for _, want := range []string{"Sat, Nov 14 and Sun, Nov 15 are tied", "1 of you", "Sat, Nov 14 comes first"} {
+	for _, want := range []string{"Sat, Nov 14, 3 PM–6 PM and Sun, Nov 15, 10 AM–1 PM are tied", "1 of you", "Sat, Nov 14, 3 PM–6 PM comes first"} {
 		if !strings.Contains(reply.Message, want) {
 			t.Errorf("tied group reply %q lacks %q", reply.Message, want)
 		}
@@ -82,8 +85,100 @@ func TestGroupReply_TiedDatesComeFirstAndNeitherIsRecommended(t *testing.T) {
 		t.Errorf("tied group reply %q calls a date recommended", reply.Message)
 	}
 	facts := rec.suggested("group_reply")
-	if got := facts[len(facts)-1].Tied; !slices.Equal(got, []string{"Sat, Nov 14", "Sun, Nov 15"}) {
-		t.Errorf("tied dates in the facts = %v", got)
+	got := facts[len(facts)-1]
+	if !slices.Equal(got.Tied, []string{"Sat, Nov 14, 3 PM–6 PM", "Sun, Nov 15, 10 AM–1 PM"}) || got.Hours != "" {
+		t.Errorf("tied facts = %v with hours %q, want each date with its own hours and no single hours", got.Tied, got.Hours)
+	}
+}
+
+func onDates(starts ...time.Time) func(map[string]any) {
+	return func(body map[string]any) {
+		var dates []map[string]string
+		for _, at := range starts {
+			dates = append(dates, map[string]string{"starts_at": at.Format(time.RFC3339), "ends_at": at.Add(3 * time.Hour).Format(time.RFC3339)})
+		}
+		body["dates"] = dates
+	}
+}
+
+func TestGroupReply_TiedSlotsKeepTheirOwnHours(t *testing.T) {
+	cases := []struct {
+		name      string
+		starts    []time.Time
+		labels    []string
+		hours     string
+		mentioned string
+	}{
+		{"two slots on one day", []time.Time{satStart, satStart.Add(4 * time.Hour)}, []string{"Sat, Nov 14, 3 PM–6 PM", "Sat, Nov 14, 7 PM–10 PM"}, "", "Sat, Nov 14, 3 PM–6 PM and Sat, Nov 14, 7 PM–10 PM are tied"},
+		{"two days at the same hours", []time.Time{satStart, satStart.Add(24 * time.Hour)}, []string{"Sat, Nov 14", "Sun, Nov 15"}, "3 PM–6 PM", "Sat, Nov 14 and Sun, Nov 15 are tied"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			rec := &recordingAI{}
+			e := newEnv(t, withAI(rec))
+			h := e.createWorkshop(onDates(c.starts...))
+			e.joinAndSay(h, "Ada", "Any of the dates works for me.")
+			e.joinAndSay(h, "Ben", "Any of the dates works for me.")
+			reply := groupReplyOf(t, e.settledOwner(h))
+			if !strings.Contains(reply.Message, c.mentioned) || strings.Contains(reply.Message, "Sat, Nov 14 and Sat, Nov 14") {
+				t.Errorf("group reply = %q, want %q", reply.Message, c.mentioned)
+			}
+			facts := rec.suggested("group_reply")
+			if got := facts[len(facts)-1]; !slices.Equal(got.Tied, c.labels) || got.Hours != c.hours {
+				t.Errorf("tied facts = %v with hours %q, want %v with %q", got.Tied, got.Hours, c.labels, c.hours)
+			}
+		})
+	}
+}
+
+func (e *env) joinWithOwnQuestion(h workshopHandle, name, question string) {
+	e.t.Helper()
+	p := e.join(h, name)
+	first := e.say(p, "Any of the dates works for me.")
+	corrected := first.Interpretation
+	corrected.NeedsClarification = true
+	corrected.Ambiguities = []domain.Ambiguity{{Question: question, Why: "I wrote it myself."}}
+	e.call(http.MethodPut, p.path+"/availability/"+first.ID, map[string]any{"corrected": corrected}, http.StatusOK, nil)
+}
+
+func TestGroupReply_ACorrectionCannotWriteTheGroupQuestion(t *testing.T) {
+	cases := []struct {
+		name, question string
+		kept           bool
+	}{
+		{"money and a date that is not a candidate", "Good news: the class is now free ($0) and moves to Mon, Nov 30. Can you come then?", false},
+		{"a date that is not a candidate", "The class moves to Mon, Nov 30. Can you come then?", false},
+		{"a link", "Can you come? Details at www.example.org", false},
+		{"a phone number", "Text me at +1 718 555 0199 to confirm?", false},
+		{"a refund", "Can you come if everyone gets a refund?", false},
+		{"a space", " ", false},
+		{"a newline", "\n", false},
+		{"nothing", "", false},
+		{"a fair question", "Can you make Saturday or Sunday, and which?", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			e := newEnv(t)
+			h := e.createWorkshop()
+			e.joinAndSay(h, "Priya Raman", saturdayOnly)
+			e.joinWithOwnQuestion(h, "Mallory", c.question)
+			reply := groupReplyOf(t, e.settledOwner(h))
+			if !strings.Contains(reply.Message, "Sat, Nov 14 works for 1 of you so far") {
+				t.Errorf("group reply = %q, want the server's date and count", reply.Message)
+			}
+			if c.kept {
+				if !strings.Contains(reply.Message, "Mallory: "+c.question) {
+					t.Errorf("group reply = %q, want Mallory's fair question", reply.Message)
+				}
+				return
+			}
+			text, linked := strings.CutSuffix(reply.Message, "\n"+h.created.ShareURL)
+			for _, banned := range []string{"Mallory", "$0", "free", "Nov 30", "Mon", "example.org", "555", "refund", "http"} {
+				if strings.Contains(text, banned) || !linked {
+					t.Errorf("group reply %q carries %q from Mallory's own question", reply.Message, banned)
+				}
+			}
+		})
 	}
 }
 

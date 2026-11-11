@@ -284,7 +284,7 @@ func TestBedrock_LiveGroupReply(t *testing.T) {
 		t.Fatalf("Suggest: %v", err)
 	}
 	t.Logf("group reply (%s): %s", meta.Model, text)
-	for _, want := range []string{sat, "Grace", "10 AM–12 PM"} {
+	for _, want := range []string{sat, sun, "Grace", "10 AM–12 PM"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("group reply %q does not contain %q", text, want)
 		}
@@ -292,7 +292,7 @@ func TestBedrock_LiveGroupReply(t *testing.T) {
 	if !strings.Contains(text, "2 of you") && !strings.Contains(text, "two of you") {
 		t.Errorf("group reply %q does not say how many of the group can come", text)
 	}
-	if lower := strings.ToLower(text); strings.Contains(lower, "recommend") || strings.Contains(lower, "$") {
-		t.Errorf("group reply %q calls a tied date recommended or names an amount", text)
+	if lower := strings.ToLower(text); strings.Contains(lower, "recommend") || strings.Contains(lower, "best") || strings.Contains(lower, "$") {
+		t.Errorf("group reply %q picks a tied date or names an amount", text)
 	}
 }

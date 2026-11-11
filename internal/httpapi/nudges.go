@@ -15,8 +15,9 @@ import (
 )
 
 const (
-	nudgeSlots     = 1
-	nudgeBusyRetry = 30 * time.Second
+	nudgeSlots      = 1
+	groupReplySlots = 1
+	nudgeBusyRetry  = 30 * time.Second
 )
 
 type suggestionDTO struct {
@@ -76,7 +77,7 @@ func (s *server) suggestions(ctx context.Context, st workshopState, rec domain.R
 		GroupReply: domain.GroupReplyDue(answered, now),
 	})
 	day := present.Day(date.StartsAt, st.loc)
-	hours := present.Clock(date.StartsAt.In(st.loc)) + "–" + present.Clock(date.EndsAt.In(st.loc))
+	hours := slotHours(*date, st.loc)
 	deadline := ""
 	if !closes.IsZero() {
 		deadline = present.Moment(closes, st.loc)
@@ -92,11 +93,9 @@ func (s *server) suggestions(ctx context.Context, st workshopState, rec domain.R
 			in.CanCome, in.Needed = len(summary.Compatible), minimum
 			in.Missing = max(minimum-in.CanCome, 0)
 			if rec.Tied {
-				in.Tied = leadingDays(st, rec)
+				in.Tied, in.Hours = leadingLabels(st, rec)
 			}
-			for _, id := range unclear[:min(len(unclear), domain.MaxGroupReplyQuestions)] {
-				in.Questions = append(in.Questions, ai.NamedQuestion{Name: names[id], Question: openQuestion(readings[id])})
-			}
+			in.Questions = groupQuestions(st, unclear, readings, names)
 			reason = fmt.Sprintf("%d people have answered. Tell the group where things stand.", len(answered))
 		case domain.SuggestClarify:
 			in.Question = openQuestion(readings[sg.ParticipantID])
@@ -131,32 +130,72 @@ func openQuestion(r domain.Interpretation) string {
 	return ""
 }
 
-func leadingDays(st workshopState, rec domain.Recommendation) []string {
-	var days []string
-	for _, d := range st.dates {
-		if slices.Contains(rec.LeadingDateIDs(), d.ID) {
-			days = append(days, present.Day(d.StartsAt, st.loc))
+func groupQuestions(st workshopState, unclear []string, readings map[string]domain.Interpretation, names map[string]string) []ai.NamedQuestion {
+	candidates := datesStarting(st.dates, func(store.CandidateDateRow) bool { return true })
+	var out []ai.NamedQuestion
+	for _, id := range unclear {
+		q, ok := ai.Quotable(openQuestion(readings[id]))
+		name, okName := ai.Quotable(names[id])
+		if !ok || !okName || namesAnotherDate(q, candidates, st.loc) {
+			continue
+		}
+		if out = append(out, ai.NamedQuestion{Name: name, Question: q}); len(out) == domain.MaxGroupReplyQuestions {
+			break
 		}
 	}
-	return days
+	return out
+}
+
+func slotHours(d store.CandidateDateRow, loc *time.Location) string {
+	return present.Clock(d.StartsAt.In(loc)) + "–" + present.Clock(d.EndsAt.In(loc))
+}
+
+func slotLabel(d store.CandidateDateRow, loc *time.Location) string {
+	return present.Day(d.StartsAt, loc) + ", " + slotHours(d, loc)
+}
+
+func leadingLabels(st workshopState, rec domain.Recommendation) (labels []string, sharedHours string) {
+	var lead []store.CandidateDateRow
+	days := map[string]bool{}
+	for _, d := range st.dates {
+		if slices.Contains(rec.LeadingDateIDs(), d.ID) {
+			lead = append(lead, d)
+			days[present.Day(d.StartsAt, st.loc)] = true
+		}
+	}
+	if len(lead) == 0 {
+		return nil, ""
+	}
+	same := len(days) == len(lead)
+	for _, d := range lead {
+		same = same && slotHours(d, st.loc) == slotHours(lead[0], st.loc)
+	}
+	for _, d := range lead {
+		if same {
+			labels = append(labels, present.Day(d.StartsAt, st.loc))
+		} else {
+			labels = append(labels, slotLabel(d, st.loc))
+		}
+	}
+	if same {
+		sharedHours = slotHours(lead[0], st.loc)
+	}
+	return labels, sharedHours
 }
 
 func classOptions(dates []store.CandidateDateRow, loc *time.Location) string {
 	if len(dates) == 0 {
 		return ""
 	}
-	hours := func(d store.CandidateDateRow) string {
-		return present.Clock(d.StartsAt.In(loc)) + "–" + present.Clock(d.EndsAt.In(loc))
-	}
 	same := true
 	for _, d := range dates[1:] {
-		same = same && hours(d) == hours(dates[0])
+		same = same && slotHours(d, loc) == slotHours(dates[0], loc)
 	}
 	days := make([]string, len(dates))
 	for i, d := range dates {
 		days[i] = present.Day(d.StartsAt, loc)
 		if !same {
-			days[i] += ", " + hours(d)
+			days[i] = slotLabel(d, loc)
 		}
 	}
 	list := days[len(days)-1]
@@ -164,7 +203,7 @@ func classOptions(dates []store.CandidateDateRow, loc *time.Location) string {
 		list = strings.Join(days[:len(days)-1], "; ") + " or " + list
 	}
 	if same {
-		list += ", " + hours(dates[0])
+		list += ", " + slotHours(dates[0], loc)
 	}
 	return list
 }
@@ -245,7 +284,7 @@ func (s *server) writeNudge(ctx context.Context, st workshopState, in ai.Suggest
 	}
 	allowed := datesStarting(st.dates, func(d store.CandidateDateRow) bool {
 		day := present.Day(d.StartsAt, st.loc)
-		return in.Kind == string(domain.SuggestClarify) || day == in.Date || slices.Contains(in.Tied, day)
+		return in.Kind == string(domain.SuggestClarify) || day == in.Date || slices.Contains(in.Tied, day) || slices.Contains(in.Tied, slotLabel(d, st.loc))
 	})
 	if len(allowed) > 0 && !closes.IsZero() {
 		allowed = append(allowed, closes)

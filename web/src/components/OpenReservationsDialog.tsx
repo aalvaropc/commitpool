@@ -1,8 +1,7 @@
 import { useState } from 'react'
 import { api, type OwnerView } from '../api'
 import { dateNames } from '../lib/event'
-import { lockedTerms } from '../lib/terms'
-import { formatDateRange } from '../lib/time'
+import { openReservationsTerms } from '../lib/terms'
 import { TermsList } from './Terms'
 import { ConfirmDialog, Notice } from './ui'
 
@@ -51,17 +50,7 @@ export default function OpenReservationsDialog({ token, view, dateId, onClose, o
       {date && (
         <div className="flex flex-col gap-3">
           <p>These terms lock now and cannot change afterwards.</p>
-          <TermsList
-            items={lockedTerms({
-              timeZone: w.timezone,
-              dateLabel: formatDateRange(date.starts_at, date.ends_at, w.timezone),
-              price: w.price,
-              windowMin: w.payment_window_min,
-              minimum: w.minimum,
-              capacity: w.capacity,
-              closesAbout: new Date(Date.now() + w.payment_window_min * 60000).toISOString(),
-            })}
-          />
+          <TermsList items={openReservationsTerms(w, date, Date.now())} />
           <p className="text-sm">
             Each person reserves with a PayPal hold. Holds are charged once enough people have reserved; if not enough people pay by the deadline, the
             workshop is cancelled, holds are released and any charge is refunded.

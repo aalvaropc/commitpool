@@ -9,7 +9,7 @@ export default function Closing({ demo }: { demo: boolean | undefined }) {
           <h2 id="band-title" className="shout max-w-[13ch] text-[clamp(2.5rem,8vw,5.5rem)] leading-[0.9]">
             The class happens, or nobody pays.
           </h2>
-          <p className="mt-[1.125rem] max-w-[40ch] text-[clamp(1.125rem,1rem+0.4vw,1.375rem)] font-medium">Share one link. Let Claude chase the maybes. Get paid when the class starts.</p>
+          <p className="mt-[1.125rem] max-w-[40ch] text-[clamp(1.125rem,1rem+0.4vw,1.375rem)] font-medium">Paste your group chat. Let Claude chase the maybes. Get paid when the class starts.</p>
         </div>
         <div className="flex flex-wrap items-start gap-3">
           {demo !== false && <TryDemo variant="ink" pending={demo === undefined} />}

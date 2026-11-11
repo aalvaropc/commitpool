@@ -13,8 +13,30 @@ describe('For judges', () => {
       expect(html).not.toContain('id="buyer-title"')
       expect(html).not.toContain('Copy')
       expect(html).not.toContain('<iframe')
-      expect(html).toContain('The PayPal Sandbox buyer login for step 3 is in the testing instructions on Devpost.')
+      expect(html).toContain('The PayPal Sandbox buyer login for the 4-minute path is in the testing instructions on Devpost.')
       expect(html).not.toContain('Sandbox buyer below')
+    }
+  })
+
+  it('lists the 30-second path first and links the repo', () => {
+    const html = renderToStaticMarkup(<ForJudges info={null} />)
+    const quick = html.indexOf('30 seconds')
+    const long = html.indexOf('About 4 minutes')
+    expect(quick).toBeGreaterThan(-1)
+    expect(long).toBeGreaterThan(quick)
+    expect(html).toContain('type an answer in the chat above.')
+    expect(html).toContain('Try it as Iris, read her group chat, then 3 PayPal checkouts. PayPal remembers your login after the first.')
+    expect(html).toContain('href="https://github.com/aalvaropc/commitpool"')
+    expect(html).toContain('Code on GitHub')
+    expect(html).not.toContain('Devpost</a>')
+    expect(html).not.toContain('Three steps')
+  })
+
+  it('links Devpost only when the server sends it and only over https', () => {
+    const link = 'https://devpost.com/software/commitpool'
+    expect(renderToStaticMarkup(<ForJudges info={{ workshops: true, devpost_url: link }} />)).toContain(`href="${link}"`)
+    for (const bad of ['http://devpost.com/x', 'javascript:alert(1)', '']) {
+      expect(renderToStaticMarkup(<ForJudges info={{ workshops: true, devpost_url: bad }} />)).not.toContain('Devpost</a>')
     }
   })
 

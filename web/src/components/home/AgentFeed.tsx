@@ -43,7 +43,7 @@ export default function AgentFeed() {
       <div className="wrap grid gap-12 lg:grid-cols-12 lg:gap-x-8">
         <div className="lg:sticky lg:top-8 lg:col-span-5 lg:self-start">
           <SectionHead id="feed-title" title="Claude finds the date." stacked className="">
-            Claude reads every answer and asks one question when it matters. CommitPool counts and picks. Iris approves anything that touches money.
+            Claude reads the pasted chat and every later answer, and asks one question when it matters. CommitPool counts and picks. Iris approves anything that touches money.
           </SectionHead>
           <dl className="mt-7 grid max-w-[26rem] gap-2.5">
             {rules.map((r) => (
@@ -55,7 +55,7 @@ export default function AgentFeed() {
           </dl>
         </div>
         <ol aria-label="How Iris’s class found its date" className="relative before:absolute before:top-3 before:bottom-3 before:left-[1.0625rem] before:w-0.5 before:bg-line lg:col-span-6 lg:col-start-7">
-          <Step icon="quote" tone="claude" time="9:02 PM" title="Read 6 answers, one in Spanish">
+          <Step icon="quote" tone="claude" time="9:02 PM" title="Reads the group chat Iris pasted">
             <div role="img" aria-label="Priya, Ben, Lucía, Hannah, Tomás and Grace" className="flex flex-wrap gap-1.5">
               {people.map((n) => (
                 <Avatar key={n} name={n} size="sm" />

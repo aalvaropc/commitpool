@@ -264,7 +264,7 @@ export default function ChatDemo({ demo, noteClassName = '' }: { demo?: boolean;
     await pause(1400)
     if (!live()) return
     drop(charging)
-    push({ kind: 'on', text: `${names.length} paid · $${names.length * PRICE} covers your $${SESSION_COST} session costs.` })
+    push({ kind: 'on', text: `${names.length} paid · $${names.length * PRICE} before PayPal fees covers your $${SESSION_COST} session costs.` })
     setPhase('done')
   }
 

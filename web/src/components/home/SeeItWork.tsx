@@ -68,7 +68,7 @@ export default function SeeItWork() {
                 height={1274}
                 loading="lazy"
                 decoding="async"
-                alt="Iris’s board, Who can come: six people, their messages, and each answer read for Saturday and Sunday. Saturday is recommended with 2 of the 3 needed; Grace’s message needs clarifying."
+                alt="Iris’s board, Who can come: six people, their messages, and each answer read for Saturday and Sunday. Saturday shows 2 of the 3 needed, and Grace’s message is marked as needing a question."
                 className="block h-80 w-full object-cover object-left-top sm:h-auto sm:object-fill"
               />
             </BrowserFrame>

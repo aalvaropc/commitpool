@@ -214,6 +214,11 @@ describe('ownerRefresh', () => {
     expect(ownerRefresh({ status: 'CONFIRMED', resolution: 'SETTLED', paymentsOpen: false, enrollments: ['PAID'], explanationPending: false })).toBeNull()
   })
 
+  it('refreshes quickly while Claude reads people pasted from the chat', () => {
+    expect(ownerRefresh({ status: 'COLLECTING', resolution: 'OPEN', paymentsOpen: false, enrollments: [], explanationPending: false, chatReading: true })).toBe(2000)
+    expect(ownerRefresh({ status: 'FUNDING', resolution: 'OPEN', paymentsOpen: true, enrollments: [], explanationPending: false, chatReading: true })).toBe(5000)
+  })
+
   it('keeps refreshing while the organizer’s payout is on its way', () => {
     expect(ownerRefresh({ status: 'CONFIRMED', resolution: 'OPEN', paymentsOpen: false, enrollments: ['PAID'], explanationPending: false, payoutMoving: true })).toBe(5000)
   })
@@ -411,11 +416,19 @@ describe('cancellationDetail', () => {
   })
 })
 
-describe('ownerRefresh for a demo filling in', () => {
+describe('ownerRefresh while Claude reads a pasted chat', () => {
   const base = { status: 'COLLECTING' as const, resolution: 'OPEN' as const, paymentsOpen: false, enrollments: [], explanationPending: false }
-  it('follows the answers as they arrive', () => {
-    expect(ownerRefresh({ ...base, demoFilling: true })).toBe(2000)
-    expect(ownerRefresh({ ...base, demoFilling: false })).toBe(8000)
+  it('follows the readings as they land, then falls back once none is in flight', () => {
+    expect(ownerRefresh({ ...base, chatReading: true })).toBe(2000)
+    expect(ownerRefresh({ ...base, chatReading: false })).toBe(8000)
+  })
+})
+
+describe('nextStep while Claude reads the chat', () => {
+  it('says Claude is reading instead of asking to share the invite', () => {
+    const reading = view({ participants: [{ id: 'p1', display_name: 'Priya Raman' }], availabilities: [], reading: { pending: 1, total: 1, active: true } })
+    expect(nextStep(reading)).toEqual({ title: 'Claude is reading the chat.', detail: 'Each person shows up below as Claude reads what they said.', action: { kind: 'none' } })
+    expect(nextStep({ ...reading, reading: { pending: 1, total: 1, active: false } }).title).toBe('Share the invite to get answers')
   })
 })
 

@@ -166,9 +166,44 @@ export interface Recommendation {
   explanation_pending: boolean
 }
 
+export type ParticipantSource = 'link' | 'chat' | 'demo'
+
 export interface ParticipantRef {
   id: string
   display_name: string
+  source?: ParticipantSource
+  chat_message?: string | null
+}
+
+export interface OwnerParticipant extends ParticipantRef {
+  unread?: boolean
+  participant_url?: string | null
+}
+
+export interface Reading {
+  pending: number
+  total: number
+  active: boolean
+}
+
+export interface ChatPerson {
+  name: string
+  excerpt: string
+  messages: number
+  host: boolean
+  joined: boolean
+}
+
+export interface ChatPreview {
+  people: ChatPerson[]
+  skipped: number
+}
+
+export type ChatSkipReason = 'host' | 'already_here' | 'not_in_chat'
+
+export interface ChatImport {
+  imported: { name: string; participant_url: string }[]
+  skipped: { name: string; reason: ChatSkipReason }[]
 }
 
 export type PayoutState = 'no_email' | 'off' | 'scheduled' | 'waiting' | 'created' | 'parked' | 'sending' | 'paid' | 'unclaimed' | 'failed' | 'unknown'
@@ -204,7 +239,10 @@ export interface OwnerView {
   proposal: Proposal | null
   extension?: Extension | null
   tally: OwnerTally
-  participants: ParticipantRef[]
+  participants: OwnerParticipant[]
+  reading?: Reading
+  demo_chat?: string | null
+  chat_imported?: boolean
   availabilities: Availability[]
   recommendation: Recommendation
   enrollments: Enrollment[]
@@ -457,6 +495,10 @@ export const api = {
     request<{ enrollment: Enrollment }>('POST', `/api/v1/owner/${seg(token)}/operator/retry-refund`, { enrollment_id: enrollmentId }),
   operatorClearFlag: (token: string, enrollmentId?: string) =>
     request<{ workshop: Workshop }>('POST', `/api/v1/owner/${seg(token)}/operator/clear-flag`, enrollmentId ? { enrollment_id: enrollmentId } : {}),
+  previewChat: (token: string, text: string) => request<ChatPreview>('POST', `/api/v1/owner/${seg(token)}/chat/preview`, { text }),
+  importChat: (token: string, text: string, names: string[]) => request<ChatImport>('POST', `/api/v1/owner/${seg(token)}/chat/import`, { text, names }),
+  retryChat: (token: string) => request<{ reading: number }>('POST', `/api/v1/owner/${seg(token)}/chat/retry`),
+  removeParticipant: (token: string, id: string) => request<null>('DELETE', `/api/v1/owner/${seg(token)}/participants/${seg(id)}`),
   verifyWithPayPal: (token: string) => request<VerifyResult>('POST', `/api/v1/owner/${seg(token)}/paypal/verify`),
   demoCloseNow: (token: string) => request<{ proposal: Proposal }>('POST', `/api/v1/owner/${seg(token)}/demo/close-now`),
   demoStartClass: (token: string) => request<{ payout: Payout }>('POST', `/api/v1/owner/${seg(token)}/demo/start-class`),

@@ -1,13 +1,12 @@
 package httpapi_test
 
 import (
-	"context"
-	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/aalvaropc/commitpool/internal/demo"
 )
 
 type demoJSON struct {
@@ -25,7 +24,7 @@ func TestDemo_OnlyOnADemoServer(t *testing.T) {
 	e.wantError(http.MethodGet, "/api/v1/demo", nil, http.StatusNotFound, "not_found")
 }
 
-func TestDemo_CreatesTheLifeDrawingWorkshopAndItsAnswersArrive(t *testing.T) {
+func TestCreateDemo_StartsEmptyWithItsChat(t *testing.T) {
 	e := newEnv(t, withDemoMode())
 	var info struct {
 		Workshops bool `json:"workshops"`
@@ -40,39 +39,90 @@ func TestDemo_CreatesTheLifeDrawingWorkshopAndItsAnswersArrive(t *testing.T) {
 	if !strings.HasPrefix(d.OwnerURL, appBaseURL+"/owner/") || !strings.HasPrefix(d.ShareURL, appBaseURL+"/w/") {
 		t.Fatalf("demo links = %+v", d)
 	}
-	if len(d.Participants) != 6 || d.Participants[0].Name != "Priya Raman" || !strings.HasPrefix(d.Participants[0].ParticipantURL, appBaseURL+"/p/") {
-		t.Fatalf("participants = %+v", d.Participants)
+	if d.Participants == nil || len(d.Participants) != 0 {
+		t.Errorf("participants = %+v, want an empty list: Iris's people come from her group chat", d.Participants)
 	}
 
 	e.background.Wait()
-	var v ownerViewJSON
-	e.call(http.MethodGet, "/api/v1/owner/"+strings.TrimPrefix(d.OwnerURL, appBaseURL+"/owner/"), nil, http.StatusOK, &v)
+	v := e.owner(demoHandle(d))
 	if v.Workshop.HostName != "Iris Calder" || v.Workshop.Title != "Life drawing for beginners" {
 		t.Fatalf("workshop = %+v", v.Workshop)
 	}
-	if len(v.Availabilities) != 6 {
-		t.Fatalf("%d of 6 answers arrived", len(v.Availabilities))
+	if len(v.Participants) != 0 || len(v.Availabilities) != 0 || v.ChatImported {
+		t.Errorf("a new demo has %d participants, %d answers and chat_imported %v; want none until the chat is read", len(v.Participants), len(v.Availabilities), v.ChatImported)
+	}
+	var public struct {
+		Group struct {
+			Answered int `json:"answered"`
+		} `json:"group"`
+	}
+	e.call(http.MethodGet, "/api/v1/w/"+strings.TrimPrefix(d.ShareURL, appBaseURL+"/w/"), nil, http.StatusOK, &public)
+	if public.Group.Answered != 0 {
+		t.Errorf("answered = %d, want 0", public.Group.Answered)
+	}
+	if v.DemoChat == nil || !strings.Contains(*v.DemoChat, "] Iris Calder: Life drawing at The Long Room") {
+		t.Fatalf("demo_chat = %v, want Iris's group chat", v.DemoChat)
+	}
+	for _, p := range demo.LifeDrawing.People {
+		if !strings.Contains(*v.DemoChat, "] "+p.Name+": "+p.Message+"\n") {
+			t.Errorf("demo_chat lacks %s's message %q", p.Name, p.Message)
+		}
+	}
+
+	if regular := e.owner(e.createWorkshop()); regular.DemoChat != nil {
+		t.Errorf("a regular workshop carries demo_chat = %q", *regular.DemoChat)
 	}
 }
 
-func TestDemo_AnswersArriveAfterTheVisitorLeaves(t *testing.T) {
+func TestCreateDemo_ImportReadsTheCast(t *testing.T) {
 	e := newEnv(t, withDemoMode())
-	ctx, cancel := context.WithCancel(e.ctx)
-	rec := httptest.NewRecorder()
-	e.h.ServeHTTP(rec, httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/demo/workshops", nil))
-	cancel()
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("demo = %d %s", rec.Code, rec.Body)
-	}
 	var d demoJSON
-	if err := json.Unmarshal(rec.Body.Bytes(), &d); err != nil {
-		t.Fatal(err)
+	e.call(http.MethodPost, "/api/v1/demo/workshops", nil, http.StatusCreated, &d)
+	h := demoHandle(d)
+	fresh := e.owner(h)
+	if fresh.DemoChat == nil || len(fresh.Participants) != 0 {
+		t.Fatalf("a new demo has demo_chat %v and %d participants, want the chat and nobody yet", fresh.DemoChat, len(fresh.Participants))
 	}
+	chat := *fresh.DemoChat
+
+	preview := e.previewChat(h, chat)
+	if len(preview.People) != 7 || preview.People[0].Name != "Iris Calder" || !preview.People[0].Host {
+		t.Fatalf("preview = %+v, want Iris first, as the host, then her six people", preview.People)
+	}
+	var names []string
+	for _, p := range preview.People[1:] {
+		if p.Host || p.Joined {
+			t.Errorf("%s is marked host %v, joined %v; want neither", p.Name, p.Host, p.Joined)
+		}
+		names = append(names, p.Name)
+	}
+	if got := e.importChat(h, chat, names...); len(got.Imported) != 6 {
+		t.Fatalf("import = %+v, want the six people", got)
+	}
+
 	e.background.Wait()
-	var v ownerViewJSON
-	e.call(http.MethodGet, "/api/v1/owner/"+strings.TrimPrefix(d.OwnerURL, appBaseURL+"/owner/"), nil, http.StatusOK, &v)
-	if len(v.Availabilities) != 6 {
-		t.Errorf("%d of 6 answers arrived after the visitor left", len(v.Availabilities))
+	v := e.settledOwner(h)
+	if len(v.Availabilities) != 6 || v.Reading.Pending != 0 || v.Reading.Total != 6 || !v.ChatImported {
+		t.Fatalf("%d of 6 answered, reading %+v, chat_imported %v", len(v.Availabilities), v.Reading, v.ChatImported)
+	}
+	grace := participantNamed(t, v, "Grace Liu")
+	for _, a := range v.Availabilities {
+		if a.ParticipantID != grace.ID {
+			continue
+		}
+		asked := a.Interpretation.Ambiguities
+		if !a.NeedsClarification || len(asked) == 0 || !strings.Contains(asked[0].Question, "10 AM–12 PM") {
+			t.Errorf("Grace's reading = %+v, want unclear with her question about the class hours", a.Interpretation)
+		}
+	}
+	sat := v.Dates[0].ID
+	for _, day := range v.Recommendation.PerDate {
+		if day.DateID == sat && len(day.Compatible) != 2 {
+			t.Errorf("Saturday has %d who can come, want 2", len(day.Compatible))
+		}
+	}
+	if v.Recommendation.DateID != sat || v.Recommendation.MeetsMinimum {
+		t.Errorf("recommendation = %+v, want Saturday, one short", v.Recommendation)
 	}
 }
 

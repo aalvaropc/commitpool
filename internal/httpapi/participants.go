@@ -54,7 +54,7 @@ func (s *server) participantView(w http.ResponseWriter, r *http.Request) error {
 	}
 	view := participantViewDTO{
 		Group:       g,
-		Participant: participantDTO{ID: p.ID, DisplayName: p.DisplayName},
+		Participant: participantView(p),
 		Workshop:    publicWorkshopView(ws),
 		Dates:       dateViews(st.dates, st.loc),
 		Proposal:    proposal,
@@ -168,7 +168,7 @@ func (s *server) submitAvailability(w http.ResponseWriter, r *http.Request) erro
 		ModelMeta:          metaJSON,
 	})
 	if err != nil {
-		return err
+		return notFoundIfMissing(err)
 	}
 	writeJSON(w, http.StatusCreated, map[string]availabilityDTO{"availability": availabilityView(saved, clean)})
 	return nil

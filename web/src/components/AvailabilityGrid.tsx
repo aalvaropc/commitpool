@@ -1,11 +1,26 @@
-import type { Availability, DateSummary, OwnerView, ParticipantRef } from '../api'
+import { useEffect, useState } from 'react'
+import { api, type Availability, type DateSummary, type OwnerParticipant, type OwnerView } from '../api'
 import { cellNotes, cellStatus, dateColumns, type DateColumn } from '../lib/owner'
-import { Avatar, Button, Pill, Tile, VerdictChip } from './ui'
+import { count } from '../lib/plural'
+import { Avatar, Button, ConfirmDialog, Icon, Notice, Pill, Tile, VerdictChip, toneWash } from './ui'
 
 interface Props {
+  token: string
   view: OwnerView
   onOpen: (dateId: string) => void
+  onChange: () => Promise<unknown>
 }
+
+type Unread = 'reading' | 'stuck' | null
+
+interface Actions {
+  copied: { id: string; ok: boolean } | null
+  copy: (p: OwnerParticipant) => void
+  remove: (p: OwnerParticipant) => void
+  removable: (p: OwnerParticipant) => boolean
+}
+
+export const COPIED_FOR_MS = 4000
 
 const markTone = (c: DateColumn, meets: boolean) => (c.mark === 'Recommended' ? (meets ? 'paid' : 'neutral') : c.mark === 'Tied' ? 'neutral' : 'hold')
 const wrap = 'min-w-0 [overflow-wrap:anywhere]'
@@ -26,7 +41,16 @@ function Cell({ a, dateId, summary }: { a: Availability; dateId: string; summary
   )
 }
 
-function Message({ a, name }: { a?: Availability; name: string }) {
+function Message({ a, p, unread }: { a?: Availability; p: OwnerParticipant; unread: Unread }) {
+  const name = p.display_name
+  if (!a && unread) {
+    return (
+      <span className={`flex flex-col items-start gap-1 ${wrap}`}>
+        {unread === 'reading' ? <span className="text-sm font-semibold text-ink-soft">Claude is reading…</span> : <Pill tone="attention">Couldn’t read yet</Pill>}
+        {p.chat_message && <span className="line-clamp-3 text-sm text-ink-soft">“{p.chat_message}”</span>}
+      </span>
+    )
+  }
   if (!a) return <span className="text-sm text-ink-soft">No answer yet</span>
   const reading = a.corrected ?? a.interpretation
   return (
@@ -64,14 +88,43 @@ function DateSummaryList({ columns, view, onOpen }: { columns: DateColumn[]; vie
   )
 }
 
-function PersonCard({ p, a, columns, summaries }: { p: ParticipantRef; a?: Availability; columns: DateColumn[]; summaries: Map<string, DateSummary> }) {
+function PersonActions({ p, actions }: { p: OwnerParticipant; actions: Actions }) {
+  const removable = actions.removable(p)
+  if (!p.participant_url && !removable) return null
+  const copied = actions.copied?.id === p.id ? actions.copied : null
+  return (
+    <span className="flex flex-col items-start">
+      <span className="-ml-4 flex flex-wrap items-center">
+        {p.participant_url && (
+          <Button variant="quiet" size="sm" onClick={() => actions.copy(p)}>
+            <Icon name="copy" size={16} />
+            Copy their link<span className="sr-only"> for {p.display_name}</span>
+          </Button>
+        )}
+        {removable && (
+          <Button variant="quiet" size="sm" onClick={() => actions.remove(p)}>
+            Remove<span className="sr-only"> {p.display_name}</span>
+          </Button>
+        )}
+      </span>
+      {p.participant_url && (
+        <span role="status" className={`text-sm text-ink-soft ${wrap} empty:hidden`}>
+          {copied ? (copied.ok ? `Copied. Send it to ${p.display_name}.` : `Copying is blocked here. Their link: ${p.participant_url}`) : ''}
+        </span>
+      )}
+    </span>
+  )
+}
+
+function PersonCard({ p, a, unread, actions, columns, summaries }: { p: OwnerParticipant; a?: Availability; unread: Unread; actions: Actions; columns: DateColumn[]; summaries: Map<string, DateSummary> }) {
   return (
     <li className="flex flex-col gap-2.5 rounded-control p-3.5 ring-1 ring-line ring-inset">
       <p className="flex min-w-0 items-center gap-2.5">
         <Avatar name={p.display_name} size="sm" />
         <span className={`font-semibold ${wrap}`}>{p.display_name}</span>
       </p>
-      <Message a={a} name={p.display_name} />
+      <Message a={a} p={p} unread={unread} />
+      <PersonActions p={p} actions={actions} />
       {a && (
         <ul className="flex flex-col gap-2">
           {columns.map((c) => (
@@ -86,17 +139,84 @@ function PersonCard({ p, a, columns, summaries }: { p: ParticipantRef; a?: Avail
   )
 }
 
-export default function AvailabilityGrid({ view, onOpen }: Props) {
+export default function AvailabilityGrid({ token, view, onOpen, onChange }: Props) {
   const columns = dateColumns(view)
   const summaries = new Map((view.recommendation.per_date ?? []).map((d) => [d.date_id, d]))
   const byParticipant = new Map(view.availabilities.map((a) => [a.participant_id, a]))
   const people = view.participants
   const openable = columns.some((c) => c.canOpen)
+  const [said, setSaid] = useState('')
+  const [again, setAgain] = useState('')
+  const [copied, setCopied] = useState<Actions['copied']>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [removing, setRemoving] = useState<OwnerParticipant | null>(null)
+  const [removeError, setRemoveError] = useState<string | null>(null)
+  const readingNow = view.reading?.active ?? false
+  const enrolled = new Set(view.enrollments.map((e) => e.participant_id))
+  const unreadOf = (p: OwnerParticipant): Unread => (p.unread && !byParticipant.has(p.id) ? (readingNow ? 'reading' : 'stuck') : null)
+  const stuck = people.filter((p) => unreadOf(p) === 'stuck')
+  const readStuck = stuck.length === 1 ? `Read ${stuck[0].display_name}’s message again` : `Read the ${count(stuck.length, 'person', 'people')} Claude couldn’t read yet`
+
+  useEffect(() => {
+    if (!copied) return
+    const t = setTimeout(() => setCopied(null), COPIED_FOR_MS)
+    return () => clearTimeout(t)
+  }, [copied])
+
+  async function readAgain() {
+    setCopied(null)
+    setBusy('retry')
+    setAgain('')
+    try {
+      const res = await api.retryChat(token)
+      setAgain(res.reading > 0 ? 'Claude is reading them again.' : 'Claude is already reading them.')
+      await onChange()
+    } catch (e) {
+      setAgain(e instanceof Error ? e.message : 'Claude could not read them again right now.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const actions: Actions = {
+    copied,
+    async copy(p) {
+      if (!p.participant_url) return
+      try {
+        await navigator.clipboard.writeText(p.participant_url)
+        setCopied({ id: p.id, ok: true })
+      } catch {
+        setCopied({ id: p.id, ok: false })
+      }
+    },
+    remove(p) {
+      setCopied(null)
+      setRemoveError(null)
+      setRemoving(p)
+    },
+    removable: (p) => view.workshop.status === 'COLLECTING' && p.source === 'chat' && !enrolled.has(p.id) && unreadOf(p) !== 'reading',
+  }
+
+  async function confirmRemove() {
+    if (!removing) return
+    setBusy('remove')
+    setRemoveError(null)
+    try {
+      await api.removeParticipant(token, removing.id)
+      setSaid(`Removed ${removing.display_name}.`)
+      setRemoving(null)
+      await onChange()
+    } catch (e) {
+      setRemoveError(e instanceof Error ? e.message : 'They could not be removed right now.')
+    } finally {
+      setBusy(null)
+    }
+  }
 
   return (
-    <Tile as="section" aria-labelledby="grid-title" className="flex flex-col gap-4 sm:p-6">
+    <Tile as="section" aria-labelledby="grid-title" className="flex scroll-mt-4 flex-col gap-4 sm:p-6">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 id="grid-title" className="text-2xl">
+        <h2 id="grid-title" tabIndex={-1} className="scroll-mt-4 text-2xl">
           Who can come
         </h2>
         <p className="text-sm text-ink-soft">
@@ -104,15 +224,34 @@ export default function AvailabilityGrid({ view, onOpen }: Props) {
         </p>
       </div>
 
+      <p role="status" className={`text-sm text-ink-soft ${wrap} empty:hidden`}>
+        {said}
+      </p>
+
+      {(stuck.length > 0 || busy === 'retry' || (again && readingNow)) && (
+        <div className={`flex flex-col items-start gap-2 rounded-control px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center ${toneWash.attention}`}>
+          {stuck.length > 0 && (
+            <Button variant="secondary" size="sm" busy={busy === 'retry'} busyLabel="Reading again…" onClick={() => void readAgain()}>
+              {readStuck}
+            </Button>
+          )}
+          <span role="status" className={`text-sm font-medium ${wrap} empty:hidden`}>
+            {again}
+          </span>
+        </div>
+      )}
+
       {people.length === 0 ? (
-        <p className="text-ink-soft">Share the invite. Each person appears here with their answer for every date.</p>
+        <p className="text-ink-soft">
+          {view.workshop.status === 'COLLECTING' ? 'Paste your group chat above, or share the invite.' : 'Share the invite.'} Each person appears here with their answer for every date.
+        </p>
       ) : (
         <>
           <div className="flex flex-col gap-4 sm:hidden">
             <DateSummaryList columns={columns} view={view} onOpen={onOpen} />
             <ul className="flex flex-col gap-3" aria-label="People">
               {people.map((p) => (
-                <PersonCard key={p.id} p={p} a={byParticipant.get(p.id)} columns={columns} summaries={summaries} />
+                <PersonCard key={p.id} p={p} a={byParticipant.get(p.id)} unread={unreadOf(p)} actions={actions} columns={columns} summaries={summaries} />
               ))}
             </ul>
           </div>
@@ -157,7 +296,10 @@ export default function AvailabilityGrid({ view, onOpen }: Props) {
                         </span>
                       </th>
                       <td className="border-t border-line px-3 py-3 align-top">
-                        <Message a={a} name={p.display_name} />
+                        <span className="flex flex-col items-start gap-1">
+                          <Message a={a} p={p} unread={unreadOf(p)} />
+                          <PersonActions p={p} actions={actions} />
+                        </span>
                       </td>
                       {columns.map((c) => (
                         <td key={c.id} className={`border-t border-line px-3 py-3 align-top ${c.mark ? 'bg-brand-wash/60' : ''}`}>
@@ -188,6 +330,24 @@ export default function AvailabilityGrid({ view, onOpen }: Props) {
           </div>
         </>
       )}
+
+      <ConfirmDialog
+        open={removing !== null}
+        title={`Remove ${removing?.display_name ?? ''}?`}
+        confirmLabel="Remove"
+        busy={busy === 'remove'}
+        busyLabel="Removing…"
+        tone="danger"
+        onConfirm={() => void confirmRemove()}
+        onClose={() => setRemoving(null)}
+      >
+        <p>They leave the board, with what Claude read from the chat, and their link stops working.</p>
+        {removeError && (
+          <Notice tone="attention" role="alert" className="mt-3">
+            {removeError}
+          </Notice>
+        )}
+      </ConfirmDialog>
     </Tile>
   )
 }

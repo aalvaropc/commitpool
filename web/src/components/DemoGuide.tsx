@@ -30,26 +30,28 @@ function Guide({ step, people, guided }: { step: DemoStep | null; people: DemoPa
               </p>
             )}
           </div>
-          <div className="flex flex-col gap-2">
-            <p aria-hidden="true" className="text-sm font-semibold text-ink-soft">
-              Act as
-            </p>
-            <ul className="flex flex-wrap gap-2" aria-label="Open the page of a participant">
-              {people.map((p) => (
-                <li key={p.path}>
-                  <ButtonLink to={p.path} target="_blank" rel="noopener" variant={step?.primary === p.name ? 'primary' : 'secondary'} size="sm">
-                    <span className="sr-only">Act as </span>
-                    {p.name}
-                    <span className="sr-only"> (opens in a new tab)</span>
-                    <Icon name="arrowRight" size={16} />
-                  </ButtonLink>
-                </li>
-              ))}
-            </ul>
-          </div>
+          {people.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <p aria-hidden="true" className="text-sm font-semibold text-ink-soft">
+                Act as
+              </p>
+              <ul className="flex flex-wrap gap-2" aria-label="Open the page of a participant">
+                {people.map((p) => (
+                  <li key={p.path}>
+                    <ButtonLink to={p.path} target="_blank" rel="noopener" variant={step?.primary === p.name ? 'primary' : 'secondary'} size="sm">
+                      <span className="sr-only">Act as </span>
+                      {p.name}
+                      <span className="sr-only"> (opens in a new tab)</span>
+                      <Icon name="arrowRight" size={16} />
+                    </ButtonLink>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <p className="max-w-prose text-sm text-ink-soft">
-            A prepared class: its six participants and their answers were written for the demo, and Claude reads each answer as it arrives. Open
-            reservations, then reserve as a participant with a PayPal Sandbox account.
+            A prepared class: Iris’s group chat and the six people in it were written for the demo, and Claude reads each person’s message when you add them.
+            Open reservations, then reserve as a participant with a PayPal Sandbox account.
           </p>
         </div>
       </details>
@@ -61,7 +63,7 @@ export default function DemoGuide({ view }: { view: OwnerView }) {
   if (!view.workshop.demo) return null
   const people = demoParticipants(view)
   const step = demoStep(view, people.map((p) => p.name))
-  if (people.length === 0) {
+  if (people.length === 0 && step === null) {
     return (
       <Tile as="section" aria-labelledby="demo-guide-title" tone="muted" className="flex flex-col gap-2 shadow-none ring-1 ring-line">
         <div className="flex flex-wrap items-center gap-2">

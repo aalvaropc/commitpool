@@ -12,17 +12,17 @@ import (
 	"github.com/aalvaropc/commitpool/internal/ai"
 	"github.com/aalvaropc/commitpool/internal/demo"
 	"github.com/aalvaropc/commitpool/internal/inproc"
+	"github.com/aalvaropc/commitpool/internal/store"
 )
 
 const (
-	demoTimezone      = "America/New_York"
-	demoWindowMin     = 1440
-	demoAnswerTimeout = 3 * time.Minute
-	demoHourlyCap     = 30
-	demoRunningCap    = 6
-	demoVisitorEvery  = 20 * time.Minute
-	demoVisitorBurst  = 5
-	demoModelCalls    = 10
+	demoTimezone     = "America/New_York"
+	demoWindowMin    = 1440
+	demoHourlyCap    = 30
+	demoRunningCap   = 6
+	demoVisitorEvery = 20 * time.Minute
+	demoVisitorBurst = 5
+	demoModelCalls   = 10
 )
 
 type demoRefusal struct {
@@ -158,56 +158,38 @@ func (s *server) createDemoWorkshop(w http.ResponseWriter, r *http.Request) erro
 		return refused.err
 	}
 	api := inproc.Client{Handler: s.self}
-	ctx := r.Context()
 	opts := demo.Options{Now: s.Clock.Now(), Timezone: demoTimezone, WindowMin: demoWindowMin, Demo: true}
-	res, err := demo.Create(ctx, api, demo.LifeDrawing, opts)
+	res, err := demo.Create(r.Context(), api, demo.LifeDrawing, opts)
 	if err != nil {
 		ticket.refund()
 		return err
 	}
-	people, err := demo.Join(ctx, api, res, demo.LifeDrawing.People)
-	if err != nil {
-		ticket.refund()
-		return err
-	}
-	for _, p := range people {
-		if _, err := s.Store.KeepDemoLink(ctx, p.Token); err != nil {
-			ticket.refund()
-			return err
-		}
-	}
-	s.answerInBackground(ctx, api, people, ticket)
-	out := demoWorkshopDTO{OwnerURL: res.OwnerURL, ShareURL: res.ShareURL}
-	for _, p := range people {
-		out.Participants = append(out.Participants, demoParticipantDTO{Name: p.Name, ParticipantURL: p.URL})
-	}
-	writeJSON(w, http.StatusCreated, out)
+	ticket.done()
+	writeJSON(w, http.StatusCreated, demoWorkshopDTO{OwnerURL: res.OwnerURL, ShareURL: res.ShareURL, Participants: []demoParticipantDTO{}})
 	return nil
 }
 
-func (s *server) answerInBackground(ctx context.Context, api inproc.Client, people []demo.Participant, ticket *demoTicket) {
-	bctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), demoAnswerTimeout)
+func demoChat(ws store.WorkshopRow, loc *time.Location) *string {
+	if !ws.IsDemo {
+		return nil
+	}
+	chat := demo.LifeDrawing.Chat(ws.CreatedAt, loc)
+	return &chat
+}
+
+func (s *server) pace() demo.Pace {
 	pace := s.Cfg.DemoPace
-	s.Background.Add(1)
-	go func() {
-		defer s.Background.Done()
-		defer ticket.done()
-		defer cancel()
-		err := demo.Answer(bctx, api, people, func(ctx context.Context) error {
-			if pace <= 0 {
-				return nil
-			}
-			t := time.NewTimer(pace)
-			defer t.Stop()
-			select {
-			case <-t.C:
-				return nil
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		})
-		if err != nil {
-			s.Log.Warn("demo: some answers did not arrive", "error", err)
+	return func(ctx context.Context) error {
+		if pace <= 0 {
+			return nil
 		}
-	}()
+		t := time.NewTimer(pace)
+		defer t.Stop()
+		select {
+		case <-t.C:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 }

@@ -14,12 +14,30 @@ type actAsJSON struct {
 	ParticipantURL string `json:"participant_url"`
 }
 
+func demoHandle(d demoJSON) workshopHandle {
+	return workshopHandle{
+		ownerPath: "/api/v1/owner/" + strings.TrimPrefix(d.OwnerURL, appBaseURL+"/owner/"),
+		sharePath: "/api/v1/w/" + strings.TrimPrefix(d.ShareURL, appBaseURL+"/w/"),
+	}
+}
+
+func (e *env) importDemoChat(h workshopHandle) chatImportJSON {
+	e.t.Helper()
+	chat := e.owner(h).DemoChat
+	if chat == nil {
+		e.t.Fatal("the demo owner view has no demo_chat")
+	}
+	return e.importChat(h, *chat, castNames()...)
+}
+
 func (e *env) startDemo() (demoJSON, string) {
 	e.t.Helper()
 	var d demoJSON
 	e.call(http.MethodPost, "/api/v1/demo/workshops", nil, http.StatusCreated, &d)
+	h := demoHandle(d)
+	d.Participants = e.importDemoChat(h).Imported
 	e.background.Wait()
-	return d, "/api/v1/owner/" + strings.TrimPrefix(d.OwnerURL, appBaseURL+"/owner/")
+	return d, h.ownerPath
 }
 
 func participantToken(url string) string {

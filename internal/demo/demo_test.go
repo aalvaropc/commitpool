@@ -8,12 +8,15 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/aalvaropc/commitpool/internal/ai"
+	"github.com/aalvaropc/commitpool/internal/chatimport"
 	"github.com/aalvaropc/commitpool/internal/demo"
 	"github.com/aalvaropc/commitpool/internal/domain"
 	"github.com/aalvaropc/commitpool/internal/present"
@@ -306,6 +309,21 @@ func TestAnswer_WaitsOutABusyReaderAndMovesOnPastARefusal(t *testing.T) {
 	}
 }
 
+func TestAnswerOne_PostsTheMessageAndBacksOffWhileThrottled(t *testing.T) {
+	api := &fakeAPI{throttledOn: map[string]int{"/p/P1/": 2}}
+	var paced int
+	err := demo.AnswerOne(context.Background(), api, demo.Participant{Name: "Priya", Message: "Saturday works", Token: "P1"}, func(context.Context) error { paced++; return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := api.answers(); len(got) != 3 || got[2] != "Saturday works" || api.calls[2].Path != "/api/v1/p/P1/availability" {
+		t.Errorf("calls = %+v, want the message posted three times to Priya's page", api.calls)
+	}
+	if paced != 1+2 {
+		t.Errorf("paced %d times, want 1 and 2 steps of backoff and no step before the first try", paced)
+	}
+}
+
 func TestAnswer_GivesUpOnAReaderThatStaysBusy(t *testing.T) {
 	people := []demo.Participant{{Name: "Priya", Message: "a", Token: "P1"}}
 	api := &fakeAPI{busyOn: map[string]int{"/p/P1/": 10}}
@@ -321,6 +339,81 @@ func TestAnswer_StopsWhenTheTimeIsUp(t *testing.T) {
 	err := demo.Answer(ctx, api, []demo.Participant{{Name: "Priya", Token: "P1"}}, func(ctx context.Context) error { return ctx.Err() })
 	if !errors.Is(err, context.Canceled) || len(api.calls) != 0 {
 		t.Errorf("err %v with %d calls, want cancelled before any call", err, len(api.calls))
+	}
+}
+
+func TestLifeDrawingChat_ParsesToTheCast(t *testing.T) {
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 11, 11, 18, 30, 0, 0, time.UTC)
+	text := demo.LifeDrawing.Chat(now, ny)
+	chat, err := chatimport.Parse(text)
+	if err != nil {
+		t.Fatalf("Parse(the demo chat) = %v\n%s", err, text)
+	}
+	cast := demo.LifeDrawing.People
+	if len(chat.People) != len(cast)+1 {
+		t.Fatalf("people = %+v, want Iris and her %d participants", chat.People, len(cast))
+	}
+	iris := chat.People[0]
+	if iris.Name != demo.LifeDrawing.HostName || len(iris.Messages) != 2 {
+		t.Errorf("first sender = %+v, want Iris Calder with her opener and her thanks", iris)
+	}
+	for i, p := range cast {
+		got := chat.People[i+1]
+		if got.Name != p.Name || len(got.Messages) != 1 || got.Text(chatimport.MaxTextRunes) != p.Message {
+			t.Errorf("sender %d = %q saying %q, want %s saying exactly %q", i+1, got.Name, got.Text(chatimport.MaxTextRunes), p.Name, p.Message)
+		}
+	}
+	if !strings.HasPrefix(text, "[11/10/26, 7:05:14\u202fPM] Iris Calder: Life drawing at The Long Room, Saturday or Sunday 10–12, $45. Who's in?\n") {
+		t.Errorf("the chat does not open with Iris's question at 7:05 PM the evening before, in the WhatsApp export format:\n%s", text)
+	}
+	if !strings.HasSuffix(text, "\n[11/10/26, 7:40:14\u202fPM] Iris Calder: Thanks all! 🎨") {
+		t.Errorf("the chat does not end with Iris's thanks at 7:40 PM the evening before:\n%s", text)
+	}
+	if demo.LifeDrawing.Chat(now, ny) != text {
+		t.Error("the demo chat changes between two calls with the same time")
+	}
+}
+
+func TestLifeDrawingChat_IsAlwaysTheEveningBefore(t *testing.T) {
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name string
+		now  time.Time
+		day  string
+	}{
+		{"just after midnight", time.Date(2026, 11, 11, 0, 13, 0, 0, ny), "11/10/26"},
+		{"late at night", time.Date(2026, 11, 11, 23, 50, 0, 0, ny), "11/10/26"},
+		{"the morning clocks go back", time.Date(2026, 11, 1, 1, 30, 0, 0, ny).Add(time.Hour), "10/31/26"},
+		{"the morning clocks go forward", time.Date(2027, 3, 14, 3, 10, 0, 0, ny), "3/13/27"},
+		{"from another zone", time.Date(2026, 11, 11, 3, 0, 0, 0, time.UTC), "11/9/26"},
+	}
+	stamp := regexp.MustCompile(`\[(\d+/\d+/\d+), (\d+):(\d+):\d+\x{202f}(AM|PM)\]`)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			text := demo.LifeDrawing.Chat(tc.now, ny)
+			got := stamp.FindAllStringSubmatch(text, -1)
+			if len(got) != 8 {
+				t.Fatalf("%d stamps in\n%s", len(got), text)
+			}
+			last := -1
+			for _, m := range got {
+				minute, _ := strconv.Atoi(m[3])
+				if m[1] != tc.day || m[2] != "7" || m[4] != "PM" || minute < 5 || minute > 40 || minute < last {
+					t.Fatalf("stamp %q, want %s between 7:05 and 7:40 PM, in order:\n%s", m[0], tc.day, text)
+				}
+				last = minute
+			}
+			if _, err := chatimport.Parse(text); err != nil {
+				t.Errorf("Parse = %v", err)
+			}
+		})
 	}
 }
 

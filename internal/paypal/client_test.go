@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/aalvaropc/commitpool/internal/paypal"
 )
@@ -828,5 +830,29 @@ func TestOrderDescription_Truncates(t *testing.T) {
 	}
 	if n := len([]rune(paypal.OrderDescription("Go", strings.Repeat("x", 300)))); n != 127 {
 		t.Errorf("description with an oversized date = %d runes, want 127", n)
+	}
+}
+
+func TestOrderDescription_CollapsesNewlines(t *testing.T) {
+	got := paypal.OrderDescription("Go\n\nfor \t operators\r\n\x00now", "Sat, Nov 14")
+	if want := "Go for operators now · Sat, Nov 14 · hold for 1 spot"; got != want {
+		t.Errorf("description = %q, want %q", got, want)
+	}
+}
+
+func TestOrderDescription_EmojiTitleFitsUTF16Limit(t *testing.T) {
+	label := "Sat, Nov 14, 10 AM–12 PM (New York time)"
+	got := paypal.OrderDescription(strings.Repeat("🎨", 120), label)
+	if n := len(utf16.Encode([]rune(got))); n > 127 {
+		t.Errorf("description UTF-16 units = %d, want at most 127", n)
+	}
+	if !strings.HasSuffix(got, " · "+label+" · hold for 1 spot") {
+		t.Errorf("description = %q, want the date and the hold kept", got)
+	}
+	if !utf8.ValidString(got) || strings.ContainsRune(got, '\uFFFD') {
+		t.Errorf("description = %q, want valid text", got)
+	}
+	if n := len(utf16.Encode([]rune(paypal.OrderDescription(strings.Repeat("🎨", 120), strings.Repeat("🎨", 100))))); n > 127 {
+		t.Errorf("description with an oversized emoji date = %d units, want at most 127", n)
 	}
 }

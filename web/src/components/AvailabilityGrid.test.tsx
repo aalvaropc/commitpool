@@ -39,17 +39,23 @@ const ada: OwnerParticipant = { id: 'p3', display_name: 'Ada', source: 'link', c
 const render = (v: OwnerView) => text(renderToStaticMarkup(<AvailabilityGrid token="t" view={v} onOpen={() => {}} onChange={async () => {}} />))
 
 describe('AvailabilityGrid with people from the chat', () => {
-  it('offers Read again, named for the person, once Claude has stopped trying', () => {
-    const plain = render(view([priya, grace]))
-    expect(plain).toContain("Couldn't read yet")
-    expect(plain).toContain('Read again Grace Liu’s message')
-    expect(plain).not.toContain('Read again Priya Raman')
+  it('offers one Read again for everyone Claude could not read, and shows what they said', () => {
+    const lucia: OwnerParticipant = { ...grace, id: 'p4', display_name: 'Lucía Torres', chat_message: 'El sábado no puedo.', participant_url: 'https://cp.test/p/LUC' }
+    const one = render(view([priya, grace]))
+    expect(one).toContain('Couldn’t read yet')
+    expect(one).toContain('“Count me in!”')
+    expect(one.match(/Read Grace Liu’s message again/g)).toHaveLength(1)
+    const two = render(view([priya, grace, lucia], { reading: { pending: 2, total: 3, active: false } }))
+    expect(two.match(/Read the 2 people Claude couldn’t read yet/g)).toHaveLength(1)
+    expect(two).not.toContain('Read Grace Liu’s message again')
   })
 
   it('says Claude is reading while it still is', () => {
     const plain = render(view([priya, grace], { reading: { pending: 1, total: 2, active: true } }))
     expect(plain).toContain('Claude is reading…')
-    expect(plain).not.toContain("Couldn't read yet")
+    expect(plain).toContain('“Count me in!”')
+    expect(plain).not.toContain('Couldn’t read yet')
+    expect(plain).not.toContain('Claude couldn’t read')
     expect(plain).not.toContain('Remove Grace Liu')
   })
 

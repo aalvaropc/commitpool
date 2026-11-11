@@ -42,6 +42,9 @@ export function cancellationDetail(v: OwnerView): string {
 
 function collecting(v: OwnerView): NextStep {
   const { recommendation: rec, workshop: w } = v
+  if (v.availabilities.length === 0 && v.reading?.active && v.reading.pending > 0) {
+    return { title: 'Claude is reading the chat.', detail: 'Each person shows up below as Claude reads what they said.', action: { kind: 'none' } }
+  }
   if (v.availabilities.length === 0 || !rec.date_id) {
     return { title: 'Share the invite to get answers', detail: 'Answers show up here as people reply.', action: { kind: 'share' } }
   }
@@ -183,13 +186,12 @@ interface RefreshInput {
   paymentsOpen: boolean
   enrollments: OwnerView['enrollments'][number]['status'][]
   explanationPending: boolean
-  demoFilling?: boolean
   chatReading?: boolean
   payoutMoving?: boolean
 }
 
 export function ownerRefresh(s: RefreshInput): number | null {
-  if ((s.demoFilling || s.chatReading) && s.status === 'COLLECTING') return 2000
+  if (s.chatReading && s.status === 'COLLECTING') return 2000
   if (s.explanationPending && s.status === 'COLLECTING') return 3000
   if (shouldPollOwner(s) || s.payoutMoving) return 5000
   if (s.status === 'COLLECTING') return 8000

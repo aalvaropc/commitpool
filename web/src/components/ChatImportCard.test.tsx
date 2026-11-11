@@ -49,6 +49,7 @@ describe('ChatImportCard', () => {
     }
     const plain = text(html)
     expect(plain).toContain('4 people in the chat')
+    expect(html).toMatch(/<h3 id="chat-found" tabindex="-1"[^>]*>4 people in the chat<\/h3>/)
     expect(plain).toContain('“Saturday works for me, Sunday I can’t.”')
     expect(plain).toContain('3 lines left out')
     expect(plain).toContain('Add 2 people')
@@ -62,7 +63,7 @@ describe('ChatImportCard', () => {
     expect(after.text).toBe('Ana: Saturday works')
     const html = panel(after)
     expect(html).toMatch(/role="alert"/)
-    expect(text(html)).toContain("That's a .zip. Export the chat without media to get a .txt, or paste the messages.")
+    expect(text(html)).toContain('That’s a .zip. Export the chat without media to get a .txt, or paste the messages.')
     expect(html).toMatch(/aria-invalid="true"/)
   })
 
@@ -77,10 +78,33 @@ describe('ChatImportCard', () => {
     expect(html).not.toMatch(/role="alert"/)
   })
 
+  it('leads a new demo with Iris’s step, and a pasted chat of your own with the people', () => {
+    const demo = text(renderToStaticMarkup(<ChatImportCard token="t" view={owner({ workshop: { status: 'COLLECTING', demo: true }, demo_chat: 'Iris Calder: Who’s in?' } as Partial<OwnerView>)} onImported={async () => {}} />))
+    expect(demo).toContain('Next in the demo: This is Iris’s group chat. Press Read the chat, then Add 6 people.')
+    const own = text(panel({ ...chatCard('Ana: Sunday'), preview: null }))
+    expect(own).not.toContain('Next in the demo')
+    const lead = renderToStaticMarkup(
+      <ChatImportPanel state={chatCard('Ana: Sunday')} busy={null} labelledBy="chat-title" lead="Press Read the chat, then Add the people." onText={noop} onRead={noop} onFile={noop} onToggle={noop} onAdd={noop} />,
+    )
+    expect(text(lead)).toContain('Press Read the chat, then Add the people.')
+    expect(text(renderToStaticMarkup(<ChatImportCard token="t" view={owner({ demo_chat: 'Iris Calder: Who’s in?' })} onImported={async () => {}} />))).not.toContain('Next in the demo')
+  })
+
+  it('keeps the textarea at 16 px on phones and still while a file is read', () => {
+    const html = renderToStaticMarkup(
+      <ChatImportPanel state={chatCard('Ana: Sunday')} busy="file" labelledBy="chat-title" onText={noop} onRead={noop} onFile={noop} onToggle={noop} onAdd={noop} />,
+    )
+    const area = html.slice(html.indexOf('<textarea'), html.indexOf('</textarea>'))
+    expect(area).toMatch(/text-base/)
+    expect(area).toMatch(/sm:text-sm/)
+    expect(area).toMatch(/disabled=""/)
+    expect(area).toMatch(/rows="6"/)
+  })
+
   it('opens with the demo chat in a new demo and folds away once people are on the board', () => {
     const demo = renderToStaticMarkup(<ChatImportCard token="t" view={owner({ demo_chat: 'Iris Calder: Who’s in?' })} onImported={async () => {}} />)
     expect(text(demo)).toContain('Paste your group chat')
-    expect(text(demo)).toContain("Paste the messages, or upload WhatsApp's Export chat (.txt, without media). CommitPool finds who said what; Claude reads each person against your dates.")
+    expect(text(demo)).toContain("Paste the messages, or upload WhatsApp’s Export chat (.txt, without media). CommitPool finds who said what; Claude reads each person against your dates.")
     expect(demo).toContain('Iris Calder: Who’s in?</textarea>')
     expect(text(demo)).toContain('Read the chat')
     expect(text(demo)).toContain('Upload the export (.txt)')

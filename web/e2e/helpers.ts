@@ -64,8 +64,9 @@ export async function importDemoChat(page: Page): Promise<void> {
   const card = page.getByRole('region', { name: 'Paste your group chat' })
   await expect(card.getByRole('textbox', { name: 'Paste your group chat' })).toHaveValue(/\] Iris Calder: /)
   await card.getByRole('button', { name: 'Read the chat' }).click()
+  await expect(card.getByRole('heading', { name: '7 people in the chat' })).toBeFocused()
   await card.getByRole('button', { name: 'Add 6 people' }).click()
-  await expect(page.getByRole('region', { name: 'Paste more of the chat' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Who can come', exact: true })).toBeFocused()
 }
 
 export async function sendAvailability(p: Participant): Promise<void> {

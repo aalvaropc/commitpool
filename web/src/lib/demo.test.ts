@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import type { OwnerView } from '../api'
-import { demoParticipants, demoStep } from './demo'
+import { chatLead, demoParticipants, demoStep } from './demo'
+
+describe('chatLead', () => {
+  const demo = '[11/10/26, 7:05:14\u202fPM] Iris Calder: Who’s in?'
+  it('points at Iris’s chat while it is the one in the box, and at the people otherwise', () => {
+    expect(chatLead(demo, demo)).toBe('This is Iris’s group chat. Press Read the chat, then Add 6 people.')
+    expect(chatLead(`${demo}\n`, demo)).toBe('This is Iris’s group chat. Press Read the chat, then Add 6 people.')
+    expect(chatLead('Ana: Sunday works', demo)).toBe('Press Read the chat, then Add the people.')
+    expect(chatLead('Ana: Sunday works', null)).toBeNull()
+  })
+})
 
 describe('demo participants', () => {
   it('offers the people the organizer view lists', () => {
@@ -62,11 +72,11 @@ describe('demoStep', () => {
       ...over,
     }) as unknown as OwnerView
 
-  it('starts from Iris’s group chat while nobody is on the board yet', () => {
-    const fresh = view({ participants: [], availabilities: [], demo_chat: 'Iris Calder: Who’s in?', recommendation: { ...view().recommendation, date_id: '', per_date: null } })
-    expect(demoStep(fresh, [])).toEqual({ text: "This is Iris's group chat. Press Read the chat, then Add 6 people.", primary: null })
-    expect(demoStep(view({ participants: [], availabilities: [], demo_chat: null }), [])).toBeNull()
-    expect(demoStep({ ...fresh, proposal: { date_id: 'sat' } } as unknown as OwnerView, [])).toBeNull()
+  it('says Claude is reading while the cast’s answers are still being read', () => {
+    const v = view()
+    const reading = view({ availabilities: v.availabilities.slice(0, 2), reading: { pending: 2, total: 4, active: true } })
+    expect(demoStep(reading, cast)).toEqual({ text: 'Claude is reading each person’s messages against Iris’s dates.', primary: null })
+    expect(demoStep(view({ availabilities: v.availabilities.slice(0, 2), reading: { pending: 2, total: 4, active: false } }), cast)).toBeNull()
   })
 
   it('sends the visitor to answer Claude’s question as Grace, with her reply from the scenario', () => {

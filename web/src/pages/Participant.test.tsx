@@ -10,7 +10,7 @@ describe('the participant page of someone added from the chat', () => {
     expect(plain).toContain('What you said in the chat')
     expect(plain).toContain('Iris added this from the group chat:')
     expect(plain).toContain('El sábado no puedo, pero el domingo me viene perfecto.')
-    expect(plain).toContain("If it's wrong, say it again in your own words.")
+    expect(plain).toContain("If it’s wrong, say it again in your own words.")
   })
 
   it('does not ask for a new answer once answers are closed', () => {

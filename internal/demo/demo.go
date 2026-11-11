@@ -33,7 +33,11 @@ type Scenario struct {
 	Replies                                []Person
 }
 
-const chatEndsBefore = time.Hour
+const (
+	chatStartsAtHour   = 19
+	chatStartsAtMinute = 5
+	chatStartsAtSecond = 14
+)
 
 var chatGaps = []time.Duration{
 	3*time.Minute + 12*time.Second,
@@ -42,7 +46,7 @@ var chatGaps = []time.Duration{
 	6*time.Minute + 31*time.Second,
 	time.Minute + 48*time.Second,
 	5*time.Minute + 3*time.Second,
-	2*time.Minute + 57*time.Second,
+	11*time.Minute + 41*time.Second,
 }
 
 func (sc Scenario) Chat(now time.Time, loc *time.Location) string {
@@ -52,11 +56,12 @@ func (sc Scenario) Chat(now time.Time, loc *time.Location) string {
 		lines = append(lines, line{p.Name, p.Message})
 	}
 	lines = append(lines, line{sc.HostName, sc.Closing})
-	at := now.Add(-chatEndsBefore)
+	today := now.In(loc)
+	at := time.Date(today.Year(), today.Month(), today.Day()-1, chatStartsAtHour, chatStartsAtMinute, chatStartsAtSecond, 0, loc)
 	stamps := make([]time.Time, len(lines))
-	for i := len(lines) - 1; i >= 0; i-- {
-		stamps[i] = at.In(loc)
-		at = at.Add(-chatGaps[i%len(chatGaps)])
+	for i := range lines {
+		stamps[i] = at
+		at = at.Add(chatGaps[i%len(chatGaps)])
 	}
 	var b strings.Builder
 	for i, l := range lines {

@@ -8,7 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -365,16 +367,53 @@ func TestLifeDrawingChat_ParsesToTheCast(t *testing.T) {
 			t.Errorf("sender %d = %q saying %q, want %s saying exactly %q", i+1, got.Name, got.Text(chatimport.MaxTextRunes), p.Name, p.Message)
 		}
 	}
-	last := now.Add(-time.Hour).In(ny)
-	stamp := "[" + last.Format("1/2/06, 3:04:05") + "\u202f" + last.Format("PM") + "] Iris Calder: Thanks all! 🎨"
-	if !strings.HasSuffix(text, stamp) {
-		t.Errorf("the chat ends %q, want Iris's thanks an hour before now, in New York time: %q", text[max(0, len(text)-80):], stamp)
+	if !strings.HasPrefix(text, "[11/10/26, 7:05:14\u202fPM] Iris Calder: Life drawing at The Long Room, Saturday or Sunday 10–12, $45. Who's in?\n") {
+		t.Errorf("the chat does not open with Iris's question at 7:05 PM the evening before, in the WhatsApp export format:\n%s", text)
 	}
-	if !strings.HasPrefix(text, "[") || !strings.Contains(text, "] Iris Calder: Life drawing at The Long Room, Saturday or Sunday 10–12, $45. Who's in?\n") {
-		t.Errorf("the chat does not open with Iris's question in the WhatsApp export format:\n%s", text)
+	if !strings.HasSuffix(text, "\n[11/10/26, 7:40:14\u202fPM] Iris Calder: Thanks all! 🎨") {
+		t.Errorf("the chat does not end with Iris's thanks at 7:40 PM the evening before:\n%s", text)
 	}
 	if demo.LifeDrawing.Chat(now, ny) != text {
 		t.Error("the demo chat changes between two calls with the same time")
+	}
+}
+
+func TestLifeDrawingChat_IsAlwaysTheEveningBefore(t *testing.T) {
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name string
+		now  time.Time
+		day  string
+	}{
+		{"just after midnight", time.Date(2026, 11, 11, 0, 13, 0, 0, ny), "11/10/26"},
+		{"late at night", time.Date(2026, 11, 11, 23, 50, 0, 0, ny), "11/10/26"},
+		{"the morning clocks go back", time.Date(2026, 11, 1, 1, 30, 0, 0, ny).Add(time.Hour), "10/31/26"},
+		{"the morning clocks go forward", time.Date(2027, 3, 14, 3, 10, 0, 0, ny), "3/13/27"},
+		{"from another zone", time.Date(2026, 11, 11, 3, 0, 0, 0, time.UTC), "11/9/26"},
+	}
+	stamp := regexp.MustCompile(`\[(\d+/\d+/\d+), (\d+):(\d+):\d+\x{202f}(AM|PM)\]`)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			text := demo.LifeDrawing.Chat(tc.now, ny)
+			got := stamp.FindAllStringSubmatch(text, -1)
+			if len(got) != 8 {
+				t.Fatalf("%d stamps in\n%s", len(got), text)
+			}
+			last := -1
+			for _, m := range got {
+				minute, _ := strconv.Atoi(m[3])
+				if m[1] != tc.day || m[2] != "7" || m[4] != "PM" || minute < 5 || minute > 40 || minute < last {
+					t.Fatalf("stamp %q, want %s between 7:05 and 7:40 PM, in order:\n%s", m[0], tc.day, text)
+				}
+				last = minute
+			}
+			if _, err := chatimport.Parse(text); err != nil {
+				t.Errorf("Parse = %v", err)
+			}
+		})
 	}
 }
 

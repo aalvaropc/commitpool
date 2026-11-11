@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { api, type Availability, type DateSummary, type OwnerParticipant, type OwnerView } from '../api'
 import { cellNotes, cellStatus, dateColumns, type DateColumn } from '../lib/owner'
-import { Avatar, Button, ConfirmDialog, Icon, Notice, Pill, Tile, VerdictChip } from './ui'
+import { count } from '../lib/plural'
+import { Avatar, Button, ConfirmDialog, Icon, Notice, Pill, Tile, VerdictChip, toneWash } from './ui'
 
 interface Props {
   token: string
@@ -13,9 +14,8 @@ interface Props {
 type Unread = 'reading' | 'stuck' | null
 
 interface Actions {
-  busy: string | null
+  copied: { id: string; ok: boolean } | null
   copy: (p: OwnerParticipant) => void
-  readAgain: (p: OwnerParticipant) => void
   remove: (p: OwnerParticipant) => void
   removable: (p: OwnerParticipant) => boolean
 }
@@ -39,16 +39,13 @@ function Cell({ a, dateId, summary }: { a: Availability; dateId: string; summary
   )
 }
 
-function Message({ a, p, unread, actions }: { a?: Availability; p: OwnerParticipant; unread: Unread; actions: Actions }) {
+function Message({ a, p, unread }: { a?: Availability; p: OwnerParticipant; unread: Unread }) {
   const name = p.display_name
-  if (!a && unread === 'reading') return <span className="text-sm text-ink-soft">Claude is reading…</span>
-  if (!a && unread === 'stuck') {
+  if (!a && unread) {
     return (
-      <span className="flex flex-col items-start gap-1">
-        <Pill tone="attention">Couldn't read yet</Pill>
-        <Button variant="quiet" size="sm" className="-ml-4" busy={actions.busy === 'retry'} busyLabel="Reading again…" onClick={() => actions.readAgain(p)}>
-          Read again<span className="sr-only"> {name}’s message</span>
-        </Button>
+      <span className={`flex flex-col items-start gap-1 ${wrap}`}>
+        {unread === 'reading' ? <span className="text-sm font-semibold text-ink-soft">Claude is reading…</span> : <Pill tone="attention">Couldn’t read yet</Pill>}
+        {p.chat_message && <span className="line-clamp-3 text-sm text-ink-soft">“{p.chat_message}”</span>}
       </span>
     )
   }
@@ -92,18 +89,26 @@ function DateSummaryList({ columns, view, onOpen }: { columns: DateColumn[]; vie
 function PersonActions({ p, actions }: { p: OwnerParticipant; actions: Actions }) {
   const removable = actions.removable(p)
   if (!p.participant_url && !removable) return null
+  const copied = actions.copied?.id === p.id ? actions.copied : null
   return (
-    <span className="-ml-4 flex flex-wrap items-center">
+    <span className="flex flex-col items-start">
+      <span className="-ml-4 flex flex-wrap items-center">
+        {p.participant_url && (
+          <Button variant="quiet" size="sm" onClick={() => actions.copy(p)}>
+            <Icon name="copy" size={16} />
+            Copy their link<span className="sr-only"> for {p.display_name}</span>
+          </Button>
+        )}
+        {removable && (
+          <Button variant="quiet" size="sm" onClick={() => actions.remove(p)}>
+            Remove<span className="sr-only"> {p.display_name}</span>
+          </Button>
+        )}
+      </span>
       {p.participant_url && (
-        <Button variant="quiet" size="sm" onClick={() => actions.copy(p)}>
-          <Icon name="copy" size={16} />
-          Copy their link<span className="sr-only"> for {p.display_name}</span>
-        </Button>
-      )}
-      {removable && (
-        <Button variant="quiet" size="sm" onClick={() => actions.remove(p)}>
-          Remove<span className="sr-only"> {p.display_name}</span>
-        </Button>
+        <span role="status" className={`text-sm text-ink-soft ${wrap} empty:hidden`}>
+          {copied ? (copied.ok ? `Copied. Send it to ${p.display_name}.` : `Copying is blocked here. Their link: ${p.participant_url}`) : ''}
+        </span>
       )}
     </span>
   )
@@ -116,8 +121,8 @@ function PersonCard({ p, a, unread, actions, columns, summaries }: { p: OwnerPar
         <Avatar name={p.display_name} size="sm" />
         <span className={`font-semibold ${wrap}`}>{p.display_name}</span>
       </p>
+      <Message a={a} p={p} unread={unread} />
       <PersonActions p={p} actions={actions} />
-      <Message a={a} p={p} unread={unread} actions={actions} />
       {a && (
         <ul className="flex flex-col gap-2">
           {columns.map((c) => (
@@ -139,35 +144,40 @@ export default function AvailabilityGrid({ token, view, onOpen, onChange }: Prop
   const people = view.participants
   const openable = columns.some((c) => c.canOpen)
   const [said, setSaid] = useState('')
+  const [again, setAgain] = useState('')
+  const [copied, setCopied] = useState<Actions['copied']>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [removing, setRemoving] = useState<OwnerParticipant | null>(null)
   const [removeError, setRemoveError] = useState<string | null>(null)
   const readingNow = view.reading?.active ?? false
   const enrolled = new Set(view.enrollments.map((e) => e.participant_id))
   const unreadOf = (p: OwnerParticipant): Unread => (p.unread && !byParticipant.has(p.id) ? (readingNow ? 'reading' : 'stuck') : null)
+  const stuck = people.filter((p) => unreadOf(p) === 'stuck')
+  const readStuck = stuck.length === 1 ? `Read ${stuck[0].display_name}’s message again` : `Read the ${count(stuck.length, 'person', 'people')} Claude couldn’t read yet`
+
+  async function readAgain() {
+    setBusy('retry')
+    setAgain('')
+    try {
+      const res = await api.retryChat(token)
+      setAgain(res.reading > 0 ? 'Claude is reading them again.' : 'Claude is already reading them.')
+      await onChange()
+    } catch (e) {
+      setAgain(e instanceof Error ? e.message : 'Claude could not read them again right now.')
+    } finally {
+      setBusy(null)
+    }
+  }
 
   const actions: Actions = {
-    busy,
+    copied,
     async copy(p) {
       if (!p.participant_url) return
       try {
         await navigator.clipboard.writeText(p.participant_url)
-        setSaid(`Copied ${p.display_name}’s link. Send it to them so they can check what Claude read.`)
+        setCopied({ id: p.id, ok: true })
       } catch {
-        setSaid(`Copying is blocked here. ${p.display_name}’s link: ${p.participant_url}`)
-      }
-    },
-    async readAgain() {
-      setBusy('retry')
-      setSaid('')
-      try {
-        const res = await api.retryChat(token)
-        setSaid(res.reading > 0 ? 'Claude is reading them again.' : 'Claude is already reading them.')
-        await onChange()
-      } catch (e) {
-        setSaid(e instanceof Error ? e.message : 'Claude could not read them again right now.')
-      } finally {
-        setBusy(null)
+        setCopied({ id: p.id, ok: false })
       }
     },
     remove(p) {
@@ -194,9 +204,9 @@ export default function AvailabilityGrid({ token, view, onOpen, onChange }: Prop
   }
 
   return (
-    <Tile as="section" aria-labelledby="grid-title" className="flex flex-col gap-4 sm:p-6">
+    <Tile as="section" aria-labelledby="grid-title" className="flex scroll-mt-4 flex-col gap-4 sm:p-6">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 id="grid-title" className="text-2xl">
+        <h2 id="grid-title" tabIndex={-1} className="scroll-mt-4 text-2xl">
           Who can come
         </h2>
         <p className="text-sm text-ink-soft">
@@ -207,6 +217,19 @@ export default function AvailabilityGrid({ token, view, onOpen, onChange }: Prop
       <p role="status" className={`text-sm text-ink-soft ${wrap} empty:hidden`}>
         {said}
       </p>
+
+      {(stuck.length > 0 || busy === 'retry' || (again && readingNow)) && (
+        <div className={`flex flex-col items-start gap-2 rounded-control px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center ${toneWash.attention}`}>
+          {stuck.length > 0 && (
+            <Button variant="secondary" size="sm" busy={busy === 'retry'} busyLabel="Reading again…" onClick={() => void readAgain()}>
+              {readStuck}
+            </Button>
+          )}
+          <span role="status" className={`text-sm font-medium ${wrap} empty:hidden`}>
+            {again}
+          </span>
+        </div>
+      )}
 
       {people.length === 0 ? (
         <p className="text-ink-soft">
@@ -264,7 +287,7 @@ export default function AvailabilityGrid({ token, view, onOpen, onChange }: Prop
                       </th>
                       <td className="border-t border-line px-3 py-3 align-top">
                         <span className="flex flex-col items-start gap-1">
-                          <Message a={a} p={p} unread={unreadOf(p)} actions={actions} />
+                          <Message a={a} p={p} unread={unreadOf(p)} />
                           <PersonActions p={p} actions={actions} />
                         </span>
                       </td>

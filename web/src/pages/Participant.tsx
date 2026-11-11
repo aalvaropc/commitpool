@@ -25,7 +25,7 @@ export function FromTheChat({ host, message, canAnswer }: { host: string; messag
       </h2>
       <p className="text-ink-soft">{hostFirstName(host)} added this from the group chat:</p>
       <blockquote className="max-w-prose border-l-2 border-brand pl-4 text-[1.0625rem] whitespace-pre-line [overflow-wrap:anywhere]">{message}</blockquote>
-      {canAnswer && <p className="text-sm text-ink-soft">If it's wrong, say it again in your own words.</p>}
+      {canAnswer && <p className="text-sm text-ink-soft">If it’s wrong, say it again in your own words.</p>}
     </Tile>
   )
 }

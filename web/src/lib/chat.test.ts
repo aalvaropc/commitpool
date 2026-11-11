@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addLabel, chatLength, chatProblem, hostFirstName, importedNote, MAX_CHAT_CHARS, NOT_TEXT_ERROR, progressText, readChatFile, readingNow, ticked, TOO_LONG_ERROR, ZIP_ERROR } from './chat'
+import { addLabel, chatLength, chatProblem, hostFirstName, importedNote, MAX_CHAT_CHARS, NOT_TEXT_ERROR, NOT_UTF8_ERROR, progressText, readChatFile, readingNow, ticked, TOO_LONG_ERROR, ZIP_ERROR } from './chat'
 
 const txt = (text: string, name = 'WhatsApp Chat - Life drawing.txt') => new File([text], name, { type: 'text/plain' })
 
@@ -19,6 +19,19 @@ describe('readChatFile', () => {
     await expect(readChatFile(txt('Ana: hi', 'WhatsApp Chat - Life drawing.zip'))).rejects.toThrow(ZIP_ERROR)
     await expect(readChatFile(new File(['Ana: hi'], 'chat', { type: 'application/zip' }))).rejects.toThrow(ZIP_ERROR)
     await expect(readChatFile(new File([new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00])], 'chat.txt'))).rejects.toThrow(ZIP_ERROR)
+  })
+
+  it('refuses text that is not UTF-8 instead of filling the box with replacement marks', async () => {
+    const latin1 = new Uint8Array([...'Luc'].map((c) => c.charCodeAt(0)).concat([0xed], [...'a: El s'].map((c) => c.charCodeAt(0)), [0xe1], [...'bado s'].map((c) => c.charCodeAt(0)), [0xed]))
+    await expect(readChatFile(new File([latin1], 'chat.txt', { type: 'text/plain' }))).rejects.toThrow(NOT_UTF8_ERROR)
+    await expect(readChatFile(txt('Ana: \ufffd broken'))).rejects.toThrow('This file isn’t UTF-8 text. Export it again from WhatsApp, or paste the messages.')
+  })
+
+  it('reads a UTF-8 export with a byte order mark, and UTF-16 with one', async () => {
+    const bom = new Uint8Array([0xef, 0xbb, 0xbf, ...new TextEncoder().encode('Lucía: Sí puedo')])
+    await expect(readChatFile(new File([bom], 'chat.txt'))).resolves.toBe('Lucía: Sí puedo')
+    const utf16 = new Uint8Array([0xff, 0xfe, ...[...'Lucía: Sí'].flatMap((c) => [c.charCodeAt(0), 0])])
+    await expect(readChatFile(new File([utf16], 'chat.txt'))).resolves.toBe('Lucía: Sí')
   })
 
   it('rejects a file that is not text', async () => {

@@ -3,7 +3,8 @@ import { count } from './plural'
 
 export const MAX_CHAT_CHARS = 20000
 
-export const ZIP_ERROR = "That's a .zip. Export the chat without media to get a .txt, or paste the messages."
+export const ZIP_ERROR = 'That’s a .zip. Export the chat without media to get a .txt, or paste the messages.'
+export const NOT_UTF8_ERROR = 'This file isn’t UTF-8 text. Export it again from WhatsApp, or paste the messages.'
 export const TOO_LONG_ERROR = 'The chat is longer than 20,000 characters. Paste only the part where people answered.'
 export const NOT_TEXT_ERROR = 'That file is not a text export. Export the chat without media to get a .txt, or paste the messages.'
 export const EMPTY_ERROR = 'Paste the group chat first.'
@@ -20,11 +21,29 @@ async function startsLikeZip(file: File): Promise<boolean> {
   return head.length === ZIP_MAGIC.length && ZIP_MAGIC.every((b, i) => head[i] === b)
 }
 
+function encodingOf(bytes: Uint8Array): 'utf-8' | 'utf-16le' | 'utf-16be' {
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) return 'utf-16le'
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) return 'utf-16be'
+  return 'utf-8'
+}
+
+function decode(bytes: Uint8Array): string {
+  let text: string
+  try {
+    text = new TextDecoder(encodingOf(bytes), { fatal: true }).decode(bytes)
+  } catch {
+    throw new Error(NOT_UTF8_ERROR)
+  }
+  if (text.includes('\ufffd')) throw new Error(NOT_UTF8_ERROR)
+  return text
+}
+
 export async function readChatFile(file: File): Promise<string> {
   if (/\.zip$/i.test(file.name) || ZIP_TYPES.has(file.type) || (await startsLikeZip(file))) throw new Error(ZIP_ERROR)
-  if (file.size > 4 * MAX_CHAT_CHARS) throw new Error(TOO_LONG_ERROR)
-  const text = await file.text()
-  if (text.includes('\u0000')) throw new Error(NOT_TEXT_ERROR)
+  if (file.size > 4 * MAX_CHAT_CHARS + 4) throw new Error(TOO_LONG_ERROR)
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  if (bytes.includes(0) && encodingOf(bytes) === 'utf-8') throw new Error(NOT_TEXT_ERROR)
+  const text = decode(bytes)
   if (chatLength(text) > MAX_CHAT_CHARS) throw new Error(TOO_LONG_ERROR)
   return text
 }

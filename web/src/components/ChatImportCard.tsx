@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent, type Ref } from 'react'
 import { api, type ChatPreview, type OwnerView, type Reading } from '../api'
 import { addLabel, chatLength, chatProblem, importedNote, MAX_CHAT_CHARS, personTag, progressText, readChatFile, readingNow, ticked } from '../lib/chat'
+import { chatLead } from '../lib/demo'
 import { count } from '../lib/plural'
 import { Button, Icon, Notice, Tile, inputClass } from './ui'
 
 export const CHAT_HELP =
-  "Paste the messages, or upload WhatsApp's Export chat (.txt, without media). CommitPool finds who said what; Claude reads each person against your dates."
+  "Paste the messages, or upload WhatsApp’s Export chat (.txt, without media). CommitPool finds who said what; Claude reads each person against your dates."
 
 export interface ChatCardState {
   text: string
@@ -38,19 +39,37 @@ interface PanelProps {
   state: ChatCardState
   busy: ChatBusy
   labelledBy: string
+  lead?: string | null
   onText: (text: string) => void
   onRead: () => void
   onFile: (file: File) => void
   onToggle: (name: string) => void
   onAdd: () => void
   textRef?: Ref<HTMLTextAreaElement>
+  foundRef?: Ref<HTMLHeadingElement>
 }
 
-function PreviewList({ preview, chosen, busy, onToggle, onAdd }: { preview: ChatPreview; chosen: string[]; busy: ChatBusy; onToggle: (name: string) => void; onAdd: () => void }) {
+function PreviewList({
+  preview,
+  chosen,
+  busy,
+  foundRef,
+  onToggle,
+  onAdd,
+}: {
+  preview: ChatPreview
+  chosen: string[]
+  busy: ChatBusy
+  foundRef?: Ref<HTMLHeadingElement>
+  onToggle: (name: string) => void
+  onAdd: () => void
+}) {
   return (
     <div className="flex flex-col gap-3">
-      <fieldset className="flex min-w-0 flex-col gap-2">
-        <legend className="mb-2 font-semibold">{`${count(preview.people.length, 'person', 'people')} in the chat`}</legend>
+      <h3 id="chat-found" ref={foundRef} tabIndex={-1} className="scroll-mt-4 font-sans text-base font-semibold">
+        {`${count(preview.people.length, 'person', 'people')} in the chat`}
+      </h3>
+      <fieldset aria-labelledby="chat-found" className="flex min-w-0 flex-col gap-2">
         <ul className="flex flex-col divide-y divide-line rounded-control ring-1 ring-line ring-inset">
           {preview.people.map((p) => {
             const tag = personTag(p)
@@ -79,7 +98,7 @@ function PreviewList({ preview, chosen, busy, onToggle, onAdd }: { preview: Chat
         </ul>
         {preview.skipped > 0 && <p className="text-sm text-ink-soft">{`${count(preview.skipped, 'line')} left out: system messages, media and deleted messages.`}</p>}
       </fieldset>
-      <div>
+      <div className="flex flex-col sm:block">
         <Button onClick={onAdd} busy={busy === 'add'} busyLabel="Adding them…" disabled={chosen.length === 0}>
           {addLabel(chosen.length)}
           <Icon name="arrowRight" size={18} />
@@ -89,7 +108,7 @@ function PreviewList({ preview, chosen, busy, onToggle, onAdd }: { preview: Chat
   )
 }
 
-export function ChatImportPanel({ state, busy, labelledBy, onText, onRead, onFile, onToggle, onAdd, textRef }: PanelProps) {
+export function ChatImportPanel({ state, busy, labelledBy, lead, onText, onRead, onFile, onToggle, onAdd, textRef, foundRef }: PanelProps) {
   const file = useRef<HTMLInputElement>(null)
   const length = chatLength(state.text)
   const over = length > MAX_CHAT_CHARS
@@ -101,8 +120,17 @@ export function ChatImportPanel({ state, busy, labelledBy, onText, onRead, onFil
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <p id="chat-help" className="max-w-prose text-ink-soft">
+    <div className="flex flex-col gap-3 sm:gap-4">
+      {lead && (
+        <p className="flex items-start gap-2 rounded-control bg-brand-wash px-3.5 py-2.5 text-sm font-semibold text-ink sm:text-base">
+          <Icon name="spark" size={18} className="mt-0.5 shrink-0 text-brand" />
+          <span>
+            <span className="sr-only">Next in the demo: </span>
+            {lead}
+          </span>
+        </p>
+      )}
+      <p id="chat-help" className="max-w-prose text-ink-soft max-sm:order-last max-sm:text-sm">
         {CHAT_HELP}
       </p>
       <form onSubmit={submit} noValidate className="flex flex-col gap-2">
@@ -111,18 +139,20 @@ export function ChatImportPanel({ state, busy, labelledBy, onText, onRead, onFil
           ref={textRef}
           value={state.text}
           onChange={(e) => onText(e.target.value)}
-          rows={8}
+          rows={6}
           spellCheck={false}
+          disabled={busy === 'file'}
+          placeholder={'Ana: Saturday works for me\nBen: Sunday, if we finish by noon'}
           aria-labelledby={labelledBy}
           aria-describedby={invalid ? 'chat-help chat-count chat-error' : 'chat-help chat-count'}
           aria-invalid={invalid || over ? true : undefined}
-          className={`${inputClass} resize-y text-sm leading-relaxed`}
+          className={`${inputClass} resize-y text-base leading-relaxed sm:text-sm`}
         />
         <p id="chat-count" className={`text-sm tabular-nums ${over ? 'font-semibold text-no' : 'text-ink-soft'}`}>
           {`${length.toLocaleString('en-US')} of ${MAX_CHAT_CHARS.toLocaleString('en-US')} characters`}
         </p>
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-          <Button type="submit" busy={busy === 'read'} busyLabel="Reading the chat…" disabled={busy === 'add'}>
+          <Button type="submit" busy={busy === 'read'} busyLabel="Reading the chat…" disabled={busy === 'add' || busy === 'file'}>
             Read the chat
           </Button>
           <Button variant="secondary" onClick={() => file.current?.click()} busy={busy === 'file'} busyLabel="Opening the file…" disabled={busy === 'add'}>
@@ -147,7 +177,7 @@ export function ChatImportPanel({ state, busy, labelledBy, onText, onRead, onFil
           <span id="chat-error">{state.error}</span>
         </Notice>
       )}
-      {state.preview && <PreviewList preview={state.preview} chosen={state.chosen} busy={busy} onToggle={onToggle} onAdd={onAdd} />}
+      {state.preview && <PreviewList preview={state.preview} chosen={state.chosen} busy={busy} foundRef={foundRef} onToggle={onToggle} onAdd={onAdd} />}
     </div>
   )
 }
@@ -157,7 +187,7 @@ export function ChatReading({ reading }: { reading?: Reading }) {
   return (
     <div role="status" className="empty:hidden">
       {shown && (
-        <div className="flex flex-col gap-2 rounded-tile bg-brand-wash px-4 py-3 sm:px-6">
+        <div id="chat-reading" className="flex scroll-mt-4 flex-col gap-2 rounded-tile bg-brand-wash px-4 py-3 sm:px-6">
           <p className="flex items-center gap-2.5 font-semibold text-ink">
             <Icon name="spark" size={20} className="shrink-0 text-brand motion-safe:animate-pulse" />
             {progressText(shown)}
@@ -184,19 +214,25 @@ export default function ChatImportCard({ token, view, onImported }: Props) {
   const [open, setOpen] = useState(false)
   const [note, setNote] = useState('')
   const text = useRef<HTMLTextAreaElement>(null)
-  const summary = useRef<HTMLElement>(null)
-  const added = useRef(false)
-
+  const found = useRef<HTMLHeadingElement>(null)
+  const after = useRef<'found' | 'text' | null>(null)
   const working = state.text !== '' || state.preview !== null || state.error !== null
+  const lead = fresh && view.workshop.demo ? chatLead(state.text, view.demo_chat) : null
+
   useEffect(() => {
-    if (fresh) return
-    if (added.current) {
-      added.current = false
-      summary.current?.focus()
-    } else if (working) {
-      setOpen(true)
-    }
+    if (!fresh && working) setOpen(true)
   }, [fresh])
+
+  useEffect(() => {
+    if (busy !== null || after.current === null) return
+    const target = after.current
+    after.current = null
+    if (target === 'found' && found.current) {
+      found.current.focus({ preventScroll: true })
+      found.current.scrollIntoView({ block: 'start' })
+    }
+    if (target === 'text') text.current?.focus()
+  }, [busy, state])
 
   async function read() {
     const problem = chatProblem(state.text)
@@ -210,6 +246,7 @@ export default function ChatImportCard({ token, view, onImported }: Props) {
     try {
       const preview = await api.previewChat(token, state.text)
       setState((s) => withPreview(s, preview))
+      after.current = 'found'
     } catch (e) {
       setState((s) => ({ ...s, preview: null, chosen: [], error: failure(e) }))
     } finally {
@@ -225,7 +262,6 @@ export default function ChatImportCard({ token, view, onImported }: Props) {
       setState(chatCard())
       setOpen(false)
       setNote(importedNote(res))
-      added.current = true
       await onImported()
     } catch (e) {
       setState((s) => ({ ...s, error: failure(e) }))
@@ -239,8 +275,8 @@ export default function ChatImportCard({ token, view, onImported }: Props) {
     setNote('')
     const next = await withFile(state, f)
     setState(next)
+    after.current = 'text'
     setBusy(null)
-    text.current?.focus()
   }
 
   const panel = (
@@ -248,7 +284,9 @@ export default function ChatImportCard({ token, view, onImported }: Props) {
       state={state}
       busy={busy}
       labelledBy="chat-title"
+      lead={lead}
       textRef={text}
+      foundRef={found}
       onText={(t) => setState(chatCard(t))}
       onRead={() => void read()}
       onFile={(f) => void upload(f)}
@@ -258,7 +296,7 @@ export default function ChatImportCard({ token, view, onImported }: Props) {
   )
 
   return (
-    <Tile as="section" aria-labelledby="chat-title" className="flex flex-col gap-4 sm:p-6">
+    <Tile as="section" aria-labelledby="chat-title" className="flex flex-col gap-3 sm:gap-4 sm:p-6">
       {fresh ? (
         <>
           <h2 id="chat-title" className="text-xl">
@@ -269,7 +307,6 @@ export default function ChatImportCard({ token, view, onImported }: Props) {
       ) : (
         <details open={open} onToggle={(e) => setOpen(e.currentTarget.open)} className="group">
           <summary
-            ref={summary}
             className="-mx-2 flex min-h-11 w-fit cursor-pointer list-none items-center gap-2 rounded-control px-2 font-semibold text-brand [&::-webkit-details-marker]:hidden"
           >
             <Icon name="arrowRight" size={18} className="shrink-0 transition-transform duration-200 group-open:rotate-90" />

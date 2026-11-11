@@ -8,7 +8,7 @@ import ChatImportCard, { ChatReading } from '../components/ChatImportCard'
 import ClaudeRead from '../components/ClaudeRead'
 import ClaudeSuggests from '../components/ClaudeSuggests'
 import DeadlineMoved from '../components/DeadlineMoved'
-import Decision, { InviteLink } from '../components/Decision'
+import Decision, { InviteLink, StatusLine } from '../components/Decision'
 import DemoClock from '../components/DemoClock'
 import DemoControls from '../components/DemoControls'
 import DemoGuide from '../components/DemoGuide'
@@ -20,7 +20,7 @@ import { Loading, LoadError, RefreshError } from '../components/PageState'
 import { ExtendDialog } from '../components/RescueCard'
 import SpotsTile from '../components/SpotsTile'
 import { TermsList } from '../components/Terms'
-import { Button, Icon, Notice, Page, Tile, TileLabel } from '../components/ui'
+import { Button, Icon, Notice, Page, Pill, Tile, TileLabel } from '../components/ui'
 import { extendLink } from '../lib/extend'
 import { usePolling, useResource } from '../lib/hooks'
 import { nextStep, ownerRefresh } from '../lib/owner'
@@ -90,7 +90,6 @@ export default function Owner() {
         paymentsOpen: d.proposal?.payments_open ?? false,
         enrollments: d.enrollments.map((e) => e.status),
         explanationPending: pending || d.suggestions.some((s) => s.pending),
-        demoFilling: d.workshop.demo === true && d.availabilities.length < d.participants.length,
         chatReading: d.reading?.active ?? false,
         payoutMoving: d.payout?.state === 'created' || d.payout?.state === 'sending' || (d.payout?.state === 'waiting' && d.payout.waiting === 'payments_in_flight'),
       })
@@ -124,6 +123,19 @@ export default function Owner() {
     return view.reload()
   }
 
+  const [landed, setLanded] = useState(0)
+  useEffect(() => {
+    if (landed === 0) return
+    const title = document.getElementById('grid-title')
+    title?.focus({ preventScroll: true })
+    const top = document.getElementById('chat-reading') ?? title?.closest('section')
+    top?.scrollIntoView({ block: 'start' })
+  }, [landed])
+  const imported = async () => {
+    await view.reload()
+    setLanded((n) => n + 1)
+  }
+
   if (!d) {
     if (view.error) return <LoadError error={view.error} missing="Check that you opened the whole organizer link you saved when you created the workshop." onRetry={view.reload} />
     return <Loading what="your workshop" />
@@ -133,6 +145,8 @@ export default function Owner() {
   const step = nextStep(d)
   const stalled = pendingSince.current !== null && Date.now() - pendingSince.current > STALLED_AFTER_MS
   const collecting = w.status === 'COLLECTING'
+  const empty = collecting && d.participants.length === 0
+  const pasting = collecting && !(w.demo && d.participants.length > 0)
   const later = (
     <>
       <ClaudeSuggests suggestions={d.suggestions} rescue={{ extension: d.extension ?? null, timeZone: w.timezone, onExtend: () => setExtending(true) }} />
@@ -152,12 +166,18 @@ export default function Owner() {
           <Icon name="lock" size={16} />
           Your organizer page. Keep this link to yourself.
         </p>
+        {empty && w.demo && (
+          <p className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+            <span className="font-display text-lg font-bold">You are Iris now</span>
+            <Pill tone="attention">Demo workshop · prepared data</Pill>
+          </p>
+        )}
       </header>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-5">
         <div className="flex min-w-0 flex-col gap-4 lg:gap-5">
           {view.error && <RefreshError polling={refresh !== null} onRetry={() => void view.reload()} />}
-          <Decision view={d} step={step} onOpen={setOpening} titleRef={decisionTitle} />
+          {empty ? <StatusLine /> : <Decision view={d} step={step} onOpen={setOpening} titleRef={decisionTitle} />}
           {linked === 'stale' && (
             <Notice tone="attention" title="This extension link is out of date">
               <p>{d.extension?.reason ?? 'Reservations are not open, so there is no deadline to extend.'}</p>
@@ -168,10 +188,10 @@ export default function Owner() {
           )}
           <DeadlineMoved proposal={d.proposal} status={w.status} timeZone={w.timezone} audience="owner" />
           <OperatorPanel token={token} view={d} onChange={view.reload} />
-          <DemoGuide view={d} />
+          {!empty && <DemoGuide view={d} />}
           {collecting ? (
             <>
-              <ChatImportCard token={token} view={d} onImported={view.reload} />
+              {pasting && <ChatImportCard token={token} view={d} onImported={imported} />}
               <ChatReading reading={d.reading} />
             </>
           ) : (
@@ -205,7 +225,7 @@ export default function Owner() {
             <h2 id="manage-title" className="text-xl">
               Manage
             </h2>
-            {step.action.kind !== 'share' && <InviteLink url={d.share_url} hint="Anyone with this link can join and say when they can come." />}
+            {(empty || step.action.kind !== 'share') && <InviteLink url={d.share_url} hint="Anyone with this link can join and say when they can come." />}
             <div className="flex flex-col gap-1">
               <TileLabel>Time to reserve</TileLabel>
               <p className="text-sm">{w.payment_window_min < 1440 ? windowLabel(w.payment_window_min) : `Reservations stay open ${windowLabel(w.payment_window_min)}`}</p>

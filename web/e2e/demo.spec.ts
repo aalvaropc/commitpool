@@ -1,5 +1,5 @@
 import { expectAccessible } from './a11y'
-import { expect, headline, test } from './helpers'
+import { expect, headline, importDemoChat, test } from './helpers'
 
 const GRACE_REPLY = 'No problem — I swapped Saturday. Sunday I’m still at the market.'
 
@@ -9,8 +9,11 @@ test.describe('one-click demo', () => {
     await page.getByRole('button', { name: 'Try it as Iris' }).first().click()
 
     await expect(page.getByRole('heading', { level: 1, name: 'Life drawing for beginners' })).toBeVisible()
-    await expect(page.getByRole('heading', { name: 'You are Iris now' })).toBeVisible()
+    await expect(page.getByText('You are Iris now', { exact: true })).toBeVisible()
     await expect(page.getByText('Demo workshop · prepared data')).toBeVisible()
+    await expect(page.getByRole('region', { name: 'Paste your group chat' })).toContainText('This is Iris’s group chat. Press Read the chat, then Add 6 people.')
+    await importDemoChat(page)
+    await expect(page.getByRole('heading', { name: 'You are Iris now' })).toBeVisible()
     await expect(page.getByText('6 of 6 answered', { exact: false })).toBeVisible({ timeout: 30_000 })
 
     const next = page.getByRole('region', { name: 'Next step' })
@@ -30,8 +33,11 @@ test.describe('one-click demo', () => {
     await expect(grid).toContainText('Tied')
 
     const guide = page.getByRole('region', { name: 'You are Iris now' })
-    await expect(guide).toContainText('Saturday has 2 of the 3 Iris needs. Act as Grace Liu and answer Claude’s question')
-    await expect(guide).toContainText("for example: “No problem — I swapped Saturday. Sunday I'm still at the market.”")
+    await expect(guide).toContainText('Copy Claude’s reply for the group, then act as Grace to answer her question.')
+    await expect(guide).toContainText("For example: “No problem — I swapped Saturday. Sunday I'm still at the market.”")
+    const all = await suggests.innerText()
+    expect(all.indexOf('Claude’s reply for the group')).toBeGreaterThan(-1)
+    expect(all.indexOf('Claude’s reply for the group')).toBeLessThan(all.indexOf('Grace Liu’s message needs clarifying.'))
     await expectAccessible(page, 'the demo organizer page')
 
     const ownerURL = page.url()
@@ -75,7 +81,8 @@ test.describe('one-click demo', () => {
   test('the organizer link brings the act-as links to another device', async ({ page, browser }) => {
     await page.goto('/')
     await page.getByRole('button', { name: 'Try it as Iris' }).first().click()
-    await expect(page.getByRole('heading', { name: 'You are Iris now' })).toBeVisible()
+    await expect(page.getByText('You are Iris now', { exact: true })).toBeVisible()
+    await importDemoChat(page)
     const links = page.getByRole('link', { name: /^Act as / })
     await expect(links.first()).toBeVisible()
     const names = await links.allTextContents()
@@ -86,6 +93,7 @@ test.describe('one-click demo', () => {
       await other.goto(page.url())
       await expect(other.getByRole('heading', { name: 'You are Iris now' })).toBeVisible()
       await expect(other.getByRole('link', { name: /^Act as / })).toHaveText(names)
+      expect(names).toHaveLength(6)
     } finally {
       await elsewhere.close()
     }

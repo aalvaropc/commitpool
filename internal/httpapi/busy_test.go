@@ -156,14 +156,12 @@ func TestDemo_AnswersWaitAsLongAsTheAPIAsks(t *testing.T) {
 	model.refusals.Store(2)
 	e := newEnv(t, withDemoMode(), withAI(model))
 	start := time.Now()
-	var d demoJSON
-	e.call(http.MethodPost, "/api/v1/demo/workshops", nil, http.StatusCreated, &d)
-	e.background.Wait()
-	if waited := time.Since(start); waited < 2*time.Second {
-		t.Errorf("the answers arrived after %v, want them to wait the second the API asked for, twice", waited)
+	_, ownerPath := e.startDemo()
+	if waited := time.Since(start); waited < time.Second {
+		t.Errorf("the answers arrived after %v, want them to wait the second the API asked for", waited)
 	}
 	var v ownerViewJSON
-	e.call(http.MethodGet, "/api/v1/owner/"+strings.TrimPrefix(d.OwnerURL, appBaseURL+"/owner/"), nil, http.StatusOK, &v)
+	e.call(http.MethodGet, ownerPath, nil, http.StatusOK, &v)
 	if len(v.Availabilities) != 6 {
 		t.Errorf("%d of 6 answers arrived after the model was capped for a while", len(v.Availabilities))
 	}

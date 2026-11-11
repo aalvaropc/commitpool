@@ -353,6 +353,31 @@ func availabilityView(a store.AvailabilityRow, effective domain.Interpretation) 
 	}
 }
 
+func participantView(p store.ParticipantRow) participantDTO {
+	return participantDTO{ID: p.ID, DisplayName: p.DisplayName, Source: p.Source, ChatMessage: p.ChatMessage}
+}
+
+func (s *server) ownerParticipants(workshopID string, ps []store.ParticipantRow, avails []store.AvailabilityRow) ([]ownerParticipantDTO, readingDTO) {
+	unread := make(map[string]bool)
+	for _, p := range unreadChat(ps, avails) {
+		unread[p.ID] = true
+	}
+	reading := readingDTO{Pending: len(unread), Active: s.chats.active(workshopID)}
+	out := make([]ownerParticipantDTO, len(ps))
+	for i, p := range ps {
+		out[i] = ownerParticipantDTO{participantDTO: participantView(p), Unread: unread[p.ID]}
+		if p.Source != store.SourceChat {
+			continue
+		}
+		reading.Total++
+		if p.ChatLinkToken != nil {
+			link := s.Cfg.BaseURL + "/p/" + *p.ChatLinkToken
+			out[i].ParticipantURL = &link
+		}
+	}
+	return out, reading
+}
+
 type consentDTO struct {
 	Version string `json:"version"`
 	Text    string `json:"text"`

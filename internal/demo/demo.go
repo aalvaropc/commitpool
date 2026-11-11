@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"path"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/aalvaropc/commitpool/internal/ai"
@@ -27,8 +28,49 @@ type Scenario struct {
 	DurationMin, Minimum, Capacity         int
 	StartHour                              int
 	Price, VenueCost, Currency             string
+	Opener, Closing                        string
 	People                                 []Person
 	Replies                                []Person
+}
+
+const (
+	chatStartsAtHour   = 19
+	chatStartsAtMinute = 5
+	chatStartsAtSecond = 14
+)
+
+var chatGaps = []time.Duration{
+	3*time.Minute + 12*time.Second,
+	4*time.Minute + 40*time.Second,
+	2*time.Minute + 5*time.Second,
+	6*time.Minute + 31*time.Second,
+	time.Minute + 48*time.Second,
+	5*time.Minute + 3*time.Second,
+	11*time.Minute + 41*time.Second,
+}
+
+func (sc Scenario) Chat(now time.Time, loc *time.Location) string {
+	type line struct{ name, text string }
+	lines := []line{{sc.HostName, sc.Opener}}
+	for _, p := range sc.People {
+		lines = append(lines, line{p.Name, p.Message})
+	}
+	lines = append(lines, line{sc.HostName, sc.Closing})
+	today := now.In(loc)
+	at := time.Date(today.Year(), today.Month(), today.Day()-1, chatStartsAtHour, chatStartsAtMinute, chatStartsAtSecond, 0, loc)
+	stamps := make([]time.Time, len(lines))
+	for i := range lines {
+		stamps[i] = at
+		at = at.Add(chatGaps[i%len(chatGaps)])
+	}
+	var b strings.Builder
+	for i, l := range lines {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		fmt.Fprintf(&b, "[%s\u202f%s] %s: %s", stamps[i].Format("1/2/06, 3:04:05"), stamps[i].Format("PM"), l.name, l.text)
+	}
+	return b.String()
 }
 
 var noCondition = domain.Condition{Type: domain.ConditionNone}
@@ -65,6 +107,8 @@ var LifeDrawing = Scenario{
 	Price:       "45.00",
 	VenueCost:   "120.00",
 	Currency:    "USD",
+	Opener:      "Life drawing at The Long Room, Saturday or Sunday 10–12, $45. Who's in?",
+	Closing:     "Thanks all! 🎨",
 	People: []Person{
 		{
 			Name: "Priya Raman", Message: "Saturday works for me, Sunday I can't.",
@@ -265,7 +309,7 @@ func Answer(ctx context.Context, api Caller, people []Participant, pace Pace) er
 		if err := wait(ctx, pace, 1); err != nil {
 			return errors.Join(append(errs, err)...)
 		}
-		if err := answer(ctx, api, p, pace); err != nil {
+		if err := AnswerOne(ctx, api, p, pace); err != nil {
 			errs = append(errs, fmt.Errorf("availability of %s: %w", p.Name, err))
 		}
 	}
@@ -282,14 +326,14 @@ func Reply(ctx context.Context, api Caller, people []Participant, replies []Pers
 		}
 		p := people[i]
 		p.Message = r.Message
-		if err := answer(ctx, api, p, pace); err != nil {
+		if err := AnswerOne(ctx, api, p, pace); err != nil {
 			errs = append(errs, fmt.Errorf("reply of %s: %w", r.Name, err))
 		}
 	}
 	return errors.Join(errs...)
 }
 
-func answer(ctx context.Context, api Caller, p Participant, pace Pace) error {
+func AnswerOne(ctx context.Context, api Caller, p Participant, pace Pace) error {
 	for attempt := 1; ; attempt++ {
 		err := api.Call(ctx, http.MethodPost, "/api/v1/p/"+p.Token+"/availability", map[string]any{"message": p.Message}, nil)
 		if err == nil || attempt >= attempts(err) {

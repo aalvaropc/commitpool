@@ -4,10 +4,11 @@ import { api, type OwnerView } from '../api'
 import AvailabilityGrid from '../components/AvailabilityGrid'
 import AddToCalendar from '../components/AddToCalendar'
 import CancelWorkshop from '../components/CancelWorkshop'
+import ChatImportCard, { ChatReading } from '../components/ChatImportCard'
 import ClaudeRead from '../components/ClaudeRead'
 import ClaudeSuggests from '../components/ClaudeSuggests'
 import DeadlineMoved from '../components/DeadlineMoved'
-import Decision, { InviteLink } from '../components/Decision'
+import Decision, { InviteLink, StatusLine } from '../components/Decision'
 import DemoClock from '../components/DemoClock'
 import DemoControls from '../components/DemoControls'
 import DemoGuide from '../components/DemoGuide'
@@ -19,7 +20,7 @@ import { Loading, LoadError, RefreshError } from '../components/PageState'
 import { ExtendDialog } from '../components/RescueCard'
 import SpotsTile from '../components/SpotsTile'
 import { TermsList } from '../components/Terms'
-import { Button, Icon, Notice, Page, Tile, TileLabel } from '../components/ui'
+import { Button, ButtonLink, Icon, Notice, Page, Pill, Tile, TileLabel } from '../components/ui'
 import { extendLink } from '../lib/extend'
 import { usePolling, useResource } from '../lib/hooks'
 import { nextStep, ownerRefresh } from '../lib/owner'
@@ -69,6 +70,18 @@ function AgreedTerms({ view }: { view: OwnerView }) {
   )
 }
 
+export function DemoChatUsed() {
+  return (
+    <Tile as="section" aria-label="Iris’s group chat" tone="muted" className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <p className="font-semibold">This demo already read Iris’s chat. Start a new demo to read it again.</p>
+      <ButtonLink to="/" variant="secondary" size="sm" className="shrink-0">
+        Back to Try it as Iris
+        <Icon name="arrowRight" size={16} />
+      </ButtonLink>
+    </Tile>
+  )
+}
+
 export default function Owner() {
   const { token = '' } = useParams()
   const view = useResource(() => api.owner(token), token)
@@ -89,7 +102,7 @@ export default function Owner() {
         paymentsOpen: d.proposal?.payments_open ?? false,
         enrollments: d.enrollments.map((e) => e.status),
         explanationPending: pending || d.suggestions.some((s) => s.pending),
-        demoFilling: d.workshop.demo === true && d.availabilities.length < d.participants.length,
+        chatReading: d.reading?.active ?? false,
         payoutMoving: d.payout?.state === 'created' || d.payout?.state === 'sending' || (d.payout?.state === 'waiting' && d.payout.waiting === 'payments_in_flight'),
       })
     : null
@@ -122,6 +135,19 @@ export default function Owner() {
     return view.reload()
   }
 
+  const [landed, setLanded] = useState(0)
+  useEffect(() => {
+    if (landed === 0) return
+    const title = document.getElementById('grid-title')
+    title?.focus({ preventScroll: true })
+    const top = document.getElementById('chat-reading') ?? title?.closest('section')
+    top?.scrollIntoView({ block: 'start' })
+  }, [landed])
+  const imported = async () => {
+    await view.reload()
+    setLanded((n) => n + 1)
+  }
+
   if (!d) {
     if (view.error) return <LoadError error={view.error} missing="Check that you opened the whole organizer link you saved when you created the workshop." onRetry={view.reload} />
     return <Loading what="your workshop" />
@@ -130,6 +156,19 @@ export default function Owner() {
   const w = d.workshop
   const step = nextStep(d)
   const stalled = pendingSince.current !== null && Date.now() - pendingSince.current > STALLED_AFTER_MS
+  const collecting = w.status === 'COLLECTING'
+  const empty = collecting && d.participants.length === 0
+  const demoUsed = w.demo === true && (d.chat_imported === true || d.participants.length > 0)
+  const pasting = collecting && !demoUsed
+  const later = (
+    <>
+      <ClaudeSuggests suggestions={d.suggestions} rescue={{ extension: d.extension ?? null, timeZone: w.timezone, onExtend: () => setExtending(true) }} />
+      <ClaudeRead view={d} stalled={stalled} onCheck={() => void view.reload()} />
+      {d.proposal && <EnrollmentList token={token} view={d} onChange={view.reload} />}
+      <PayoutTile token={token} view={d} onChange={view.reload} />
+      <AgreedTerms view={d} />
+    </>
+  )
   return (
     <Page wide>
       <title>{`${w.title} – organizer – CommitPool`}</title>
@@ -140,12 +179,18 @@ export default function Owner() {
           <Icon name="lock" size={16} />
           Your organizer page. Keep this link to yourself.
         </p>
+        {empty && w.demo && (
+          <p className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+            <span className="font-display text-lg font-bold">You are Iris now</span>
+            <Pill tone="attention">Demo workshop · prepared data</Pill>
+          </p>
+        )}
       </header>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-5">
         <div className="flex min-w-0 flex-col gap-4 lg:gap-5">
           {view.error && <RefreshError polling={refresh !== null} onRetry={() => void view.reload()} />}
-          <Decision view={d} step={step} onOpen={setOpening} titleRef={decisionTitle} />
+          {empty ? <StatusLine canPaste={!demoUsed} /> : <Decision view={d} step={step} onOpen={setOpening} titleRef={decisionTitle} />}
           {linked === 'stale' && (
             <Notice tone="attention" title="This extension link is out of date">
               <p>{d.extension?.reason ?? 'Reservations are not open, so there is no deadline to extend.'}</p>
@@ -156,12 +201,16 @@ export default function Owner() {
           )}
           <DeadlineMoved proposal={d.proposal} status={w.status} timeZone={w.timezone} audience="owner" />
           <OperatorPanel token={token} view={d} onChange={view.reload} />
-          <DemoGuide view={d} />
-          <ClaudeSuggests suggestions={d.suggestions} rescue={{ extension: d.extension ?? null, timeZone: w.timezone, onExtend: () => setExtending(true) }} />
-          <ClaudeRead view={d} stalled={stalled} onCheck={() => void view.reload()} />
-          {d.proposal && <EnrollmentList token={token} view={d} onChange={view.reload} />}
-          <PayoutTile token={token} view={d} onChange={view.reload} />
-          <AgreedTerms view={d} />
+          {!empty && <DemoGuide view={d} />}
+          {collecting ? (
+            <>
+              {pasting && <ChatImportCard token={token} view={d} onImported={imported} />}
+              {empty && demoUsed && <DemoChatUsed />}
+              <ChatReading reading={d.reading} />
+            </>
+          ) : (
+            later
+          )}
         </div>
 
         <aside aria-label="Workshop summary" className="hidden lg:block">
@@ -171,8 +220,10 @@ export default function Owner() {
         </aside>
 
         <div className="min-w-0 lg:col-span-2">
-          <AvailabilityGrid view={d} onOpen={setOpening} />
+          <AvailabilityGrid token={token} view={d} onOpen={setOpening} onChange={view.reload} />
         </div>
+
+        {collecting && <div className="flex min-w-0 flex-col gap-4 empty:hidden lg:gap-5">{later}</div>}
 
         <div className="grid gap-4 lg:col-span-2 lg:grid-cols-2 lg:items-start lg:gap-5">
           {(w.description || !d.proposal) && (
@@ -188,7 +239,7 @@ export default function Owner() {
             <h2 id="manage-title" className="text-xl">
               Manage
             </h2>
-            {step.action.kind !== 'share' && <InviteLink url={d.share_url} hint="Anyone with this link can join and say when they can come." />}
+            {(empty || step.action.kind !== 'share') && <InviteLink url={d.share_url} hint="Anyone with this link can join and say when they can come." />}
             <div className="flex flex-col gap-1">
               <TileLabel>Time to reserve</TileLabel>
               <p className="text-sm">{w.payment_window_min < 1440 ? windowLabel(w.payment_window_min) : `Reservations stay open ${windowLabel(w.payment_window_min)}`}</p>

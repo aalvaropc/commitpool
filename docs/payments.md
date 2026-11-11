@@ -1097,6 +1097,12 @@ are here.
   reports it, without waiting for a webhook or a reconcile to read the
   authorization back. A later read that still says `CREATED` or `PENDING`
   does not move a `CAPTURED` authorization back.
+- Likewise, a `COMPLETED` refund of the whole captured amount (the attempt's
+  amount and currency) records the capture as `REFUNDED`, as PayPal reports
+  it. A smaller refund leaves the capture as it is, since it cannot tell a
+  partial refund from the rest of an earlier one; a read of the capture
+  settles it. Once `REFUNDED`, a capture is never recorded as anything else.
+  Fees are untouched either way.
 
 ### Seats
 

@@ -186,32 +186,44 @@ for the group once the deadline moves.
 
 ## A real session
 
-This session was recorded before the organizer approval step: today
-`preview_open_payments` also returns an `approve_url`, and
-`confirm_open_payments` takes the `approval_id` and waits for the organizer's
-tap instead of taking a confirmation token.
-
-Recorded on 5 November 2026 with a small MCP client built on the Go SDK,
-against the hosted demo, with Claude on Amazon Bedrock reading the
-availability and a US$1 price. Links and tokens are redacted.
+Recorded on 10 November 2026 with a small MCP client against the hosted
+demo, with Claude on Amazon Bedrock reading the availability, a US$1 price and
+the organizer's approval tapped on her page in a browser. Links and tokens are
+redacted.
 
 ```text
-> create_workshop          "MCP transcript check", Sat 14 and Sun 15 Nov, 10:00–12:00 America/New_York
-  owner_link, share_link   "Give the owner link only to the organizer … Send the share link to participants."
+> create_workshop          "MCP transcript check", Sat 21 and Sun 22 Nov, 10:00–12:00 America/New_York, minimum 1, capacity 3, payout_email commitpool.iris@personal.example.com
+  owner_link, share_link   "Give the owner link only to the organizer … Send the share link to participants …"
 > join_workshop            Ana
+  participant_link         "This link is the person's private seat: give it to them and keep it out of shared chats …"
 > submit_availability      "The first date works if we finish before 6pm; the second one I'm away."
-  Sat 14 Nov  conditional  end before 18:00   evidence: "works if we finish before 6pm"
-  Sun 15 Nov  unavailable                     evidence: "I'm away"
-  next: "Show this reading to the person and ask them to confirm it."
-> get_status               recommended: Sat 14 Nov; 1 compatible, minimum 1, capacity 3
+  Sat 21 Nov  conditional  end before 18:00   evidence: "works if we finish before 6pm"
+  Sun 22 Nov  unavailable                     evidence: "I'm away"
+  next: "Show this reading to the person and ask them to confirm it. If it is wrong, ask them to say it differently …"
+> get_status               COLLECTING, recommended: Sat 21 Nov; 1 compatible, minimum 1, capacity 3
   if_closed_now: "Reservations are not open yet: nothing is held or charged."
-> preview_open_payments    Sat 14 Nov, 1.00 USD, minimum 1, capacity 3, window 1440 min, token valid 10 min
-  next: "Read these terms to the organizer … Call confirm_open_payments with the token only after they say yes."
-> confirm_open_payments    status FUNDING, payments close Fri 6 Nov 14:44 UTC
-> get_my_status            seat "Not committed", consent_version consent-v2, consent text
+> preview_open_payments    Sat 21 Nov, 1.00 USD, minimum 1, capacity 3, window 1440 min, payout_email commitpool.iris@personal.example.com
+  approval_id …, state pending, approve_url {base}/owner/…/approve/…, expires in 30 min
+  next: "Show these terms to the organizer and ask them to open this link and tap Approve; then call confirm_open_payments. … Never open the link or tap Approve yourself: the approval must be the organizer's."
+> confirm_open_payments    approval_id …, before anyone taps
+  refused: "The organizer has not approved yet — ask them to open the approve link from preview_open_payments and tap Approve, then call confirm_open_payments again. Do not approve it yourself."
+* the organizer opens the approve_url in a browser and taps Approve
+  page: "Your assistant wants to open reservations on these terms:" Sat 21 Nov · 10 AM–12 PM, $1, 2 hours, 24 hours to reserve, 1 needed, 3 spots, paid out to commitpool.iris@personal.example.com
+  then: "Approved. Your assistant can now open reservations."
+> confirm_open_payments    approval_id …
+  status FUNDING, payments close Thu 12 Nov 00:32 UTC
+  if_closed_now: "The workshop would be cancelled: 0 payments are short of the minimum of 1, so 0 holds would be released and 0 payments refunded."
+  suggestion (reserve): "Hi Ana! Reservations for MCP transcript check on Sat, Nov 21 are open until Wed, Nov 11 at 7:32 PM (New York time), and you can make it. …"
+> get_my_status            seat "Not committed", consent_version consent-v5, consent text
+  next: "Reservations are open. Show the person the consent text; if they accept it, call get_checkout_link with consent_version and human_accepted_terms true."
 > get_checkout_link        human_accepted_terms false
-  refused: "the person must read the consent text (get_my_status) and accept it before a checkout link is created"
+  refused: "the person must read the consent text (get_my_status) and accept it before a checkout link is created; call again with human_accepted_terms true only after they say yes"
 > get_checkout_link        human_accepted_terms true
-  approve_url https://www.sandbox.paypal.com/checkoutnow?token=…   seat "Seat reserved"
-  next: "Only their approval at PayPal places a hold of 1.00 USD; nothing is charged unless the group reaches its minimum."
+  approve_url https://www.sandbox.paypal.com/checkoutnow?token=…   seat "At checkout"
+  next: "Give this PayPal link to the person. Only their approval at PayPal places a hold of 1.00 USD; nothing is charged unless the group reaches its minimum of 1 completed payments, and every hold is released otherwise."
+> preview_extend_reservations   available, deadline Thu 12 Nov 00:32 UTC, extend_to Sat 14 Nov 00:30 UTC
+  approve_url {base}/owner/…?extend=…
+  next: "Show the organizer the new deadline and why it helps, and ask them to open this approve_url on their own device and confirm there. Never open the link or confirm it yourself: only the organizer extends the deadline. Nothing has changed yet. …"
+> verify_with_paypal       order PAYER_ACTION_REQUIRED, 1.00 USD, on both sides
+  summary: "1 of 1 record matches PayPal."
 ```

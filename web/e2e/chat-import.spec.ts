@@ -90,7 +90,8 @@ test.describe('paste your group chat', () => {
     await expect(grid.getByRole('row').filter({ hasText: 'Grace Liu' })).toContainText('Needs clarifying')
     await expect(grid.getByRole('button', { name: 'Copy their link for Grace Liu' })).toBeVisible()
     await expect(page.getByRole('region', { name: 'Next step' })).toContainText('Grace Liu’s message needs clarifying.')
-    await expect(page.getByRole('region', { name: 'You are Iris now' })).toContainText('Act as Grace Liu and answer Claude’s question')
+    await expect(page.getByRole('region', { name: 'You are Iris now' })).toContainText('Copy Claude’s reply for the group, then act as Grace to answer her question.')
+    await expect(page.getByRole('region', { name: 'Claude suggests' }).getByRole('listitem').filter({ hasText: 'Claude’s reply for the group' })).toContainText('Copy message for the group')
     await expectAccessible(page, 'the demo board after the chat was read')
   })
 
@@ -132,7 +133,7 @@ test.describe('paste your group chat', () => {
     await expect(card.getByRole('checkbox', { checked: true })).toHaveCount(3)
     await card.getByRole('button', { name: 'Add 3 people' }).click()
     await expect(owner.getByText('3 of 3 answered', { exact: false })).toBeVisible()
-    await expect(owner.getByRole('region', { name: 'Next step' })).toContainText('works for 3 — you need 3')
+    await expect(owner.getByRole('region', { name: 'Next step' })).toContainText(/Tied: .* comes first.*(?<!\d)3 can come on/)
 
     await owner.context().grantPermissions(['clipboard-read', 'clipboard-write'])
     const adaRow = owner.getByRole('region', { name: 'Who can come, by date' }).getByRole('row').filter({ hasText: 'Ada' })

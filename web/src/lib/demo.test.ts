@@ -80,6 +80,16 @@ describe('demoStep', () => {
     expect(demoStep(view({ availabilities: v.availabilities.slice(0, 2), reading: { pending: 2, total: 4, active: false } }), cast)).toBeNull()
   })
 
+  it('once Claude drafted the group reply, says to copy it, then to answer as Grace', () => {
+    const reply = { kind: 'group_reply' as const, reason: '', message: 'Life drawing: thanks, everyone!', pending: false }
+    expect(demoStep(view({ suggestions: [reply] }), cast)).toEqual({
+      text: 'Copy Claude’s reply for the group, then act as Grace to answer her question. For example: “No problem — I swapped Saturday. Sunday I\'m still at the market.”',
+      primary: 'Grace Liu',
+    })
+    const reading = view({ suggestions: [reply], availabilities: view().availabilities.slice(0, 2), reading: { pending: 2, total: 4, active: true } })
+    expect(demoStep(reading, cast)?.text).toBe('Claude is reading each person’s messages against Iris’s dates.')
+  })
+
   it('sends the visitor to answer Claude’s question as Grace, with her reply from the scenario', () => {
     expect(demoStep(view(), cast)).toEqual({
       text: 'Saturday has 2 of the 3 Iris needs. Act as Grace Liu and answer Claude’s question — for example: “No problem — I swapped Saturday. Sunday I\'m still at the market.”',

@@ -22,6 +22,7 @@ export interface DemoStep {
 
 export const CHAT_STEP = 'This is Iris’s group chat. Press Read the chat, then Add 6 people.'
 export const OWN_CHAT_STEP = 'Press Read the chat, then Add the people.'
+export const REPLY_STEP = 'Copy Claude’s reply for the group, then act as Grace to answer her question.'
 
 export function chatLead(text: string, demoChat: string | null | undefined): string | null {
   if (!demoChat) return null
@@ -64,6 +65,9 @@ export function demoStep(v: OwnerView, cast: string[]): DemoStep | null {
   })
   if (unclear) {
     const name = unclear.display_name
+    if (name === GRACE && v.suggestions.some((s) => s.kind === 'group_reply')) {
+      return { text: `${REPLY_STEP} For example: “${GRACE_REPLY}”`, primary: name }
+    }
     const example = name === GRACE ? ` — for example: “${GRACE_REPLY}”` : '.'
     return { text: `${short} Act as ${name} and answer Claude’s question${example}`, primary: name }
   }

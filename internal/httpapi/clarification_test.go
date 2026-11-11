@@ -223,10 +223,11 @@ func TestSuggestions_ClaudeMayNameEveryDateWhenItAsksAQuestion(t *testing.T) {
 	e.joinAndSay(h, "Ana", "I can't do Sunday, but Saturday is fine")
 	e.joinAndSay(h, "Grace Liu", "I can make it either day, ideally in the afternoon.")
 	v := e.settledOwner(h)
-	if len(v.Suggestions) != 1 || v.Suggestions[0].Kind != "clarify" {
+	nudges := personal(v.Suggestions)
+	if len(nudges) != 1 || nudges[0].Kind != "clarify" {
 		t.Fatalf("suggestions = %+v, want one question for Grace", v.Suggestions)
 	}
-	if got := v.Suggestions[0].Message; got != "Hi Grace! The class runs on Saturday or on Sunday. Can you make either one?" {
+	if got := nudges[0].Message; got != "Hi Grace! The class runs on Saturday or on Sunday. Can you make either one?" {
 		t.Errorf("clarify message = %q, want Claude's words, which name both dates", got)
 	}
 	clarify := rec.suggested("clarify")
@@ -242,10 +243,11 @@ func TestSuggestions_AQuestionNamingADayThatIsNotADateFallsBack(t *testing.T) {
 	e.joinAndSay(h, "Ana", "I can't do Sunday, but Saturday is fine")
 	e.joinAndSay(h, "Grace Liu", "I can make it either day, ideally in the afternoon.")
 	v := e.settledOwner(h)
-	if len(v.Suggestions) != 1 || v.Suggestions[0].Kind != "clarify" {
+	nudges := personal(v.Suggestions)
+	if len(nudges) != 1 || nudges[0].Kind != "clarify" {
 		t.Fatalf("suggestions = %+v, want one question for Grace", v.Suggestions)
 	}
-	if got := v.Suggestions[0].Message; strings.Contains(got, "Monday") || got != ai.PlainSuggestion(rec.suggested("clarify")[0]) {
+	if got := nudges[0].Message; strings.Contains(got, "Monday") || got != ai.PlainSuggestion(rec.suggested("clarify")[0]) {
 		t.Errorf("clarify message = %q, want the plain message instead of one naming a day that is not a candidate", got)
 	}
 }
@@ -257,10 +259,11 @@ func TestSuggestions_OtherNudgesStillMayNotNameAnotherDate(t *testing.T) {
 	e.joinAndSay(h, "Ana", "I can't do Sunday, but Saturday is fine")
 	e.joinAndSay(h, "Bo", "Saturday works if we finish before five")
 	v := e.settledOwner(h)
-	if len(v.Suggestions) != 1 || v.Suggestions[0].Kind != "condition" {
+	nudges := personal(v.Suggestions)
+	if len(nudges) != 1 || nudges[0].Kind != "condition" {
 		t.Fatalf("suggestions = %+v, want one condition nudge for Bo", v.Suggestions)
 	}
-	if got := v.Suggestions[0].Message; strings.Contains(got, "Sunday") || !strings.HasPrefix(got, "Hi Bo!") {
+	if got := nudges[0].Message; strings.Contains(got, "Sunday") || !strings.HasPrefix(got, "Hi Bo!") {
 		t.Errorf("condition message = %q, want the plain message instead of one naming another date", got)
 	}
 	for _, in := range other.suggested("condition") {

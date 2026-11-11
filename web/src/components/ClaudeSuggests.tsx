@@ -42,6 +42,31 @@ function SuggestionItem({ s }: { s: Suggestion }) {
   )
 }
 
+function GroupReplyCard({ s }: { s: Suggestion }) {
+  const { copied, copy } = useCopy()
+  return (
+    <li className="flex flex-col gap-3 rounded-control bg-brand-wash p-4 ring-1 ring-brand/40 ring-inset">
+      <div className="flex flex-col gap-1">
+        <p className="flex min-w-0 items-center gap-2.5 font-semibold">
+          <Icon name="users" className="shrink-0 text-brand" />
+          Claude’s reply for the group
+        </p>
+        <p className="text-sm text-ink-soft [overflow-wrap:anywhere]">{s.reason}</p>
+      </div>
+      <p className="rounded-control bg-surface px-4 py-3 whitespace-pre-line [overflow-wrap:anywhere]">{s.message}</p>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button variant="secondary" size="sm" onClick={() => void copy(s)}>
+          <Icon name="copy" size={16} />
+          Copy message<span className="sr-only"> for the group</span>
+        </Button>
+        <span role="status" className="text-sm text-ink-soft">
+          {copied ? 'Copied. Paste it in the group chat.' : copied === false ? 'Copying is blocked here; select the message and copy it.' : s.pending ? 'Claude is rewording this message…' : ''}
+        </span>
+      </div>
+    </li>
+  )
+}
+
 const personKey = (s: Suggestion) => s.participant_id ?? s.name ?? ''
 
 function SuggestionGroup({ people, pending }: { people: Suggestion[]; pending: boolean }) {
@@ -101,6 +126,8 @@ function SuggestionGroup({ people, pending }: { people: Suggestion[]; pending: b
   )
 }
 
+const groupFirst = (list: Suggestion[]) => [...list.filter((s) => s.kind === 'group_reply'), ...list.filter((s) => s.kind !== 'group_reply')]
+
 export default function ClaudeSuggests({ suggestions, rescue }: { suggestions: Suggestion[]; rescue?: Rescue }) {
   if (suggestions.length === 0) return null
   return (
@@ -113,9 +140,11 @@ export default function ClaudeSuggests({ suggestions, rescue }: { suggestions: S
         <p className="text-sm text-ink-soft">CommitPool picks who to nudge; Claude drafts the words. You decide whether to send them.</p>
       </div>
       <ul className="flex flex-col gap-3">
-        {groupSuggestions(suggestions).map((c) =>
+        {groupSuggestions(groupFirst(suggestions)).map((c) =>
           c.kind === 'group' ? (
             <SuggestionGroup key={c.key} people={c.people} pending={c.pending} />
+          ) : c.suggestion.kind === 'group_reply' ? (
+            <GroupReplyCard key={c.key} s={c.suggestion} />
           ) : c.suggestion.kind === 'rescue' ? (
             <RescueCard key={c.key} s={c.suggestion} rescue={rescue} />
           ) : (

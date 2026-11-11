@@ -40,4 +40,24 @@ describe('ClaudeSuggests', () => {
     expect(plain).toContain('Copy message for Priya Raman')
     expect(plain).not.toContain('people can come but')
   })
+
+  it('shows the group reply above personal nudges', () => {
+    const clarify: Suggestion = { kind: 'clarify', participant_id: 'p3', name: 'Grace Liu', reason: 'Grace Liu’s message needs clarifying.', message: 'Hi Grace! Which morning?', pending: false }
+    const condition: Suggestion = { kind: 'condition', participant_id: 'p4', name: 'Hannah Kim', reason: 'Hannah Kim said only if it ends by 11:30 AM.', message: 'Hi Hannah!', pending: false }
+    const reply: Suggestion = {
+      kind: 'group_reply',
+      reason: '6 people have answered. Tell the group where things stand.',
+      message: 'Life drawing for beginners: thanks for answering, everyone! Sat, Nov 21 and Sun, Nov 22 are tied.\nhttps://example.test/w/INVITE',
+      pending: true,
+    }
+    const plain = text(renderToStaticMarkup(<ClaudeSuggests suggestions={[clarify, reply, condition]} />))
+    const at = (s: string) => plain.indexOf(s)
+    expect(at('Claude’s reply for the group')).toBeGreaterThan(-1)
+    expect(at('Claude’s reply for the group')).toBeLessThan(at('Grace Liu’s message needs clarifying.'))
+    expect(at('Sat, Nov 21 and Sun, Nov 22 are tied.')).toBeLessThan(at('Hannah Kim said only if it ends by 11:30 AM.'))
+    expect(plain).toContain('6 people have answered. Tell the group where things stand.')
+    expect(plain).toContain('https://example.test/w/INVITE')
+    expect(plain).toContain('Copy message for the group')
+    expect(plain).toContain('Claude is rewording this message…')
+  })
 })

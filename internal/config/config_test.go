@@ -497,7 +497,13 @@ func TestLoad_DevpostLinkIsOptionalAndHttpsOnly(t *testing.T) {
 	if err != nil || cfg.DevpostURL != "https://devpost.com/software/commitpool" {
 		t.Errorf("a good Devpost link: DevpostURL = %q, err = %v", cfg.DevpostURL, err)
 	}
-	for _, link := range []string{"http://devpost.com/software/commitpool", "javascript:alert(1)", "devpost.com/software/commitpool", "https://", "https://user:pass@devpost.com/x", "not a url"} {
+	env = baseEnv()
+	env["COMMITPOOL_DEVPOST_URL"] = "HTTPS://Devpost.com/software/commitpool"
+	cfg, err = load(env)
+	if err != nil || cfg.DevpostURL != "https://Devpost.com/software/commitpool" {
+		t.Errorf("an upper-case scheme: DevpostURL = %q, err = %v; want the normalized https URL", cfg.DevpostURL, err)
+	}
+	for _, link := range []string{"https://:443", "https://:443/software/commitpool", "http://devpost.com/software/commitpool", "javascript:alert(1)", "devpost.com/software/commitpool", "https://", "https://user:pass@devpost.com/x", "not a url"} {
 		env := baseEnv()
 		env["COMMITPOOL_DEVPOST_URL"] = link
 		if _, err := load(env); err == nil || !strings.Contains(err.Error(), "COMMITPOOL_DEVPOST_URL") {

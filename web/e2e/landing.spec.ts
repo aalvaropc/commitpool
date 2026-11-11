@@ -71,6 +71,8 @@ test.describe('landing proof', () => {
     await expect(paths.last()).toContainText('About 4 minutes: Try it as Iris, read her group chat, then 3 PayPal checkouts. PayPal remembers your login after the first.')
     await expect(judges.getByRole('link', { name: 'Code on GitHub' })).toHaveAttribute('href', 'https://github.com/aalvaropc/commitpool')
     await expect(judges.getByRole('link', { name: 'Devpost' })).toHaveAttribute('href', 'https://devpost.com/software/commitpool-e2e')
+    await expect(judges.getByRole('link', { name: 'Code on GitHub (opens in a new tab)' })).toHaveAttribute('target', '_blank')
+    await expect(judges.getByRole('link', { name: 'Devpost (opens in a new tab)' })).toHaveAttribute('rel', 'noreferrer')
     await expect(page.getByRole('navigation', { name: 'Project links' }).getByRole('link', { name: 'Code on GitHub' })).toBeVisible()
     await expect(judges.getByRole('heading', { name: 'PayPal Sandbox buyer' })).toBeVisible()
     await expect(judges).toContainText('judge-buyer@example.com')
@@ -117,5 +119,12 @@ test.describe('landing proof', () => {
     await expect(judges.getByRole('link', { name: 'Devpost' })).toHaveCount(0)
     await expect(judges.getByRole('link', { name: 'Code on GitHub' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Try it as Iris' }).first()).toBeVisible()
+  })
+
+  test('the project links stay on the landing page', async ({ page }) => {
+    await page.goto('/new')
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
+    await expect(page.getByRole('link', { name: /Code on GitHub/ })).toHaveCount(0)
+    await expect(page.getByRole('navigation', { name: 'Project links' })).toHaveCount(0)
   })
 })

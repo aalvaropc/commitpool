@@ -134,8 +134,8 @@ func Load(getenv func(string) string) (Config, error) {
 		}
 	}
 	if raw := str("COMMITPOOL_DEVPOST_URL", ""); raw != "" {
-		if httpsURL(raw) {
-			cfg.DevpostURL = raw
+		if u, err := url.Parse(raw); err == nil && u.Scheme == "https" && u.Hostname() != "" && u.User == nil {
+			cfg.DevpostURL = u.String()
 		} else {
 			problems = append(problems, "COMMITPOOL_DEVPOST_URL must be an https URL, such as https://devpost.com/software/commitpool")
 		}

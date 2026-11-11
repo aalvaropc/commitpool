@@ -1,6 +1,7 @@
 import { Link, Outlet, useLocation } from 'react-router'
 import { REPO_URL, safeHttps } from '../lib/links'
 import { useDemoInfo } from '../lib/demoInfo'
+import ExternalLink from './ExternalLink'
 import TryDemo, { useDemoAvailable } from './TryDemo'
 import { ButtonLink, Logo } from './ui'
 
@@ -37,16 +38,16 @@ function LandingAction() {
 
 function FooterLinks() {
   const devpost = safeHttps(useDemoInfo()?.devpost_url)
-  const link = 'inline-flex min-h-11 items-center rounded-control font-semibold text-ink-soft underline-offset-4 hover:text-ink'
+  const link = 'inline-flex min-h-11 items-center gap-1.5 rounded-control font-semibold text-ink-soft underline-offset-4 hover:text-ink'
   return (
     <nav aria-label="Project links" className="flex flex-wrap gap-x-5">
-      <a href={REPO_URL} className={link}>
+      <ExternalLink href={REPO_URL} className={link}>
         Code on GitHub
-      </a>
+      </ExternalLink>
       {devpost && (
-        <a href={devpost} className={link}>
+        <ExternalLink href={devpost} className={link}>
           Devpost
-        </a>
+        </ExternalLink>
       )}
     </nav>
   )

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type Ref } from 'react'
 import type { DemoInfo, JudgeLogin } from '../../api'
 import { embeddableVideo } from '../../lib/demoInfo'
 import { REPO_URL, safeHttps } from '../../lib/links'
+import ExternalLink from '../ExternalLink'
 import { Icon, Pill } from '../ui'
 import type { Tone } from '../../lib/status'
 import { SectionHead } from './Section'
@@ -114,13 +115,13 @@ export function JudgeLinks({ devpost }: { devpost: string | undefined }) {
   const safeDevpost = safeHttps(devpost)
   return (
     <p className="mb-10 flex flex-wrap gap-3">
-      <a href={REPO_URL} className={linkClass}>
+      <ExternalLink href={REPO_URL} className={linkClass}>
         Code on GitHub
-      </a>
+      </ExternalLink>
       {safeDevpost && (
-        <a href={safeDevpost} className={linkClass}>
+        <ExternalLink href={safeDevpost} className={linkClass}>
           Devpost
-        </a>
+        </ExternalLink>
       )}
     </p>
   )

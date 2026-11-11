@@ -1,10 +1,23 @@
-import type { Availability, DateSummary, OwnerView, ParticipantRef } from '../api'
+import { useState } from 'react'
+import { api, type Availability, type DateSummary, type OwnerParticipant, type OwnerView } from '../api'
 import { cellNotes, cellStatus, dateColumns, type DateColumn } from '../lib/owner'
-import { Avatar, Button, Pill, Tile, VerdictChip } from './ui'
+import { Avatar, Button, ConfirmDialog, Icon, Notice, Pill, Tile, VerdictChip } from './ui'
 
 interface Props {
+  token: string
   view: OwnerView
   onOpen: (dateId: string) => void
+  onChange: () => Promise<unknown>
+}
+
+type Unread = 'reading' | 'stuck' | null
+
+interface Actions {
+  busy: string | null
+  copy: (p: OwnerParticipant) => void
+  readAgain: (p: OwnerParticipant) => void
+  remove: (p: OwnerParticipant) => void
+  removable: (p: OwnerParticipant) => boolean
 }
 
 const markTone = (c: DateColumn, meets: boolean) => (c.mark === 'Recommended' ? (meets ? 'paid' : 'neutral') : 'hold')
@@ -26,7 +39,19 @@ function Cell({ a, dateId, summary }: { a: Availability; dateId: string; summary
   )
 }
 
-function Message({ a, name }: { a?: Availability; name: string }) {
+function Message({ a, p, unread, actions }: { a?: Availability; p: OwnerParticipant; unread: Unread; actions: Actions }) {
+  const name = p.display_name
+  if (!a && unread === 'reading') return <span className="text-sm text-ink-soft">Claude is reading…</span>
+  if (!a && unread === 'stuck') {
+    return (
+      <span className="flex flex-col items-start gap-1">
+        <Pill tone="attention">Couldn't read yet</Pill>
+        <Button variant="quiet" size="sm" className="-ml-4" busy={actions.busy === 'retry'} busyLabel="Reading again…" onClick={() => actions.readAgain(p)}>
+          Read again<span className="sr-only"> {name}’s message</span>
+        </Button>
+      </span>
+    )
+  }
   if (!a) return <span className="text-sm text-ink-soft">No answer yet</span>
   const reading = a.corrected ?? a.interpretation
   return (
@@ -64,14 +89,35 @@ function DateSummaryList({ columns, view, onOpen }: { columns: DateColumn[]; vie
   )
 }
 
-function PersonCard({ p, a, columns, summaries }: { p: ParticipantRef; a?: Availability; columns: DateColumn[]; summaries: Map<string, DateSummary> }) {
+function PersonActions({ p, actions }: { p: OwnerParticipant; actions: Actions }) {
+  const removable = actions.removable(p)
+  if (!p.participant_url && !removable) return null
+  return (
+    <span className="-ml-4 flex flex-wrap items-center">
+      {p.participant_url && (
+        <Button variant="quiet" size="sm" onClick={() => actions.copy(p)}>
+          <Icon name="copy" size={16} />
+          Copy their link<span className="sr-only"> for {p.display_name}</span>
+        </Button>
+      )}
+      {removable && (
+        <Button variant="quiet" size="sm" onClick={() => actions.remove(p)}>
+          Remove<span className="sr-only"> {p.display_name}</span>
+        </Button>
+      )}
+    </span>
+  )
+}
+
+function PersonCard({ p, a, unread, actions, columns, summaries }: { p: OwnerParticipant; a?: Availability; unread: Unread; actions: Actions; columns: DateColumn[]; summaries: Map<string, DateSummary> }) {
   return (
     <li className="flex flex-col gap-2.5 rounded-control p-3.5 ring-1 ring-line ring-inset">
       <p className="flex min-w-0 items-center gap-2.5">
         <Avatar name={p.display_name} size="sm" />
         <span className={`font-semibold ${wrap}`}>{p.display_name}</span>
       </p>
-      <Message a={a} name={p.display_name} />
+      <PersonActions p={p} actions={actions} />
+      <Message a={a} p={p} unread={unread} actions={actions} />
       {a && (
         <ul className="flex flex-col gap-2">
           {columns.map((c) => (
@@ -86,12 +132,66 @@ function PersonCard({ p, a, columns, summaries }: { p: ParticipantRef; a?: Avail
   )
 }
 
-export default function AvailabilityGrid({ view, onOpen }: Props) {
+export default function AvailabilityGrid({ token, view, onOpen, onChange }: Props) {
   const columns = dateColumns(view)
   const summaries = new Map((view.recommendation.per_date ?? []).map((d) => [d.date_id, d]))
   const byParticipant = new Map(view.availabilities.map((a) => [a.participant_id, a]))
   const people = view.participants
   const openable = columns.some((c) => c.canOpen)
+  const [said, setSaid] = useState('')
+  const [busy, setBusy] = useState<string | null>(null)
+  const [removing, setRemoving] = useState<OwnerParticipant | null>(null)
+  const [removeError, setRemoveError] = useState<string | null>(null)
+  const readingNow = view.reading?.active ?? false
+  const enrolled = new Set(view.enrollments.map((e) => e.participant_id))
+  const unreadOf = (p: OwnerParticipant): Unread => (p.unread && !byParticipant.has(p.id) ? (readingNow ? 'reading' : 'stuck') : null)
+
+  const actions: Actions = {
+    busy,
+    async copy(p) {
+      if (!p.participant_url) return
+      try {
+        await navigator.clipboard.writeText(p.participant_url)
+        setSaid(`Copied ${p.display_name}’s link. Send it to them so they can check what Claude read.`)
+      } catch {
+        setSaid(`Copying is blocked here. ${p.display_name}’s link: ${p.participant_url}`)
+      }
+    },
+    async readAgain() {
+      setBusy('retry')
+      setSaid('')
+      try {
+        const res = await api.retryChat(token)
+        setSaid(res.reading > 0 ? 'Claude is reading them again.' : 'Claude is already reading them.')
+        await onChange()
+      } catch (e) {
+        setSaid(e instanceof Error ? e.message : 'Claude could not read them again right now.')
+      } finally {
+        setBusy(null)
+      }
+    },
+    remove(p) {
+      setRemoveError(null)
+      setRemoving(p)
+    },
+    removable: (p) => view.workshop.status === 'COLLECTING' && p.source === 'chat' && !enrolled.has(p.id) && unreadOf(p) !== 'reading',
+  }
+
+  async function confirmRemove() {
+    if (!removing) return
+    setBusy('remove')
+    setRemoveError(null)
+    try {
+      await api.removeParticipant(token, removing.id)
+      setSaid(`Removed ${removing.display_name}.`)
+      setRemoving(null)
+      await onChange()
+    } catch (e) {
+      setRemoveError(e instanceof Error ? e.message : 'They could not be removed right now.')
+    } finally {
+      setBusy(null)
+    }
+  }
 
   return (
     <Tile as="section" aria-labelledby="grid-title" className="flex flex-col gap-4 sm:p-6">
@@ -104,15 +204,21 @@ export default function AvailabilityGrid({ view, onOpen }: Props) {
         </p>
       </div>
 
+      <p role="status" className={`text-sm text-ink-soft ${wrap} empty:hidden`}>
+        {said}
+      </p>
+
       {people.length === 0 ? (
-        <p className="text-ink-soft">Share the invite. Each person appears here with their answer for every date.</p>
+        <p className="text-ink-soft">
+          {view.workshop.status === 'COLLECTING' ? 'Paste your group chat above, or share the invite.' : 'Share the invite.'} Each person appears here with their answer for every date.
+        </p>
       ) : (
         <>
           <div className="flex flex-col gap-4 sm:hidden">
             <DateSummaryList columns={columns} view={view} onOpen={onOpen} />
             <ul className="flex flex-col gap-3" aria-label="People">
               {people.map((p) => (
-                <PersonCard key={p.id} p={p} a={byParticipant.get(p.id)} columns={columns} summaries={summaries} />
+                <PersonCard key={p.id} p={p} a={byParticipant.get(p.id)} unread={unreadOf(p)} actions={actions} columns={columns} summaries={summaries} />
               ))}
             </ul>
           </div>
@@ -155,9 +261,10 @@ export default function AvailabilityGrid({ view, onOpen }: Props) {
                           <Avatar name={p.display_name} size="sm" />
                           <span className={`font-semibold text-ink ${wrap}`}>{p.display_name}</span>
                         </span>
+                        <PersonActions p={p} actions={actions} />
                       </th>
                       <td className="border-t border-line px-3 py-3 align-top">
-                        <Message a={a} name={p.display_name} />
+                        <Message a={a} p={p} unread={unreadOf(p)} actions={actions} />
                       </td>
                       {columns.map((c) => (
                         <td key={c.id} className={`border-t border-line px-3 py-3 align-top ${c.mark ? 'bg-brand-wash/60' : ''}`}>
@@ -188,6 +295,24 @@ export default function AvailabilityGrid({ view, onOpen }: Props) {
           </div>
         </>
       )}
+
+      <ConfirmDialog
+        open={removing !== null}
+        title={`Remove ${removing?.display_name ?? ''}?`}
+        confirmLabel="Remove"
+        busy={busy === 'remove'}
+        busyLabel="Removing…"
+        tone="danger"
+        onConfirm={() => void confirmRemove()}
+        onClose={() => setRemoving(null)}
+      >
+        <p>They leave the board, with what Claude read from the chat, and their link stops working.</p>
+        {removeError && (
+          <Notice tone="attention" role="alert" className="mt-3">
+            {removeError}
+          </Notice>
+        )}
+      </ConfirmDialog>
     </Tile>
   )
 }

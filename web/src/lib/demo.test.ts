@@ -62,6 +62,13 @@ describe('demoStep', () => {
       ...over,
     }) as unknown as OwnerView
 
+  it('starts from Iris’s group chat while nobody is on the board yet', () => {
+    const fresh = view({ participants: [], availabilities: [], demo_chat: 'Iris Calder: Who’s in?', recommendation: { ...view().recommendation, date_id: '', per_date: null } })
+    expect(demoStep(fresh, [])).toEqual({ text: "This is Iris's group chat. Press Read the chat, then Add 6 people.", primary: null })
+    expect(demoStep(view({ participants: [], availabilities: [], demo_chat: null }), [])).toBeNull()
+    expect(demoStep({ ...fresh, proposal: { date_id: 'sat' } } as unknown as OwnerView, [])).toBeNull()
+  })
+
   it('sends the visitor to answer Claude’s question as Grace, with her reply from the scenario', () => {
     expect(demoStep(view(), cast)).toEqual({
       text: 'Saturday has 2 of the 3 Iris needs. Act as Grace Liu and answer Claude’s question — for example: “No problem — I swapped Saturday. Sunday I\'m still at the market.”',

@@ -1,0 +1,77 @@
+import { describe, expect, it } from 'vitest'
+import { addLabel, chatLength, chatProblem, hostFirstName, importedNote, MAX_CHAT_CHARS, NOT_TEXT_ERROR, progressText, readChatFile, readingNow, ticked, TOO_LONG_ERROR, ZIP_ERROR } from './chat'
+
+const txt = (text: string, name = 'WhatsApp Chat - Life drawing.txt') => new File([text], name, { type: 'text/plain' })
+
+describe('readChatFile', () => {
+  it('reads a WhatsApp .txt export as it is', async () => {
+    const text = '[11/10/26, 9:14:03 PM] Priya Raman: Saturday works for me, Sunday I can’t.\n[11/10/26, 9:16:44 PM] Lucía Torres: El domingo me viene perfecto 🎨'
+    await expect(readChatFile(txt(text))).resolves.toBe(text)
+  })
+
+  it('rejects files over 20000 characters', async () => {
+    await expect(readChatFile(txt('a'.repeat(MAX_CHAT_CHARS + 1)))).rejects.toThrow(TOO_LONG_ERROR)
+    await expect(readChatFile(txt('🎨'.repeat(MAX_CHAT_CHARS + 1)))).rejects.toThrow(TOO_LONG_ERROR)
+    await expect(readChatFile(txt('🎨'.repeat(MAX_CHAT_CHARS)))).resolves.toHaveLength(2 * MAX_CHAT_CHARS)
+  })
+
+  it('rejects a .zip by its name, its type or its first bytes', async () => {
+    await expect(readChatFile(txt('Ana: hi', 'WhatsApp Chat - Life drawing.zip'))).rejects.toThrow(ZIP_ERROR)
+    await expect(readChatFile(new File(['Ana: hi'], 'chat', { type: 'application/zip' }))).rejects.toThrow(ZIP_ERROR)
+    await expect(readChatFile(new File([new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00])], 'chat.txt'))).rejects.toThrow(ZIP_ERROR)
+  })
+
+  it('rejects a file that is not text', async () => {
+    await expect(readChatFile(new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x00, 0x1a])], 'photo.txt'))).rejects.toThrow(NOT_TEXT_ERROR)
+  })
+})
+
+describe('chat helpers', () => {
+  it('counts characters the way the server does, an emoji as one', () => {
+    expect(chatLength('Thanks all! 🎨')).toBe(13)
+    expect(chatProblem('  \n ')).toBe('Paste the group chat first.')
+    expect(chatProblem('🎨'.repeat(MAX_CHAT_CHARS))).toBeNull()
+    expect(chatProblem('🎨'.repeat(MAX_CHAT_CHARS + 1))).toBe(TOO_LONG_ERROR)
+  })
+
+  it('ticks everyone but the host and people already here', () => {
+    const people = [
+      { name: 'Iris Calder', excerpt: '', messages: 2, host: true, joined: false },
+      { name: 'Priya Raman', excerpt: '', messages: 1, host: false, joined: false },
+      { name: 'Lucía Torres', excerpt: '', messages: 1, host: false, joined: true },
+      { name: 'Grace Liu', excerpt: '', messages: 1, host: false, joined: false },
+    ]
+    expect(ticked(people)).toEqual(['Priya Raman', 'Grace Liu'])
+    expect(addLabel(6)).toBe('Add 6 people')
+    expect(addLabel(1)).toBe('Add 1 person')
+  })
+
+  it('says how far Claude got, only while it is still reading', () => {
+    expect(progressText({ pending: 2, total: 6, active: true })).toBe('Claude is reading the chat… 4 of 6')
+    expect(readingNow({ pending: 2, total: 6, active: true })).toBe(true)
+    expect(readingNow({ pending: 2, total: 6, active: false })).toBe(false)
+    expect(readingNow({ pending: 0, total: 6, active: true })).toBe(false)
+    expect(readingNow(undefined)).toBe(false)
+  })
+
+  it('names the host by their first name', () => {
+    expect(hostFirstName('Iris Calder')).toBe('Iris')
+    expect(hostFirstName('  ')).toBe('The organizer')
+  })
+})
+
+describe('importedNote', () => {
+  it('says how many were added and who was already here', () => {
+    expect(importedNote({ imported: [{ name: 'Priya Raman', participant_url: 'https://cp.test/p/P' }], skipped: [] })).toBe('Added 1 person.')
+    expect(
+      importedNote({
+        imported: [],
+        skipped: [
+          { name: 'Iris Calder', reason: 'host' },
+          { name: 'Lucía Torres', reason: 'already_here' },
+          { name: 'Ben Whitaker', reason: 'already_here' },
+        ],
+      }),
+    ).toBe('Nobody new to add. Lucía Torres and Ben Whitaker were already here.')
+  })
+})

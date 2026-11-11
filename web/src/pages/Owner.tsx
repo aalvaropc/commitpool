@@ -4,6 +4,7 @@ import { api, type OwnerView } from '../api'
 import AvailabilityGrid from '../components/AvailabilityGrid'
 import AddToCalendar from '../components/AddToCalendar'
 import CancelWorkshop from '../components/CancelWorkshop'
+import ChatImportCard, { ChatReading } from '../components/ChatImportCard'
 import ClaudeRead from '../components/ClaudeRead'
 import ClaudeSuggests from '../components/ClaudeSuggests'
 import DeadlineMoved from '../components/DeadlineMoved'
@@ -90,6 +91,7 @@ export default function Owner() {
         enrollments: d.enrollments.map((e) => e.status),
         explanationPending: pending || d.suggestions.some((s) => s.pending),
         demoFilling: d.workshop.demo === true && d.availabilities.length < d.participants.length,
+        chatReading: d.reading?.active ?? false,
         payoutMoving: d.payout?.state === 'created' || d.payout?.state === 'sending' || (d.payout?.state === 'waiting' && d.payout.waiting === 'payments_in_flight'),
       })
     : null
@@ -130,6 +132,16 @@ export default function Owner() {
   const w = d.workshop
   const step = nextStep(d)
   const stalled = pendingSince.current !== null && Date.now() - pendingSince.current > STALLED_AFTER_MS
+  const collecting = w.status === 'COLLECTING'
+  const later = (
+    <>
+      <ClaudeSuggests suggestions={d.suggestions} rescue={{ extension: d.extension ?? null, timeZone: w.timezone, onExtend: () => setExtending(true) }} />
+      <ClaudeRead view={d} stalled={stalled} onCheck={() => void view.reload()} />
+      {d.proposal && <EnrollmentList token={token} view={d} onChange={view.reload} />}
+      <PayoutTile token={token} view={d} onChange={view.reload} />
+      <AgreedTerms view={d} />
+    </>
+  )
   return (
     <Page wide>
       <title>{`${w.title} – organizer – CommitPool`}</title>
@@ -157,11 +169,14 @@ export default function Owner() {
           <DeadlineMoved proposal={d.proposal} status={w.status} timeZone={w.timezone} audience="owner" />
           <OperatorPanel token={token} view={d} onChange={view.reload} />
           <DemoGuide view={d} />
-          <ClaudeSuggests suggestions={d.suggestions} rescue={{ extension: d.extension ?? null, timeZone: w.timezone, onExtend: () => setExtending(true) }} />
-          <ClaudeRead view={d} stalled={stalled} onCheck={() => void view.reload()} />
-          {d.proposal && <EnrollmentList token={token} view={d} onChange={view.reload} />}
-          <PayoutTile token={token} view={d} onChange={view.reload} />
-          <AgreedTerms view={d} />
+          {collecting ? (
+            <>
+              <ChatImportCard token={token} view={d} onImported={view.reload} />
+              <ChatReading reading={d.reading} />
+            </>
+          ) : (
+            later
+          )}
         </div>
 
         <aside aria-label="Workshop summary" className="hidden lg:block">
@@ -171,8 +186,10 @@ export default function Owner() {
         </aside>
 
         <div className="min-w-0 lg:col-span-2">
-          <AvailabilityGrid view={d} onOpen={setOpening} />
+          <AvailabilityGrid token={token} view={d} onOpen={setOpening} onChange={view.reload} />
         </div>
+
+        {collecting && <div className="flex min-w-0 flex-col gap-4 empty:hidden lg:gap-5">{later}</div>}
 
         <div className="grid gap-4 lg:col-span-2 lg:grid-cols-2 lg:items-start lg:gap-5">
           {(w.description || !d.proposal) && (

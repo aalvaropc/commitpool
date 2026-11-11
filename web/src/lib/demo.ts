@@ -20,6 +20,8 @@ export interface DemoStep {
   primary: string | null
 }
 
+export const CHAT_STEP = "This is Iris's group chat. Press Read the chat, then Add 6 people."
+
 const GRACE = 'Grace Liu'
 const GRACE_REPLY = "No problem — I swapped Saturday. Sunday I'm still at the market."
 
@@ -36,7 +38,9 @@ function reserveStep(v: OwnerView, cast: string[]): DemoStep | null {
 export function demoStep(v: OwnerView, cast: string[]): DemoStep | null {
   const { workshop: w, recommendation: rec } = v
   if (w.status === 'FUNDING') return reserveStep(v, cast)
-  if (w.status !== 'COLLECTING' || v.proposal || !rec.date_id) return null
+  if (w.status !== 'COLLECTING' || v.proposal) return null
+  if (v.participants.length === 0 && v.demo_chat) return { text: CHAT_STEP, primary: null }
+  if (!rec.date_id) return null
   const members = v.participants.filter((p) => cast.includes(p.display_name))
   const answers = new Map(v.availabilities.map((a) => [a.participant_id, a]))
   if (members.length === 0 || members.some((p) => !answers.has(p.id))) return null

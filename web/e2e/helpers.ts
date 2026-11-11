@@ -60,6 +60,14 @@ export async function createWorkshop(owner: Page, title: string, payoutEmail?: s
   return createdLinks(owner, title)
 }
 
+export async function importDemoChat(page: Page): Promise<void> {
+  const card = page.getByRole('region', { name: 'Paste your group chat' })
+  await expect(card.getByRole('textbox', { name: 'Paste your group chat' })).toHaveValue(/\] Iris Calder: /)
+  await card.getByRole('button', { name: 'Read the chat' }).click()
+  await card.getByRole('button', { name: 'Add 6 people' }).click()
+  await expect(page.getByRole('region', { name: 'Paste more of the chat' })).toBeVisible()
+}
+
 export async function sendAvailability(p: Participant): Promise<void> {
   await p.page.getByLabel('When can you come?').fill(AVAILABLE_ON_EVERY_DATE)
   await p.page.getByRole('button', { name: 'Send my availability' }).click()

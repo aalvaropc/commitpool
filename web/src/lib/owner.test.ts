@@ -160,6 +160,11 @@ describe('ownerRefresh', () => {
     expect(ownerRefresh({ status: 'CONFIRMED', resolution: 'SETTLED', paymentsOpen: false, enrollments: ['PAID'], explanationPending: false })).toBeNull()
   })
 
+  it('refreshes quickly while Claude reads people pasted from the chat', () => {
+    expect(ownerRefresh({ status: 'COLLECTING', resolution: 'OPEN', paymentsOpen: false, enrollments: [], explanationPending: false, chatReading: true })).toBe(2000)
+    expect(ownerRefresh({ status: 'FUNDING', resolution: 'OPEN', paymentsOpen: true, enrollments: [], explanationPending: false, chatReading: true })).toBe(5000)
+  })
+
   it('keeps refreshing while the organizer’s payout is on its way', () => {
     expect(ownerRefresh({ status: 'CONFIRMED', resolution: 'OPEN', paymentsOpen: false, enrollments: ['PAID'], explanationPending: false, payoutMoving: true })).toBe(5000)
   })

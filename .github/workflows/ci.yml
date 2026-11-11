@@ -93,7 +93,12 @@ jobs:
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
       - run: pnpm -C web install --frozen-lockfile
-      - run: pnpm -C web exec playwright install --with-deps chromium
+      - run: |
+          for attempt in 1 2 3; do
+            pnpm -C web exec playwright install --with-deps chromium && exit 0
+            sleep 30
+          done
+          exit 1
       - run: bash scripts/e2e.sh
       - if: failure()
         uses: actions/upload-artifact@v7

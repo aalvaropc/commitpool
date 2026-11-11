@@ -66,6 +66,26 @@ func New(cfg Config) (*Client, error) {
 	return &Client{cfg: cfg, base: cfg.BaseURL, hc: hc, now: time.Now}, nil
 }
 
+const (
+	BrandName         = "CommitPool"
+	Locale            = "en-US"
+	SoftDescriptor    = "COMMITPOOL"
+	maxDescriptionLen = 127
+)
+
+func OrderDescription(title, dateLabel string) string {
+	tail := []rune(" · " + dateLabel + " · hold for 1 spot")
+	room := maxDescriptionLen - len(tail)
+	head := []rune(title)
+	if room < 1 {
+		return string(append(head, tail...)[:maxDescriptionLen])
+	}
+	if len(head) > room {
+		head = append(head[:room-1], '…')
+	}
+	return string(append(head, tail...))
+}
+
 type createOrderRequest struct {
 	Intent        string               `json:"intent"`
 	PurchaseUnits []createOrderUnit    `json:"purchase_units"`
@@ -73,9 +93,11 @@ type createOrderRequest struct {
 }
 
 type createOrderUnit struct {
-	ReferenceID string `json:"reference_id"`
-	CustomID    string `json:"custom_id"`
-	Amount      Money  `json:"amount"`
+	ReferenceID    string `json:"reference_id"`
+	CustomID       string `json:"custom_id"`
+	Description    string `json:"description,omitempty"`
+	SoftDescriptor string `json:"soft_descriptor,omitempty"`
+	Amount         Money  `json:"amount"`
 }
 
 type createOrderPaySource struct {
@@ -85,6 +107,8 @@ type createOrderPaySource struct {
 }
 
 type experienceContext struct {
+	BrandName          string `json:"brand_name"`
+	Locale             string `json:"locale"`
 	UserAction         string `json:"user_action"`
 	ShippingPreference string `json:"shipping_preference"`
 	ReturnURL          string `json:"return_url"`
@@ -93,10 +117,18 @@ type experienceContext struct {
 
 func (c *Client) CreateOrder(ctx context.Context, p CreateOrderParams) (Order, error) {
 	body := createOrderRequest{
-		Intent:        "AUTHORIZE",
-		PurchaseUnits: []createOrderUnit{{ReferenceID: p.ReferenceID, CustomID: p.CustomID, Amount: p.Amount}},
+		Intent: "AUTHORIZE",
+		PurchaseUnits: []createOrderUnit{{
+			ReferenceID:    p.ReferenceID,
+			CustomID:       p.CustomID,
+			Description:    p.Description,
+			SoftDescriptor: p.SoftDescriptor,
+			Amount:         p.Amount,
+		}},
 	}
 	body.PaymentSource.PayPal.ExperienceContext = experienceContext{
+		BrandName:          BrandName,
+		Locale:             Locale,
 		UserAction:         "CONTINUE",
 		ShippingPreference: "NO_SHIPPING",
 		ReturnURL:          p.ReturnURL,

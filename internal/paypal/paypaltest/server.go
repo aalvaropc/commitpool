@@ -89,6 +89,10 @@ type fakeOrder struct {
 	reported    *paypal.Money
 	returnURL   string
 	cancelURL   string
+	brandName   string
+	locale      string
+	description string
+	descriptor  string
 	expired     bool
 	authIDs     []string
 	captureIDs  []string

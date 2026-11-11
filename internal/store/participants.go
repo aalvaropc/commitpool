@@ -41,6 +41,10 @@ func (s *Store) CreateParticipant(ctx context.Context, workshopID, displayName s
 }
 
 func (s *Store) CreateParticipantFrom(ctx context.Context, workshopID, displayName, source, chatMessage string) (ParticipantRow, string, error) {
+	return insertParticipant(ctx, s.Pool, workshopID, displayName, source, chatMessage)
+}
+
+func insertParticipant(ctx context.Context, q querier, workshopID, displayName, source, chatMessage string) (ParticipantRow, string, error) {
 	token, hash, err := NewToken()
 	if err != nil {
 		return ParticipantRow{}, "", err
@@ -49,14 +53,72 @@ func (s *Store) CreateParticipantFrom(ctx context.Context, workshopID, displayNa
 	if source == SourceChat {
 		link = &token
 	}
-	p, err := one[ParticipantRow](ctx, s.Pool,
-		`insert into participants (workshop_id, display_name, access_token_hash, source, chat_message, chat_link_token)
-		values ($1, $2, $3, $4, nullif($5, ''), $6) returning `+participantCols,
+	p, err := one[ParticipantRow](ctx, q,
+		`insert into participants (workshop_id, display_name, access_token_hash, source, chat_message, chat_link_token, created_at)
+		values ($1, $2, $3, $4, nullif($5, ''), $6, clock_timestamp()) returning `+participantCols,
 		workshopID, displayName, hash, source, chatMessage, link)
 	if err != nil {
 		return ParticipantRow{}, "", wrap("insert participant", err)
 	}
 	return p, token, nil
+}
+
+type ChatImportState struct {
+	Workshop     WorkshopRow
+	Imports      int
+	Participants []ParticipantRow
+}
+
+type ChatPerson struct {
+	DisplayName, Message string
+}
+
+type ImportedParticipant struct {
+	ParticipantRow
+	Token string
+}
+
+func (s *Store) ImportChatParticipants(ctx context.Context, workshopID string, plan func(ChatImportState) ([]ChatPerson, error)) ([]ImportedParticipant, error) {
+	var imported []ImportedParticipant
+	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+		imported = nil
+		w, err := lockWorkshopRow(ctx, tx, workshopID)
+		if err != nil {
+			return err
+		}
+		st := ChatImportState{Workshop: w}
+		if err := tx.QueryRow(ctx, `select chat_imports from workshops where id = $1`, workshopID).Scan(&st.Imports); err != nil {
+			return wrap("count chat imports", err)
+		}
+		if st.Participants, err = many[ParticipantRow](ctx, tx, "participants",
+			`select `+participantCols+` from participants where workshop_id = $1 order by created_at, id`, workshopID); err != nil {
+			return err
+		}
+		people, err := plan(st)
+		if err != nil || len(people) == 0 {
+			return err
+		}
+		for _, p := range people {
+			row, token, err := insertParticipant(ctx, tx, workshopID, p.DisplayName, SourceChat, p.Message)
+			if err != nil {
+				return err
+			}
+			if w.IsDemo {
+				if _, err := keepDemoLink(ctx, tx, token); err != nil {
+					return err
+				}
+			}
+			imported = append(imported, ImportedParticipant{ParticipantRow: row, Token: token})
+		}
+		if _, err := tx.Exec(ctx, `update workshops set chat_imports = chat_imports + 1 where id = $1`, workshopID); err != nil {
+			return wrap("count chat import", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return imported, nil
 }
 
 func (s *Store) RemoveChatParticipant(ctx context.Context, workshopID, participantID string) error {
@@ -111,7 +173,11 @@ func (s *Store) ParticipantsByWorkshop(ctx context.Context, workshopID string) (
 type DemoLinkRow struct{ DisplayName, Token string }
 
 func (s *Store) KeepDemoLink(ctx context.Context, token string) (bool, error) {
-	tag, err := s.Pool.Exec(ctx,
+	return keepDemoLink(ctx, s.Pool, token)
+}
+
+func keepDemoLink(ctx context.Context, q execer, token string) (bool, error) {
+	tag, err := q.Exec(ctx,
 		`update participants p set demo_link_token = $1
 		from workshops w
 		where p.access_token_hash = $2 and w.id = p.workshop_id and w.is_demo`,
@@ -136,6 +202,9 @@ func (s *Store) SaveAvailability(ctx context.Context, a AvailabilityRow) (Availa
 		values ($1, $2, $3, $4, $5, coalesce($6::jsonb, '{}'::jsonb))
 		returning `+availabilityCols,
 		a.ParticipantID, a.RawMessage, a.Interpretation, a.Corrected, a.NeedsClarification, a.ModelMeta)
+	if isForeignKeyViolation(err) {
+		return AvailabilityRow{}, ErrNotFound
+	}
 	if err != nil {
 		return AvailabilityRow{}, wrap("insert availability", err)
 	}

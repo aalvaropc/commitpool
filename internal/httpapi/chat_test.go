@@ -1,9 +1,12 @@
 package httpapi_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -18,6 +21,7 @@ import (
 	"github.com/aalvaropc/commitpool/internal/clock"
 	"github.com/aalvaropc/commitpool/internal/demo"
 	"github.com/aalvaropc/commitpool/internal/domain"
+	"github.com/aalvaropc/commitpool/internal/httpapi"
 )
 
 type chatPreviewJSON struct {
@@ -193,6 +197,17 @@ func TestPreview_NeedsTheOwnerLink(t *testing.T) {
 	e.wantError(http.MethodPost, "/api/v1/owner/"+h.shareToken+"/chat/preview", map[string]string{"text": "Ana: hi"}, http.StatusNotFound, "not_found")
 	e.wantError(http.MethodPost, "/api/v1/owner/"+h.shareToken+"/chat/import", importBody("Ana: hi", "Ana"), http.StatusNotFound, "not_found")
 	e.wantError(http.MethodPost, "/api/v1/owner/"+h.shareToken+"/chat/retry", nil, http.StatusNotFound, "not_found")
+
+	got := e.importChat(h, chatOf("Ben"), "Ben")
+	ben := participantNamed(t, e.owner(h), "Ben")
+	benToken := strings.TrimPrefix(got.Imported[0].ParticipantURL, appBaseURL+"/p/")
+	for _, token := range []string{h.shareToken, benToken} {
+		e.wantError(http.MethodDelete, "/api/v1/owner/"+token+"/participants/"+ben.ID, nil, http.StatusNotFound, "not_found")
+	}
+	e.background.Wait()
+	if n := e.countParticipants(h); n != 1 {
+		t.Errorf("%d participants after removals without the owner link, want Ben still there", n)
+	}
 }
 
 func TestImport_CreatesPeopleAndReadsThem(t *testing.T) {
@@ -390,6 +405,14 @@ func TestImport_DemoLimits(t *testing.T) {
 	if n := e.countParticipants(h); n != 6 {
 		t.Errorf("%d participants after a second demo import, want 6", n)
 	}
+
+	for _, p := range e.owner(h).Participants {
+		e.call(http.MethodDelete, h.ownerPath+"/participants/"+p.ID, nil, http.StatusNoContent, nil)
+	}
+	e.wantError(http.MethodPost, h.ownerPath+"/chat/import", importBody(lifeDrawingChat(), castNames()...), http.StatusUnprocessableEntity, "demo_import_used")
+	if n := e.countParticipants(h); n != 0 {
+		t.Errorf("%d participants after removing everyone and importing again, want 0", n)
+	}
 }
 
 func TestImport_RateLimit(t *testing.T) {
@@ -478,6 +501,192 @@ func TestRetry_SkipsPeopleBeingRead(t *testing.T) {
 		if err := e.st.Pool.QueryRow(e.ctx, `select count(*) from availabilities where participant_id = $1`, a.ParticipantID).Scan(&n); err != nil || n != 1 {
 			t.Errorf("%s was read %d times (%v), want once", a.DisplayName, n, err)
 		}
+	}
+}
+
+func (e *env) secondServer() http.Handler {
+	e.t.Helper()
+	return httpapi.New(httpapi.Deps{
+		Background: e.background,
+		Store:      e.st,
+		Worker:     e.runner,
+		AI:         ai.Fake{Script: demo.FakeScript()},
+		Clock:      e.clock,
+		Cfg:        e.cfg,
+		Log:        slog.New(slog.NewTextHandler(e.logs, nil)),
+	})
+}
+
+func TestImport_ConcurrentPastesAddEachPersonOnce(t *testing.T) {
+	e := newEnv(t)
+	h := e.createWorkshop()
+	servers := []http.Handler{e.h, e.secondServer()}
+	body, err := json.Marshal(importBody(lifeDrawingChat(), castNames()...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	codes := make([]int, 6)
+	var wg sync.WaitGroup
+	for i := range codes {
+		wg.Go(func() {
+			req := httptest.NewRequestWithContext(e.ctx, http.MethodPost, h.ownerPath+"/chat/import", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			servers[i%len(servers)].ServeHTTP(rec, req)
+			codes[i] = rec.Code
+		})
+	}
+	wg.Wait()
+	e.background.Wait()
+	for i, code := range codes {
+		if code != http.StatusAccepted {
+			t.Errorf("import %d = %d, want 202", i, code)
+		}
+	}
+	v := e.owner(h)
+	if len(v.Participants) != 6 || len(v.Availabilities) != 6 {
+		t.Errorf("six pastes on two servers left %d participants and %d answers, want 6 and 6", len(v.Participants), len(v.Availabilities))
+	}
+}
+
+func TestImport_CountsReadingsStillQueued(t *testing.T) {
+	model := newCrowdAI(t)
+	budget := ai.NewBudget(model, ai.BudgetConfig{Hourly: 20, Daily: 1000})
+	e := newEnv(t, withAI(budget))
+	first, second := e.createWorkshop(), e.createWorkshop()
+
+	e.importChat(first, lifeDrawingChat(), castNames()...)
+	for range 2 {
+		<-model.entered
+	}
+	e.wantError(http.MethodPost, second.ownerPath+"/chat/import", importBody(lifeDrawingChat(), castNames()...), http.StatusTooManyRequests, "ai_capped")
+	if n := e.countParticipants(second); n != 0 {
+		t.Errorf("%d participants created while the first import's readings fill the room", n)
+	}
+	model.open()
+	e.background.Wait()
+	e.importChat(second, lifeDrawingChat(), castNames()[:2]...)
+}
+
+type crowdAI struct {
+	heldAI
+	inside, most atomic.Int32
+	entered      chan struct{}
+}
+
+func (c *crowdAI) Interpret(ctx context.Context, in ai.InterpretInput) (domain.Interpretation, ai.Meta, error) {
+	n := c.inside.Add(1)
+	defer c.inside.Add(-1)
+	for {
+		most := c.most.Load()
+		if n <= most || c.most.CompareAndSwap(most, n) {
+			break
+		}
+	}
+	c.entered <- struct{}{}
+	return c.heldAI.Interpret(ctx, in)
+}
+
+func newCrowdAI(t *testing.T) *crowdAI {
+	model := &crowdAI{heldAI: heldAI{Fake: ai.Fake{Script: demo.FakeScript()}, release: make(chan struct{})}, entered: make(chan struct{}, 64)}
+	t.Cleanup(model.open)
+	return model
+}
+
+func TestImport_ReadsTwoAtATimeAcrossImports(t *testing.T) {
+	model := newCrowdAI(t)
+	e := newEnv(t, withAI(model))
+	for range 3 {
+		e.importChat(e.createWorkshop(), lifeDrawingChat(), castNames()[:3]...)
+	}
+	for range 2 {
+		<-model.entered
+	}
+	select {
+	case <-model.entered:
+		t.Error("a third reading started while two were running")
+	case <-time.After(300 * time.Millisecond):
+	}
+	model.open()
+	e.background.Wait()
+	if most := model.most.Load(); most != 2 {
+		t.Errorf("at most %d readings ran at once, want 2", most)
+	}
+}
+
+func TestRetry_CountsTowardTheLimit(t *testing.T) {
+	model := &marketOutageAI{Fake: ai.Fake{Script: demo.FakeScript()}}
+	model.failing.Store(true)
+	e := newEnv(t, withAI(model))
+	h := e.createWorkshop()
+	e.importChat(h, lifeDrawingChat(), castNames()...)
+	e.background.Wait()
+	var out struct {
+		Reading int `json:"reading"`
+	}
+	for range 2 {
+		e.call(http.MethodPost, h.ownerPath+"/chat/retry", nil, http.StatusAccepted, &out)
+		e.background.Wait()
+		if out.Reading != 1 {
+			t.Fatalf("retry reads %d, want Grace", out.Reading)
+		}
+	}
+	rec := e.request(http.MethodPost, h.ownerPath+"/chat/retry", nil)
+	if rec.Header().Get("Retry-After") == "" {
+		t.Error("a refused retry has no Retry-After")
+	}
+	e.wantError(http.MethodPost, h.ownerPath+"/chat/retry", nil, http.StatusTooManyRequests, "import_limit")
+	e.wantError(http.MethodPost, h.ownerPath+"/chat/import", importBody(chatOf("Dev"), "Dev"), http.StatusTooManyRequests, "import_limit")
+	e.clock.Set(e.clock.Now().Add(10 * time.Minute))
+	model.failing.Store(false)
+	e.call(http.MethodPost, h.ownerPath+"/chat/retry", nil, http.StatusAccepted, &out)
+	e.background.Wait()
+	if v := e.owner(h); v.Reading.Pending != 0 {
+		t.Errorf("reading after the window = %+v", v.Reading)
+	}
+}
+
+type gateAI struct {
+	ai.Fake
+	hold    string
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (g *gateAI) Interpret(ctx context.Context, in ai.InterpretInput) (domain.Interpretation, ai.Meta, error) {
+	if strings.Contains(in.Message, g.hold) {
+		g.entered <- struct{}{}
+		<-g.release
+	}
+	return g.Fake.Interpret(ctx, in)
+}
+
+func TestRemove_RacingTheirOwnAnswerIs404(t *testing.T) {
+	model := &gateAI{Fake: ai.Fake{Script: demo.FakeScript()}, hold: "instead", entered: make(chan struct{}, 1), release: make(chan struct{})}
+	e := newEnv(t, withAI(model))
+	h := e.createWorkshop()
+	got := e.importChat(h, chatOf("Ana"), "Ana")
+	e.background.Wait()
+	ana := participantNamed(t, e.owner(h), "Ana")
+	path := "/api/v1/p/" + strings.TrimPrefix(got.Imported[0].ParticipantURL, appBaseURL+"/p/") + "/availability"
+
+	answered := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		req := httptest.NewRequestWithContext(e.ctx, http.MethodPost, path, strings.NewReader(`{"message":"Sunday instead"}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		e.h.ServeHTTP(rec, req)
+		answered <- rec
+	}()
+	<-model.entered
+	e.call(http.MethodDelete, h.ownerPath+"/participants/"+ana.ID, nil, http.StatusNoContent, nil)
+	close(model.release)
+	rec := <-answered
+	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "not_found") {
+		t.Errorf("an answer from someone just removed = %d %s, want 404 not_found", rec.Code, rec.Body)
+	}
+	if strings.Contains(e.logs.String(), "level=ERROR") {
+		t.Errorf("the race was logged as an error:\n%s", e.logs)
 	}
 }
 

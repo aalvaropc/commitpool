@@ -38,6 +38,7 @@ With `COMMITPOOL_DEMO_MODE=1`, the landing page offers **Try it as Iris**:
 - `GET /api/v1/demo` says demo workshops are on, and carries `video_url` and `judge_login` when they are configured (see below).
 - `POST /api/v1/demo/workshops` creates a workshop for Iris. It answers with the organizer link, the invite link and one link per participant. Then it sends the six answers in the background, one every `COMMITPOOL_DEMO_PACE_MS`. An answer refused because Claude is capped waits as long as the `Retry-After` says, within the three minutes the answers have.
 - The organizer view of a demo workshop lists those six participant links as `act_as`, so **Act as** works from any device that has the organizer link. Only the participants the demo created are listed, and only on a demo workshop; the plain links are kept for them alone (`participants.demo_link_token`). The MCP `get_status` never carries them.
+- In every workshop, demo or not, people the organizer adds from a pasted group chat also keep their plain page link (`participants.chat_link_token`), and only those rows can (`source = 'chat'`). It lets the organizer copy each person's link from the board (`participant_url` in the organizer view) and lets **Read again** resubmit what they said in the chat. Only the organizer view carries it: the participant and invite views, the logs and the MCP `get_status` never do. Removing that person deletes the link with their row.
 
 Limits on starting demos:
 - One address can start five demos, then one every 20 minutes. This applies only while the rate limit is on.

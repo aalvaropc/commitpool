@@ -55,7 +55,7 @@ var (
 )
 
 type chatImports struct {
-	edits     sync.Mutex
+	slots     chan struct{}
 	mu        sync.Mutex
 	recent    map[string]*slidingCap
 	lastSweep time.Time
@@ -64,10 +64,15 @@ type chatImports struct {
 }
 
 func newChatImports() *chatImports {
-	return &chatImports{recent: map[string]*slidingCap{}, reading: map[string]string{}, busy: map[string]int{}}
+	return &chatImports{
+		slots:   make(chan struct{}, chatReaders),
+		recent:  map[string]*slidingCap{},
+		reading: map[string]string{},
+		busy:    map[string]int{},
+	}
 }
 
-func (c *chatImports) wait(workshopID string, now time.Time) time.Duration {
+func (c *chatImports) take(workshopID string, now time.Time) time.Duration {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if now.Sub(c.lastSweep) > sweepEvery {
@@ -79,21 +84,30 @@ func (c *chatImports) wait(workshopID string, now time.Time) time.Duration {
 		}
 		c.lastSweep = now
 	}
-	if window, ok := c.recent[workshopID]; ok {
-		return window.wait(now)
-	}
-	return 0
-}
-
-func (c *chatImports) add(workshopID string, now time.Time) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	window, ok := c.recent[workshopID]
 	if !ok {
 		window = &slidingCap{limit: chatImportsAllowed, within: chatImportWindow}
 		c.recent[workshopID] = window
 	}
+	if wait := window.wait(now); wait > 0 {
+		return wait
+	}
 	window.add(now)
+	return 0
+}
+
+func (c *chatImports) refund(workshopID string, at time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if window, ok := c.recent[workshopID]; ok {
+		window.remove(at)
+	}
+}
+
+func (c *chatImports) queued() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.reading)
 }
 
 func (c *chatImports) startReading(workshopID string, people []chatReading) []chatReading {
@@ -304,7 +318,8 @@ func (s *server) roomToRead(w http.ResponseWriter, ws store.WorkshopRow, reading
 	if !ok {
 		return nil
 	}
-	wait := c.RoomLeaving(readings, windowReserve)
+	queued := s.chats.queued()
+	wait := c.RoomLeaving(readings+queued, windowReserve)
 	if wait <= 0 {
 		return nil
 	}
@@ -312,8 +327,18 @@ func (s *server) roomToRead(w http.ResponseWriter, ws store.WorkshopRow, reading
 	if err != nil {
 		return err
 	}
-	s.Log.Warn("chat import: no room to read everyone", "workshop_id", ws.ID, "readings", readings, "retry_after", wait)
+	s.Log.Warn("chat import: no room to read everyone", "workshop_id", ws.ID, "readings", readings, "queued", queued, "retry_after", wait)
 	return modelCapped(w, wait, s.Clock.Now(), loc)
+}
+
+func (s *server) countRead(w http.ResponseWriter, workshopID string, now time.Time) error {
+	wait := s.chats.take(workshopID, now)
+	if wait <= 0 {
+		return nil
+	}
+	retryAfter(w, wait)
+	return newError(http.StatusTooManyRequests, "import_limit",
+		"Claude has read this class's chat three times in the last 10 minutes. Try again in "+minutes(wait)+".")
 }
 
 func (s *server) importChat(w http.ResponseWriter, r *http.Request) error {
@@ -335,63 +360,58 @@ func (s *server) importChat(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	if ws.Status != domain.WorkshopCollecting {
-		return errNotCollecting
-	}
-	s.chats.edits.Lock()
-	defer s.chats.edits.Unlock()
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), chatEditTimeout)
 	defer cancel()
-	existing, err := s.Store.ParticipantsByWorkshop(ctx, ws.ID)
+	now := s.Clock.Now()
+	counted := false
+	var plan importPlan
+	imported, err := s.Store.ImportChatParticipants(ctx, ws.ID, func(st store.ChatImportState) ([]store.ChatPerson, error) {
+		cur := st.Workshop
+		if cur.Status != domain.WorkshopCollecting {
+			return nil, errNotCollecting
+		}
+		if cur.IsDemo && (st.Imports > 0 || len(st.Participants) > 0) {
+			return nil, errDemoImportUsed
+		}
+		plan = planImport(chat, req.Names, cur.HostName, st.Participants)
+		if cur.IsDemo && len(plan.people) > demoChatPeople {
+			return nil, errDemoTooManyPeople
+		}
+		if len(plan.people) == 0 {
+			return nil, nil
+		}
+		if len(st.Participants)+len(plan.people) > maxParticipantsPerWorkshop {
+			return nil, conflict("too_many_participants", "This workshop already has as many participants as it can take.")
+		}
+		if err := s.roomToRead(w, cur, len(plan.people)); err != nil {
+			return nil, err
+		}
+		if err := s.countRead(w, cur.ID, now); err != nil {
+			return nil, err
+		}
+		counted = true
+		people := make([]store.ChatPerson, len(plan.people))
+		for i, p := range plan.people {
+			people[i] = store.ChatPerson{DisplayName: p.Name, Message: p.Text(chatimport.MaxTextRunes)}
+		}
+		return people, nil
+	})
 	if err != nil {
+		if counted {
+			s.chats.refund(ws.ID, now)
+		}
 		return err
 	}
-	plan := planImport(chat, req.Names, ws.HostName, existing)
-	if ws.IsDemo {
-		if len(existing) > 0 {
-			return errDemoImportUsed
+	out := chatImportDTO{Imported: make([]chatImportedDTO, 0, len(imported)), Skipped: plan.skipped}
+	readings := make([]chatReading, 0, len(imported))
+	for _, p := range imported {
+		link := s.Cfg.BaseURL + "/p/" + p.Token
+		message := ""
+		if p.ChatMessage != nil {
+			message = *p.ChatMessage
 		}
-		if len(plan.people) > demoChatPeople {
-			return errDemoTooManyPeople
-		}
-	}
-	now := s.Clock.Now()
-	if len(plan.people) > 0 {
-		if !ws.IsDemo {
-			if wait := s.chats.wait(ws.ID, now); wait > 0 {
-				retryAfter(w, wait)
-				return newError(http.StatusTooManyRequests, "import_limit",
-					"You added people from the chat three times in the last 10 minutes. Try again in "+minutes(wait)+".")
-			}
-		}
-		if err := s.roomToRead(w, ws, len(plan.people)); err != nil {
-			return err
-		}
-		if len(existing)+len(plan.people) > maxParticipantsPerWorkshop {
-			return conflict("too_many_participants", "This workshop already has as many participants as it can take.")
-		}
-		if !ws.IsDemo {
-			s.chats.add(ws.ID, now)
-		}
-	}
-	out := chatImportDTO{Imported: make([]chatImportedDTO, 0, len(plan.people)), Skipped: plan.skipped}
-	readings := make([]chatReading, 0, len(plan.people))
-	for _, p := range plan.people {
-		message := p.Text(chatimport.MaxTextRunes)
-		row, token, err := s.Store.CreateParticipantFrom(ctx, ws.ID, p.Name, store.SourceChat, message)
-		if err != nil {
-			s.readInBackground(ctx, ws.ID, readings)
-			return err
-		}
-		if ws.IsDemo {
-			if _, err := s.Store.KeepDemoLink(ctx, token); err != nil {
-				s.readInBackground(ctx, ws.ID, readings)
-				return err
-			}
-		}
-		link := s.Cfg.BaseURL + "/p/" + token
-		readings = append(readings, chatReading{id: row.ID, p: demo.Participant{Name: row.DisplayName, Message: message, URL: link, Token: token}})
-		out.Imported = append(out.Imported, chatImportedDTO{Name: row.DisplayName, ParticipantURL: link})
+		readings = append(readings, chatReading{id: p.ID, p: demo.Participant{Name: p.DisplayName, Message: message, URL: link, Token: p.Token}})
+		out.Imported = append(out.Imported, chatImportedDTO{Name: p.DisplayName, ParticipantURL: link})
 	}
 	s.readInBackground(ctx, ws.ID, readings)
 	s.Log.Info("chat import", "workshop_id", ws.ID, "imported", len(out.Imported), "skipped", len(out.Skipped))
@@ -411,11 +431,10 @@ func (s *server) readInBackground(ctx context.Context, workshopID string, people
 	go func() {
 		defer s.Background.Done()
 		defer cancel()
-		slots := make(chan struct{}, chatReaders)
 		var wg sync.WaitGroup
 		for i, r := range people {
 			select {
-			case slots <- struct{}{}:
+			case s.chats.slots <- struct{}{}:
 			case <-bctx.Done():
 				for _, left := range people[i:] {
 					s.chats.doneReading(workshopID, left.id)
@@ -425,7 +444,7 @@ func (s *server) readInBackground(ctx context.Context, workshopID string, people
 				return
 			}
 			wg.Go(func() {
-				defer func() { <-slots }()
+				defer func() { <-s.chats.slots }()
 				defer s.chats.doneReading(workshopID, r.id)
 				if err := demo.AnswerOne(bctx, api, r.p, pace); err != nil {
 					s.Log.Warn("chat import: a reading did not arrive", "workshop_id", workshopID, "participant_id", r.id, "error", err)
@@ -459,8 +478,6 @@ func (s *server) retryChat(w http.ResponseWriter, r *http.Request) error {
 	if ws.Status != domain.WorkshopCollecting {
 		return errNotCollecting
 	}
-	s.chats.edits.Lock()
-	defer s.chats.edits.Unlock()
 	ctx, cancel := context.WithTimeout(r.Context(), chatEditTimeout)
 	defer cancel()
 	participants, err := s.Store.ParticipantsByWorkshop(ctx, ws.ID)
@@ -481,12 +498,19 @@ func (s *server) retryChat(w http.ResponseWriter, r *http.Request) error {
 			Name: p.DisplayName, Message: *p.ChatMessage, URL: s.Cfg.BaseURL + "/p/" + token, Token: token,
 		}})
 	}
+	n := 0
 	if len(todo) > 0 {
 		if err := s.roomToRead(w, ws, len(todo)); err != nil {
 			return err
 		}
+		now := s.Clock.Now()
+		if err := s.countRead(w, ws.ID, now); err != nil {
+			return err
+		}
+		if n = s.readInBackground(ctx, ws.ID, todo); n == 0 {
+			s.chats.refund(ws.ID, now)
+		}
 	}
-	n := s.readInBackground(ctx, ws.ID, todo)
 	s.Log.Info("chat import: reading again", "workshop_id", ws.ID, "reading", n)
 	writeJSON(w, http.StatusAccepted, map[string]int{"reading": n})
 	return nil
@@ -498,8 +522,6 @@ func (s *server) removeParticipant(w http.ResponseWriter, r *http.Request) error
 		return err
 	}
 	id := r.PathValue("id")
-	s.chats.edits.Lock()
-	defer s.chats.edits.Unlock()
 	if s.chats.isReading(id) {
 		return errStillReading
 	}

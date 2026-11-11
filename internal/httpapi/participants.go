@@ -168,7 +168,7 @@ func (s *server) submitAvailability(w http.ResponseWriter, r *http.Request) erro
 		ModelMeta:          metaJSON,
 	})
 	if err != nil {
-		return err
+		return notFoundIfMissing(err)
 	}
 	writeJSON(w, http.StatusCreated, map[string]availabilityDTO{"availability": availabilityView(saved, clean)})
 	return nil

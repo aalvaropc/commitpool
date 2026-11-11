@@ -261,10 +261,12 @@ export default function AvailabilityGrid({ token, view, onOpen, onChange }: Prop
                           <Avatar name={p.display_name} size="sm" />
                           <span className={`font-semibold text-ink ${wrap}`}>{p.display_name}</span>
                         </span>
-                        <PersonActions p={p} actions={actions} />
                       </th>
                       <td className="border-t border-line px-3 py-3 align-top">
-                        <Message a={a} p={p} unread={unreadOf(p)} actions={actions} />
+                        <span className="flex flex-col items-start gap-1">
+                          <Message a={a} p={p} unread={unreadOf(p)} actions={actions} />
+                          <PersonActions p={p} actions={actions} />
+                        </span>
                       </td>
                       {columns.map((c) => (
                         <td key={c.id} className={`border-t border-line px-3 py-3 align-top ${c.mark ? 'bg-brand-wash/60' : ''}`}>

@@ -100,7 +100,30 @@ type DateSummary struct {
 type Recommendation struct {
 	DateID       string
 	MeetsMinimum bool
+	Tied         bool
 	PerDate      []DateSummary
+}
+
+func (r Recommendation) LeadingDateIDs() []string {
+	if r.DateID == "" {
+		return nil
+	}
+	if !r.Tied {
+		return []string{r.DateID}
+	}
+	lead := -1
+	for _, s := range r.PerDate {
+		if s.DateID == r.DateID {
+			lead = len(s.Compatible)
+		}
+	}
+	var ids []string
+	for _, s := range r.PerDate {
+		if len(s.Compatible) == lead {
+			ids = append(ids, s.DateID)
+		}
+	}
+	return ids
 }
 
 func Recommend(w Workshop, dates []CandidateDate, ins map[string]Interpretation, loc *time.Location) Recommendation {
@@ -127,6 +150,11 @@ func Recommend(w Workshop, dates []CandidateDate, ins map[string]Interpretation,
 	if best >= 0 {
 		rec.DateID = rec.PerDate[best].DateID
 		rec.MeetsMinimum = len(rec.PerDate[best].Compatible) >= w.Minimum
+		for i, s := range rec.PerDate {
+			if i != best && len(s.Compatible) > 0 && len(s.Compatible) == len(rec.PerDate[best].Compatible) {
+				rec.Tied = true
+			}
+		}
 	}
 	return rec
 }

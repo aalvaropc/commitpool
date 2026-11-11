@@ -69,7 +69,7 @@ export async function sendAvailability(p: Participant): Promise<void> {
 export async function openPayments(owner: Page, workshop: Workshop, canCome: number): Promise<void> {
   await owner.goto(workshop.ownerURL)
   const next = owner.getByRole('region', { name: 'Next step' })
-  await expect(next).toContainText(`works for ${canCome}`)
+  await expect(next).toContainText(new RegExp(`Tied: .* comes first.*(?<!\\d)${canCome} can come on`))
   await next.getByRole('button', { name: /^Open reservations for / }).click()
   await owner.getByRole('dialog').getByRole('button', { name: 'Open reservations', exact: true }).click()
   await expect(owner.getByRole('heading', { name: 'Terms people agreed to' })).toBeVisible()

@@ -61,7 +61,7 @@ func PlainSuggestion(in SuggestInput) string {
 		}
 		return hi + q + when + " Answer on your CommitPool page."
 	case "condition":
-		return fmt.Sprintf("%s%s runs %s, and you said you could come %s. Is there any way you could make it?", hi, in.Date, in.Hours, in.Condition)
+		return fmt.Sprintf("%s%s runs %s, and you said you could come %s. Could that conflict move so you can make it?", hi, in.Date, in.Hours, in.Condition)
 	case "reserve":
 		return fmt.Sprintf("%sReservations for %s on %s are open until %s, and you can make it. Reserve your spot from the link you got when you joined. Nothing is charged unless %d people reserve.", hi, in.WorkshopTitle, in.Date, in.Deadline, in.Needed)
 	case "share":

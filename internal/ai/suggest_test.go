@@ -16,10 +16,19 @@ func nudge(kind string) ai.SuggestInput {
 	}
 }
 
+func TestPlainSuggestion_ConditionNeverAsksToComeAnyway(t *testing.T) {
+	got := strings.ToLower(ai.PlainSuggestion(nudge("condition")))
+	for _, banned := range []string{"any way you could make it", "come anyway", "make it anyway"} {
+		if strings.Contains(got, banned) {
+			t.Errorf("fallback condition nudge %q contains %q", got, banned)
+		}
+	}
+}
+
 func TestPlainSuggestion_SaysOnlyTheFacts(t *testing.T) {
 	cases := map[string][]string{
 		"clarify":   {"Hi Grace! Can you make either morning, and which? The class runs Sat, Nov 14 or Sun, Nov 15, 10 AM–12 PM. Answer on your CommitPool page."},
-		"condition": {"Hi Grace!", "Sat, Nov 14 runs 10 AM–12 PM", "you said you could come only if it ends by 11 AM", "any way you could make it"},
+		"condition": {"Hi Grace!", "Sat, Nov 14 runs 10 AM–12 PM", "you said you could come only if it ends by 11 AM", "Could that conflict move so you can make it?"},
 		"reserve":   {"Hi Grace!", "Reservations for Life drawing for beginners on Sat, Nov 14 are open until Fri, Nov 13 at 10 AM", "Nothing is charged unless 3 people reserve"},
 		"share":     {"Life drawing for beginners on Sat, Nov 14 needs 2 more people by Fri, Nov 13 at 10 AM", "nobody pays"},
 	}
@@ -144,6 +153,22 @@ func TestSuggestPrompt_ClarifySaysWhenTheClassRuns(t *testing.T) {
 	}
 	system := toString(m.recorded()[0].body["system"])
 	for _, want := range []string{"clarify:", "Dates and hours the class can run", "exactly as given", "45 words"} {
+		if !strings.Contains(system, want) {
+			t.Errorf("suggest system prompt does not contain %q", want)
+		}
+	}
+}
+
+func TestSuggestPrompt_ConditionNeverAsksToComeAnyway(t *testing.T) {
+	m := newFakeBedrock(t, message(testModel, "Hi Grace! The class runs Sat, Nov 14, 10 AM–12 PM. Could that conflict move?", "end_turn"))
+	if _, _, err := newTestBedrock(t, m, nil).Suggest(context.Background(), nudge("condition")); err != nil {
+		t.Fatalf("Suggest: %v", err)
+	}
+	system := toString(m.recorded()[0].body["system"])
+	if strings.Contains(strings.ToLower(system), "could make it anyway") {
+		t.Error("the condition rule still asks the person to come anyway")
+	}
+	for _, want := range []string{"ask only whether that conflict could move", "Never ask them to come anyway"} {
 		if !strings.Contains(system, want) {
 			t.Errorf("suggest system prompt does not contain %q", want)
 		}

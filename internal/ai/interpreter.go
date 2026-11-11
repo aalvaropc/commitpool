@@ -64,6 +64,8 @@ func PlainExplanation(in ExplainInput) string {
 	switch {
 	case len(names) == 0:
 		return day + " is the earliest date, but nobody can come yet."
+	case in.Recommendation.Tied:
+		return fmt.Sprintf("%s comes first and ties with a later date: %s can come. You need %d.", day, joinNames(names), in.Minimum)
 	case in.Recommendation.MeetsMinimum:
 		return fmt.Sprintf("%s works for %s: %s. You need %d.", day, people(len(names)), joinNames(names), in.Minimum)
 	}
@@ -71,8 +73,18 @@ func PlainExplanation(in ExplainInput) string {
 }
 
 func DateName(in ExplainInput) string {
-	date, ok := recommendedDate(in)
-	if !ok {
+	return dateNameFor(in, in.Recommendation.DateID)
+}
+
+func dateNameFor(in ExplainInput, id string) string {
+	var date DateOption
+	found := false
+	for _, d := range in.Dates {
+		if d.ID == id {
+			date, found = d, true
+		}
+	}
+	if !found {
 		return ""
 	}
 	loc := date.StartsAt.Location()
@@ -129,21 +141,33 @@ func displayName(names map[string]string, id string) string {
 }
 
 func ExplainFacts(in ExplainInput) string {
-	date, _ := recommendedDate(in)
-	label := date.Label
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "Workshop title: %s\n", jsonString(in.WorkshopTitle))
 	fmt.Fprintf(&sb, "Minimum participants to run it: %d\n", in.Minimum)
-	fmt.Fprintf(&sb, "Recommended date: %s\n", label)
-	fmt.Fprintf(&sb, "Call the date: %s\n", DateName(in))
+	shown := map[string]bool{in.Recommendation.DateID: true}
 	reach := "no"
 	if in.Recommendation.MeetsMinimum {
 		reach = "yes"
 	}
-	fmt.Fprintf(&sb, "The recommended date reaches the minimum: %s\n", reach)
+	if in.Recommendation.Tied {
+		ids := in.Recommendation.LeadingDateIDs()
+		names := make([]string, len(ids))
+		for i, id := range ids {
+			names[i] = dateNameFor(in, id)
+			shown[id] = true
+		}
+		fmt.Fprintf(&sb, "Tied dates: %s (%s comes first)\n", joinNames(names), names[0])
+		fmt.Fprintf(&sb, "Call the dates: %s\n", joinNames(names))
+		fmt.Fprintf(&sb, "The tied dates reach the minimum: %s\n", reach)
+	} else {
+		date, _ := recommendedDate(in)
+		fmt.Fprintf(&sb, "Recommended date: %s\n", date.Label)
+		fmt.Fprintf(&sb, "Call the date: %s\n", DateName(in))
+		fmt.Fprintf(&sb, "The recommended date reaches the minimum: %s\n", reach)
+	}
 	var others []string
 	for _, s := range in.Recommendation.PerDate {
-		if s.DateID != in.Recommendation.DateID {
+		if !shown[s.DateID] {
 			others = append(others, fmt.Sprint(len(s.Compatible)))
 			continue
 		}
@@ -151,14 +175,18 @@ func ExplainFacts(in ExplainInput) string {
 		for i, id := range s.Compatible {
 			names[i] = displayName(in.Names, id)
 		}
-		fmt.Fprintf(&sb, "Participants who can attend it (%d): %s\n", len(names), jsonList(names))
+		who := "it"
+		if in.Recommendation.Tied {
+			who = dateNameFor(in, s.DateID)
+		}
+		fmt.Fprintf(&sb, "Participants who can attend %s (%d): %s\n", who, len(names), jsonList(names))
 		blocked := make([]string, 0, len(s.Blockers))
 		for id, reason := range s.Blockers {
 			blocked = append(blocked, jsonString(displayName(in.Names, id))+" ("+reason+")")
 		}
 		slices.Sort(blocked)
 		if len(blocked) > 0 {
-			fmt.Fprintf(&sb, "Participants who cannot attend it, with the reason: %s\n", strings.Join(blocked, "; "))
+			fmt.Fprintf(&sb, "Participants who cannot attend %s, with the reason: %s\n", who, strings.Join(blocked, "; "))
 		}
 	}
 	if len(others) > 0 {

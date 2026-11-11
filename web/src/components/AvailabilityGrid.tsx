@@ -7,7 +7,7 @@ interface Props {
   onOpen: (dateId: string) => void
 }
 
-const markTone = (c: DateColumn, meets: boolean) => (c.mark === 'Recommended' ? (meets ? 'paid' : 'neutral') : 'hold')
+const markTone = (c: DateColumn, meets: boolean) => (c.mark === 'Recommended' ? (meets ? 'paid' : 'neutral') : c.mark === 'Tied' ? 'neutral' : 'hold')
 const wrap = 'min-w-0 [overflow-wrap:anywhere]'
 
 function Cell({ a, dateId, summary }: { a: Availability; dateId: string; summary?: DateSummary }) {

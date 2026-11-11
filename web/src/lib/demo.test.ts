@@ -51,6 +51,7 @@ describe('demoStep', () => {
       recommendation: {
         date_id: 'sat',
         meets_minimum: false,
+        tied: false,
         per_date: [
           { date_id: 'sat', compatible: ['p1', 'p2'], blockers: { p3: 'ends after 11:30', p4: 'needs clarification' } },
           { date_id: 'sun', compatible: ['p3'], blockers: null },

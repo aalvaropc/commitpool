@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { api, type Enrollment, type OwnerView, type VerifyResult } from '../api'
-import { moneySummary, verifyDifferences, verifyHeadline, verifySkipped } from '../lib/payments'
+import { feesAreShown, INTERNATIONAL_FEE_NOTE, moneySummary, verifyDifferences, verifyHeadline, verifySkipped } from '../lib/payments'
 import { authorizationPending, enrollmentTone, reservedSeatNote, seatHeld } from '../lib/status'
 import { earlier, formatClock } from '../lib/time'
 import PayPalRecord from './PayPalRecord'
@@ -105,6 +105,7 @@ export default function EnrollmentList({ token, view, onChange }: Props) {
         )}
       </div>
       {summary && <p className="font-semibold tabular-nums">{summary}</p>}
+      {summary && view.demo.demo_mode && feesAreShown(view.enrollments) && <p className="text-sm text-ink-soft">{INTERNATIONAL_FEE_NOTE}</p>}
       {verifiable && <p className="text-sm text-ink-soft">Verify with PayPal reads each spot back from PayPal and compares it with these records. It changes nothing.</p>}
       {verifyError && (
         <Notice tone="attention" role="alert">

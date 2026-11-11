@@ -35,7 +35,7 @@ func (s *Server) addTools() {
 		Description: "After the person has read and accepted the consent text, get their PayPal approval link. Only the person's approval at PayPal places a hold; nothing is charged unless the group reaches its minimum."},
 		logged(s, "get_checkout_link", s.getCheckoutLink))
 	mcp.AddTool(s.srv, &mcp.Tool{Name: "get_status", Annotations: readOnly,
-		Description: "Read a workshop from its owner link: the recommended date and why, who can come, who has committed or paid, what would happen if payments closed now, where the organizer's payout stands, and who the organizer could nudge, each with a message Claude drafted for the organizer to send. Nothing is sent: show the messages to the organizer and let them decide."},
+		Description: "Read a workshop from its owner link: the leading date and why (tied is true when another date has as many people who can come, so the earliest is not a recommendation), who can come, who has committed or paid, what would happen if payments closed now, where the organizer's payout stands, and who the organizer could nudge, each with a message Claude drafted for the organizer to send. Nothing is sent: show the messages to the organizer and let them decide."},
 		logged(s, "get_status", s.getStatus))
 	mcp.AddTool(s.srv, &mcp.Tool{Name: "verify_with_paypal", Annotations: readOnly,
 		Description: "Compare CommitPool's payment records for a workshop with PayPal's live records, from its owner link: for each seat's PayPal order, hold, charge and refund, the status and amount CommitPool expects, what PayPal reports, whether they match, and PayPal's debug id when PayPal answers with an error. Only reads: nothing is changed at PayPal or in CommitPool. One check per workshop every 30 seconds, at most 12 seats each."},
@@ -137,6 +137,7 @@ type ownerView struct {
 	Recommendation struct {
 		DateID       string `json:"date_id"`
 		MeetsMinimum bool   `json:"meets_minimum"`
+		Tied         bool   `json:"tied"`
 		PerDate      []struct {
 			DateID     string            `json:"date_id"`
 			Compatible []string          `json:"compatible"`
@@ -282,6 +283,7 @@ type StatusOut struct {
 	RecommendedDateID  string       `json:"recommended_date_id,omitempty"`
 	RecommendedDate    string       `json:"recommended_date,omitempty"`
 	MeetsMinimum       bool         `json:"meets_minimum"`
+	Tied               bool         `json:"tied,omitempty"`
 	Explanation        string       `json:"explanation,omitempty"`
 	Dates              []DateStatus `json:"dates"`
 	NeedsClarification []string     `json:"needs_clarification,omitempty"`
@@ -330,7 +332,7 @@ func statusOf(v ownerView) StatusOut {
 	out := StatusOut{
 		Title: v.Workshop.Title, Status: v.Workshop.Status, Resolution: shownResolution(v.Workshop.Resolution),
 		HostName: v.Workshop.HostName, Location: v.Workshop.Location, BreakEvenSeats: v.Workshop.BreakEvenSeats,
-		RecommendedDateID: v.Recommendation.DateID, MeetsMinimum: v.Recommendation.MeetsMinimum,
+		RecommendedDateID: v.Recommendation.DateID, MeetsMinimum: v.Recommendation.MeetsMinimum, Tied: v.Recommendation.Tied,
 		Explanation: v.Recommendation.Explanation,
 		Interested:  v.Tally.Interested, Authorized: v.Tally.Authorized, Paid: v.Tally.Paid,
 		Minimum: v.Workshop.Minimum, Capacity: v.Workshop.Capacity, Seats: []SeatStatus{},

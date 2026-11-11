@@ -3,7 +3,7 @@ import { api, ApiError, type ParticipantView } from '../api'
 import { withdrawKind, type WithdrawKind } from '../lib/actions'
 import { enrollErrorMessage, isSafeRedirect, REFRESH_AFTER } from '../lib/enroll'
 import { formatMoney } from '../lib/money'
-import { authorizationPending, canStartCheckout, enrollmentTone, seatHeld } from '../lib/status'
+import { authorizationPending, canStartCheckout, countdownShown, enrollmentTone, seatHeld } from '../lib/status'
 import { durationLabel, earlier, formatClock, formatDateRange, formatMoment, windowLabel, zoneName } from '../lib/time'
 import { offersCalendar } from '../lib/event'
 import { latestDeadline, latestDeadlineNote } from '../lib/extend'
@@ -114,7 +114,7 @@ export default function CommitmentCard({ token, view, onChange }: Props) {
       </div>
 
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <Deadline closesAt={proposal.closes_at} timeZone={tz} open={proposal.payments_open} size="lg" />
+        <Deadline closesAt={proposal.closes_at} timeZone={tz} open={proposal.payments_open} size="lg" counting={countdownShown(workshop.status, enrollment?.status)} />
         {workshop.payment_window_min < 1440 && <Pill tone="attention">{windowLabel(workshop.payment_window_min)}</Pill>}
       </div>
       {latest && (

@@ -6,15 +6,17 @@ interface Props {
   timeZone: string
   open: boolean
   size?: 'sm' | 'lg'
+  counting?: boolean
 }
 
-export default function Deadline({ closesAt, timeZone, open, size = 'sm' }: Props) {
+export default function Deadline({ closesAt, timeZone, open, size = 'sm', counting = true }: Props) {
   const now = Math.max(useNow(15000), Date.now())
-  const left = open ? timeLeft(closesAt, now) : null
+  const remaining = open ? timeLeft(closesAt, now) : null
+  const left = counting ? remaining : null
   return (
     <p className={size === 'lg' ? 'flex flex-col gap-0.5' : 'text-sm'}>
       <span className={size === 'lg' ? 'text-sm font-semibold text-ink-soft' : 'text-ink-soft'}>
-        {left ? 'Reservations close ' : 'Reservations closed '}
+        {remaining ? 'Reservations close ' : 'Reservations closed '}
       </span>
       <time dateTime={closesAt} className={`tabular-nums ${size === 'lg' ? 'font-display text-xl font-bold' : 'font-semibold'}`}>
         {formatMoment(closesAt, timeZone)}

@@ -152,6 +152,7 @@ func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
 		Tally:          st.ownerTally(),
 		Participants:   participants,
 		Reading:        reading,
+		DemoChat:       demoChat(ws, st.loc),
 		Availabilities: availabilities,
 		Recommendation: recommendation,
 		Enrollments:    enrollments,

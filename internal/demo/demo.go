@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"path"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/aalvaropc/commitpool/internal/ai"
@@ -27,8 +28,44 @@ type Scenario struct {
 	DurationMin, Minimum, Capacity         int
 	StartHour                              int
 	Price, VenueCost, Currency             string
+	Opener, Closing                        string
 	People                                 []Person
 	Replies                                []Person
+}
+
+const chatEndsBefore = time.Hour
+
+var chatGaps = []time.Duration{
+	3*time.Minute + 12*time.Second,
+	4*time.Minute + 40*time.Second,
+	2*time.Minute + 5*time.Second,
+	6*time.Minute + 31*time.Second,
+	time.Minute + 48*time.Second,
+	5*time.Minute + 3*time.Second,
+	2*time.Minute + 57*time.Second,
+}
+
+func (sc Scenario) Chat(now time.Time, loc *time.Location) string {
+	type line struct{ name, text string }
+	lines := []line{{sc.HostName, sc.Opener}}
+	for _, p := range sc.People {
+		lines = append(lines, line{p.Name, p.Message})
+	}
+	lines = append(lines, line{sc.HostName, sc.Closing})
+	at := now.Add(-chatEndsBefore)
+	stamps := make([]time.Time, len(lines))
+	for i := len(lines) - 1; i >= 0; i-- {
+		stamps[i] = at.In(loc)
+		at = at.Add(-chatGaps[i%len(chatGaps)])
+	}
+	var b strings.Builder
+	for i, l := range lines {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		fmt.Fprintf(&b, "[%s\u202f%s] %s: %s", stamps[i].Format("1/2/06, 3:04:05"), stamps[i].Format("PM"), l.name, l.text)
+	}
+	return b.String()
 }
 
 var noCondition = domain.Condition{Type: domain.ConditionNone}
@@ -65,6 +102,8 @@ var LifeDrawing = Scenario{
 	Price:       "45.00",
 	VenueCost:   "120.00",
 	Currency:    "USD",
+	Opener:      "Life drawing at The Long Room, Saturday or Sunday 10–12, $45. Who's in?",
+	Closing:     "Thanks all! 🎨",
 	People: []Person{
 		{
 			Name: "Priya Raman", Message: "Saturday works for me, Sunday I can't.",

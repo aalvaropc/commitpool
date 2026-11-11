@@ -272,10 +272,8 @@ func TestSuggestions_OtherNudgesStillMayNotNameAnotherDate(t *testing.T) {
 
 func TestDemo_GracesAnswerToClaudeOpensSaturday(t *testing.T) {
 	e := newEnv(t, withDemoMode())
-	var d demoJSON
-	e.call(http.MethodPost, "/api/v1/demo/workshops", nil, http.StatusCreated, &d)
-	e.background.Wait()
-	h := workshopHandle{ownerPath: "/api/v1/owner/" + strings.TrimPrefix(d.OwnerURL, appBaseURL+"/owner/")}
+	d, ownerPath := e.startDemo()
+	h := workshopHandle{ownerPath: ownerPath}
 
 	v := e.settledOwner(h)
 	sat, sun := v.Dates[0].ID, v.Dates[1].ID

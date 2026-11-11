@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/aalvaropc/commitpool/internal/ai"
+	"github.com/aalvaropc/commitpool/internal/chatimport"
 	"github.com/aalvaropc/commitpool/internal/demo"
 	"github.com/aalvaropc/commitpool/internal/domain"
 	"github.com/aalvaropc/commitpool/internal/present"
@@ -336,6 +337,44 @@ func TestAnswer_StopsWhenTheTimeIsUp(t *testing.T) {
 	err := demo.Answer(ctx, api, []demo.Participant{{Name: "Priya", Token: "P1"}}, func(ctx context.Context) error { return ctx.Err() })
 	if !errors.Is(err, context.Canceled) || len(api.calls) != 0 {
 		t.Errorf("err %v with %d calls, want cancelled before any call", err, len(api.calls))
+	}
+}
+
+func TestLifeDrawingChat_ParsesToTheCast(t *testing.T) {
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 11, 11, 18, 30, 0, 0, time.UTC)
+	text := demo.LifeDrawing.Chat(now, ny)
+	chat, err := chatimport.Parse(text)
+	if err != nil {
+		t.Fatalf("Parse(the demo chat) = %v\n%s", err, text)
+	}
+	cast := demo.LifeDrawing.People
+	if len(chat.People) != len(cast)+1 {
+		t.Fatalf("people = %+v, want Iris and her %d participants", chat.People, len(cast))
+	}
+	iris := chat.People[0]
+	if iris.Name != demo.LifeDrawing.HostName || len(iris.Messages) != 2 {
+		t.Errorf("first sender = %+v, want Iris Calder with her opener and her thanks", iris)
+	}
+	for i, p := range cast {
+		got := chat.People[i+1]
+		if got.Name != p.Name || len(got.Messages) != 1 || got.Text(chatimport.MaxTextRunes) != p.Message {
+			t.Errorf("sender %d = %q saying %q, want %s saying exactly %q", i+1, got.Name, got.Text(chatimport.MaxTextRunes), p.Name, p.Message)
+		}
+	}
+	last := now.Add(-time.Hour).In(ny)
+	stamp := "[" + last.Format("1/2/06, 3:04:05") + "\u202f" + last.Format("PM") + "] Iris Calder: Thanks all! 🎨"
+	if !strings.HasSuffix(text, stamp) {
+		t.Errorf("the chat ends %q, want Iris's thanks an hour before now, in New York time: %q", text[max(0, len(text)-80):], stamp)
+	}
+	if !strings.HasPrefix(text, "[") || !strings.Contains(text, "] Iris Calder: Life drawing at The Long Room, Saturday or Sunday 10–12, $45. Who's in?\n") {
+		t.Errorf("the chat does not open with Iris's question in the WhatsApp export format:\n%s", text)
+	}
+	if demo.LifeDrawing.Chat(now, ny) != text {
+		t.Error("the demo chat changes between two calls with the same time")
 	}
 }
 

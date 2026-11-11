@@ -1,10 +1,21 @@
 import { useState } from 'react'
 import type { OwnerView } from '../api'
 import { demoParticipants, demoStep, type DemoParticipant, type DemoStep } from '../lib/demo'
-import { ButtonLink, Icon, Pill, Tile } from './ui'
+import { DEMO_ACTIONS, useDemoAction } from '../lib/demoActions'
+import { Button, ButtonLink, DemoTag, Icon, Notice, Pill, Tile } from './ui'
 
-function Guide({ step, people, guided }: { step: DemoStep | null; people: DemoParticipant[]; guided: boolean }) {
+interface GuideProps {
+  token: string
+  step: DemoStep | null
+  people: DemoParticipant[]
+  guided: boolean
+  onChange: () => Promise<unknown>
+}
+
+function Guide({ token, step, people, guided, onChange }: GuideProps) {
   const [openAtFirst] = useState(guided)
+  const { busy, result, run } = useDemoAction(token, onChange)
+  const action = step?.action
   return (
     <Tile as="section" aria-labelledby="demo-guide-title" className="flex flex-col gap-2 ring-2 ring-brand/40 sm:p-6">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
@@ -30,6 +41,18 @@ function Guide({ step, people, guided }: { step: DemoStep | null; people: DemoPa
               </p>
             )}
           </div>
+          {action && (
+            <div>
+              <Button variant="demo" onClick={() => void run(action)} busy={busy} busyLabel={DEMO_ACTIONS[action].busy}>
+                <DemoTag /> {DEMO_ACTIONS[action].label}
+              </Button>
+            </div>
+          )}
+          {result && (
+            <Notice tone={result.ok ? 'neutral' : 'attention'} role={result.ok ? 'status' : 'alert'}>
+              {result.text}
+            </Notice>
+          )}
           {people.length > 0 && (
             <div className="flex flex-col gap-2">
               <p aria-hidden="true" className="text-sm font-semibold text-ink-soft">
@@ -59,7 +82,7 @@ function Guide({ step, people, guided }: { step: DemoStep | null; people: DemoPa
   )
 }
 
-export default function DemoGuide({ view }: { view: OwnerView }) {
+export default function DemoGuide({ token, view, onChange }: { token: string; view: OwnerView; onChange: () => Promise<unknown> }) {
   if (!view.workshop.demo) return null
   const people = demoParticipants(view)
   const step = demoStep(view, people.map((p) => p.name))
@@ -77,5 +100,5 @@ export default function DemoGuide({ view }: { view: OwnerView }) {
     )
   }
   const guided = step !== null || (view.workshop.status === 'COLLECTING' && !view.proposal)
-  return <Guide step={step} people={people} guided={guided} />
+  return <Guide token={token} step={step} people={people} guided={guided} onChange={onChange} />
 }

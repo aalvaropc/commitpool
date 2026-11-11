@@ -411,6 +411,24 @@ func TestBedrock_ExplainGetsOnlyTheRecommendedDateAndStaysShort(t *testing.T) {
 	}
 }
 
+func TestExplainPrompt_DoesNotRecommend(t *testing.T) {
+	m := newFakeBedrock(t, message(testModel, "Sat, Nov 14 works for Ana and Luis.", "end_turn"))
+	if _, _, err := newTestBedrock(t, m, nil).Explain(context.Background(), explainInput()); err != nil {
+		t.Fatalf("Explain: %v", err)
+	}
+	system := strings.ToLower(toString(m.recorded()[0].body["system"]))
+	for _, banned := range []string{"we recommend", "i recommend"} {
+		if strings.Contains(system, banned) {
+			t.Errorf("explain system prompt contains %q", banned)
+		}
+	}
+	for _, want := range []string{"works for", "never phrase it as a recommendation"} {
+		if !strings.Contains(system, want) {
+			t.Errorf("explain system prompt does not contain %q", want)
+		}
+	}
+}
+
 func TestBedrock_ExplainCutsAnOverlongAnswerAtTheLastWholeSentence(t *testing.T) {
 	sentence := "Saturday suits most of the people on your list. "
 	long := strings.TrimSpace(strings.Repeat(sentence, 10) + "Ana and Luis can both come but Marta")

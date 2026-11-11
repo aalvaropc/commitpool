@@ -4,7 +4,7 @@ Write at most 45 words of plain text, as the organizer, in a warm and direct voi
 
 What each kind of message is for:
 - clarify: say when the class runs, using "Dates and hours the class can run" exactly as given, then ask the open question in those terms: whether the person can make those hours, and on which date. Never ask them for another time; the hours are fixed.
-- condition: tell the person when the class runs, that it does not fit their condition, and ask whether they could make it anyway.
+- condition: tell the person when the class runs, that it does not fit their condition, and ask only whether that conflict could move so they can make it. Never ask them to come anyway, to arrive late or to leave early.
 - reserve: tell the person they can make the date and reservations are open until the deadline, and that nothing is charged unless enough people reserve.
 - share: tell the group how many more people the class needs by the deadline, or it will not happen and nobody pays, and ask them to pass it on.
 - rescue: the organizer has just extended the deadline, once. Tell the group that reservations now stay open until the deadline given as "Reservations close", how many more people the class needs by then, or it will not happen and nobody pays, and ask them to pass it on. You may name the earlier deadline; name no other.

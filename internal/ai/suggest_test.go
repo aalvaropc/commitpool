@@ -149,3 +149,19 @@ func TestSuggestPrompt_ClarifySaysWhenTheClassRuns(t *testing.T) {
 		}
 	}
 }
+
+func TestSuggestPrompt_ConditionNeverAsksToComeAnyway(t *testing.T) {
+	m := newFakeBedrock(t, message(testModel, "Hi Grace! The class runs Sat, Nov 14, 10 AM–12 PM. Could that conflict move?", "end_turn"))
+	if _, _, err := newTestBedrock(t, m, nil).Suggest(context.Background(), nudge("condition")); err != nil {
+		t.Fatalf("Suggest: %v", err)
+	}
+	system := toString(m.recorded()[0].body["system"])
+	if strings.Contains(strings.ToLower(system), "could make it anyway") {
+		t.Error("the condition rule still asks the person to come anyway")
+	}
+	for _, want := range []string{"ask only whether that conflict could move", "Never ask them to come anyway"} {
+		if !strings.Contains(system, want) {
+			t.Errorf("suggest system prompt does not contain %q", want)
+		}
+	}
+}

@@ -40,11 +40,25 @@ func LatestDeadline(p Proposal) time.Time {
 }
 
 func ExtendedDeadline(p Proposal, holds []time.Time) time.Time {
-	limit := earlierOf(p.OpensAt.Add(MaxPaymentWindow), p.StartsAt.Add(-minLeadAfterClose))
+	limit := LatestDeadline(p)
 	for _, h := range holds {
-		limit = earlierOf(limit, h.Add(MaxPaymentWindow))
+		limit = earlierOf(limit, h.Add(MaxPaymentWindow).Truncate(ExtensionStep))
 	}
-	return limit.Truncate(ExtensionStep)
+	return limit
+}
+
+func LatestPossibleDeadline(c ExtensionCheck) time.Time {
+	p := c.Proposal
+	if bound := LatestDeadline(p); deadlineMayMove(c) && bound.Sub(p.ClosesAt) >= MinExtensionGain {
+		return bound
+	}
+	return p.ClosesAt
+}
+
+func deadlineMayMove(c ExtensionCheck) bool {
+	return c.Status == WorkshopFunding && !c.Extended &&
+		c.Proposal.ClosesAt.Sub(c.Now) >= MinLeftToExtend &&
+		Counts(c.Enrollments).Paid == 0
 }
 
 func CanExtend(c ExtensionCheck) (time.Time, error) {

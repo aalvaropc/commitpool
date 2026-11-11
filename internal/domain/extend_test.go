@@ -114,6 +114,92 @@ func TestCanExtend_Refusals(t *testing.T) {
 	}
 }
 
+func TestLatestPossibleDeadline_NeverBelowAnExtensionStillToCome(t *testing.T) {
+	bound := time.Date(2026, 11, 5, 9, 0, 0, 0, time.UTC)
+	closes := extendable().Proposal.ClosesAt
+	cases := []struct {
+		name string
+		edit func(*domain.ExtensionCheck)
+		want time.Time
+	}{
+		{"on offer", func(*domain.ExtensionCheck) {}, bound},
+		{"on offer, capped by an old hold", func(c *domain.ExtensionCheck) {
+			c.Holds = append(c.Holds, opened.Add(-3*time.Hour))
+		}, bound},
+		{"refused while an old hold leaves too little to gain", func(c *domain.ExtensionCheck) {
+			c.Holds = append(c.Holds, closes.Add(-72*time.Hour+30*time.Minute))
+		}, bound},
+		{"refused while a v4 seat is taken", func(c *domain.ExtensionCheck) { c.Enrollments[1].ConsentVersion = "consent-v4" }, bound},
+		{"refused while holds reach the minimum", func(c *domain.ExtensionCheck) { c.Proposal.Minimum = 1 }, bound},
+		{"refused while a capture is queued for a hold", func(c *domain.ExtensionCheck) {
+			at := c.Now
+			c.Enrollments[0].CaptureStartedAt = &at
+		}, bound},
+		{"ten minutes left", func(c *domain.ExtensionCheck) { c.Now = closes.Add(-domain.MinLeftToExtend) }, bound},
+		{"refused while a charge that may be declined runs", func(c *domain.ExtensionCheck) { c.Enrollments[0].Status = domain.EnrollmentCapturing }, bound},
+		{"refused while a charge that may be declined is pending", func(c *domain.ExtensionCheck) {
+			c.Enrollments[0].Status = domain.EnrollmentCapturePending
+		}, bound},
+		{"a paid seat", func(c *domain.ExtensionCheck) { c.Enrollments[0].Status = domain.EnrollmentPaid }, closes},
+		{"a paid seat beside a charge declined", func(c *domain.ExtensionCheck) {
+			c.Enrollments[0].Status = domain.EnrollmentPaid
+			c.Enrollments[1].Status = domain.EnrollmentCaptureFailed
+		}, closes},
+		{"funded", func(c *domain.ExtensionCheck) {
+			c.Proposal.Minimum = 1
+			c.Enrollments[0].Status = domain.EnrollmentPaid
+		}, closes},
+		{"already extended", func(c *domain.ExtensionCheck) { c.Extended = true }, closes},
+		{"nine minutes left", func(c *domain.ExtensionCheck) { c.Now = closes.Add(-9 * time.Minute) }, closes},
+		{"payments closed", func(c *domain.ExtensionCheck) { c.Now = closes }, closes},
+		{"confirmed", func(c *domain.ExtensionCheck) { c.Status = domain.WorkshopConfirmed }, closes},
+		{"cancelled", func(c *domain.ExtensionCheck) { c.Status = domain.WorkshopCancelled }, closes},
+		{"window already three days", func(c *domain.ExtensionCheck) {
+			c.Proposal.ClosesAt = c.Proposal.OpensAt.Add(domain.MaxPaymentWindow)
+			c.Now = c.Proposal.ClosesAt.Add(-time.Hour)
+		}, opened.Add(domain.MaxPaymentWindow)},
+		{"under an hour left to gain", func(c *domain.ExtensionCheck) {
+			c.Proposal.ClosesAt = time.Date(2026, 11, 5, 8, 1, 0, 0, time.UTC)
+			c.Now = c.Proposal.ClosesAt.Add(-time.Hour)
+		}, time.Date(2026, 11, 5, 8, 1, 0, 0, time.UTC)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := extendable()
+			c.Enrollments = append([]domain.Enrollment(nil), c.Enrollments...)
+			tc.edit(&c)
+			got := domain.LatestPossibleDeadline(c)
+			if !got.Equal(tc.want) {
+				t.Errorf("LatestPossibleDeadline = %s, want %s", got, tc.want)
+			}
+			if got.Before(c.Proposal.ClosesAt) {
+				t.Errorf("LatestPossibleDeadline = %s, before the deadline itself %s", got, c.Proposal.ClosesAt)
+			}
+			if to, err := domain.CanExtend(c); err == nil && to.After(got) {
+				t.Errorf("the extension on offer %s passes the latest possible deadline %s", to, got)
+			}
+		})
+	}
+}
+
+func TestLatestPossibleDeadline_HoldsWhenTheOnlyChargeIsDeclined(t *testing.T) {
+	c := extendable()
+	c.Enrollments = append([]domain.Enrollment(nil), c.Enrollments...)
+	c.Enrollments[0].Status = domain.EnrollmentCapturing
+	shown := domain.LatestPossibleDeadline(c)
+	if _, err := domain.CanExtend(c); !errors.Is(err, domain.ErrChargingStarted) {
+		t.Fatalf("CanExtend while charging = %v, want %v", err, domain.ErrChargingStarted)
+	}
+	c.Enrollments[0].Status = domain.EnrollmentCaptureFailed
+	to, err := domain.CanExtend(c)
+	if err != nil {
+		t.Fatalf("CanExtend after the only charge was declined = %v, want the extension back on offer", err)
+	}
+	if to.After(shown) {
+		t.Errorf("the extension %s passes the latest possible deadline %s shown while charging", to, shown)
+	}
+}
+
 func TestCanExtend_GainsExactlyAnHourAtTheLeast(t *testing.T) {
 	c := extendable()
 	c.Proposal.ClosesAt = time.Date(2026, 11, 5, 8, 0, 0, 0, time.UTC)

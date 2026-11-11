@@ -27,10 +27,17 @@ export interface DemoStep {
 export const CHAT_STEP = 'This is Iris’s group chat. Press Read the chat, then Add 6 people.'
 export const OWN_CHAT_STEP = 'Press Read the chat, then Add the people.'
 export const REPLY_STEP = 'Copy Claude’s reply for the group, then act as Grace to answer her question.'
+export const ANSWERED_STEP = 'Grace answered in the chat. Paste the updated chat, or act as Grace to answer on her page.'
+export const UPDATE_STEP = 'Grace’s answer is now the last line of Iris’s chat. Press Read the chat, then Read new messages from 1 person.'
 
 export function chatLead(text: string, demoChat: string | null | undefined): string | null {
   if (!demoChat) return null
   return text.trim() === demoChat.trim() ? CHAT_STEP : OWN_CHAT_STEP
+}
+
+export function updateLead(text: string, demoUpdate: string | null | undefined): string | null {
+  if (!demoUpdate) return null
+  return text.trim() === demoUpdate.trim() ? UPDATE_STEP : null
 }
 
 const firstName = (name: string | undefined) => name?.trim().split(/\s+/)[0] || 'the organizer'
@@ -73,7 +80,7 @@ export function demoStep(v: OwnerView, cast: string[]): DemoStep | null {
   const members = v.participants.filter((p) => cast.includes(p.display_name))
   const answers = new Map(v.availabilities.map((a) => [a.participant_id, a]))
   const waiting = members.some((p) => !answers.has(p.id))
-  if (waiting && v.reading?.active) return { text: `Claude is reading each person’s messages against ${firstName(w.host_name)}’s dates.`, primary: null }
+  if (members.length > 0 && v.reading?.active) return { text: `Claude is reading each person’s messages against ${firstName(w.host_name)}’s dates.`, primary: null }
   if (!rec.date_id || members.length === 0 || waiting) return null
   if (rec.meets_minimum) return { text: 'Open reservations, then reserve as someone who can come.', primary: null }
   const best = v.dates.find((d) => d.id === rec.date_id)
@@ -87,7 +94,11 @@ export function demoStep(v: OwnerView, cast: string[]): DemoStep | null {
   })
   if (unclear) {
     const name = unclear.display_name
-    if (name === GRACE && v.suggestions.some((s) => s.kind === 'group_reply')) {
+    const replied = v.suggestions.some((s) => s.kind === 'group_reply')
+    if (name === GRACE && v.demo_update) {
+      return { text: `${replied ? 'Copy Claude’s reply for the group.' : short} ${ANSWERED_STEP} She wrote: “${GRACE_REPLY}”`, primary: name }
+    }
+    if (name === GRACE && replied) {
       return { text: `${REPLY_STEP} For example: “${GRACE_REPLY}”`, primary: name }
     }
     const example = name === GRACE ? ` — for example: “${GRACE_REPLY}”` : '.'

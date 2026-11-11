@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { OwnerView } from '../api'
-import { chatLead, demoAction, demoControl, demoParticipants, demoStep } from './demo'
+import { chatLead, demoAction, demoControl, demoParticipants, demoStep, updateLead } from './demo'
 
 describe('chatLead', () => {
   const demo = '[11/10/26, 7:05:14\u202fPM] Iris Calder: Who’s in?'
@@ -9,6 +9,15 @@ describe('chatLead', () => {
     expect(chatLead(`${demo}\n`, demo)).toBe('This is Iris’s group chat. Press Read the chat, then Add 6 people.')
     expect(chatLead('Ana: Sunday works', demo)).toBe('Press Read the chat, then Add the people.')
     expect(chatLead('Ana: Sunday works', null)).toBeNull()
+  })
+})
+
+describe('updateLead', () => {
+  it('points at Grace’s answer only while Iris’s updated chat is the one in the box', () => {
+    const update = '[11/10/26, 7:52:07\u202fPM] Grace Liu: No problem — I swapped Saturday.'
+    expect(updateLead(update, update)).toBe('Grace’s answer is now the last line of Iris’s chat. Press Read the chat, then Read new messages from 1 person.')
+    expect(updateLead('Ana: Sunday works', update)).toBeNull()
+    expect(updateLead(update, null)).toBeNull()
   })
 })
 
@@ -88,6 +97,22 @@ describe('demoStep', () => {
     })
     const reading = view({ suggestions: [reply], availabilities: view().availabilities.slice(0, 2), reading: { pending: 2, total: 4, active: true } })
     expect(demoStep(reading, cast)?.text).toBe('Claude is reading each person’s messages against Iris’s dates.')
+  })
+
+  it('once Grace’s answer is in the chat, offers to paste the updated chat or to act as Grace', () => {
+    const reply = { kind: 'group_reply' as const, reason: '', message: 'Life drawing: thanks, everyone!', pending: false }
+    const update = 'Grace Liu: No problem — I swapped Saturday.'
+    expect(demoStep(view({ demo_update: update, suggestions: [reply] }), cast)).toEqual({
+      text: 'Copy Claude’s reply for the group. Grace answered in the chat. Paste the updated chat, or act as Grace to answer on her page. She wrote: “No problem — I swapped Saturday. Sunday I\'m still at the market.”',
+      primary: 'Grace Liu',
+    })
+    expect(demoStep(view({ demo_update: update }), cast)?.text).toBe(
+      'Saturday has 2 of the 3 Iris needs. Grace answered in the chat. Paste the updated chat, or act as Grace to answer on her page. She wrote: “No problem — I swapped Saturday. Sunday I\'m still at the market.”',
+    )
+  })
+
+  it('says Claude is reading while a new message from the chat is read, even with every answer in', () => {
+    expect(demoStep(view({ reading: { pending: 0, total: 4, active: true } }), cast)?.text).toBe('Claude is reading each person’s messages against Iris’s dates.')
   })
 
   it('sends the visitor to answer Claude’s question as Grace, with her reply from the scenario', () => {

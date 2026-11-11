@@ -159,7 +159,7 @@ export default function Owner() {
   const collecting = w.status === 'COLLECTING'
   const empty = collecting && d.participants.length === 0
   const demoUsed = w.demo === true && (d.chat_imported === true || d.participants.length > 0)
-  const pasting = collecting && !demoUsed
+  const pasting = collecting && (!demoUsed || Boolean(d.demo_update))
   const later = (
     <>
       <ClaudeSuggests suggestions={d.suggestions} rescue={{ extension: d.extension ?? null, timeZone: w.timezone, onExtend: () => setExtending(true) }} />
@@ -204,7 +204,7 @@ export default function Owner() {
           {!empty && <DemoGuide token={token} view={d} onChange={view.reload} />}
           {collecting ? (
             <>
-              {pasting && <ChatImportCard token={token} view={d} onImported={imported} />}
+              {pasting && <ChatImportCard key={d.demo_update ? 'update' : 'chat'} token={token} view={d} onImported={imported} />}
               {empty && demoUsed && <DemoChatUsed />}
               <ChatReading reading={d.reading} />
             </>

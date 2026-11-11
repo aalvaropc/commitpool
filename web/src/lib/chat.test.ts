@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addLabel, chatLength, chatProblem, hostFirstName, importedNote, MAX_CHAT_CHARS, NOT_TEXT_ERROR, NOT_UTF8_ERROR, progressText, readChatFile, readingNow, ticked, TOO_LONG_ERROR, ZIP_ERROR } from './chat'
+import { addLabel, chatLength, chatProblem, chosenCounts, hostFirstName, importedNote, MAX_CHAT_CHARS, NOT_TEXT_ERROR, NOT_UTF8_ERROR, personTag, progressText, readChatFile, readingNow, ticked, TOO_LONG_ERROR, ZIP_ERROR } from './chat'
 
 const txt = (text: string, name = 'WhatsApp Chat - Life drawing.txt') => new File([text], name, { type: 'text/plain' })
 
@@ -59,6 +59,21 @@ describe('chat helpers', () => {
     expect(addLabel(1)).toBe('Add 1 person')
   })
 
+  it('ticks someone already here who has new messages, and names what the button reads', () => {
+    const people = [
+      { name: 'Iris Calder', excerpt: '', messages: 3, new_messages: 1, host: true, joined: false },
+      { name: 'Priya Raman', excerpt: '', messages: 1, new_messages: 0, host: false, joined: true },
+      { name: 'Grace Liu', excerpt: '', messages: 2, new_messages: 1, host: false, joined: true },
+      { name: 'Ana', excerpt: '', messages: 1, host: false, joined: false },
+    ]
+    expect(ticked(people)).toEqual(['Grace Liu', 'Ana'])
+    expect(people.map(personTag)).toEqual(['you', 'already here', 'new messages', null])
+    expect(chosenCounts(people, ['Grace Liu', 'Ana'])).toEqual({ add: 1, update: 1 })
+    expect(addLabel(0, 1)).toBe('Read new messages from 1 person')
+    expect(addLabel(0, 2)).toBe('Read new messages from 2 people')
+    expect(addLabel(2, 1)).toBe('Add 2 people, read new messages from 1')
+  })
+
   it('says how far Claude got, only while it is still reading', () => {
     expect(progressText({ pending: 2, total: 6, active: true })).toBe('Claude is reading the chat… 4 of 6')
     expect(readingNow({ pending: 2, total: 6, active: true })).toBe(true)
@@ -86,5 +101,22 @@ describe('importedNote', () => {
         ],
       }),
     ).toBe('Nobody new to add. Lucía Torres and Ben Whitaker were already here.')
+  })
+
+  it('says whose new messages Claude is reading, and who to paste again for', () => {
+    expect(
+      importedNote({
+        imported: [],
+        updated: [{ name: 'Grace Liu', participant_url: 'https://cp.test/p/G' }],
+        skipped: [{ name: 'Priya Raman', reason: 'already_here' }],
+      }),
+    ).toBe('Claude is reading the new messages from Grace Liu. Priya Raman was already here.')
+    expect(
+      importedNote({
+        imported: [{ name: 'Ana', participant_url: 'https://cp.test/p/A' }],
+        updated: [],
+        skipped: [{ name: 'Grace Liu', reason: 'still_reading' }],
+      }),
+    ).toBe('Added 1 person. Claude is still reading what Grace Liu said before. Paste the chat again in a moment for the new messages.')
   })
 })

@@ -54,16 +54,34 @@ export function chatProblem(text: string): string | null {
   return null
 }
 
-export function ticked(people: ChatPerson[]): string[] {
-  return people.filter((p) => !p.host && !p.joined).map((p) => p.name)
+export function hasNewMessages(p: ChatPerson): boolean {
+  return !p.host && p.joined && (p.new_messages ?? 0) > 0
 }
 
-export function addLabel(n: number): string {
-  return `Add ${count(n, 'person', 'people')}`
+export function isLocked(p: ChatPerson): boolean {
+  return p.host || (p.joined && !hasNewMessages(p))
+}
+
+export function ticked(people: ChatPerson[]): string[] {
+  return people.filter((p) => !isLocked(p)).map((p) => p.name)
+}
+
+export function addLabel(n: number, updates = 0): string {
+  const add = `Add ${count(n, 'person', 'people')}`
+  if (updates === 0) return add
+  if (n === 0) return `Read new messages from ${count(updates, 'person', 'people')}`
+  return `${add}, read new messages from ${updates}`
+}
+
+export function chosenCounts(people: ChatPerson[], chosen: string[]): { add: number; update: number } {
+  const picked = people.filter((p) => chosen.includes(p.name))
+  const update = picked.filter(hasNewMessages).length
+  return { add: picked.length - update, update }
 }
 
 export function personTag(p: ChatPerson): string | null {
   if (p.host) return 'you'
+  if (hasNewMessages(p)) return 'new messages'
   if (p.joined) return 'already here'
   return null
 }
@@ -86,8 +104,14 @@ function names(list: string[]): string {
 }
 
 export function importedNote(res: ChatImport): string {
-  const parts = [res.imported.length > 0 ? `Added ${count(res.imported.length, 'person', 'people')}.` : 'Nobody new to add.']
+  const updated = (res.updated ?? []).map((u) => u.name)
+  const parts: string[] = []
+  if (res.imported.length > 0) parts.push(`Added ${count(res.imported.length, 'person', 'people')}.`)
+  if (updated.length > 0) parts.push(`Claude is reading the new messages from ${names(updated)}.`)
+  if (parts.length === 0) parts.push('Nobody new to add.')
   const here = res.skipped.filter((s) => s.reason === 'already_here').map((s) => s.name)
   if (here.length > 0) parts.push(`${names(here)} ${here.length === 1 ? 'was' : 'were'} already here.`)
+  const busy = res.skipped.filter((s) => s.reason === 'still_reading').map((s) => s.name)
+  if (busy.length > 0) parts.push(`Claude is still reading what ${names(busy)} said before. Paste the chat again in a moment for the new messages.`)
   return parts.join(' ')
 }

@@ -74,6 +74,8 @@ func withJudgeKit(video, email, password string) option {
 	}
 }
 
+func withDevpost(link string) option { return func(s *setup) { s.cfg.DevpostURL = link } }
+
 const testWebhookID = "WH-ID-COMMITPOOL-TEST"
 
 func withWebhookID() option { return func(s *setup) { s.cfg.PayPalWebhookID = testWebhookID } }

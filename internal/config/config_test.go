@@ -486,6 +486,26 @@ func TestLoad_DemoVideoBecomesAPrivacyEnhancedEmbed(t *testing.T) {
 	}
 }
 
+func TestLoad_DevpostLinkIsOptionalAndHttpsOnly(t *testing.T) {
+	cfg, err := load(baseEnv())
+	if err != nil || cfg.DevpostURL != "" {
+		t.Errorf("no Devpost link: DevpostURL = %q, err = %v; want none", cfg.DevpostURL, err)
+	}
+	env := baseEnv()
+	env["COMMITPOOL_DEVPOST_URL"] = "https://devpost.com/software/commitpool"
+	cfg, err = load(env)
+	if err != nil || cfg.DevpostURL != "https://devpost.com/software/commitpool" {
+		t.Errorf("a good Devpost link: DevpostURL = %q, err = %v", cfg.DevpostURL, err)
+	}
+	for _, link := range []string{"http://devpost.com/software/commitpool", "javascript:alert(1)", "devpost.com/software/commitpool", "https://", "https://user:pass@devpost.com/x", "not a url"} {
+		env := baseEnv()
+		env["COMMITPOOL_DEVPOST_URL"] = link
+		if _, err := load(env); err == nil || !strings.Contains(err.Error(), "COMMITPOOL_DEVPOST_URL") {
+			t.Errorf("COMMITPOOL_DEVPOST_URL=%q: err = %v, want a refusal naming it", link, err)
+		}
+	}
+}
+
 func TestLoad_JudgeBuyerLoginComesAsAPair(t *testing.T) {
 	env := baseEnv()
 	env["COMMITPOOL_JUDGE_BUYER_EMAIL"] = "buyer@example.com"

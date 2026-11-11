@@ -114,6 +114,8 @@ export AWS_REGION=us-east-1
   needs.
   `/commitpool/video_url` (String), a YouTube link, embeds the demo video in
   the landing's For judges section;
+  `/commitpool/devpost_url` (String), an https link to the Devpost page,
+  adds a Devpost link beside it, and is refused if it is not https;
   `/commitpool/judge_buyer_email` (String) and
   `/commitpool/judge_buyer_password` (SecureString), a PayPal Sandbox
   Personal account, show there with copy buttons. The login is deployed only

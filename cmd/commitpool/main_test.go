@@ -40,4 +40,10 @@ func TestCheckConfig_RefusesWhatTheServerWouldRefuse(t *testing.T) {
 	if err := checkConfig(getenv, &out); err == nil || !strings.Contains(err.Error(), "COMMITPOOL_VIDEO_URL") || out.Len() != 0 {
 		t.Errorf("a bad video link: err = %v, out = %q; want a refusal naming it and nothing printed", err, out.String())
 	}
+	env["COMMITPOOL_VIDEO_URL"] = "https://youtu.be/aB3_x-9Zk0Q"
+	env["COMMITPOOL_DEVPOST_URL"] = "http://devpost.com/software/commitpool"
+	out.Reset()
+	if err := checkConfig(getenv, &out); err == nil || !strings.Contains(err.Error(), "COMMITPOOL_DEVPOST_URL") || out.Len() != 0 {
+		t.Errorf("a bad Devpost link: err = %v, out = %q; want a refusal naming it and nothing printed", err, out.String())
+	}
 }

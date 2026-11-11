@@ -51,6 +51,7 @@ type Config struct {
 	AIHourlyCap          int
 	AIDailyCap           int
 	VideoEmbedURL        string
+	DevpostURL           string
 	JudgeBuyerEmail      string
 	JudgeBuyerPassword   string
 	Payouts              bool
@@ -130,6 +131,13 @@ func Load(getenv func(string) string) (Config, error) {
 			cfg.VideoEmbedURL = youTubeEmbedPrefix + id
 		} else {
 			problems = append(problems, "COMMITPOOL_VIDEO_URL must be a YouTube video link, such as https://youtu.be/VIDEO_ID or https://www.youtube.com/watch?v=VIDEO_ID")
+		}
+	}
+	if raw := str("COMMITPOOL_DEVPOST_URL", ""); raw != "" {
+		if httpsURL(raw) {
+			cfg.DevpostURL = raw
+		} else {
+			problems = append(problems, "COMMITPOOL_DEVPOST_URL must be an https URL, such as https://devpost.com/software/commitpool")
 		}
 	}
 	cfg.JudgeBuyerEmail = str("COMMITPOOL_JUDGE_BUYER_EMAIL", "")
@@ -283,6 +291,7 @@ func (c Config) LogValue() slog.Value {
 		slog.Int("ai_hourly_cap", c.AIHourlyCap),
 		slog.Int("ai_daily_cap", c.AIDailyCap),
 		slog.String("video_embed_url", c.VideoEmbedURL),
+		slog.String("devpost_url", c.DevpostURL),
 		slog.String("judge_buyer_email", c.JudgeBuyerEmail),
 		slog.String("judge_buyer_password", redact(c.JudgeBuyerPassword)),
 		slog.Bool("payouts", c.Payouts),

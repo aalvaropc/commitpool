@@ -96,6 +96,7 @@ func TestDemo_AVisitorStartsFiveThenWaits(t *testing.T) {
 type demoInfoJSON struct {
 	Workshops  bool    `json:"workshops"`
 	VideoURL   *string `json:"video_url"`
+	DevpostURL *string `json:"devpost_url"`
 	JudgeLogin *struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
@@ -132,6 +133,30 @@ func TestDemoInfo_AVideoWithoutALoginShowsTheVideoAlone(t *testing.T) {
 	e.call(http.MethodGet, "/api/v1/demo", nil, http.StatusOK, &info)
 	if info.VideoURL == nil || info.JudgeLogin != nil {
 		t.Errorf("video without a login = %+v, want the video alone", info)
+	}
+}
+
+func TestDemoInfo_CarriesTheDevpostLinkOnADemoServer(t *testing.T) {
+	const link = "https://devpost.com/software/commitpool"
+	e := newEnv(t, withDemoMode(), withDevpost(link))
+	var info demoInfoJSON
+	e.call(http.MethodGet, "/api/v1/demo", nil, http.StatusOK, &info)
+	if info.DevpostURL == nil || *info.DevpostURL != link {
+		t.Errorf("demo info = %+v, want the Devpost link", info)
+	}
+}
+
+func TestDemoInfo_OmitsTheDevpostLinkWhenNoneIsSet(t *testing.T) {
+	e := newEnv(t, withDemoMode())
+	if body := e.request(http.MethodGet, "/api/v1/demo", nil).Body.String(); strings.Contains(body, "devpost_url") {
+		t.Errorf("demo info without a Devpost link = %s, want no devpost_url key", body)
+	}
+}
+
+func TestDemoInfo_NeverLeaksTheDevpostLinkOutsideDemoMode(t *testing.T) {
+	e := newEnv(t, withDevpost("https://devpost.com/software/commitpool"))
+	if rec := e.request(http.MethodGet, "/api/v1/demo", nil); rec.Code != http.StatusNotFound || strings.Contains(rec.Body.String(), "devpost") {
+		t.Errorf("demo info outside demo mode = %d %s, want a plain 404", rec.Code, rec.Body)
 	}
 }
 

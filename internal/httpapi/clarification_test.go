@@ -286,7 +286,7 @@ func TestDemo_GracesAnswerToClaudeOpensSaturday(t *testing.T) {
 		}
 		return out
 	}
-	if got := compatible(v); v.Recommendation.DateID != sat || v.Recommendation.MeetsMinimum || got[sat] != 2 || got[sun] != 2 {
+	if got := compatible(v); v.Recommendation.DateID != sat || v.Recommendation.MeetsMinimum || got[sat] != 2 || got[sun] != 2 || !v.Recommendation.Tied {
 		t.Fatalf("before Grace answers: recommendation %s meets %v with %v, want Saturday with 2 and Sunday with 2", v.Recommendation.DateID, v.Recommendation.MeetsMinimum, got)
 	}
 	kinds := map[string]suggestionJSON{}
@@ -316,7 +316,7 @@ func TestDemo_GracesAnswerToClaudeOpensSaturday(t *testing.T) {
 		t.Fatalf("Grace's answer still needs clarifying: %+v", reply)
 	}
 	v = e.settledOwner(h)
-	if got := compatible(v); v.Recommendation.DateID != sat || !v.Recommendation.MeetsMinimum || got[sat] != 3 {
+	if got := compatible(v); v.Recommendation.DateID != sat || !v.Recommendation.MeetsMinimum || got[sat] != 3 || v.Recommendation.Tied {
 		t.Fatalf("after Grace answers: recommendation %s meets %v with %v, want Saturday with 3", v.Recommendation.DateID, v.Recommendation.MeetsMinimum, got)
 	}
 	e.openProposal(h, sat)

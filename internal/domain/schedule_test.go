@@ -222,3 +222,35 @@ func TestRecommend_NoCandidateDatesRecommendsNothing(t *testing.T) {
 		t.Fatalf("Recommend() = %+v, want the zero Recommendation", got)
 	}
 }
+
+func TestRecommend_TieIsMarked(t *testing.T) {
+	w := workshopIn(domain.WorkshopCollecting, domain.ResolutionOpen)
+	w.Minimum = 3
+	day := func(n int) domain.CandidateDate {
+		s := time.Date(2026, 11, n, 15, 0, 0, 0, time.UTC)
+		return domain.CandidateDate{ID: "d" + time.Date(2026, 11, n, 0, 0, 0, 0, time.UTC).Format("02"), StartsAt: s, EndsAt: s.Add(3 * time.Hour)}
+	}
+	dates := []domain.CandidateDate{day(15), day(14)}
+	available := func(a, b domain.Verdict) map[string]domain.Interpretation {
+		return map[string]domain.Interpretation{
+			"p1": interpretation(verdictFor("d14", domain.VerdictAvailable), verdictFor("d15", domain.VerdictUnavailable)),
+			"p2": interpretation(verdictFor("d14", domain.VerdictAvailable), verdictFor("d15", domain.VerdictUnavailable)),
+			"p3": interpretation(verdictFor("d14", domain.VerdictUnavailable), verdictFor("d15", domain.VerdictAvailable)),
+			"p4": interpretation(verdictFor("d14", a), verdictFor("d15", b)),
+		}
+	}
+	tied := domain.Recommend(w, dates, available(domain.VerdictUnavailable, domain.VerdictAvailable), time.UTC)
+	if !tied.Tied || tied.DateID != "d14" {
+		t.Fatalf("2-2 Recommend() = date %q tied=%v, want d14 and tied", tied.DateID, tied.Tied)
+	}
+	lead := domain.Recommend(w, dates, available(domain.VerdictAvailable, domain.VerdictUnavailable), time.UTC)
+	if lead.Tied || lead.DateID != "d14" {
+		t.Fatalf("3-1 Recommend() = date %q tied=%v, want d14 and not tied", lead.DateID, lead.Tied)
+	}
+	if none := domain.Recommend(w, dates, map[string]domain.Interpretation{"p1": interpretation(verdictFor("d14", domain.VerdictUnavailable), verdictFor("d15", domain.VerdictUnavailable))}, time.UTC); none.Tied {
+		t.Fatalf("nobody can come anywhere, got tied=%v", none.Tied)
+	}
+	if alone := domain.Recommend(w, dates[:1], available(domain.VerdictUnavailable, domain.VerdictAvailable), time.UTC); alone.Tied {
+		t.Fatalf("one date cannot tie, got tied=%v", alone.Tied)
+	}
+}

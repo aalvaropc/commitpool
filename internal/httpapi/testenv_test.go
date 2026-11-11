@@ -573,6 +573,7 @@ type availabilityJSON struct {
 type recommendationJSON struct {
 	DateID       string `json:"date_id"`
 	MeetsMinimum bool   `json:"meets_minimum"`
+	Tied         bool   `json:"tied"`
 	PerDate      []struct {
 		DateID     string            `json:"date_id"`
 		Compatible []string          `json:"compatible"`

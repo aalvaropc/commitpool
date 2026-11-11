@@ -146,14 +146,6 @@ func TestParse_SkipsSystemLines(t *testing.T) {
 	}
 }
 
-func TestParse_SkipsIOSSystemMessagesUnderASender(t *testing.T) {
-	text := "[11/10/26, 9:10 PM] Iris: You created group \"Pottery\"\n[11/10/26, 9:11 PM] Iris: added Ben\n[11/10/26, 9:12 PM] Iris: Saturday works"
-	c := mustParse(t, text)
-	if len(c.People) != 1 || c.Skipped != 2 {
-		t.Fatalf("people = %d skipped = %d", len(c.People), c.Skipped)
-	}
-}
-
 func TestParse_KeepsRealMessagesThatMentionSystemWords(t *testing.T) {
 	c := mustParse(t, "11/10/26, 21:14 - Priya: I changed the subject of my week, Saturday works\n11/10/26, 21:15 - Ben: I left early last time, Sunday please")
 	if len(c.People) != 2 || c.Skipped != 0 {

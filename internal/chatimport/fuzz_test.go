@@ -3,6 +3,7 @@ package chatimport
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"unicode"
 	"unicode/utf8"
@@ -21,6 +22,10 @@ func FuzzParse(f *testing.F) {
 	f.Add("\x00\xff: \xfe")
 	f.Fuzz(func(t *testing.T, text string) {
 		c, err := Parse(text)
+		again, err2 := Parse(text)
+		if err != err2 || !reflect.DeepEqual(c, again) {
+			t.Fatal("Parse is not deterministic")
+		}
 		if err != nil {
 			return
 		}
@@ -32,15 +37,18 @@ func FuzzParse(f *testing.F) {
 				t.Fatalf("name length %d: %q", n, p.Name)
 			}
 			for _, r := range p.Name {
-				if unicode.IsControl(r) {
+				if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
 					t.Fatalf("control character in name %q", p.Name)
 				}
 			}
 			if len(p.Messages) == 0 {
 				t.Fatalf("person %q has no messages", p.Name)
 			}
-			if got := p.Text(MaxTextRunes); utf8.RuneCountInString(got) > MaxTextRunes {
-				t.Fatalf("text too long for %q", p.Name)
+			for _, n := range []int{1, 2, 7, MaxTextRunes} {
+				got := p.Text(n)
+				if !utf8.ValidString(got) || utf8.RuneCountInString(got) > n {
+					t.Fatalf("Text(%d) is invalid or too long for %q", n, p.Name)
+				}
 			}
 		}
 	})

@@ -55,31 +55,52 @@ func (p Person) Text(limit int) string {
 	return strings.Join(p.Messages[start:], "\n")
 }
 
-var (
-	datedHeader = regexp.MustCompile(`^\[?\d{1,2}[./]\d{1,2}[./]\d{2,4},? \d{1,2}:\d{2}(:\d{2})?\s?([AaPp]\.?[Mm]\.?)?\]?\s?(-\s)?`)
-	plainHeader = regexp.MustCompile(`^(\[?\d{1,2}:\d{2}\s?([AaPp][Mm])?\]?\s)?`)
+const groupEventMark = "\u200e"
 
-	systemMessage = regexp.MustCompile(`(?is)^(` +
+var (
+	datedHeader   = regexp.MustCompile(`^\[?\d{1,4}[./-]\d{1,2}[./-]\d{1,4},?\s(?:\p{L}{1,3}\s)?\d{1,2}[:.]\d{2}(?:[:.]\d{2})?(?:\s?[AaPp]\.?\s?[Mm]\.?)?(?:\]\s?|\s-\s)`)
+	webCopyHeader = regexp.MustCompile(`^\[\d{1,2}[:.]\d{2}(?:\s?[AaPp]\.?\s?[Mm]\.?)?,\s\d{1,4}[./-]\d{1,2}[./-]\d{1,4}\]\s`)
+	plainHeader   = regexp.MustCompile(`^(\[?\d{1,2}:\d{2}\s?([AaPp][Mm])?\]?\s)?`)
+
+	mediaKinds = `image|video|audio|sticker|gif|document|contact card|voice message|view once voice message|view once photo|view once video`
+
+	systemMessage = regexp.MustCompile(`(?i)^(` +
 		`<media omitted>|` +
-		`(image|video|audio|sticker|gif|document|contact card|voice call|video call) omitted|` +
+		`(?:.+ \x{2022} \d+ pages? )?(?:` + mediaKinds + `) omitted|` +
+		`null|` +
+		`.+ \(file attached\)|` +
+		`<attached: .+>|` +
+		`location: https?://\S+|` +
+		`missed (?:voice|video) call.*|` +
 		`this message was deleted\.?|you deleted this message\.?|` +
-		`messages and calls are end-to-end encrypted.*|` +
-		`(you )?(added|removed) .+|` +
-		`(you )?(left|joined)|` +
-		`(you )?(joined using this group.s invite link|joined using a group link|created group.*|created this group.*)|` +
-		`(you )?changed (the )?(subject|group|this group|their phone number).*` +
+		`this message was deleted by admin .+|` +
+		`waiting for this message.*|` +
+		`messages and calls are end-to-end encrypted.*` +
 		`)$`)
 
-	systemLine = regexp.MustCompile(`(?is)^[^:]{1,80}? (` +
+	encryptionNotice = regexp.MustCompile(`(?i)^messages and calls are end-to-end encrypted`)
+
+	systemLine = regexp.MustCompile(`(?i)^[^:]{1,80}? (?:` +
 		`joined using this group.s invite link|joined using a group link|` +
-		`created group.*|created this group.*|` +
-		`changed (the )?(subject|group|this group|their phone number).*|` +
-		`(added|removed) [^:]+|left|joined|` +
-		`.*end-to-end encrypted.*` +
+		`created (?:group|this group) .*|` +
+		`changed the subject (?:from .* )?to .*|` +
+		`changed (?:this group.s|the group.s) .*|` +
+		`changed the group description|changed their phone number to .*|` +
+		`(?:added|removed) [^:]+|left|joined` +
 		`)$`)
 
 	editedSuffix = regexp.MustCompile(`(?i)\s*<this message was edited>\s*$`)
 )
+
+func headerEnd(line string) int {
+	if loc := datedHeader.FindStringIndex(line); loc != nil {
+		return loc[1]
+	}
+	if loc := webCopyHeader.FindStringIndex(line); loc != nil {
+		return loc[1]
+	}
+	return -1
+}
 
 func normalize(text string) string {
 	text = strings.ToValidUTF8(text, "")
@@ -87,16 +108,17 @@ func normalize(text string) string {
 	b.Grow(len(text))
 	for _, r := range text {
 		switch {
-		case r == '\u200e', r == '\u200f', r == '\ufeff',
+		case r == '\u200f', r == '\ufeff', r == '\u200b', r == '\u2060', r == '\u061c',
 			r >= '\u202a' && r <= '\u202e',
-			r >= '\u2066' && r <= '\u2069':
+			r >= '\u2066' && r <= '\u2069',
+			r >= '\U000e0000' && r <= '\U000e007f':
 		case r == '\u202f', r == '\u00a0', r == '\t':
 			b.WriteRune(' ')
 		case r == '\u2028', r == '\u2029', r == '\u0085', r == '\r':
 			b.WriteRune('\n')
-		case r == '\n':
+		case r == '\n', r == '\u200e':
 			b.WriteRune(r)
-		case unicode.IsControl(r), unicode.Is(unicode.Cf, r):
+		case unicode.IsControl(r):
 		default:
 			b.WriteRune(r)
 		}
@@ -104,30 +126,47 @@ func normalize(text string) string {
 	return b.String()
 }
 
-func splitSender(rest string) (string, string, bool) {
+func nameOnlyText(name string) bool {
+	for _, r := range name {
+		if !unicode.IsLetter(r) && !unicode.IsMark(r) && r != ' ' && r != '\'' && r != '-' && r != '.' {
+			return false
+		}
+	}
+	return name != ""
+}
+
+func splitSender(rest string, plain bool) (string, string, bool) {
 	for i := 0; i < len(rest); i++ {
 		if rest[i] != ':' {
 			continue
 		}
-		if i+1 == len(rest) || rest[i+1] == ' ' {
-			name := cleanName(rest[:i])
-			if !validSender(name) {
-				return "", "", false
+		spaced := i+1 == len(rest) || rest[i+1] == ' '
+		if !spaced {
+			next, _ := utf8.DecodeRuneInString(rest[i+1:])
+			if !unicode.IsLetter(next) || !nameOnlyText(rest[:i]) {
+				continue
 			}
-			return name, strings.TrimSpace(rest[i+1:]), true
 		}
+		name := cleanName(rest[:i])
+		if !validSender(name) || (plain && !plainSender(name)) {
+			return "", "", false
+		}
+		return name, strings.TrimSpace(rest[i+1:]), true
 	}
 	return "", "", false
 }
 
 type builder struct {
-	people  []Person
-	index   map[string]int
-	skipped int
-	tooMany bool
-	name    string
-	lines   []string
-	open    bool
+	people   []Person
+	index    map[string]int
+	seen     map[string]bool
+	chatName string
+	skipped  int
+	tooMany  bool
+	name     string
+	lines    []string
+	marked   bool
+	open     bool
 }
 
 func (b *builder) flush() {
@@ -135,14 +174,19 @@ func (b *builder) flush() {
 		return
 	}
 	b.open = false
+	name, marked := b.name, b.marked
 	text := strings.TrimSpace(editedSuffix.ReplaceAllString(strings.Join(b.lines, "\n"), ""))
-	name := b.name
-	b.name, b.lines = "", nil
-	if text == "" || systemMessage.MatchString(text) {
+	b.name, b.lines, b.marked = "", nil, false
+	first, _, _ := strings.Cut(text, "\n")
+	first = strings.TrimSpace(first)
+	key := fold(name)
+	if marked && encryptionNotice.MatchString(first) && b.chatName == "" {
+		b.chatName = key
+	}
+	if text == "" || marked || systemMessage.MatchString(first) || isBot(name) || (b.chatName != "" && key == b.chatName) {
 		b.skipped++
 		return
 	}
-	key := fold(name)
 	i, ok := b.index[key]
 	if !ok {
 		if len(b.people) >= MaxPeople {
@@ -160,50 +204,64 @@ func (b *builder) start(name, first string) {
 	b.flush()
 	b.open = true
 	b.name = name
-	b.lines = []string{first}
+	b.seen[fold(name)] = true
+	b.marked = strings.HasPrefix(first, groupEventMark)
+	b.lines = []string{strings.ReplaceAll(first, groupEventMark, "")}
 }
 
 func (b *builder) extend(line string) {
+	line = strings.TrimSpace(strings.ReplaceAll(line, groupEventMark, ""))
 	if b.open && line != "" {
 		b.lines = append(b.lines, line)
 	}
 }
 
+func cleanLine(raw string) string {
+	return strings.TrimSpace(strings.TrimLeft(raw, groupEventMark+" "))
+}
+
 func Parse(text string) (Chat, error) {
-	clean := normalize(text)
-	if strings.TrimSpace(clean) == "" {
-		return Chat{}, ErrEmpty
-	}
-	if len(text) > MaxChars && utf8.RuneCountInString(text) > MaxChars {
+	if len(text) > 4*MaxChars || utf8.RuneCountInString(text) > MaxChars {
 		return Chat{}, ErrTooLong
+	}
+	clean := normalize(text)
+	if strings.TrimSpace(strings.ReplaceAll(clean, groupEventMark, "")) == "" {
+		return Chat{}, ErrEmpty
 	}
 	lines := strings.Split(clean, "\n")
 	dated := false
-	for _, l := range lines {
-		if datedHeader.MatchString(strings.TrimSpace(l)) {
-			dated = true
-			break
+	for _, raw := range lines {
+		line := cleanLine(raw)
+		if end := headerEnd(line); end >= 0 {
+			if _, _, ok := splitSender(strings.TrimSpace(line[end:]), false); ok {
+				dated = true
+				break
+			}
 		}
 	}
-	b := &builder{index: map[string]int{}}
+	b := &builder{index: map[string]int{}, seen: map[string]bool{}}
 	for _, raw := range lines {
-		line := strings.TrimSpace(raw)
+		line := cleanLine(raw)
 		if line == "" {
 			continue
 		}
 		if dated {
-			loc := datedHeader.FindStringIndex(line)
-			if loc == nil {
+			end := headerEnd(line)
+			if end < 0 {
+				if name, msg, ok := splitSender(line, false); ok && b.seen[fold(name)] {
+					b.start(name, msg)
+					continue
+				}
 				b.extend(line)
 				continue
 			}
-			rest := strings.TrimSpace(line[loc[1]:])
+			rest := strings.TrimSpace(line[end:])
 			if systemLine.MatchString(rest) {
 				b.flush()
 				b.skipped++
 				continue
 			}
-			name, msg, ok := splitSender(rest)
+			name, msg, ok := splitSender(rest, false)
 			if !ok {
 				b.flush()
 				b.skipped++
@@ -213,7 +271,7 @@ func Parse(text string) (Chat, error) {
 			continue
 		}
 		rest := strings.TrimSpace(line[plainHeader.FindStringIndex(line)[1]:])
-		if name, msg, ok := splitSender(rest); ok && !systemLine.MatchString(rest) {
+		if name, msg, ok := splitSender(rest, true); ok {
 			b.start(name, msg)
 			continue
 		}

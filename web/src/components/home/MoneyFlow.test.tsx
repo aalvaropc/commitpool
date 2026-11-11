@@ -1,17 +1,22 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import MoneyFlow, { moneyExample } from './MoneyFlow'
+import MoneyFlow, { SANDBOX_RUN } from './MoneyFlow'
+
+const textOf = (html: string) => html.replaceAll(/<[^>]*>/g, '')
 
 describe('the money example', () => {
-  it('charges 3.49% + $0.49 on each $45 capture, rounded half up', () => {
-    expect(moneyExample()).toEqual({ collected: 13_500, fees: 618, net: 12_882 })
-    expect(moneyExample(10, 1)).toEqual({ collected: 1_000, fees: 84, net: 916 })
+  it('is the Sandbox run of Nov 10, 2026 as PayPal charged it, not a fee formula', () => {
+    expect(SANDBOX_RUN).toEqual({ date: 'Nov 10, 2026', collected: 13_500, fees: 819, net: 12_681 })
+    expect(SANDBOX_RUN.collected - SANDBOX_RUN.fees).toBe(SANDBOX_RUN.net)
   })
 
   it('prints the same figures in the ledger and the receipt', () => {
-    const html = renderToStaticMarkup(<MoneyFlow />)
-    for (const text of ['$45 held', '$135 charged', '$0 for anyone', '$128.82 paid out', '$135.00 collected', '$6.18 PayPal fees', '$128.82 net']) {
-      expect(html).toContain(text)
+    const text = textOf(renderToStaticMarkup(<MoneyFlow />))
+    for (const want of ['$45 held', '$135 charged', '$0 for anyone', '$126.81 sent', '$135.00 collected · $8.19 PayPal fees · $126.81 net', 'real PayPal Sandbox run on Nov 10, 2026']) {
+      expect(text).toContain(want)
+    }
+    for (const old of ['$6.18', '$128.82', '3.49%']) {
+      expect(text).not.toContain(old)
     }
   })
 })

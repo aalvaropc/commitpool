@@ -277,7 +277,7 @@ type StatusOut struct {
 	VenueCost          string       `json:"venue_cost,omitempty"`
 	BreakEvenSeats     int          `json:"break_even_seats,omitempty"`
 	Status             string       `json:"status"`
-	Resolution         string       `json:"resolution"`
+	Resolution         string       `json:"resolution,omitempty"`
 	PaymentsOpen       bool         `json:"payments_open"`
 	RecommendedDateID  string       `json:"recommended_date_id,omitempty"`
 	RecommendedDate    string       `json:"recommended_date,omitempty"`
@@ -292,7 +292,7 @@ type StatusOut struct {
 	Minimum            int          `json:"minimum"`
 	Capacity           int          `json:"capacity"`
 	PaymentsCloseAt    *time.Time   `json:"payments_close_at,omitempty"`
-	IfClosedNow        string       `json:"if_closed_now"`
+	IfClosedNow        string       `json:"if_closed_now,omitempty"`
 	Payout             *PayoutOut   `json:"payout,omitempty"`
 	Suggestions        []Suggestion `json:"suggestions,omitempty"`
 }
@@ -328,7 +328,7 @@ func (s *Server) owner(ctx context.Context, tok string) (ownerView, error) {
 
 func statusOf(v ownerView) StatusOut {
 	out := StatusOut{
-		Title: v.Workshop.Title, Status: v.Workshop.Status, Resolution: v.Workshop.Resolution,
+		Title: v.Workshop.Title, Status: v.Workshop.Status, Resolution: shownResolution(v.Workshop.Resolution),
 		HostName: v.Workshop.HostName, Location: v.Workshop.Location, BreakEvenSeats: v.Workshop.BreakEvenSeats,
 		RecommendedDateID: v.Recommendation.DateID, MeetsMinimum: v.Recommendation.MeetsMinimum,
 		Explanation: v.Recommendation.Explanation,
@@ -368,7 +368,9 @@ func statusOf(v ownerView) StatusOut {
 		out.PaymentsCloseAt = &closes
 		out.Minimum, out.Capacity = p.Minimum, p.Capacity
 	}
-	out.IfClosedNow = ifClosedNow(v)
+	if v.Workshop.Status != "CONFIRMED" || out.PaymentsOpen {
+		out.IfClosedNow = ifClosedNow(v)
+	}
 	out.Payout = payoutOf(v.Payout)
 	return out
 }
@@ -425,6 +427,14 @@ func payoutOf(p *payoutJSON) *PayoutOut {
 		out.Summary = "CommitPool cannot tell yet whether PayPal made the payout; an operator checks it at PayPal."
 	}
 	return out
+}
+
+func shownResolution(resolution string) string {
+	switch resolution {
+	case "RESOLVING", "SETTLED", "NEEDS_ATTENTION":
+		return resolution
+	}
+	return ""
 }
 
 func ifClosedNow(v ownerView) string {

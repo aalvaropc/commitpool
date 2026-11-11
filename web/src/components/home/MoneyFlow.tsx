@@ -4,18 +4,10 @@ import { Icon, type IconName } from '../ui'
 import { Easels } from './Drawings'
 import { PaperSection, SectionHead } from './Section'
 
-const FEE = { basisPoints: 349, fixedCents: 49 }
+export const SANDBOX_RUN = { date: 'Nov 10, 2026', collected: 13_500, fees: 819, net: 12_681 }
 
 function money(c: number): string {
   return `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-}
-
-export function moneyExample(price = PRICE, people = NEEDED) {
-  const each = price * 100
-  const feeEach = Math.floor((each * FEE.basisPoints + 5000) / 10000) + FEE.fixedCents
-  const collected = each * people
-  const fees = feeEach * people
-  return { collected, fees, net: collected - fees }
 }
 
 const chips: Record<string, { icon: IconName; className: string }> = {
@@ -43,7 +35,7 @@ function Ledger({ chip, title, amount, branch = false, children }: { chip: strin
 }
 
 export default function MoneyFlow() {
-  const m = moneyExample()
+  const m = SANDBOX_RUN
   return (
     <PaperSection id="money" labelledBy="money-title">
       <div className="wrap section-pad">
@@ -65,7 +57,7 @@ export default function MoneyFlow() {
           <Ledger chip="If short" title="Released or refunded" amount="$0 for anyone" branch>
             Fewer than {NEEDED} by the deadline? Every hold is released and any charge is refunded.
           </Ledger>
-          <Ledger chip="It’s on" title="Iris paid at class start" amount={`${money(m.net)} paid out`}>
+          <Ledger chip="It’s on" title="Iris paid at class start" amount={`${money(m.net)} sent`}>
             When the class starts, CommitPool sends Iris her money with PayPal Payouts.
           </Ledger>
         </ol>
@@ -74,7 +66,9 @@ export default function MoneyFlow() {
             {money(m.collected)} collected <span className="font-medium text-ink-faint">·</span> {money(m.fees)} PayPal fees <span className="font-medium text-ink-faint">·</span>{' '}
             <b className="font-extrabold text-paid">{money(m.net)} net</b>
           </p>
-          <p className="text-[0.9375rem] text-ink-soft">Covers the ${SESSION_COST} room and model, after PayPal’s 3.49% + $0.49 on each charge.</p>
+          <p className="text-[0.9375rem] text-ink-soft">
+            Covers the ${SESSION_COST} room and model. Figures from a real PayPal Sandbox run on {m.date}, with the fees PayPal charged.
+          </p>
         </div>
       </div>
     </PaperSection>

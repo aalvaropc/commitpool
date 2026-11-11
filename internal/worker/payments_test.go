@@ -281,6 +281,39 @@ func TestCapture_PendingThenCompletedViaReconcile(t *testing.T) {
 	}
 }
 
+func TestCapture_CompletedAnswerRecordsTheHoldCapturedWithoutAReadBack(t *testing.T) {
+	e := newEnv(t)
+	en, a := e.authorized("Ben")
+	wantString(t, "authorization_status before the capture", a.AuthorizationStatus, "CREATED")
+
+	e.runKey(e.enqueue("capture", a))
+
+	if n := len(e.fake.Requests("get_order")) + len(e.fake.Requests("get_authorization")); n != 0 {
+		t.Fatalf("read-backs = %d, want none: only the capture's own answer is applied", n)
+	}
+	e.wantStatus(en.ID, domain.EnrollmentPaid)
+	got := e.attempt(a.ID)
+	wantString(t, "capture_status", got.CaptureStatus, "COMPLETED")
+	wantString(t, "authorization_status", got.AuthorizationStatus, "CAPTURED")
+	auth, err := e.api.GetAuthorization(e.ctx, *a.AuthorizationID)
+	if err != nil || auth.Status != "CAPTURED" {
+		t.Errorf("authorization at PayPal = %+v, %v; want CAPTURED", auth, err)
+	}
+}
+
+func TestApply_StaleCreatedAuthorizationKeepsACapturedHold(t *testing.T) {
+	e := newEnv(t)
+	en, a := e.paid("Ben")
+
+	for _, status := range []string{"CREATED", "PENDING"} {
+		if err := e.runner.ApplyAuthorization(e.ctx, a.ID, paypal.Authorization{ID: *a.AuthorizationID, Status: status}); err != nil {
+			t.Fatal(err)
+		}
+		wantString(t, "authorization_status after a stale "+status, e.attempt(a.ID).AuthorizationStatus, "CAPTURED")
+	}
+	e.wantStatus(en.ID, domain.EnrollmentPaid)
+}
+
 func TestVoid_204MarksVoided(t *testing.T) {
 	e := newEnv(t)
 	en, a := e.authorized("Ana")

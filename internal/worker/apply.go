@@ -101,7 +101,7 @@ func (r *Runner) ApplyAuthorization(ctx context.Context, attemptID string, au pa
 		if err := setID(&a.AuthorizationID, au.ID); err != nil {
 			return err
 		}
-		setStatus(&a.AuthorizationStatus, au.Status)
+		setAuthorizationStatus(a, au.Status)
 		if !au.ExpirationTime.IsZero() {
 			expires := au.ExpirationTime
 			a.AuthExpiresAt = &expires
@@ -135,6 +135,7 @@ func (r *Runner) ApplyCapture(ctx context.Context, attemptID string, c paypal.Ca
 		setStatus(&a.CaptureStatus, c.Status)
 		a.CaptureReason = reason(c.StatusDetails)
 		if c.Status == paypal.StatusCompleted {
+			holdCaptured(a)
 			if problem := fillFees(a, c.SellerReceivableBreakdown); problem != "" {
 				r.log.Warn("fees not recorded: "+problem, "attempt_id", attemptID, "capture_id", c.ID)
 			}
@@ -346,6 +347,19 @@ func setID(dst **string, id string) error {
 func setStatus(dst **string, status string) {
 	if status != "" {
 		*dst = &status
+	}
+}
+
+func setAuthorizationStatus(a *store.AttemptRow, status string) {
+	if is(a.AuthorizationStatus, paypal.StatusCaptured) && (status == paypal.StatusCreated || status == paypal.StatusPending) {
+		return
+	}
+	setStatus(&a.AuthorizationStatus, status)
+}
+
+func holdCaptured(a *store.AttemptRow) {
+	if a.AuthorizationID != nil && is(a.AuthorizationStatus, paypal.StatusCreated) {
+		setStatus(&a.AuthorizationStatus, paypal.StatusCaptured)
 	}
 }
 

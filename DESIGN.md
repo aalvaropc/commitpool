@@ -70,7 +70,7 @@ uses a shadow: depth comes from the surface steps. Easing: `--ease-out`
 - **`shout`**: 800 weight, 75% width, tracking -0.02em, uppercase. Used for the
   landing headlines (`text-hero`, `text-section`), the event title on the brand
   tile and the "It's on" moment; with `normal-case` it sets amounts and the
-  "4 of 4 records match PayPal" line. `display` (-0.03em) and `wide` (-0.02em) set
+  "9 of 9 records match PayPal" line. `display` (-0.03em) and `wide` (-0.02em) set
   the display family with tighter tracking; `semiwide` sets only the family.
 - Prices, counts and times use `tabular-nums`.
 

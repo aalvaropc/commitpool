@@ -64,8 +64,8 @@ func Suggestions(in SuggestInput) []Suggestion {
 			}
 		}
 		left := in.ClosesAt.Sub(in.Now)
-		share = left <= ShareWhenLeft || in.Extended
 		rescue = in.CanExtend && left <= RescueWhenLeft
+		share = !rescue && (left <= ShareWhenLeft || in.Extended)
 	}
 	var out []Suggestion
 	if rescue {

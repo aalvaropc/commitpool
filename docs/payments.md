@@ -548,7 +548,9 @@ left (`domain.RescueWhenLeft`). The server writes its reason; Claude drafts
 the message for the group once the deadline moves (the new deadline and how
 many are missing), under the same rules as every suggestion, with the plain
 message as the fallback and a filter that only lets it name the class's date,
-the current deadline and the new one. After an extension the `share`
+the current deadline and the new one. While the rescue is offered, the
+`share` suggestion is not, so no message for the group names the deadline
+about to change; the per-person nudges stay. After an extension the `share`
 suggestion appears whatever the time left.
 
 ## Participant withdrawal
@@ -1081,6 +1083,11 @@ are here.
   They move an enrollment only for its latest attempt and never back from a
   later or terminal status. A hold nobody will capture (an older attempt, a
   released seat, a declined capture) gets its `void:{attempt}`.
+- Every capture is final (`final_capture: true`), so a capture answer of
+  `COMPLETED` also records a `CREATED` authorization as `CAPTURED`, as PayPal
+  reports it, without waiting for a webhook or a reconcile to read the
+  authorization back. A later read that still says `CREATED` or `PENDING`
+  does not move a `CAPTURED` authorization back.
 
 ### Seats
 

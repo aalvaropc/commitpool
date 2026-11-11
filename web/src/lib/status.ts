@@ -25,6 +25,10 @@ const NEVER_HELD: ReadonlySet<string> = new Set(['INTERESTED', 'SEAT_RESERVED', 
 
 const RELEASE_STATES: ReadonlySet<EnrollmentStatus> = new Set(['VOIDING', 'VOIDED', 'CAPTURE_FAILED'])
 
+export function countdownShown(status: WorkshopStatus, own: EnrollmentStatus | null | undefined): boolean {
+  return !(status === 'CONFIRMED' && own === 'PAID')
+}
+
 export function releasesAny(enrollments: readonly { status: EnrollmentStatus }[]): boolean {
   return enrollments.some((e) => RELEASE_STATES.has(e.status))
 }

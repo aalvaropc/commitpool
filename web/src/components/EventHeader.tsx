@@ -134,7 +134,7 @@ export function EventDetails({ view, counting = true }: { view: PublicView; coun
               {summary.count !== null && <span className="font-display text-3xl font-bold tabular-nums">{summary.count} </span>}
               {summary.text}
             </p>
-            {summary.count !== null && interest > 0 && <p className="text-sm text-ink-soft">{interest} can come on the best date.</p>}
+            {summary.count !== null && interest > 0 && <p className="text-sm text-ink-soft">{interest} can come on {group.tied ? 'the date that comes first' : 'the best date'}.</p>}
           </>
         )}
       </section>

@@ -3,33 +3,45 @@ import { formatAmount } from './money'
 import { count } from './plural'
 import { formatClock } from './time'
 
+const isPaid = (e: Enrollment) => (e.money_status ?? e.status) === 'PAID'
+
+const recorded = (e: Enrollment) => (e.payment?.fee && e.payment.net ? { fee: e.payment.fee.minor, net: e.payment.net.minor } : null)
+
+const stillEarning = (e: Enrollment) => isPaid(e) && !e.needs_attention && !e.payment?.refund_id
+
+function feeFigures(enrollments: readonly Enrollment[]): { fees: number; net: number } | null {
+  const paid = enrollments.filter(isPaid)
+  const known = paid.flatMap((e) => recorded(e) ?? [])
+  if (paid.length === 0 || known.length !== paid.length) return null
+  return { fees: known.reduce((sum, k) => sum + k.fee, 0), net: known.reduce((sum, k) => sum + k.net, 0) }
+}
+
 export function moneySummary(enrollments: readonly Enrollment[], price: Money): string | null {
-  const paid = enrollments.filter((e) => (e.money_status ?? e.status) === 'PAID')
+  const paid = enrollments.filter(isPaid)
   if (paid.length === 0) return null
   const amount = (minor: number) => formatAmount({ minor, currency: price.currency })
   const parts = [`${amount(paid.length * price.minor)} collected`]
-  const known = paid.flatMap((e) => (e.payment?.fee && e.payment.net ? [{ fee: e.payment.fee.minor, net: e.payment.net.minor }] : []))
-  if (known.length === paid.length) {
-    parts.push(`${amount(known.reduce((sum, k) => sum + k.fee, 0))} PayPal fees`)
-    parts.push(`${amount(known.reduce((sum, k) => sum + k.net, 0))} net`)
+  const figures = feeFigures(enrollments)
+  if (figures) {
+    parts.push(`${amount(figures.fees)} PayPal fees`)
+    parts.push(`${amount(figures.net)} net`)
   }
   return parts.join(' · ')
 }
 
-export function netCollected(enrollments: readonly Enrollment[], expected: number): number | null {
-  const paid = enrollments.filter((e) => (e.money_status ?? e.status) === 'PAID')
-  if (paid.length === 0 || paid.length !== expected) return null
-  let net = 0
-  for (const e of paid) {
-    if (!e.payment?.fee || !e.payment.net) return null
-    net += e.payment.net.minor
-  }
-  return net
+export function feesAreShown(enrollments: readonly Enrollment[]): boolean {
+  return feeFigures(enrollments) !== null
 }
 
-export function feesAreShown(enrollments: readonly Enrollment[]): boolean {
-  const paid = enrollments.filter((e) => (e.money_status ?? e.status) === 'PAID')
-  return paid.length > 0 && paid.every((e) => e.payment?.fee && e.payment.net)
+export function earningSeats(enrollments: readonly Enrollment[]): number {
+  return enrollments.filter(stillEarning).length
+}
+
+export function netCollected(enrollments: readonly Enrollment[]): { seats: number; net: number } | null {
+  const seats = enrollments.filter(stillEarning)
+  const known = seats.flatMap((e) => recorded(e) ?? [])
+  if (known.length === 0 || known.length !== seats.length) return null
+  return { seats: seats.length, net: known.reduce((sum, k) => sum + k.net, 0) }
 }
 
 export const INTERNATIONAL_FEE_NOTE = 'The Sandbox merchant is registered outside the US, so PayPal charges its international rate.'

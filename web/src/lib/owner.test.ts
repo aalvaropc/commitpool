@@ -63,7 +63,7 @@ describe('nextStep', () => {
     })
     const step = nextStep(v)
     expect(step.title).toBe('Tied: Sat, Nov 14 comes first')
-    expect(step.detail).toBe('2 can come on Sat, Nov 14 and the same number on a later date. You need 3. Share the invite to reach more people.')
+    expect(step.detail).toBe('2 can come on Sat, Nov 14, and as many on at least one later date. You need 3. Share the invite to reach more people.')
     expect(step.action).toEqual({ kind: 'share' })
   })
 
@@ -169,7 +169,7 @@ describe('sessionCovered', () => {
 
   it('says how much of the session costs the payments cover before fees are known', () => {
     expect(sessionCovered(view({ tally: { ...view().tally, paid: 2 } }))).toEqual({ covered: 9000, cost: 12000, text: '$90 toward your $120 session costs (before fees)' })
-    expect(sessionCovered(view({ tally: { ...view().tally, paid: 3 } }))?.text).toBe('$135 toward your $120 session costs (before fees)')
+    expect(sessionCovered(view({ tally: { ...view().tally, paid: 3 } }))?.text).toBe('Your $120 session costs are covered before fees')
   })
 
   it('shows the spare only after PayPal fees', () => {
@@ -184,7 +184,17 @@ describe('sessionCovered', () => {
 
   it('falls back to the figure before fees when one paid seat has no fee yet', () => {
     const enrollments = [...paidWithFees(2, 273), ...paidWithFees(1, null)]
-    expect(sessionCovered(view({ tally: { ...view().tally, paid: 3 }, enrollments }))?.text).toBe('$135 toward your $120 session costs (before fees)')
+    expect(sessionCovered(view({ tally: { ...view().tally, paid: 3 }, enrollments }))?.text).toBe('Your $120 session costs are covered before fees')
+  })
+
+  it('leaves a refunded or flagged seat out of the spare', () => {
+    const seats = paidWithFees(4, 273)
+    const refunded = { ...seats[3], payment: { ...seats[3].payment, refund_id: 'r1' } }
+    const flagged = { ...seats[2], needs_attention: true }
+    const base = { tally: { ...view().tally, paid: 4 } }
+    expect(sessionCovered(view({ ...base, enrollments: [...seats.slice(0, 3), refunded] }))?.text).toBe('Your $120 session costs are covered, with $6.81 to spare after PayPal fees')
+    expect(sessionCovered(view({ ...base, enrollments: [seats[0], seats[1], flagged, seats[3]] }))?.text).toBe('Your $120 session costs are covered, with $6.81 to spare after PayPal fees')
+    expect(sessionCovered(view({ ...base, enrollments: [seats[0], seats[1], flagged, refunded] }))?.text).toBe('$84.54 toward your $120 session costs (after PayPal fees)')
   })
 
   it('is absent without a session cost', () => {
@@ -320,6 +330,12 @@ describe('dateColumns', () => {
       { id: 'sat', name: 'Sat, Nov 14', time: '10 AM–12 PM', can: 3, mark: 'Tied', canOpen: false },
       { id: 'sun', name: 'Sun, Nov 15', time: '10 AM–12 PM', can: 3, mark: null, canOpen: true },
     ])
+  })
+
+  it('marks no date when nobody can come on the leading one', () => {
+    const v = ready()
+    const empty = { ...v.recommendation, tied: false, per_date: v.recommendation.per_date?.map((d) => ({ ...d, compatible: [] })) ?? [] }
+    expect(dateColumns({ ...v, recommendation: empty }).map((c) => c.mark)).toEqual([null, null])
   })
 
   it('marks the lead as Recommended only when no other date shares the most', () => {

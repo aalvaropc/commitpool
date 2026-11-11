@@ -1,4 +1,4 @@
-import type { Tally } from '../api'
+import type { Tally, WorkshopStatus } from '../api'
 import { storedParticipant } from './participant'
 import type { Tone } from './status'
 
@@ -80,14 +80,25 @@ export function isReturnResult(value: string | null): value is ReturnResult {
   return value !== null && (RESULTS as readonly string[]).includes(value)
 }
 
-export function minimumReached(tally: Tally | null | undefined): boolean {
-  return !!tally && tally.minimum > 0 && tally.paid + tally.authorized + tally.charging >= tally.minimum
+export interface ReturnedClass {
+  workshop: { status: WorkshopStatus }
+  tally: Tally
 }
 
-export function returnedMessage(result: string | null, tally?: Tally | null): ReturnedMessage {
+function reachedByThisReservation({ workshop, tally }: ReturnedClass): boolean {
+  return workshop.status === 'FUNDING' && tally.minimum > 0 && tally.paid + tally.authorized + tally.charging === tally.minimum
+}
+
+export function returnedMessage(result: string | null, state?: ReturnedClass | null): ReturnedMessage {
   if (!isReturnResult(result)) return UNKNOWN
-  if (result === 'authorized' && tally && minimumReached(tally)) {
-    return { ...MESSAGES.authorized, body: `That made ${tally.minimum}. Charging everyone now.` }
+  if (result === 'authorized' && state) {
+    if (reachedByThisReservation(state)) return { ...MESSAGES.authorized, body: `That made ${state.tally.minimum}. Charging everyone now.` }
+    if (state.workshop.status === 'CONFIRMED') {
+      return { ...MESSAGES.authorized, body: 'Your spot is reserved. The class is on, so your hold is charged straight away. Your page shows where it stands.' }
+    }
+    if (state.tally.paid + state.tally.authorized + state.tally.charging > state.tally.minimum) {
+      return { ...MESSAGES.authorized, body: 'Your spot is reserved. The class already has its minimum. Your page shows whether your hold has been charged.' }
+    }
   }
   return MESSAGES[result]
 }

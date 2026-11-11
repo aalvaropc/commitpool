@@ -64,6 +64,8 @@ func PlainExplanation(in ExplainInput) string {
 	switch {
 	case len(names) == 0:
 		return day + " is the earliest date, but nobody can come yet."
+	case in.Recommendation.Tied:
+		return fmt.Sprintf("%s comes first and ties with a later date: %s can come. You need %d.", day, joinNames(names), in.Minimum)
 	case in.Recommendation.MeetsMinimum:
 		return fmt.Sprintf("%s works for %s: %s. You need %d.", day, people(len(names)), joinNames(names), in.Minimum)
 	}

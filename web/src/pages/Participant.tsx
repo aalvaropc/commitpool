@@ -11,7 +11,7 @@ import StatusBanner from '../components/StatusBanner'
 import { Avatar, Notice, Page } from '../components/ui'
 import { useNow, usePolling, useResource } from '../lib/hooks'
 import { rememberParticipant } from '../lib/participant'
-import { authorizationPending, headline, returnCheckSettled, seatHeld, shouldPollParticipant, tone } from '../lib/status'
+import { authorizationPending, countdownShown, headline, returnCheckSettled, seatHeld, shouldPollParticipant, tone } from '../lib/status'
 
 const CHECK_PATIENCE_MS = 30000
 
@@ -73,7 +73,7 @@ export default function Participant() {
           headline={headline({ status: w.status, resolution: w.resolution, enrollment: own, seatHeld: held, authPending: pending, paymentsOpen: d.proposal?.payments_open ?? false })}
           tone={tone(w.status, w.resolution, own)}
         >
-          {w.status === 'FUNDING' && d.proposal && <Deadline closesAt={d.proposal.closes_at} timeZone={w.timezone} open={d.proposal.payments_open} counting={own !== 'PAID'} />}
+          {w.status === 'FUNDING' && d.proposal && <Deadline closesAt={d.proposal.closes_at} timeZone={w.timezone} open={d.proposal.payments_open} />}
         </StatusBanner>
         <DeadlineMoved proposal={d.proposal} status={w.status} timeZone={w.timezone} audience="participant" />
         {checking && (
@@ -87,7 +87,7 @@ export default function Participant() {
 
         {d.proposal && <CommitmentCard token={token} view={d} onChange={view.reload} />}
         <AvailabilityPanel token={token} view={d} onSaved={view.reload} />
-        <EventDetails view={d} counting={own !== 'PAID'} />
+        <EventDetails view={d} counting={countdownShown(w.status, own)} />
       </div>
     </Page>
   )

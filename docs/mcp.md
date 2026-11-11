@@ -200,7 +200,7 @@ redacted.
   Sat 21 Nov  conditional  end before 18:00   evidence: "works if we finish before 6pm"
   Sun 22 Nov  unavailable                     evidence: "I'm away"
   next: "Show this reading to the person and ask them to confirm it. If it is wrong, ask them to say it differently …"
-> get_status               COLLECTING, recommended: Sat 21 Nov; 1 compatible, minimum 1, capacity 3
+> get_status               COLLECTING, leading date: Sat 21 Nov; 1 compatible, minimum 1, capacity 3
   if_closed_now: "Reservations are not open yet: nothing is held or charged."
 > preview_open_payments    Sat 21 Nov, 1.00 USD, minimum 1, capacity 3, window 1440 min, payout_email commitpool.iris@personal.example.com
   approval_id …, state pending, approve_url {base}/owner/…/approve/…, expires in 30 min

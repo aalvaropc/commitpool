@@ -16,10 +16,19 @@ func nudge(kind string) ai.SuggestInput {
 	}
 }
 
+func TestPlainSuggestion_ConditionNeverAsksToComeAnyway(t *testing.T) {
+	got := strings.ToLower(ai.PlainSuggestion(nudge("condition")))
+	for _, banned := range []string{"any way you could make it", "come anyway", "make it anyway"} {
+		if strings.Contains(got, banned) {
+			t.Errorf("fallback condition nudge %q contains %q", got, banned)
+		}
+	}
+}
+
 func TestPlainSuggestion_SaysOnlyTheFacts(t *testing.T) {
 	cases := map[string][]string{
 		"clarify":   {"Hi Grace! Can you make either morning, and which? The class runs Sat, Nov 14 or Sun, Nov 15, 10 AM–12 PM. Answer on your CommitPool page."},
-		"condition": {"Hi Grace!", "Sat, Nov 14 runs 10 AM–12 PM", "you said you could come only if it ends by 11 AM", "any way you could make it"},
+		"condition": {"Hi Grace!", "Sat, Nov 14 runs 10 AM–12 PM", "you said you could come only if it ends by 11 AM", "Could that conflict move so you can make it?"},
 		"reserve":   {"Hi Grace!", "Reservations for Life drawing for beginners on Sat, Nov 14 are open until Fri, Nov 13 at 10 AM", "Nothing is charged unless 3 people reserve"},
 		"share":     {"Life drawing for beginners on Sat, Nov 14 needs 2 more people by Fri, Nov 13 at 10 AM", "nobody pays"},
 	}

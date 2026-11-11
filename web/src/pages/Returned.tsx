@@ -10,7 +10,7 @@ export default function Returned() {
   const result = params.get('result')
   const token = result === 'authorized' ? storedParticipant() : null
   const view = useResource(() => (token ? api.participant(token) : Promise.resolve(null)), token ?? '')
-  const message = returnedMessage(result, view.data?.tally)
+  const message = returnedMessage(result, view.data)
   const reading = token !== null && !view.data && !view.error
   const back = returnPath(result)
 

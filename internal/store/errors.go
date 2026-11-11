@@ -14,6 +14,7 @@ var (
 	ErrJobNotActive    = errors.New("store: job is not in a state that accepts this transition")
 	ErrProposalNotOpen = errors.New("store: payments are not open for this proposal")
 	ErrProposalExists  = errors.New("store: workshop already has a proposal")
+	ErrConflict        = errors.New("store: the change conflicts with the current state")
 
 	ErrAttemptNotAllowed = errors.New("store: a new payment attempt needs a SEAT_RESERVED enrollment")
 	ErrPaidOut           = errors.New("store: the payment was paid out to the organizer")

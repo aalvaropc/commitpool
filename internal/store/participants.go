@@ -3,10 +3,25 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/aalvaropc/commitpool/internal/domain"
 )
 
-type ParticipantRow struct{ ID, WorkshopID, DisplayName string }
+const (
+	SourceLink = "link"
+	SourceChat = "chat"
+)
+
+type ParticipantRow struct {
+	ID, WorkshopID, DisplayName string
+	Source                      string
+	ChatMessage                 *string
+	ChatLinkToken               *string
+}
 
 type AvailabilityRow struct {
 	ID, ParticipantID, RawMessage string
@@ -17,22 +32,66 @@ type AvailabilityRow struct {
 }
 
 const (
-	participantCols  = `id, workshop_id, display_name`
+	participantCols  = `id, workshop_id, display_name, source, chat_message, chat_link_token`
 	availabilityCols = `id, participant_id, raw_message, interpretation, corrected, needs_clarification, model_meta, created_at`
 )
 
 func (s *Store) CreateParticipant(ctx context.Context, workshopID, displayName string) (ParticipantRow, string, error) {
+	return s.CreateParticipantFrom(ctx, workshopID, displayName, SourceLink, "")
+}
+
+func (s *Store) CreateParticipantFrom(ctx context.Context, workshopID, displayName, source, chatMessage string) (ParticipantRow, string, error) {
 	token, hash, err := NewToken()
 	if err != nil {
 		return ParticipantRow{}, "", err
 	}
+	var link *string
+	if source == SourceChat {
+		link = &token
+	}
 	p, err := one[ParticipantRow](ctx, s.Pool,
-		`insert into participants (workshop_id, display_name, access_token_hash) values ($1, $2, $3) returning `+participantCols,
-		workshopID, displayName, hash)
+		`insert into participants (workshop_id, display_name, access_token_hash, source, chat_message, chat_link_token)
+		values ($1, $2, $3, $4, nullif($5, ''), $6) returning `+participantCols,
+		workshopID, displayName, hash, source, chatMessage, link)
 	if err != nil {
 		return ParticipantRow{}, "", wrap("insert participant", err)
 	}
 	return p, token, nil
+}
+
+func (s *Store) RemoveChatParticipant(ctx context.Context, workshopID, participantID string) error {
+	return pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+		status, err := lockWorkshop(ctx, tx, workshopID)
+		if errors.Is(err, ErrNotFound) {
+			return ErrConflict
+		}
+		if err != nil {
+			return err
+		}
+		if status != domain.WorkshopCollecting {
+			return ErrConflict
+		}
+		var id string
+		err = tx.QueryRow(ctx,
+			`select p.id from participants p
+			where p.id = $1 and p.workshop_id = $2 and p.source = 'chat'
+			and not exists (select 1 from enrollments e where e.participant_id = p.id)
+			and not exists (select 1 from notifications n where n.participant_id = p.id)
+			for update`, participantID, workshopID).Scan(&id)
+		if isMissing(err) {
+			return ErrConflict
+		}
+		if err != nil {
+			return wrap("find chat participant", err)
+		}
+		if _, err := tx.Exec(ctx, `delete from availabilities where participant_id = $1`, id); err != nil {
+			return wrap("delete availabilities", err)
+		}
+		if _, err := tx.Exec(ctx, `delete from participants where id = $1`, id); err != nil {
+			return wrap("delete participant", err)
+		}
+		return nil
+	})
 }
 
 func (s *Store) ParticipantByToken(ctx context.Context, token string) (ParticipantRow, error) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { OwnerView } from '../api'
-import { chatLead, demoParticipants, demoStep } from './demo'
+import { chatLead, demoAction, demoControl, demoParticipants, demoStep } from './demo'
 
 describe('chatLead', () => {
   const demo = '[11/10/26, 7:05:14\u202fPM] Iris Calder: Who’s in?'
@@ -162,7 +162,51 @@ describe('demoStep', () => {
       expect(demoStep(funding([seat('p1', 'AUTHORIZED'), seat('p2', 'AUTHORIZED'), seat('p9', 'AUTHORIZED')]), cast)).toBeNull()
       expect(demoStep(funding([], { proposal: { date_id: 'sat', payments_open: false, minimum: 3 } } as unknown as Partial<OwnerView>), cast)).toBeNull()
       expect(demoStep(funding([seat('p1', 'PAID'), seat('p2', 'SEAT_RESERVED')], { tally: { minimum: 3, paid: 1, authorized: 0, capturing: 0, pending: 0 } } as unknown as Partial<OwnerView>), cast)).toBeNull()
-      expect(demoStep(view({ workshop: { ...v.workshop, status: 'CONFIRMED' }, proposal: { date_id: 'sat', payments_open: true } } as unknown as Partial<OwnerView>), cast)).toBeNull()
+      expect(demoStep(view({ workshop: { ...v.workshop, status: 'CONFIRMED' }, proposal: { date_id: 'sat', payments_open: true }, demo: { demo_mode: false } } as unknown as Partial<OwnerView>), cast)).toBeNull()
+    })
+  })
+
+  describe('once the class is on', () => {
+    const v = view()
+    const payout = (state: string) => ({ state, locked: false, estimated: true, seats: 3 })
+    const confirmed = (over: Record<string, unknown> = {}) =>
+      view({
+        workshop: { ...v.workshop, status: 'CONFIRMED' },
+        proposal: { date_id: 'sat', payments_open: true, minimum: 3 },
+        demo: { demo_mode: true, sandbox_mocks: false },
+        payout: payout('scheduled'),
+        ...over,
+      } as unknown as Partial<OwnerView>)
+
+    it('demoStep after it is on points to Close reservations now', () => {
+      expect(demoStep(confirmed(), cast)).toEqual({ text: 'Close reservations now to end the reservation window.', primary: null, action: 'close' })
+    })
+
+    it('demoStep after closing points to Start the class now', () => {
+      const closed = confirmed({ proposal: { date_id: 'sat', payments_open: false, minimum: 3 } })
+      expect(demoStep(closed, cast)).toEqual({
+        text: 'Start the class now. The demo clock jumps to the start and CommitPool pays Iris.',
+        primary: null,
+        action: 'start',
+      })
+      expect(demoStep(confirmed({ proposal: { date_id: 'sat', payments_open: false, minimum: 3 }, payout: payout('waiting') }), cast)?.action).toBe('start')
+    })
+
+    it('stays quiet once the payout has gone out, or when the server is not in demo mode', () => {
+      expect(demoStep(confirmed({ proposal: { date_id: 'sat', payments_open: false, minimum: 3 }, payout: payout('paid') }), cast)).toBeNull()
+      expect(demoStep(confirmed({ proposal: { date_id: 'sat', payments_open: false, minimum: 3 }, payout: payout('no_email') }), cast)).toBeNull()
+      expect(demoStep(confirmed({ demo: { demo_mode: false, sandbox_mocks: false } }), cast)).toBeNull()
+    })
+
+    it('hands the controls to the guide only for a demo workshop', () => {
+      expect(demoAction(confirmed())).toBe('close')
+      expect(demoControl(confirmed())).toBe('close')
+      const plain = confirmed({ workshop: { ...v.workshop, status: 'CONFIRMED', demo: false } })
+      expect(demoAction(plain)).toBeNull()
+      expect(demoControl(plain)).toBe('close')
+      const funding = confirmed({ workshop: { ...v.workshop, status: 'FUNDING' } })
+      expect(demoAction(funding)).toBeNull()
+      expect(demoControl(funding)).toBe('close')
     })
   })
 })

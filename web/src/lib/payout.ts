@@ -1,4 +1,4 @@
-import type { Payout } from '../api'
+import type { OwnerView, Payout } from '../api'
 import { formatAmount } from './money'
 import { count } from './plural'
 import type { Tone } from './status'
@@ -126,4 +126,19 @@ export function payoutCheckable(p: Payout | null): boolean {
 
 export function canStartClass(v: { demo: { demo_mode: boolean }; workshop: { status: string }; proposal: { payments_open: boolean } | null; payout: Payout | null }): boolean {
   return v.demo.demo_mode && v.workshop.status === 'CONFIRMED' && v.proposal !== null && !v.proposal.payments_open && (v.payout?.state === 'scheduled' || v.payout?.state === 'waiting')
+}
+
+export interface ClassStarted {
+  headline: string
+  sub: string | null
+}
+
+export function classStarted(v: Pick<OwnerView, 'workshop' | 'payout'>): ClassStarted | null {
+  const p = v.payout
+  const amount = p?.state === 'paid' && p.amount ? formatAmount(p.amount) : null
+  const host = v.workshop.host_name?.trim().split(/\s+/)[0]
+  if (!p || !amount || v.workshop.status !== 'CONFIRMED') return null
+  const status = p.batch_status ?? p.item_status
+  const sub = p.payout_batch_id ? `PayPal batch ${p.payout_batch_id}${status ? ` · ${status}` : ''}` : null
+  return { headline: host ? `Class started · ${host} paid ${amount}` : `Class started · Paid out ${amount}`, sub }
 }

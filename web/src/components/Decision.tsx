@@ -1,6 +1,7 @@
 import type { Ref } from 'react'
 import type { OwnerView } from '../api'
 import { cancellationDetail, countFacts, decisionCounts, sessionCovered, sessionPlan, type DecisionCounts, type NextStep as Step } from '../lib/owner'
+import { classStarted } from '../lib/payout'
 import { headline, heldAny, refundsAny, releasesAny, tone } from '../lib/status'
 import { formatDateRange } from '../lib/time'
 import CopyField from './CopyField'
@@ -79,7 +80,8 @@ export default function Decision({ view, step, onOpen, titleRef }: Props) {
   const w = view.workshop
   const p = view.proposal
   const held = heldAny(view.enrollments)
-  const status = headline({
+  const started = classStarted(view)
+  const status = started?.headline ?? headline({
     status: w.status,
     resolution: w.resolution,
     paymentsOpen: p?.payments_open ?? false,
@@ -101,6 +103,7 @@ export default function Decision({ view, step, onOpen, titleRef }: Props) {
           </span>
           <p className={`font-display text-lg leading-snug font-bold ${t === 'neutral' ? 'text-ink-soft' : toneText[t]}`}>{status}</p>
         </div>
+        {started?.sub && <p className="mt-1 text-sm text-ink-soft sm:pl-[2.625rem]">{started.sub}</p>}
       </section>
       <section aria-label="Next step" className="flex flex-col gap-4">
         <div className="flex flex-col gap-2">

@@ -1,10 +1,24 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { OwnerView } from '../api'
 import { demoParticipants, demoStep, type DemoParticipant, type DemoStep } from '../lib/demo'
-import { ButtonLink, Icon, Pill, Tile } from './ui'
+import { DEMO_ACTIONS, useDemoAction } from '../lib/demoActions'
+import { Button, ButtonLink, DemoTag, Icon, Notice, Pill, Tile } from './ui'
 
-function Guide({ step, people, guided }: { step: DemoStep | null; people: DemoParticipant[]; guided: boolean }) {
-  const [openAtFirst] = useState(guided)
+interface GuideProps {
+  token: string
+  step: DemoStep | null
+  people: DemoParticipant[]
+  guided: boolean
+  onChange: () => Promise<unknown>
+}
+
+function Guide({ token, step, people, guided, onChange }: GuideProps) {
+  const { busy, result, run } = useDemoAction(token, onChange)
+  const action = step?.action
+  const [open, setOpen] = useState(guided || Boolean(action))
+  useEffect(() => {
+    if (action) setOpen(true)
+  }, [action])
   return (
     <Tile as="section" aria-labelledby="demo-guide-title" className="flex flex-col gap-2 ring-2 ring-brand/40 sm:p-6">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
@@ -13,7 +27,19 @@ function Guide({ step, people, guided }: { step: DemoStep | null; people: DemoPa
         </h2>
         <Pill tone="attention">Demo workshop · prepared data</Pill>
       </div>
-      <details open={openAtFirst || undefined} className="group">
+      {action && (
+        <div>
+          <Button variant="demo" onClick={() => void run(action)} busy={busy} busyLabel={DEMO_ACTIONS[action].busy}>
+            <DemoTag /> {DEMO_ACTIONS[action].label}
+          </Button>
+        </div>
+      )}
+      {result && result.action === action && (
+        <Notice tone={result.ok ? 'neutral' : 'attention'} role={result.ok ? 'status' : 'alert'}>
+          {result.text}
+        </Notice>
+      )}
+      <details open={open} onToggle={(e) => setOpen(e.currentTarget.open)} className="group">
         <summary className="-mx-2 flex min-h-11 w-fit cursor-pointer list-none items-center gap-2 rounded-control px-2 font-semibold text-brand [&::-webkit-details-marker]:hidden">
           <Icon name="arrowRight" size={18} className="shrink-0 transition-transform duration-200 group-open:rotate-90" />
           Demo steps
@@ -59,7 +85,7 @@ function Guide({ step, people, guided }: { step: DemoStep | null; people: DemoPa
   )
 }
 
-export default function DemoGuide({ view }: { view: OwnerView }) {
+export default function DemoGuide({ token, view, onChange }: { token: string; view: OwnerView; onChange: () => Promise<unknown> }) {
   if (!view.workshop.demo) return null
   const people = demoParticipants(view)
   const step = demoStep(view, people.map((p) => p.name))
@@ -77,5 +103,5 @@ export default function DemoGuide({ view }: { view: OwnerView }) {
     )
   }
   const guided = step !== null || (view.workshop.status === 'COLLECTING' && !view.proposal)
-  return <Guide step={step} people={people} guided={guided} />
+  return <Guide token={token} step={step} people={people} guided={guided} onChange={onChange} />
 }

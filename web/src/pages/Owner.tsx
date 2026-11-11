@@ -201,7 +201,7 @@ export default function Owner() {
           )}
           <DeadlineMoved proposal={d.proposal} status={w.status} timeZone={w.timezone} audience="owner" />
           <OperatorPanel token={token} view={d} onChange={view.reload} />
-          {!empty && <DemoGuide view={d} />}
+          {!empty && <DemoGuide token={token} view={d} onChange={view.reload} />}
           {collecting ? (
             <>
               {pasting && <ChatImportCard token={token} view={d} onImported={imported} />}

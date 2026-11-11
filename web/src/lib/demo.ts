@@ -1,5 +1,6 @@
 import type { OwnerView } from '../api'
 import { tokenFromParticipantURL } from './participant'
+import { canStartClass } from './payout'
 import { freeToReserveAgain } from './status'
 import { formatWeekday } from './time'
 
@@ -15,9 +16,12 @@ export function demoParticipants(view: Pick<OwnerView, 'act_as'>): DemoParticipa
   })
 }
 
+export type DemoAction = 'close' | 'start'
+
 export interface DemoStep {
   text: string
   primary: string | null
+  action?: DemoAction
 }
 
 export const CHAT_STEP = 'This is Iris’s group chat. Press Read the chat, then Add 6 people.'
@@ -44,8 +48,26 @@ function reserveStep(v: OwnerView, cast: string[]): DemoStep | null {
   return { text: `Reserve as someone who can come: act as ${next.display_name} and reserve with PayPal.`, primary: next.display_name }
 }
 
+export function demoControl(v: OwnerView): DemoAction | null {
+  if (v.demo.demo_mode && v.proposal?.payments_open) return 'close'
+  return canStartClass(v) ? 'start' : null
+}
+
+export function demoAction(v: OwnerView): DemoAction | null {
+  if (!v.workshop.demo || !v.demo?.demo_mode) return null
+  if (v.workshop.status !== 'CONFIRMED') return null
+  return demoControl(v)
+}
+
+function finishStep(action: DemoAction, v: OwnerView): DemoStep {
+  if (action === 'close') return { text: 'Close reservations now to end the reservation window.', primary: null, action }
+  return { text: `Start the class now. The demo clock jumps to the start and CommitPool pays ${firstName(v.workshop.host_name)}.`, primary: null, action }
+}
+
 export function demoStep(v: OwnerView, cast: string[]): DemoStep | null {
   const { workshop: w, recommendation: rec } = v
+  const action = demoAction(v)
+  if (action) return finishStep(action, v)
   if (w.status === 'FUNDING') return reserveStep(v, cast)
   if (w.status !== 'COLLECTING' || v.proposal) return null
   const members = v.participants.filter((p) => cast.includes(p.display_name))

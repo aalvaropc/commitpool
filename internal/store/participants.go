@@ -160,6 +160,16 @@ func (s *Store) ImportChatParticipants(ctx context.Context, workshopID string, p
 	return out, nil
 }
 
+func (s *Store) RestoreChatMessage(ctx context.Context, participantID, wrote, previous string) (bool, error) {
+	tag, err := s.Pool.Exec(ctx,
+		`update participants set chat_message = $3 where id = $1 and chat_message = $2`,
+		participantID, wrote, previous)
+	if err != nil {
+		return false, wrap("restore chat message", err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
 func (s *Store) RemoveChatParticipant(ctx context.Context, workshopID, participantID string) error {
 	return pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 		status, err := lockWorkshop(ctx, tx, workshopID)

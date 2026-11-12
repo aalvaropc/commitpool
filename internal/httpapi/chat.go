@@ -152,8 +152,13 @@ func (c *chatImports) active(workshopID string) bool {
 }
 
 type chatReading struct {
-	id string
-	p  demo.Participant
+	id   string
+	p    demo.Participant
+	undo *chatUndo
+}
+
+type chatUndo struct {
+	wrote, previous string
 }
 
 type chatPersonDTO struct {
@@ -275,11 +280,19 @@ func updateFor(p chatimport.Person, participants []store.ParticipantRow) (chatUp
 	return chatUpdate{participant: row, fresh: fresh, stored: p.Text(chatimport.MaxTextRunes)}, true
 }
 
-func (u chatUpdate) followUp(answered bool) string {
+type chatFollowUp struct {
+	message string
+	undo    *chatUndo
+}
+
+func (u chatUpdate) followUp(answered bool) chatFollowUp {
 	if !answered {
-		return u.stored
+		return chatFollowUp{message: u.stored}
 	}
-	return chatimport.Person{Messages: u.fresh}.Text(chatimport.MaxTextRunes)
+	return chatFollowUp{
+		message: chatimport.Person{Messages: u.fresh}.Text(chatimport.MaxTextRunes),
+		undo:    &chatUndo{wrote: u.stored, previous: *u.participant.ChatMessage},
+	}
 }
 
 func (s *server) previewChat(w http.ResponseWriter, r *http.Request) error {
@@ -443,7 +456,7 @@ func (s *server) importChat(w http.ResponseWriter, r *http.Request) error {
 	now := s.Clock.Now()
 	counted := false
 	var plan importPlan
-	followUps := map[string]string{}
+	followUps := map[string]chatFollowUp{}
 	res, err := s.Store.ImportChatParticipants(ctx, ws.ID, func(st store.ChatImportState) (store.ChatPlan, error) {
 		cur := st.Workshop
 		if cur.Status != domain.WorkshopCollecting {
@@ -501,7 +514,8 @@ func (s *server) importChat(w http.ResponseWriter, r *http.Request) error {
 	}
 	for _, p := range res.Updated {
 		link := s.Cfg.BaseURL + "/p/" + p.Token
-		readings = append(readings, chatReading{id: p.ID, p: demo.Participant{Name: p.DisplayName, Message: followUps[p.ID], URL: link, Token: p.Token}})
+		f := followUps[p.ID]
+		readings = append(readings, chatReading{id: p.ID, p: demo.Participant{Name: p.DisplayName, Message: f.message, URL: link, Token: p.Token}, undo: f.undo})
 		out.Updated = append(out.Updated, chatImportedDTO{Name: p.DisplayName, ParticipantURL: link})
 	}
 	s.readInBackground(ctx, ws.ID, readings)
@@ -528,6 +542,7 @@ func (s *server) readInBackground(ctx context.Context, workshopID string, people
 			case s.chats.slots <- struct{}{}:
 			case <-bctx.Done():
 				for _, left := range people[i:] {
+					s.undoFollowUp(bctx, workshopID, left)
 					s.chats.doneReading(workshopID, left.id)
 				}
 				s.Log.Warn("chat import: stopped before reading everyone", "workshop_id", workshopID, "unread", len(people)-i)
@@ -539,12 +554,28 @@ func (s *server) readInBackground(ctx context.Context, workshopID string, people
 				defer s.chats.doneReading(workshopID, r.id)
 				if err := demo.AnswerOne(bctx, api, r.p, pace); err != nil {
 					s.Log.Warn("chat import: a reading did not arrive", "workshop_id", workshopID, "participant_id", r.id, "error", err)
+					s.undoFollowUp(bctx, workshopID, r)
 				}
 			})
 		}
 		wg.Wait()
 	}()
 	return len(people)
+}
+
+func (s *server) undoFollowUp(ctx context.Context, workshopID string, r chatReading) {
+	if r.undo == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), chatEditTimeout)
+	defer cancel()
+	restored, err := s.Store.RestoreChatMessage(ctx, r.id, r.undo.wrote, r.undo.previous)
+	switch {
+	case err != nil:
+		s.Log.Error("chat import: the unread new messages could not be offered again", "workshop_id", workshopID, "participant_id", r.id, "error", err)
+	case restored:
+		s.Log.Info("chat import: the next paste offers the unread new messages again", "workshop_id", workshopID, "participant_id", r.id)
+	}
 }
 
 func unreadChat(participants []store.ParticipantRow, avails []store.AvailabilityRow) []store.ParticipantRow {

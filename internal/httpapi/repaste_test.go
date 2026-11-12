@@ -1,9 +1,13 @@
 package httpapi_test
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -311,6 +315,161 @@ func TestImport_RepasteWaitsForAReadingInFlight(t *testing.T) {
 		t.Errorf("re-paste once Claude has read her = %+v, want Grace updated", got)
 	}
 	e.background.Wait()
+}
+
+func TestImport_RepasteOffersAFailedFollowUpAgain(t *testing.T) {
+	model := &marketOutageAI{Fake: ai.Fake{Script: demo.FakeScript()}}
+	e := newEnv(t, withAI(model))
+	h := e.createWorkshop(withHost("Iris Calder"))
+	e.importChat(h, lifeDrawingChat(), castNames()...)
+	e.background.Wait()
+	grace := participantNamed(t, e.owner(h), "Grace Liu")
+	first := demo.LifeDrawing.People[5].Message
+
+	later := withGracesReply(lifeDrawingChat())
+	model.failing.Store(true)
+	if got := e.repaste(h, later, castNames()...); len(got.Updated) != 1 || got.Updated[0].Name != "Grace Liu" {
+		t.Fatalf("re-paste = %+v, want Grace updated", got)
+	}
+	e.background.Wait()
+	model.failing.Store(false)
+	if g := participantNamed(t, e.owner(h), "Grace Liu"); *g.ChatMessage != first || e.answersOf(g.ID) != 1 {
+		t.Errorf("Grace after Claude failed on her reply = %q with %d readings, want her first message back, read once", *g.ChatMessage, e.answersOf(g.ID))
+	}
+	if g := e.previewPeople(h, later)["Grace Liu"]; !g.Joined || g.NewMessages != 1 || g.Excerpt != graceReply.Message {
+		t.Errorf("Grace in the next preview = %+v, want her reply offered again as one new message", g)
+	}
+
+	before := model.reads.Load()
+	if got := e.repaste(h, later, castNames()...); len(got.Updated) != 1 || got.Updated[0].Name != "Grace Liu" {
+		t.Fatalf("second re-paste = %+v, want Grace updated", got)
+	}
+	e.background.Wait()
+	if n := model.reads.Load() - before; n != 1 {
+		t.Errorf("the second re-paste made %d readings, want only Grace's reply", n)
+	}
+	v := e.owner(h)
+	if sat := canCome(v, h.satID); len(sat) != 3 || !slices.Contains(sat, grace.ID) {
+		t.Errorf("Saturday after Grace's reply was read on the second try = %v, want 3 with Grace", sat)
+	}
+	if g := participantNamed(t, v, "Grace Liu"); *g.ChatMessage != first+"\n"+graceReply.Message || e.answersOf(g.ID) != 2 {
+		t.Errorf("Grace = %q with %d readings, want both messages stored, read twice", *g.ChatMessage, e.answersOf(g.ID))
+	}
+}
+
+func TestImport_ConcurrentRepastesReadTheReplyOnce(t *testing.T) {
+	model := &recordingAI{Fake: ai.Fake{Script: demo.FakeScript()}}
+	e := newEnv(t, withAI(model))
+	h := e.createWorkshop(withHost("Iris Calder"))
+	e.importChat(h, lifeDrawingChat(), castNames()...)
+	e.background.Wait()
+	grace := participantNamed(t, e.owner(h), "Grace Liu")
+	read := len(model.messages())
+
+	body, err := json.Marshal(importBody(withGracesReply(lifeDrawingChat()), castNames()...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	recs := make([]*httptest.ResponseRecorder, 2)
+	var wg sync.WaitGroup
+	for i := range recs {
+		wg.Go(func() {
+			req := httptest.NewRequestWithContext(e.ctx, http.MethodPost, h.ownerPath+"/chat/import", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			recs[i] = httptest.NewRecorder()
+			e.h.ServeHTTP(recs[i], req)
+		})
+	}
+	wg.Wait()
+
+	var updated, here int
+	for _, rec := range recs {
+		var got chatRepasteJSON
+		if rec.Code != http.StatusAccepted || json.Unmarshal(rec.Body.Bytes(), &got) != nil {
+			t.Fatalf("re-paste = %d %s, want 202", rec.Code, rec.Body)
+		}
+		switch {
+		case len(got.Updated) == 1 && got.Updated[0].Name == "Grace Liu" && !slices.ContainsFunc(got.Skipped, func(s chatSkippedJSON) bool { return s.Name == "Grace Liu" }):
+			updated++
+		case len(got.Updated) == 0 && slices.Contains(got.Skipped, chatSkippedJSON{Name: "Grace Liu", Reason: "already_here"}):
+			here++
+		default:
+			t.Errorf("re-paste = %+v, want Grace either updated or already here", got)
+		}
+	}
+	if updated != 1 || here != 1 {
+		t.Errorf("two re-pastes at once gave %d updated and %d already here, want one of each", updated, here)
+	}
+	e.background.Wait()
+	if sent := model.messages()[read:]; !slices.Equal(sent, []string{graceReply.Message}) {
+		t.Errorf("Claude read %q after two re-pastes at once, want Grace's reply once", sent)
+	}
+	if n := e.answersOf(grace.ID); n != 2 {
+		t.Errorf("Grace has %d readings, want 2", n)
+	}
+}
+
+func TestImport_RepasteFindsThePersonAlreadyHere(t *testing.T) {
+	lucia, grace := demo.LifeDrawing.People[2], demo.LifeDrawing.People[5]
+	for _, tc := range []struct {
+		name     string
+		person   demo.Person
+		as       string
+		said     string
+		between  func(e *env, participantURL string)
+		readings int
+	}{
+		{
+			name:     "a name that differs only in its accents",
+			person:   lucia,
+			as:       "Lucia Torres",
+			said:     "Sunday still works, see you there.",
+			readings: 2,
+		},
+		{
+			name:   "someone who answered on their own page in between",
+			person: grace,
+			as:     grace.Name,
+			said:   "See you on Saturday!",
+			between: func(e *env, participantURL string) {
+				e.call(http.MethodPost, "/api/v1/p/"+participantToken(participantURL)+"/availability", map[string]string{"message": graceReply.Message}, http.StatusCreated, nil)
+			},
+			readings: 3,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			model := &recordingAI{Fake: ai.Fake{Script: demo.FakeScript()}}
+			e := newEnv(t, withAI(model))
+			h := e.createWorkshop(withHost("Iris Calder"))
+			e.importChat(h, lifeDrawingChat(), castNames()...)
+			e.background.Wait()
+			p := participantNamed(t, e.owner(h), tc.person.Name)
+			if tc.between != nil {
+				tc.between(e, *p.ParticipantURL)
+			}
+			read := len(model.messages())
+
+			later := strings.Replace(lifeDrawingChat(), tc.person.Name+": ", tc.as+": ", 1) + "\n" + tc.as + ": " + tc.said
+			if got := e.previewPeople(h, later)[tc.as]; !got.Joined || got.NewMessages != 1 || got.Excerpt != tc.said {
+				t.Errorf("%s in the preview = %+v, want here with one new message", tc.as, got)
+			}
+			got := e.repaste(h, later, tc.as)
+			if len(got.Imported) != 0 || len(got.Updated) != 1 || got.Updated[0].Name != tc.person.Name || got.Updated[0].ParticipantURL != *p.ParticipantURL {
+				t.Fatalf("re-paste = %+v, want %s updated through their own link and nobody added", got, tc.person.Name)
+			}
+			e.background.Wait()
+			if sent := model.messages()[read:]; !slices.Equal(sent, []string{tc.said}) {
+				t.Errorf("Claude read %q after the re-paste, want only the new message", sent)
+			}
+			v := e.owner(h)
+			if n := len(v.Participants); n != 6 {
+				t.Errorf("%d participants after the re-paste, want 6", n)
+			}
+			if after := participantNamed(t, v, tc.person.Name); *after.ChatMessage != tc.person.Message+"\n"+tc.said || e.answersOf(p.ID) != tc.readings {
+				t.Errorf("%s = %q with %d readings, want both chat messages stored and %d readings", tc.person.Name, *after.ChatMessage, e.answersOf(p.ID), tc.readings)
+			}
+		})
+	}
 }
 
 type roomAI struct {

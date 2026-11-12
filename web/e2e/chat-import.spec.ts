@@ -87,7 +87,7 @@ test.describe('paste your group chat', () => {
     await expect(page.getByText(/^Claude is reading the chat…/)).toHaveCount(0)
     const more = page.getByRole('region', { name: 'Paste more of the chat' })
     await expect(more).toBeVisible()
-    await expect(more.getByRole('textbox')).toBeHidden()
+    await expect(more.getByRole('textbox', { name: 'Paste more of the chat' })).toBeVisible()
     const grid = page.getByRole('region', { name: 'Who can come, by date' })
     await expect(grid.getByRole('row').filter({ hasText: 'Grace Liu' })).toContainText('Needs clarifying')
     await expect(grid.getByRole('button', { name: 'Copy their link for Grace Liu' })).toBeVisible()
@@ -110,8 +110,8 @@ test.describe('paste your group chat', () => {
     await expect(guide.getByRole('link', { name: /Act as Grace Liu/ })).toBeVisible()
 
     const more = page.getByRole('region', { name: 'Paste more of the chat' })
-    await more.getByText('Paste more of the chat').click()
     const box = more.getByRole('textbox', { name: 'Paste more of the chat' })
+    await expect(box).toBeVisible()
     await expect(box).toHaveValue(/\n\[[^\]]+, 7:52:07\u202fPM\] Grace Liu: No problem — I swapped Saturday\. Sunday I'm still at the market\.$/)
     await expect(more).toContainText('Grace’s answer is now the last line of Iris’s chat. Press Read the chat, then Read new messages from 1 person.')
     await expectAccessible(page, 'the demo board with Iris’s updated chat')

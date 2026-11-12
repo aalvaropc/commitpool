@@ -222,6 +222,49 @@ func TestImportChatParticipants_UpdatesWhatTheyAlreadySaid(t *testing.T) {
 	}
 }
 
+func TestRestoreChatMessage_OnlyWhileItHoldsWhatTheImportWrote(t *testing.T) {
+	ctx := context.Background()
+	s := storetest.New(t)
+	w, _, _ := newWorkshop(t, s, 1, 3)
+	res, err := s.ImportChatParticipants(ctx, w.ID, func(store.ChatImportState) (store.ChatPlan, error) {
+		return store.ChatPlan{Add: []store.ChatPerson{{DisplayName: "Ben", Message: "Saturday"}}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ben := res.Imported[0]
+	update := func(message string) {
+		t.Helper()
+		if _, err := s.ImportChatParticipants(ctx, w.ID, func(store.ChatImportState) (store.ChatPlan, error) {
+			return store.ChatPlan{Update: []store.ChatUpdate{{ParticipantID: ben.ID, Message: message}}}, nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stored := func() string {
+		t.Helper()
+		all, err := s.ParticipantsByWorkshop(ctx, w.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return *all[0].ChatMessage
+	}
+
+	update("Saturday\nSunday too")
+	if ok, err := s.RestoreChatMessage(ctx, ben.ID, "Saturday\nSunday too", "Saturday"); err != nil || !ok || stored() != "Saturday" {
+		t.Errorf("restore = %v, %v, chat message %q; want Ben's earlier message back", ok, err, stored())
+	}
+	if ok, err := s.RestoreChatMessage(ctx, ben.ID, "Saturday\nSunday too", "Saturday"); err != nil || ok {
+		t.Errorf("restoring twice = %v, %v; want nothing changed", ok, err)
+	}
+
+	update("Saturday\nSunday too")
+	update("Saturday\nSunday too\nOnly Sunday now")
+	if ok, err := s.RestoreChatMessage(ctx, ben.ID, "Saturday\nSunday too", "Saturday"); err != nil || ok || stored() != "Saturday\nSunday too\nOnly Sunday now" {
+		t.Errorf("restore after a newer import = %v, %v, chat message %q; want the newer text kept", ok, err, stored())
+	}
+}
+
 func TestSaveAvailability_ForSomeoneRemovedIsNotFound(t *testing.T) {
 	ctx := context.Background()
 	s := storetest.New(t)

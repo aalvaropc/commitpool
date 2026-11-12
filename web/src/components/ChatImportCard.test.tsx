@@ -143,7 +143,7 @@ describe('ChatImportCard', () => {
     expect(later).not.toContain('Who’s in?</textarea>')
   })
 
-  it('keeps Iris’s chat with Grace’s answer ready, folded away, once the demo has its people', () => {
+  it('opens Iris’s chat with Grace’s answer once the demo offers it', () => {
     const update = 'Iris Calder: Who’s in?\nGrace Liu: No problem — I swapped Saturday.'
     const view = owner({
       workshop: { status: 'COLLECTING', demo: true },
@@ -152,7 +152,7 @@ describe('ChatImportCard', () => {
       participants: [{ id: 'p1', display_name: 'Grace Liu' }],
     } as Partial<OwnerView>)
     const html = renderToStaticMarkup(<ChatImportCard token="t" view={view} onImported={async () => {}} />)
-    expect(html).not.toMatch(/<details[^>]*open/)
+    expect(html).toMatch(/<details[^>]*open/)
     expect(text(html)).toContain('Paste more of the chat')
     expect(html).toContain('Grace Liu: No problem — I swapped Saturday.</textarea>')
     expect(text(html)).toContain('Next in the demo: Grace’s answer is now the last line of Iris’s chat. Press Read the chat, then Read new messages from 1 person.')

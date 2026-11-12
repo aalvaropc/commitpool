@@ -213,7 +213,7 @@ export default function ChatImportCard({ token, view, onImported }: Props) {
   const fresh = view.participants.length === 0
   const [state, setState] = useState(() => chatCard((fresh ? view.demo_chat : view.demo_update) ?? ''))
   const [busy, setBusy] = useState<ChatBusy>(null)
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(() => !fresh && Boolean(view.demo_update))
   const [note, setNote] = useState('')
   const text = useRef<HTMLTextAreaElement>(null)
   const found = useRef<HTMLHeadingElement>(null)

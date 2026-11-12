@@ -217,8 +217,19 @@ describe('demoStep', () => {
       expect(demoStep(confirmed({ proposal: { date_id: 'sat', payments_open: false, minimum: 3 }, payout: payout('waiting') }), cast)?.action).toBe('start')
     })
 
-    it('stays quiet once the payout has gone out, or when the server is not in demo mode', () => {
-      expect(demoStep(confirmed({ proposal: { date_id: 'sat', payments_open: false, minimum: 3 }, payout: payout('paid') }), cast)).toBeNull()
+    it('closes the guide once Iris is paid, with the rescue to try next', () => {
+      const closed = { date_id: 'sat', payments_open: false, minimum: 3 }
+      expect(demoStep(confirmed({ proposal: closed, payout: payout('paid') }), cast)).toEqual({
+        text: 'That’s the whole loop: the chat read, the date found, the holds charged and Iris paid. To see the rescue, press Try it as Iris again, reserve as two people, then Skip to the last 2 hours.',
+        primary: null,
+        link: { label: 'Try it as Iris', to: '/' },
+      })
+      expect(demoStep(confirmed({ proposal: closed, payout: payout('sending') }), cast)).toBeNull()
+      expect(demoStep(confirmed({ proposal: closed, payout: payout('paid'), demo: { demo_mode: false, sandbox_mocks: false } }), cast)).toBeNull()
+      expect(demoStep(confirmed({ proposal: closed, payout: payout('paid'), workshop: { ...v.workshop, status: 'CONFIRMED', demo: false } }), cast)).toBeNull()
+    })
+
+    it('stays quiet while nothing is left to press, or when the server is not in demo mode', () => {
       expect(demoStep(confirmed({ proposal: { date_id: 'sat', payments_open: false, minimum: 3 }, payout: payout('no_email') }), cast)).toBeNull()
       expect(demoStep(confirmed({ demo: { demo_mode: false, sandbox_mocks: false } }), cast)).toBeNull()
     })

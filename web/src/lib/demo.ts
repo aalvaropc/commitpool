@@ -18,10 +18,16 @@ export function demoParticipants(view: Pick<OwnerView, 'act_as'>): DemoParticipa
 
 export type DemoAction = 'close' | 'start'
 
+export interface DemoLink {
+  label: string
+  to: string
+}
+
 export interface DemoStep {
   text: string
   primary: string | null
   action?: DemoAction
+  link?: DemoLink
 }
 
 export const CHAT_STEP = 'This is Iris’s group chat. Press Read the chat, then Add 6 people.'
@@ -29,6 +35,9 @@ export const OWN_CHAT_STEP = 'Press Read the chat, then Add the people.'
 export const REPLY_STEP = 'Copy Claude’s reply for the group, then act as Grace to answer her question.'
 export const ANSWERED_STEP = 'Grace answered in the chat. Paste the updated chat, or act as Grace to answer on her page.'
 export const UPDATE_STEP = 'Grace’s answer is now the last line of Iris’s chat. Press Read the chat, then Read new messages from 1 person.'
+export const DONE_STEP =
+  'That’s the whole loop: the chat read, the date found, the holds charged and Iris paid. To see the rescue, press Try it as Iris again, reserve as two people, then Skip to the last 2 hours.'
+const TRY_AGAIN: DemoLink = { label: 'Try it as Iris', to: '/' }
 
 export function chatLead(text: string, demoChat: string | null | undefined): string | null {
   if (!demoChat) return null
@@ -66,6 +75,10 @@ export function demoAction(v: OwnerView): DemoAction | null {
   return demoControl(v)
 }
 
+function paidOut(v: OwnerView): boolean {
+  return Boolean(v.workshop.demo && v.demo?.demo_mode) && v.workshop.status === 'CONFIRMED' && v.payout?.state === 'paid'
+}
+
 function finishStep(action: DemoAction, v: OwnerView): DemoStep {
   if (action === 'close') return { text: 'Close reservations now to end the reservation window.', primary: null, action }
   return { text: `Start the class now. The demo clock jumps to the start and CommitPool pays ${firstName(v.workshop.host_name)}.`, primary: null, action }
@@ -75,6 +88,7 @@ export function demoStep(v: OwnerView, cast: string[]): DemoStep | null {
   const { workshop: w, recommendation: rec } = v
   const action = demoAction(v)
   if (action) return finishStep(action, v)
+  if (paidOut(v)) return { text: DONE_STEP, primary: null, link: TRY_AGAIN }
   if (w.status === 'FUNDING') return reserveStep(v, cast)
   if (w.status !== 'COLLECTING' || v.proposal) return null
   const members = v.participants.filter((p) => cast.includes(p.display_name))

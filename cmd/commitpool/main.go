@@ -211,8 +211,8 @@ func newInterpreter(ctx context.Context, cfg config.Config, log *slog.Logger) (a
 			return nil, err
 		}
 		log.Info("using Claude on Amazon Bedrock", "region", cfg.AWSRegion, "model", cfg.BedrockModel, "fallback_model", cfg.BedrockFallbackModel, "effort", cfg.BedrockEffort,
-			"hourly_cap", cfg.AIHourlyCap, "daily_cap", cfg.AIDailyCap)
-		return ai.NewMemo(ai.NewBudget(b, ai.BudgetConfig{Hourly: cfg.AIHourlyCap, Daily: cfg.AIDailyCap, Clock: clock.Real{}}), ai.MemoSize), nil
+			"hourly_cap", cfg.AIHourlyCap, "daily_cap", cfg.AIDailyCap, "monthly_cap", cfg.AIMonthlyCap)
+		return ai.NewMemo(ai.NewBudget(b, ai.BudgetConfig{Hourly: cfg.AIHourlyCap, Daily: cfg.AIDailyCap, Monthly: cfg.AIMonthlyCap, Clock: clock.Real{}}), ai.MemoSize), nil
 	case config.AIProviderFake:
 		log.Warn("using the deterministic fake interpreter, scripted for the demo cast")
 		return ai.Fake{Script: demo.FakeScript()}, nil

@@ -368,7 +368,7 @@ func (r *roomlessAI) Room(calls int) time.Duration {
 
 func (r *roomlessAI) RoomLeaving(calls int, reserve func(limit int) int) time.Duration {
 	r.asked.Store(int64(calls))
-	for _, limit := range []int{0, 10, 40, 100, 200, 1500, 3000} {
+	for _, limit := range []int{0, 10, 40, 60, 100, 200, 300, 1500, 2000, 3000} {
 		r.reserves.Store(limit, reserve(limit))
 	}
 	return r.wait
@@ -387,7 +387,7 @@ func TestSample_LeavesTheLastReadingsOfTheBudgetToParticipants(t *testing.T) {
 }
 
 func TestSample_KeepsAReservePerWindowForParticipants(t *testing.T) {
-	cases := []struct{ limit, want int }{{0, 0}, {10, 5}, {40, 20}, {100, 20}, {200, 20}, {1500, 150}, {3000, 300}}
+	cases := []struct{ limit, want int }{{0, 0}, {10, 5}, {40, 20}, {60, 20}, {100, 20}, {200, 20}, {300, 30}, {1500, 150}, {2000, 200}, {3000, 300}}
 	model := &roomlessAI{}
 	e := newEnv(t, withAI(model))
 	e.call(http.MethodPost, samplePath, sampleBody("Saturday works"), http.StatusOK, nil)
@@ -402,28 +402,30 @@ func TestSample_KeepsAReservePerWindowForParticipants(t *testing.T) {
 	}
 }
 
-func TestSample_StillReadsWithClaudeAfterSixtyCallsInTheHourWithDefaultCaps(t *testing.T) {
+func TestSample_StillReadsWithClaudeAfterThirtyCallsInTheHourWithDefaultCaps(t *testing.T) {
 	stub := &cannedReadingAI{}
 	clk := &clock.Fake{T: time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)}
-	budget := ai.NewBudget(stub, ai.BudgetConfig{Hourly: 200, Daily: 1500, Clock: clk})
+	budget := ai.NewBudget(stub, ai.BudgetConfig{Hourly: 60, Daily: 300, Monthly: 2000, Clock: clk})
 	e := newEnv(t, withAI(budget))
-	for i := range 60 {
+	for i := range 30 {
 		if _, _, err := budget.Interpret(context.Background(), ai.InterpretInput{Message: fmt.Sprintf("a participant %d", i)}); err != nil {
 			t.Fatalf("participant reading %d: %v", i, err)
 		}
 	}
 	e.call(http.MethodPost, samplePath, sampleBody("Saturday works"), http.StatusOK, nil)
-	if got := stub.calls(); got != 61 {
-		t.Fatalf("model calls = %d, want 61: the landing read after 60 recorded calls must still go to Claude", got)
+	if got := stub.calls(); got != 31 {
+		t.Fatalf("model calls = %d, want 31: the landing read after 30 recorded calls must still go to Claude", got)
 	}
-	for i := 61; i < 180; i++ {
+	for i := 31; i < 40; i++ {
 		if _, _, err := budget.Interpret(context.Background(), ai.InterpretInput{Message: fmt.Sprintf("a participant %d", i)}); err != nil {
 			t.Fatalf("participant reading %d: %v", i, err)
 		}
 	}
 	e.wantError(http.MethodPost, samplePath, sampleBody("Saturday works again"), http.StatusTooManyRequests, "ai_capped")
-	if _, _, err := budget.Interpret(context.Background(), ai.InterpretInput{Message: "the last reserved reading"}); err != nil {
-		t.Errorf("a participant's reading inside the hourly reserve: %v", err)
+	for i := range 20 {
+		if _, _, err := budget.Interpret(context.Background(), ai.InterpretInput{Message: fmt.Sprintf("a reserved reading %d", i)}); err != nil {
+			t.Errorf("participant reading %d of the 20 kept in the hourly reserve: %v", i+1, err)
+		}
 	}
 }
 

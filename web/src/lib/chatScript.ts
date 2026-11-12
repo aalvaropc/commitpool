@@ -49,6 +49,8 @@ export const SUGGESTIONS = ['No problem — Saturday works!', 'El domingo sí pu
 
 export const ANSWERS = ['Saturday morning works', 'Sunday morning works', 'Neither morning, sorry']
 
+export const OFF_TOPIC = 'That doesn’t say when you can come. Try something like “Saturday works” or “Sunday, if we finish by 11.”'
+
 export interface Read {
   name: string
   counted: Counted

@@ -38,17 +38,21 @@ type Capacity interface {
 }
 
 type BudgetConfig struct {
-	Hourly int
-	Daily  int
-	Clock  clock.Clock
+	Hourly  int
+	Daily   int
+	Monthly int
+	Clock   clock.Clock
 }
 
+const monthlySpan = 30 * 24 * time.Hour
+
 type Budget struct {
-	next   Interpreter
-	clock  clock.Clock
-	mu     sync.Mutex
-	hourly window
-	daily  window
+	next    Interpreter
+	clock   clock.Clock
+	mu      sync.Mutex
+	hourly  window
+	daily   window
+	monthly window
 }
 
 var (
@@ -68,10 +72,11 @@ func NewBudget(next Interpreter, cfg BudgetConfig) *Budget {
 		clk = clock.Real{}
 	}
 	return &Budget{
-		next:   next,
-		clock:  clk,
-		hourly: window{limit: cfg.Hourly, span: time.Hour},
-		daily:  window{limit: cfg.Daily, span: 24 * time.Hour},
+		next:    next,
+		clock:   clk,
+		hourly:  window{limit: cfg.Hourly, span: time.Hour},
+		daily:   window{limit: cfg.Daily, span: 24 * time.Hour},
+		monthly: window{limit: cfg.Monthly, span: monthlySpan},
 	}
 }
 
@@ -109,8 +114,14 @@ func (w *window) wait(now time.Time, calls int, share func(int) int) time.Durati
 	return w.calls[over-1].Add(w.span).Sub(now)
 }
 
+func (w *window) record(now time.Time) {
+	if w.limit > 0 {
+		w.calls = append(w.calls, now)
+	}
+}
+
 func (b *Budget) waitFor(now time.Time, calls int, share func(int) int) time.Duration {
-	return max(b.hourly.wait(now, calls, share), b.daily.wait(now, calls, share))
+	return max(b.hourly.wait(now, calls, share), b.daily.wait(now, calls, share), b.monthly.wait(now, calls, share))
 }
 
 func (b *Budget) take(share func(int) int) error {
@@ -120,8 +131,9 @@ func (b *Budget) take(share func(int) int) error {
 	if wait := b.waitFor(now, 1, share); wait > 0 {
 		return &BusyError{Wait: wait}
 	}
-	b.hourly.calls = append(b.hourly.calls, now)
-	b.daily.calls = append(b.daily.calls, now)
+	b.hourly.record(now)
+	b.daily.record(now)
+	b.monthly.record(now)
 	return nil
 }
 

@@ -14,3 +14,9 @@ func NewBedrockForTest(_ context.Context, cfg BedrockConfig, baseURL string) (*B
 }
 
 var DraftSystem = draftSystem
+
+func StoredCalls(b *Budget) int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.hourly.calls) + len(b.daily.calls) + len(b.monthly.calls)
+}

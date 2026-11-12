@@ -15,11 +15,12 @@ import (
 )
 
 const (
-	suggestMaxTokens   = 1024
-	maxSuggestionWords = 60
-	maxQuestionRunes   = 200
-	groupReplyKind     = "group_reply"
-	defaultQuestion    = "Can you make one of the dates, and which?"
+	suggestBaseTokens        = 512
+	suggestTokensPerQuestion = 128
+	maxSuggestionWords       = 60
+	maxQuestionRunes         = 200
+	groupReplyKind           = "group_reply"
+	defaultQuestion          = "Can you make one of the dates, and which?"
 )
 
 //go:embed prompts/suggest_system.txt
@@ -255,6 +256,10 @@ func groupReplyFacts(sb *strings.Builder, in SuggestInput) {
 	}
 }
 
+func suggestMaxTokens(in SuggestInput) int64 {
+	return suggestBaseTokens + suggestTokensPerQuestion*int64(len(groupQuestions(in)))
+}
+
 func wordLimit(in SuggestInput) int {
 	limit := maxSuggestionWords
 	for _, q := range groupQuestions(in) {
@@ -270,7 +275,7 @@ func (Fake) Suggest(_ context.Context, in SuggestInput) (string, Meta, error) {
 func (b *Bedrock) Suggest(ctx context.Context, in SuggestInput) (string, Meta, error) {
 	msg, meta, err := b.send(ctx, "suggest", anthropic.BetaMessageNewParams{
 		Model:        b.model,
-		MaxTokens:    suggestMaxTokens,
+		MaxTokens:    suggestMaxTokens(in),
 		System:       []anthropic.BetaTextBlockParam{{Text: suggestSystemPrompt}},
 		Messages:     []anthropic.BetaMessageParam{anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(SuggestFacts(in)))},
 		OutputConfig: anthropic.BetaOutputConfigParam{Effort: b.effort},

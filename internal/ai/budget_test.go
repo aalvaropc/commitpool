@@ -271,24 +271,114 @@ func TestMemo_PassesTheBudgetsRoomThrough(t *testing.T) {
 
 func TestBudget_RoomLeavingKeepsAReserveInEveryWindow(t *testing.T) {
 	clk := &clock.Fake{T: budgetStart}
-	b := ai.NewBudget(&countingModel{}, ai.BudgetConfig{Hourly: 200, Daily: 1500, Clock: clk})
+	b := ai.NewBudget(&countingModel{}, ai.BudgetConfig{Hourly: 60, Daily: 300, Monthly: 2000, Clock: clk})
 	reserve := func(limit int) int { return max(20, limit/10) }
-	for range 60 {
+	for range 10 {
 		if _, _, err := b.Interpret(context.Background(), ai.InterpretInput{Message: "a participant"}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if wait := b.RoomLeaving(1, reserve); wait != 0 {
-		t.Errorf("RoomLeaving(1) after 60 calls with a reserve of 20 an hour = %v, want 0", wait)
+		t.Errorf("RoomLeaving(1) after 10 calls with a reserve of 20 an hour = %v, want 0", wait)
 	}
-	if wait := b.RoomLeaving(120, reserve); wait != 0 {
-		t.Errorf("RoomLeaving(120) with exactly 120 calls to spare = %v, want 0", wait)
+	if wait := b.RoomLeaving(30, reserve); wait != 0 {
+		t.Errorf("RoomLeaving(30) with exactly 30 calls to spare = %v, want 0", wait)
 	}
-	if wait := b.RoomLeaving(121, reserve); wait != time.Hour {
-		t.Errorf("RoomLeaving(121) into the hourly reserve = %v, want an hour", wait)
+	if wait := b.RoomLeaving(31, reserve); wait != time.Hour {
+		t.Errorf("RoomLeaving(31) into the hourly reserve = %v, want an hour", wait)
 	}
-	if wait := b.Room(140); wait != 0 {
-		t.Errorf("Room(140) with 140 calls left and no reserve = %v, want 0", wait)
+	if wait := b.Room(50); wait != 0 {
+		t.Errorf("Room(50) with 50 calls left and no reserve = %v, want 0", wait)
+	}
+}
+
+func TestBudget_RefusesPastTheMonthlyCapOverASlidingThirtyDays(t *testing.T) {
+	model := &countingModel{}
+	clk := &clock.Fake{T: budgetStart}
+	b := ai.NewBudget(model, ai.BudgetConfig{Hourly: 4, Daily: 6, Monthly: 10, Clock: clk})
+	ctx := context.Background()
+	for i := range 10 {
+		clk.Set(budgetStart.Add(time.Duration(i/2)*24*time.Hour + time.Duration(i%2)*time.Hour))
+		if _, _, err := b.Interpret(ctx, budgetInput()); err != nil {
+			t.Fatalf("call %d: %v", i+1, err)
+		}
+	}
+	clk.Set(budgetStart.Add(5 * 24 * time.Hour))
+	_, _, err := b.Interpret(ctx, budgetInput())
+	wantBusy(t, err, 25*24*time.Hour)
+	wantBusy(t, background(b)["explain"](), 26*24*time.Hour)
+	if n := model.calls.Load(); n != 10 {
+		t.Errorf("model calls = %d, want 10: a refused call never reaches the model", n)
+	}
+
+	clk.Set(budgetStart.Add(30 * 24 * time.Hour))
+	if _, _, err := b.Interpret(ctx, budgetInput()); err != nil {
+		t.Fatalf("thirty days after the first call: %v", err)
+	}
+	_, _, err = b.Interpret(ctx, budgetInput())
+	wantBusy(t, err, time.Hour)
+}
+
+func TestBudget_TextsUseAtMostThreeQuartersOfTheMonth(t *testing.T) {
+	model := &countingModel{}
+	clk := &clock.Fake{T: budgetStart}
+	b := ai.NewBudget(model, ai.BudgetConfig{Hourly: 100, Daily: 100, Monthly: 4, Clock: clk})
+	calls := background(b)
+	for i, name := range []string{"explain", "draft", "suggest"} {
+		clk.Set(budgetStart.Add(time.Duration(i) * 24 * time.Hour))
+		if err := calls[name](); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+	clk.Set(budgetStart.Add(10 * 24 * time.Hour))
+	wantBusy(t, calls["explain"](), 20*24*time.Hour)
+	if _, _, err := b.Interpret(context.Background(), budgetInput()); err != nil {
+		t.Fatalf("a reading in the quarter of the month kept for readings: %v", err)
+	}
+	_, _, err := b.Interpret(context.Background(), budgetInput())
+	wantBusy(t, err, 20*24*time.Hour)
+}
+
+func TestBudget_RoomLeavingKeepsAReserveInTheMonth(t *testing.T) {
+	clk := &clock.Fake{T: budgetStart}
+	b := ai.NewBudget(&countingModel{}, ai.BudgetConfig{Hourly: 10, Daily: 20, Monthly: 40, Clock: clk})
+	reserve := func(limit int) int { return limit / 4 }
+	for i := range 30 {
+		clk.Set(budgetStart.Add(time.Duration(i/6)*24*time.Hour + time.Duration(i%6)*time.Hour))
+		if _, _, err := b.Interpret(context.Background(), budgetInput()); err != nil {
+			t.Fatalf("call %d: %v", i+1, err)
+		}
+	}
+	clk.Set(budgetStart.Add(6 * 24 * time.Hour))
+	if wait := b.RoomLeaving(1, reserve); wait != 24*24*time.Hour {
+		t.Errorf("RoomLeaving(1) with 30 of the 30 calls kept outside the monthly reserve used = %v, want 24 days until the first is 30 days old", wait)
+	}
+	if wait := b.Room(10); wait != 0 {
+		t.Errorf("Room(10) with 10 calls left this month and no reserve = %v, want 0", wait)
+	}
+	if wait := b.Room(11); wait != 24*24*time.Hour {
+		t.Errorf("Room(11) beyond what is left this month = %v, want 24 days", wait)
+	}
+}
+
+func TestBudget_StoresNoMoreTimesThanItsCaps(t *testing.T) {
+	clk := &clock.Fake{T: budgetStart}
+	b := ai.NewBudget(&countingModel{}, ai.BudgetConfig{Hourly: 60, Daily: 300, Monthly: 2000, Clock: clk})
+	for i := range 90 * 24 * 12 {
+		clk.Set(budgetStart.Add(time.Duration(i) * 5 * time.Minute))
+		_, _, _ = b.Interpret(context.Background(), budgetInput())
+		if n := ai.StoredCalls(b); n > 60+300+2000 {
+			t.Fatalf("after %d attempts the budget keeps %d times, want at most its caps, 2360", i+1, n)
+		}
+	}
+	unlimited := ai.NewBudget(&countingModel{}, ai.BudgetConfig{Hourly: 5, Clock: clk})
+	for range 5 {
+		if _, _, err := unlimited.Interpret(context.Background(), budgetInput()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := ai.StoredCalls(unlimited); n != 5 {
+		t.Errorf("a budget with only an hourly cap keeps %d times, want 5: the windows without a cap keep none", n)
 	}
 }
 

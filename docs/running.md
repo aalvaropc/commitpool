@@ -64,6 +64,35 @@ answer `AUTHORIZATION_EXPIRED` to one capture through the
 `PayPal-Mock-Response` header. The server refuses that header outside the
 Sandbox.
 
+## Pasting a group chat
+
+On the organizer page, **Paste your group chat** reads a chat the organizer
+pastes (or uploads as WhatsApp's **Export chat**, `.txt`, without media) and adds
+the people in it to the class, each with what they wrote. It works while the
+class is still finding its date (`collecting`). Three endpoints, all under the
+organizer link and answering JSON:
+
+| Endpoint | What it does |
+| --- | --- |
+| `POST /api/v1/owner/{token}/chat/preview` | Body `{"text": "..."}`. Parses the chat and returns `people` (`name`, `excerpt`, `messages`, `host`, `joined`) and how many lines were `skipped`. Writes nothing and calls no model. |
+| `POST /api/v1/owner/{token}/chat/import` | Body `{"text": "...", "names": ["..."]}`. Adds the chosen people, skipping the organizer and anyone already in the class, and answers 202 with `imported` (`name`, `participant_url`) and `skipped` (`name`, `reason`: `host`, `already_here` or `not_in_chat`). Claude reads each person's text in the background; the board shows "Claude is reading..." until each reading arrives. |
+| `POST /api/v1/owner/{token}/chat/retry` | Reads again the people added from the chat who have no reading yet, and answers 202 with `{"reading": n}`. It is what **Read again** calls after a person shows "Couldn't read yet". |
+
+`DELETE /api/v1/owner/{token}/participants/{id}` removes someone added from the
+chat who has not reserved, while the class is still finding its date.
+
+Pasting the chat again reads only what is new. A person already added whose messages in the new paste go beyond what was stored is read again with just the new messages, as a follow-up to Claude's question; the preview marks them with `new_messages`, and the import answers them under `updated` next to `imported`. An edited chat, or a different export that does not continue the stored one, is left alone, and someone still being read is skipped until the reading lands. A demo workshop allows one such re-paste after its import (422 `demo_update_used` afterwards), and its owner view carries `demo_update`: Iris's chat with Grace's reply, offered while her question is open.
+
+Limits:
+- A chat is at most 20,000 characters (413 `chat_too_long`) and at most 30 people (422 `chat_too_many_people`). An empty paste is 422 `chat_empty`, and a paste with no `Name: message` lines is 422 `chat_no_lines`. Nothing is created in any of these cases.
+- Each person's text sent to Claude is at most 2,000 characters, keeping the newest messages. Messages that span several lines, WhatsApp's direction marks and names with accents or emoji are handled; names are sanitized and always shown as text.
+- A demo workshop takes one import of at most 8 people, and only while nobody is in it (422 `demo_import_used`, 422 `demo_too_many_people`).
+- A real workshop takes at most three imports (or retries) per 10 minutes, counted in memory (429 `import_limit` with `Retry-After`).
+- Before anything is created, an import checks that the Bedrock caps leave room for one reading per person; otherwise it answers 429 `ai_capped` with `Retry-After`. If a reading still fails later, the person shows as "Couldn't read yet" and **Read again** finishes them.
+- At most two readings of pasted chats run at once on the server.
+
+Claude only reads availability from a message: a message cannot change the price, the minimum or the dates, and the server counts a person only once their reading is clear. People added this way keep a plain page link the organizer can copy (see [Demo mode](#demo-mode) for how it is stored).
+
 ## Configuration
 
 All configuration comes from environment variables, and secrets are only ever

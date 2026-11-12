@@ -54,6 +54,14 @@ function toDocPng(png, out, maxWidth) {
   step(`${path.relative(repo, out)} ${Math.round(fs.statSync(out).size / 1024)} KB`)
 }
 
+function toAnimation(frames, out) {
+  const keep = frames.length > 18 ? frames.filter((_, i) => i < 3 || i % 2 === 0 || i === frames.length - 1) : frames
+  const delays = keep.map((_, i) => (i < 2 ? 160 : i === keep.length - 1 ? 400 : 110))
+  const args = keep.flatMap((f, i) => ['-delay', String(delays[i]), '(', f, '-resize', '1120x', ')'])
+  execFileSync('magick', [...args, '-loop', '0', '-strip', '-quality', '74', '-define', 'webp:method=6', out])
+  step(`${path.relative(repo, out)} ${Math.round(fs.statSync(out).size / 1024)} KB from ${keep.length} frames`)
+}
+
 async function settle(page) {
   await page.evaluate(() => document.fonts.ready)
   await page.evaluate('new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))')
@@ -120,11 +128,42 @@ async function main() {
     step('reading Iris’s group chat')
     const chat = owner.getByRole('region', { name: 'Paste your group chat' })
     await expect(chat.getByRole('textbox', { name: 'Paste your group chat' })).toHaveValue(/\] Iris Calder: /)
+    const frames = []
+    const frame = async (anchor, above) => {
+      const box = await anchor.boundingBox()
+      const scroll = await owner.evaluate(() => window.scrollY)
+      await owner.evaluate((y) => window.scrollTo(0, y), Math.max(0, box.y + scroll - above))
+      await settle(owner)
+      const file = png(`frame-${String(frames.length).padStart(2, '0')}`)
+      await owner.screenshot({ path: file, scale: 'css' })
+      frames.push(file)
+    }
+    if (opts.withDocs) await frame(chat, 24)
     await chat.getByRole('button', { name: 'Read the chat' }).click()
+    await expect(chat.getByRole('button', { name: 'Add 6 people' })).toBeVisible()
+    if (opts.withDocs) {
+      await frame(chat, 24)
+      await chat.scrollIntoViewIfNeeded()
+      await settle(owner)
+      await chat.screenshot({ path: png('chat'), scale: 'css' })
+      toDocPng(png('chat'), path.join(opts.docs, 'chat-import.png'), 800)
+      await frame(chat.getByRole('button', { name: 'Add 6 people' }), 700)
+    }
     await chat.getByRole('button', { name: 'Add 6 people' }).click()
     await expect(owner.getByRole('heading', { name: 'You are Iris now' })).toBeVisible()
     step('waiting for the six answers')
-    await expect(owner.getByText('6 of 6 answered', { exact: false })).toBeVisible({ timeout: 240_000 })
+    const answered = owner.getByText('6 of 6 answered', { exact: false })
+    const board = owner.locator('section[aria-labelledby="grid-title"]')
+    const deadline = Date.now() + 240_000
+    while (!(await answered.isVisible()) && Date.now() < deadline) {
+      if (opts.withDocs && frames.length < 40) await frame(board, 240)
+      await owner.waitForTimeout(700)
+    }
+    await expect(answered).toBeVisible({ timeout: 1_000 })
+    if (opts.withDocs) {
+      await frame(board, 240)
+      toAnimation(frames, path.join(opts.docs, 'paste-your-chat.webp'))
+    }
     await expect(owner.getByText('Claude is writing why this date works…')).toHaveCount(0, { timeout: 120_000 })
     await owner.reload()
     await expect(owner.getByText('6 of 6 answered', { exact: false })).toBeVisible()

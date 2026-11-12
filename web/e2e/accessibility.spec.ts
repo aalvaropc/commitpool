@@ -43,6 +43,7 @@ test.describe('landing at phone and desktop width', () => {
       await expect(page.getByRole('button', { name: 'Try it as Iris' }).first()).toBeVisible()
       await page.getByRole('region', { name: 'Example: answers to Iris’s invite' }).scrollIntoViewIfNeeded()
       await expect(page.getByRole('group', { name: 'Quick replies' })).toBeVisible()
+      await expect(page.getByText('Pick one or write your own, in any language.')).toBeVisible()
       await expectAccessible(page, `the landing page at ${viewport.width} px`)
 
       const overflow = Number(await page.evaluate('document.documentElement.scrollWidth - window.innerWidth'))

@@ -350,7 +350,12 @@ export default function ChatDemo({ demo, noteClassName = '' }: { demo?: boolean;
 
         <footer className="flex flex-col gap-2.5 bg-composer px-3.5 pt-3 pb-3.5">
           {turn && (
-            <div className="rise -mx-3.5 flex gap-2 overflow-x-auto px-3.5 [mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)] [scrollbar-width:none]" role="group" aria-label="Quick replies">
+            <p id="quick-replies-hint" className="text-[0.8125rem] text-ink-soft">
+              Pick one or write your own, in any language.
+            </p>
+          )}
+          {turn && (
+            <div className="rise -mx-3.5 flex gap-2 overflow-x-auto px-3.5 [mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)] [scrollbar-width:none]" role="group" aria-label="Quick replies" aria-describedby="quick-replies-hint">
               {replies.map((s) => (
                 <button
                   key={s}

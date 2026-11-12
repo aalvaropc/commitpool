@@ -6,7 +6,7 @@
 
 **The class happens, or nobody pays.** Iris, the demo's fictional life drawing teacher, needs 3 people at $45 to cover $120 for the room and the model. Her group chat holds a dozen maybes and no date. She pastes it into CommitPool: Claude reads each person against each date, CommitPool picks the date that reaches 3, and everyone reserves with a PayPal hold, charged only once 3 reserve. Otherwise every hold is released.
 
-**[Open the live demo](https://3-209-60-155.sslip.io)** · Video and testing instructions: on the CommitPool Devpost page · PayPal Sandbox: no real money moves.
+**[Open the live demo](https://3-209-60-155.sslip.io)** · **[Watch the demo video (2:46)](https://youtu.be/KP_5AaAyIEc)** · Testing instructions: on the CommitPool Devpost page · PayPal Sandbox: no real money moves.
 
 Why it matters: small free events see a median of about 37% no-shows, small paid ones about 17% ([PheedLoop](https://pheedloop.com/blog/event-data-lab-report-5)).
 

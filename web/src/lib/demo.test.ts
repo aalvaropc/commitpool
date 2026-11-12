@@ -89,6 +89,16 @@ describe('demoStep', () => {
     expect(demoStep(view({ availabilities: v.availabilities.slice(0, 2), reading: { pending: 2, total: 4, active: false } }), cast)).toBeNull()
   })
 
+  it('says how many people Claude couldn’t read once a reading failed, and to read them again', () => {
+    const v = view()
+    const unread = (...names: string[]) => v.participants.map((p) => ({ ...p, unread: names.includes(p.display_name) }))
+    const one = view({ participants: unread('Hannah Kim'), availabilities: [answer('Priya Raman'), answer('Ben Whitaker'), answer('Grace Liu', true)], reading: { pending: 1, total: 4, active: false } })
+    expect(demoStep(one, cast)).toEqual({ text: 'Claude couldn’t read 1 person yet. Press Read again.', primary: null })
+    const two = view({ participants: unread('Hannah Kim', 'Grace Liu'), availabilities: v.availabilities.slice(0, 2), reading: { pending: 2, total: 4, active: false } })
+    expect(demoStep(two, cast)).toEqual({ text: 'Claude couldn’t read 2 people yet. Press Read again.', primary: null })
+    expect(demoStep({ ...two, reading: { pending: 2, total: 4, active: true } }, cast)?.text).toBe('Claude is reading each person’s messages against Iris’s dates.')
+  })
+
   it('once Claude drafted the group reply, says to copy it, then to answer as Grace', () => {
     const reply = { kind: 'group_reply' as const, reason: '', message: 'Life drawing: thanks, everyone!', pending: false }
     expect(demoStep(view({ suggestions: [reply] }), cast)).toEqual({

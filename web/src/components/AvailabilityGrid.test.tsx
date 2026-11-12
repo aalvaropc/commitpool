@@ -73,6 +73,26 @@ describe('AvailabilityGrid with people from the chat', () => {
     expect(funding).not.toContain('Remove Priya Raman')
   })
 
+  it('offers Read again only while the class is still finding its date', () => {
+    const funding = render(view([priya, grace], { workshop: { status: 'FUNDING', timezone: 'America/New_York', minimum: 3, capacity: 6 } } as unknown as Partial<OwnerView>))
+    expect(funding).toContain('Couldn’t read yet')
+    expect(funding).not.toContain('Read Grace Liu’s message again')
+  })
+
+  it('flags people whose name another person shares, and says the chat row can be removed', () => {
+    const joined: OwnerParticipant = { id: 'p5', display_name: 'grace liu', source: 'link', chat_message: null, unread: false, participant_url: null }
+    const twice = render(view([priya, grace, joined]))
+    expect(twice.match(/Possible duplicate/g)).toHaveLength(5)
+    expect(twice).toContain('Possible duplicate: a name appears more than once. If it’s the same person, remove the row added from the chat so they count once.')
+
+    const once = render(view([priya, grace, ada]))
+    expect(once).not.toContain('Possible duplicate')
+
+    const funding = render(view([priya, grace, joined], { workshop: { status: 'FUNDING', timezone: 'America/New_York', minimum: 3, capacity: 6 } } as unknown as Partial<OwnerView>))
+    expect(funding.match(/Possible duplicate/g)).toHaveLength(4)
+    expect(funding).not.toContain('remove the row added from the chat')
+  })
+
   it('points to the chat card before anyone is on the board', () => {
     expect(render(view([], { availabilities: [] }))).toContain('Paste your group chat above, or share the invite. Each person appears here with their answer for every date.')
   })

@@ -1,6 +1,7 @@
 import type { OwnerView } from '../api'
 import { tokenFromParticipantURL } from './participant'
 import { canStartClass } from './payout'
+import { count } from './plural'
 import { freeToReserveAgain } from './status'
 import { formatWeekday } from './time'
 
@@ -95,6 +96,8 @@ export function demoStep(v: OwnerView, cast: string[]): DemoStep | null {
   const answers = new Map(v.availabilities.map((a) => [a.participant_id, a]))
   const waiting = members.some((p) => !answers.has(p.id))
   if (members.length > 0 && v.reading?.active) return { text: `Claude is reading each person’s messages against ${firstName(w.host_name)}’s dates.`, primary: null }
+  const unread = v.participants.filter((p) => p.unread && !answers.has(p.id)).length
+  if (unread > 0 && !v.reading?.active) return { text: `Claude couldn’t read ${count(unread, 'person', 'people')} yet. Press Read again.`, primary: null }
   if (!rec.date_id || members.length === 0 || waiting) return null
   if (rec.meets_minimum) return { text: 'Open reservations, then reserve as someone who can come.', primary: null }
   const best = v.dates.find((d) => d.id === rec.date_id)

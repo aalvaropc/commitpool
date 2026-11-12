@@ -28,9 +28,10 @@ const (
 
 	credentialTimeout = 10 * time.Second
 
-	interpretMaxTokens = 2048
-	explainMaxTokens   = 2048
-	draftMaxTokens     = 4096
+	interpretBaseTokens    = 576
+	interpretTokensPerDate = 96
+	explainMaxTokens       = 400
+	draftMaxTokens         = 1024
 
 	maxExplanationWords = 60
 )
@@ -111,7 +112,7 @@ func (b *Bedrock) Interpret(ctx context.Context, in InterpretInput) (domain.Inte
 	}
 	msg, meta, err := b.send(ctx, "interpret", anthropic.BetaMessageNewParams{
 		Model:     b.model,
-		MaxTokens: interpretMaxTokens,
+		MaxTokens: interpretMaxTokens(len(in.Dates)),
 		System:    []anthropic.BetaTextBlockParam{{Text: interpretSystem(in)}},
 		Messages: []anthropic.BetaMessageParam{
 			anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(interpretUserTurn(in))),
@@ -129,6 +130,10 @@ func (b *Bedrock) Interpret(ctx context.Context, in InterpretInput) (domain.Inte
 		return domain.Interpretation{}, meta, fmt.Errorf("ai: interpret: %w", err)
 	}
 	return out, meta, nil
+}
+
+func interpretMaxTokens(dates int) int64 {
+	return interpretBaseTokens + interpretTokensPerDate*int64(dates)
 }
 
 func interpretUserTurn(in InterpretInput) string {

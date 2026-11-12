@@ -170,6 +170,7 @@ What each call must meet:
 - **User text** reaches the model as a JSON string labelled as data, never as instructions.
 - **Explanations** are cut at 60 words, and **nudges** refuse links and contact details. Both fall back to plain words when the model fails, or when an explanation names a date other than the recommended one.
 - **The service logs**, per call, the model, latency and token counts. It never logs the prompt, the message or the answer.
+- **Output limits** bound what one call can cost. A reading may write 576 tokens plus 96 per candidate date: 768 for the landing's two dates and 1536 for a class with the most, ten, since every date adds its own verdict and evidence (the longest reading we measured, ten dates and an 1,800-character message, used 1,115). An explanation may write 400, a draft 1024, and a nudge 512 plus 128 for each question a reply for the group quotes word for word (four long questions in Russian or Japanese used about 480). An answer that reaches its limit is an error, and falls back like any other failure.
 
 Claude Sonnet 4.5 is served on Bedrock only through inference profiles:
 `us.anthropic.claude-sonnet-4-5-20250929-v1:0` (US regions) or

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/aalvaropc/commitpool/internal/ai"
 	"github.com/aalvaropc/commitpool/internal/domain"
@@ -179,8 +181,8 @@ func TestBedrock_RequestShape(t *testing.T) {
 	if beta, _ := json.Marshal(body["anthropic_beta"]); !strings.Contains(string(beta), "fallback-credit") || len(req.header.Values("Anthropic-Beta")) != 0 {
 		t.Errorf("anthropic_beta = %s, header %v; want the refusal fallback's beta in the body", beta, req.header.Values("Anthropic-Beta"))
 	}
-	if body["max_tokens"] != float64(2048) {
-		t.Errorf("max_tokens = %v, want 2048", body["max_tokens"])
+	if body["max_tokens"] != float64(768) {
+		t.Errorf("max_tokens = %v, want 768 for two dates", body["max_tokens"])
 	}
 	if _, ok := body["fallbacks"]; ok {
 		t.Error("the request sends server-side fallbacks; Bedrock takes the client-side middleware only")
@@ -722,5 +724,62 @@ func TestInterpretPrompt_TiesQuestionsToTheClassHours(t *testing.T) {
 		if strings.Contains(system, stale) {
 			t.Errorf("interpret system prompt still contains %q", stale)
 		}
+	}
+}
+
+func tenDates() []ai.DateOption {
+	out := make([]ai.DateOption, 10)
+	for i := range out {
+		out[i] = ai.DateOption{ID: fmt.Sprintf("d%d", i), Label: fmt.Sprintf("Day %d, 6–8 PM", i+1)}
+	}
+	return out
+}
+
+func TestBedrock_EachCallHasItsOutputLimitAndACutOffIsAnError(t *testing.T) {
+	question := ai.NamedQuestion{Name: "Grace Liu", Question: "The class runs 10 AM–12 PM on Saturday and Sunday — can you make either morning, and which?"}
+	group := ai.SuggestInput{WorkshopTitle: "Life drawing", Kind: "group_reply", Date: "Sat, Nov 14", Hours: "10 AM–12 PM", CanCome: 2, Needed: 3, Missing: 1,
+		Questions: []ai.NamedQuestion{question, question, question, question}}
+	cases := []struct {
+		name string
+		max  int
+		call func(*ai.Bedrock) error
+	}{
+		{"interpret two dates", 768, func(b *ai.Bedrock) error {
+			_, _, err := b.Interpret(context.Background(), interpretInput())
+			return err
+		}},
+		{"interpret ten dates", 1536, func(b *ai.Bedrock) error {
+			in := interpretInput()
+			in.Dates = tenDates()
+			_, _, err := b.Interpret(context.Background(), in)
+			return err
+		}},
+		{"explain", 400, func(b *ai.Bedrock) error { _, _, err := b.Explain(context.Background(), explainInput()); return err }},
+		{"draft", 1024, func(b *ai.Bedrock) error {
+			_, _, err := b.Draft(context.Background(), ai.DraftInput{Text: "life drawing", Timezone: "UTC", Today: time.Date(2026, 11, 9, 9, 0, 0, 0, time.UTC)})
+			return err
+		}},
+		{"nudge", 512, func(b *ai.Bedrock) error { _, _, err := b.Suggest(context.Background(), nudge("clarify")); return err }},
+		{"group reply with four questions", 1024, func(b *ai.Bedrock) error { _, _, err := b.Suggest(context.Background(), group); return err }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newFakeBedrock(t, message(testModel, `{"per_date": [`, "max_tokens"))
+			b := newTestBedrock(t, m, nil)
+			err := tc.call(b)
+			if want := fmt.Sprintf("the answer was cut off at %d tokens", tc.max); err == nil || !strings.Contains(err.Error(), want) {
+				t.Errorf("err = %v, want %q", err, want)
+			}
+			if _, capped := ai.BusyWait(err); capped {
+				t.Error("a cut-off answer reads as a capped model; callers must fall back to plain text instead of waiting")
+			}
+			reqs := m.recorded()
+			if len(reqs) != 1 {
+				t.Fatalf("requests = %d, want 1", len(reqs))
+			}
+			if got := reqs[0].body["max_tokens"]; got != float64(tc.max) {
+				t.Errorf("max_tokens = %v, want %d", got, tc.max)
+			}
+		})
 	}
 }

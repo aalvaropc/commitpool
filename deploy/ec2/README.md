@@ -35,7 +35,7 @@ deletes the database.
   `eval "$(aws configure export-credentials --format env)"`.
 - Terraform 1.15, Docker with Buildx (the image is built for `linux/arm64`
   without emulation: the build stages run on the host and Go cross-compiles).
-- Claude Sonnet 4.5 usable in the region (the root README's Bedrock section).
+- Claude Sonnet 4.5 usable in the region ([Running: Claude on Amazon Bedrock](../../docs/running.md#claude-on-amazon-bedrock)).
 - A PayPal Sandbox REST app: its client id and secret.
 
 ## First deploy, in order
@@ -84,7 +84,9 @@ export AWS_REGION=us-east-1
    scripts/deploy-ec2.sh
    ```
 
-5. Seed the demo workshop: `go run ./cmd/seed -base "$url"`.
+5. Optional: seed a prepared class with its answers already sent:
+   `go run ./cmd/seed -base "$url"`. The demo does not need it: each **Try it
+   as Iris** creates its own class.
 
 ## Later deploys and operations
 
@@ -108,7 +110,7 @@ export AWS_REGION=us-east-1
   in its sandbox, only verified recipients get mail. Without it,
   notifications are only logged;
   `/commitpool/demo_payout_email` (String), the email of a Sandbox Personal
-  account, is where the demo workshops pay their organizer out. The deploy
+  account, is where the demo classes pay their organizer out. The deploy
   always sets `COMMITPOOL_PAYOUTS=1`; see
   [Running: Payouts](../../docs/running.md#payouts) for what the Sandbox app
   needs.
@@ -128,8 +130,9 @@ export AWS_REGION=us-east-1
 
 ## Email through Amazon SES
 
-The demo sends real email once a sender is verified, stored as
-`/commitpool/mail_from` and deployed:
+The hosted demo does not set `/commitpool/mail_from`, so it only logs
+notifications. To send real email, verify a sender, store it as
+`/commitpool/mail_from` and redeploy:
 
 1. Verify the sender (SES emails a link to click):
 

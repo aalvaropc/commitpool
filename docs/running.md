@@ -22,8 +22,8 @@ For frontend work, run `pnpm -C web dev`. Vite proxies `/api`, `/paypal`,
 
 With the service running, `make seed` creates Iris's demo workshop through the
 HTTP API on the next free weekend: 3 needed of 6 spots at US$45. Its six
-participants have already sent their availability messages. Saturday has 2 of
-the 3 needed: Grace's message leaves open whether she can make a morning, so
+participants have already sent their availability messages. Saturday and Sunday
+each have 2 of the 3 needed (tied, and Saturday comes first): Grace's message leaves open whether she can make a morning, so
 Claude asks her about the class hours, and her answer is what lets Saturday open.
 
 `make seed` prints the organizer link, the invite link and one link per
@@ -48,8 +48,8 @@ Limits on starting demos:
 
 Both endpoints answer 404 outside demo mode. The demo also adds the
 organizer's **Close reservations now** control; once the class is on and
-reservations are closed, **Start the class now**, which moves the demo clock
-to the class start and pays the organizer out right away (see
+reservations are closed, **Start the class now**, which starts the class early
+(the payout lock counts as the start) and pays the organizer out right away (see
 [Payouts](#payouts)); and, while a class is funding, a **Demo clock** with
 **Skip to the last 2 hours** (`POST /api/v1/owner/{token}/demo/skip-to-last-hours`):
 while its deadline has never been extended, it moves `closes_at` to two hours
@@ -116,7 +116,7 @@ exits 1; the EC2 deploy runs it before it replaces the running app.
 | `COMMITPOOL_AI_HOURLY_CAP`, `COMMITPOOL_AI_DAILY_CAP` | Most Bedrock calls in any sliding hour (default `200`) and in any sliding 24 hours (default `1500`). They count model calls as the app makes them; the SDK may retry a failed call up to twice, and that is still one call. Readings of availability may use the whole cap; explanations, nudges and drafts only three quarters of it, so they never starve readings. Past its share, a reading answers 429 `ai_capped` with `Retry-After` and a message that says when to try again, and the others fall back to plain text or an empty draft until the wait is over. Every reading calls Claude; an explanation, nudge or draft identical to one of the last 512 reuses that answer and is not counted. Setting only the daily cap lowers the hourly default to it. The fake provider has no cap. |
 | `COMMITPOOL_BEDROCK_EFFORT` | Effort for every Bedrock call: `none` (default; Sonnet 4.5 takes no effort), or `low`, `medium`, `high`, `xhigh` or `max` for a model that takes one. |
 | `COMMITPOOL_SEAT_TTL_MIN` | Minutes a reserved seat is held while the buyer approves at PayPal (default `30`). |
-| `COMMITPOOL_DEMO_MODE` | `1` enables **Try it as Iris** and **Close reservations now**. |
+| `COMMITPOOL_DEMO_MODE` | `1` enables **Try it as Iris** and the demo controls: **Close reservations now**, **Start the class now** and **Skip to the last 2 hours**. |
 | `COMMITPOOL_VIDEO_URL` | Optional. A YouTube link to the demo video (`https://youtu.be/…` or `https://www.youtube.com/watch?v=…`). On a demo server, `GET /api/v1/demo` returns it as `video_url`, a privacy-enhanced `youtube-nocookie.com` embed, and the landing's **For judges** section plays it. Any other link is refused at startup. |
 | `COMMITPOOL_DEVPOST_URL` | Optional. An `https://` link to the project's Devpost page. On a demo server, `GET /api/v1/demo` returns it as `devpost_url` and the landing's **For judges** section links to it; without it the link is hidden. Any other value is refused at startup. |
 | `COMMITPOOL_JUDGE_BUYER_EMAIL`, `COMMITPOOL_JUDGE_BUYER_PASSWORD` | Optional, set both or neither. A PayPal **Sandbox** Personal account for judges. On a demo server, `GET /api/v1/demo` returns them as `judge_login` and the landing shows them with copy buttons; without them, the landing points to the testing instructions instead. Never put a live PayPal login here: the page is public. |
@@ -125,7 +125,7 @@ exits 1; the EC2 deploy runs it before it replaces the running app.
 | `COMMITPOOL_PAYOUTS` | `1` pays each confirmed class's organizer, when the class starts, what participants paid less PayPal's fees, with PayPal Payouts. Default `0`: payout jobs wait and nothing is sent. See [Payouts](#payouts). |
 | `COMMITPOOL_DEMO_PAYOUT_EMAIL` | The PayPal email demo workshops are paid out to, one plain address (a Sandbox Personal account). Default none: demo workshops have no payout. Logged only as set or not. |
 | `COMMITPOOL_MAILER`, `COMMITPOOL_MAIL_FROM` | `log` (default) logs notifications with a masked address and does not send them. `ses` sends them with Amazon SES v2 and the default AWS credentials, from `COMMITPOOL_MAIL_FROM`. That must be a verified sender identity, optionally with a name: `CommitPool <hello@example.com>`. |
-| `COMMITPOOL_RATE_LIMIT` | How many writes (POST, PUT) one client address may send a minute, in bursts of half that. `off` turns it off. Default `120`. Reads are never limited. |
+| `COMMITPOOL_RATE_LIMIT` | How many writes (POST, PUT, PATCH, DELETE) one client address may send a minute, in bursts of half that. `off` turns it off. Default `120`. Reads are never limited. |
 | `COMMITPOOL_MCP_SECRET` | Signs the organizer approval cookie and the landing chat's questions. Without it a random key per process is used, so an approve page opened before a restart must be reloaded before Approve works. Required when more than one instance serves the site. |
 | `E2E_FAKE_PAYPAL` | `1` runs an in-process fake PayPal for the end-to-end tests. Only a binary built with `-tags e2e` carries it (`scripts/e2e.sh` builds one). It is refused next to real PayPal credentials or with a `COMMITPOOL_BASE_URL` that is not localhost. |
 
@@ -230,7 +230,7 @@ commit.
 
 `deploy/aws/` holds a production-shaped alternative that the demo does not
 use. It runs ECS Fargate, RDS in private subnets and an ALB reachable only
-from CloudFront, at about US$63 a month
+from CloudFront, at about US$62–66 a month
 ([deploy/aws/README.md](../deploy/aws/README.md)).
 
 ## Tests
@@ -253,9 +253,10 @@ bash scripts/e2e.sh        # Playwright journeys and axe checks against a fresh 
 
 **Database tests.** They read `TEST_DATABASE_URL` and refuse a database whose name does not end in `_test`. Set `COMMITPOOL_SKIP_DB_TESTS=1` to skip them.
 
-**Fuzz targets.** Two of them cover money parsing and the cleaning of the model's reading:
+**Fuzz targets.** Three of them cover money parsing, the cleaning of the model's reading and the chat parser:
 - `go test ./internal/domain -fuzz FuzzParseMoney`
 - `go test ./internal/httpapi -fuzz FuzzCleanInterpretation`
+- `go test ./internal/chatimport -fuzz FuzzParse`
 
 **Bedrock.** No test calls Bedrock unless `COMMITPOOL_LIVE_AI=1` is set.
 
@@ -271,7 +272,7 @@ Compiler and linter directives are allowed. The scripts are described in
 ## Limits
 
 - **Size.** A workshop takes at most 200 participants, and a participant at most 20 availability messages.
-- **Model calls.** At most 9 run at once: 4 for readings and explanations, 2 for drafts, 2 for the landing chat and 1 for nudges. On Bedrock, `COMMITPOOL_AI_HOURLY_CAP` and `COMMITPOOL_AI_DAILY_CAP` bound how many are made, with a quarter kept for readings; past them, a message answers 429 `ai_capped` with `Retry-After`. The 503 `ai_busy` answer is different: every slot was taken for 10 seconds.
+- **Model calls.** At most 10 run at once: 4 for readings and explanations, 2 for drafts, 2 for the landing chat, 1 for nudges and 1 for Claude's reply for the group. On Bedrock, `COMMITPOOL_AI_HOURLY_CAP` and `COMMITPOOL_AI_DAILY_CAP` bound how many are made, with a quarter kept for readings; past them, a message answers 429 `ai_capped` with `Retry-After`. The 503 `ai_busy` answer is different: every slot was taken for 10 seconds.
 - **Drafts.** A draft answers 200 with an empty draft when Claude fails or every drafting slot is taken. Past the per-visitor or hourly quota it answers 429 with `Retry-After`.
 - **Landing chat.** `POST /api/v1/sample-reading` reads the visitor's answer (1 to 160 characters) against next weekend's demo dates and stores nothing. It returns the verdicts, what counts and Claude's question, never the model's other text. An answer to that question sends the earlier answer back with the question and its `question_sig`; questions without a valid signature (keyed by `COMMITPOOL_MCP_SECRET`, or per process) are dropped. One address can send three, then one every 20 seconds and ten an hour while the rate limit is on; at most 60 are read in any hour and 150 in any day. It never waits for a slot (429 `sample_busy`), and it stops (429 `ai_capped`) once its own reading would leave an AI window with less than a tenth of that window's cap (at least 20 calls, at most half the cap) for participants; the hour and the day each keep their own reserve, so it never takes a reading a participant needs. Claude gets 12 seconds; a failure answers 503. The page then reads the answer with simple rules in the browser and says so.
 - **Refunds.** A paid seat cannot refund itself. Only a cancellation refunds it, so the minimum the organizer relies on cannot drop after the fact.

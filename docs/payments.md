@@ -52,7 +52,7 @@ request: a buyer closing the tab never cuts a PayPal call short.
 
 | Status | Seat | Reached when | Next |
 |---|---|---|---|
-| `SEAT_RESERVED` | yes | The participant enrolls (capacity permitting), or a released seat is taken again. Also while PayPal holds the authorization `PENDING` (review): the seat is kept past its expiry and read back hourly, and the enrollment is labelled “Hold pending verification”. | `AUTHORIZED`, `RELEASED`, `CAPTURE_FAILED` (authorization denied) |
+| `SEAT_RESERVED` | yes | The participant enrolls (capacity permitting), or a released seat is taken again. Also while PayPal holds the authorization `PENDING` (review): the seat is kept past its expiry and read back hourly, and the enrollment is labelled “PayPal is reviewing the hold”. | `AUTHORIZED`, `RELEASED`, `CAPTURE_FAILED` (authorization denied) |
 | `AUTHORIZED` | yes | PayPal created the authorization. | `CAPTURING`, `VOIDING`, `VOIDED`, `PAID`, `CAPTURE_PENDING`, `CAPTURE_FAILED` |
 | `CAPTURING` | yes | The capture job is about to call PayPal. | `PAID`, `CAPTURE_PENDING`, `CAPTURE_FAILED` |
 | `CAPTURE_PENDING` | yes | PayPal reported the capture `PENDING`. | `PAID`, `CAPTURE_FAILED` |
@@ -84,7 +84,7 @@ refuses (`VOIDING` stays, `CAPTURE_FAILED` stays, `REFUNDING` becomes
 `REFUND_FAILED`), a job gives up after its retries, or the last reconcile
 still finds no trace of an action. The flag is never cleared by the worker.
 The API shows a flagged enrollment's `status` as `NEEDS_ATTENTION` (label
-“Needs attention”) and its real status in `money_status`.
+“Needs a check”) and its real status in `money_status`.
 
 A move only happens from the statuses listed for it, so applying the same
 PayPal answer twice changes nothing and a finished enrollment is never moved
@@ -100,7 +100,7 @@ Every PayPal action is a row in `jobs`, written before the request leaves.
 | Status | Meaning | Next |
 |---|---|---|
 | `pending` | Due at `run_at`. | `running` when claimed. |
-| `running` | Claimed by a worker. | `succeeded`; `failed` on a refusal; `unknown` on an ambiguous result; `pending` for a retry (5 s, 30 s, 2 min, 10 min); `needs_attention` after the fifth attempt, except the kinds that retry forever (`void`, `refund`, `reconcile`, `close`, `release_seats`: then 30 min and every hour after, flagged once at the fifth); `pending` again when its worker has not finished it after 5 minutes. |
+| `running` | Claimed by a worker. | `succeeded`; `failed` on a refusal; `unknown` on an ambiguous result; `pending` for a retry (5 s, 30 s, 2 min, 10 min); `needs_attention` after the fifth attempt, except the kinds that retry forever (`void`, `refund`, `reconcile`, `close`, `release_seats`, `notify`: then 30 min and every hour after, flagged once at the fifth); `pending` again when its worker has not finished it after 5 minutes. |
 | `unknown` | PayPal may or may not have performed the action. | `succeeded` or `pending` (same key) once a reconcile has read PayPal. |
 | `failed` | Refused: by PayPal for good, by the worker (a passed deadline), or skipped because the action did not apply. | `pending` (same key) when revived. |
 | `needs_attention` | Retries used up (`create_order`, `authorize`, `capture`, `payout`, `payout_check`; a close parked before this rule is revived by the periodic work). | `pending` (same key) only when revived by hand. |

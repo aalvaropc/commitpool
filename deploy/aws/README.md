@@ -184,7 +184,7 @@ Optionally copy `deploy/aws/terraform.tfvars.example` to
 
    ```sh
    base_url="https://$(terraform -chdir=deploy/aws output -raw cloudfront_domain)"
-   curl -fsS "$base_url/healthz"    # {"ok":true}
+   curl -fsS "$base_url/healthz"    # {"ok":true,...}
    ```
 
    If it fails, read the logs:
@@ -200,9 +200,10 @@ Optionally copy `deploy/aws/terraform.tfvars.example` to
        --secret-id "$project/paypal-webhook-id" --secret-string file:///dev/stdin
    ```
 
-   The script subscribes `<base_url>/paypal/webhook` to the seven payment
-   events the app handles and prints only the webhook id; running it again
-   reuses the existing webhook. Until this step `/paypal/webhook` answers 503.
+   The script subscribes `<base_url>/paypal/webhook` to the 19 events the app
+   handles (seven for orders, holds, charges and refunds, and twelve for
+   payouts) and prints only the webhook id; running it again reuses the
+   existing webhook and adds any missing event. Until this step `/paypal/webhook` answers 503.
 
 7. **Deploy again** so the task reads the webhook id, then forget the
    credentials:
@@ -264,7 +265,7 @@ one is put by hand.
 - Multi-AZ RDS, read replicas or final snapshots.
 - Encryption and exclusivity on the CloudFront → ALB hop. CloudFront calls
   the public ALB endpoint over plain HTTP: for an AWS origin the traffic stays
-  on the AWS network, but owner tokens and webhook bodies are not
+  on the AWS network, but organizer-link tokens and webhook bodies are not
   TLS-protected on that hop, and the ALB accepts any CloudFront
   distribution's origin-facing servers, not only this one's. A later option
   is a CloudFront VPC origin with an internal ALB, which closes both gaps and

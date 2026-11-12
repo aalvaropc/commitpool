@@ -5,7 +5,7 @@ ink, one ember brand colour and four glazes for states. The thesis is that
 **the interface is the group chat**. People answer in their own words, as they
 would in the chat where the invite was shared, and Claude is one more member
 of that chat: it reads each message, replies when a message is unclear and
-drafts the nudges the organizer may send. CommitPool, not Claude, counts who
+drafts the reply for the group and the nudges the organizer may send. CommitPool, not Claude, counts who
 can come, picks the date and moves money. The product truth behind it is in
 [PRODUCT.md](PRODUCT.md).
 
@@ -76,7 +76,7 @@ uses a shadow: depth comes from the surface steps. Easing: `--ease-out`
 
 ## Components
 
-All in `web/src/components/ui/`, exported from its `index.ts`.
+All in `web/src/components/ui/`, exported from its `index.ts` (`LogoMark` is imported from `ui/Logo`).
 
 | Component | What it is for |
 |---|---|

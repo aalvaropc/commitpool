@@ -378,16 +378,17 @@ func TestLoad_PayPalIsExactlyTheSandboxUnlessLiveIsAllowed(t *testing.T) {
 
 func TestLoad_AICaps(t *testing.T) {
 	cfg, err := load(baseEnv())
-	if err != nil || cfg.AIHourlyCap != 200 || cfg.AIDailyCap != 1500 {
-		t.Fatalf("default caps = %d an hour, %d a day, %v; want 200 and 1500", cfg.AIHourlyCap, cfg.AIDailyCap, err)
+	if err != nil || cfg.AIHourlyCap != 60 || cfg.AIDailyCap != 300 || cfg.AIMonthlyCap != 2000 {
+		t.Fatalf("default caps = %d an hour, %d a day, %d in 30 days, %v; want 60, 300 and 2000", cfg.AIHourlyCap, cfg.AIDailyCap, cfg.AIMonthlyCap, err)
 	}
 	env := baseEnv()
 	env["COMMITPOOL_AI_HOURLY_CAP"] = "50"
 	env["COMMITPOOL_AI_DAILY_CAP"] = "400"
-	if cfg, err := load(env); err != nil || cfg.AIHourlyCap != 50 || cfg.AIDailyCap != 400 {
-		t.Errorf("caps = %d, %d, %v; want 50 and 400", cfg.AIHourlyCap, cfg.AIDailyCap, err)
+	env["COMMITPOOL_AI_MONTHLY_CAP"] = "5000"
+	if cfg, err := load(env); err != nil || cfg.AIHourlyCap != 50 || cfg.AIDailyCap != 400 || cfg.AIMonthlyCap != 5000 {
+		t.Errorf("caps = %d, %d, %d, %v; want 50, 400 and 5000", cfg.AIHourlyCap, cfg.AIDailyCap, cfg.AIMonthlyCap, err)
 	}
-	for _, name := range []string{"COMMITPOOL_AI_HOURLY_CAP", "COMMITPOOL_AI_DAILY_CAP"} {
+	for _, name := range []string{"COMMITPOOL_AI_HOURLY_CAP", "COMMITPOOL_AI_DAILY_CAP", "COMMITPOOL_AI_MONTHLY_CAP"} {
 		for _, bad := range []string{"0", "-3", "lots", "1.5"} {
 			env := baseEnv()
 			env[name] = bad
@@ -396,25 +397,62 @@ func TestLoad_AICaps(t *testing.T) {
 			}
 		}
 	}
-	env = baseEnv()
-	env["COMMITPOOL_AI_HOURLY_CAP"] = "300"
-	env["COMMITPOOL_AI_DAILY_CAP"] = "250"
-	if _, err := load(env); err == nil || !strings.Contains(err.Error(), "COMMITPOOL_AI_HOURLY_CAP cannot be above COMMITPOOL_AI_DAILY_CAP") {
-		t.Errorf("an hourly cap set above the daily one: err = %v", err)
+	refusals := []struct {
+		hourly, daily, monthly string
+		want                   string
+	}{
+		{"300", "250", "", "COMMITPOOL_AI_HOURLY_CAP cannot be above COMMITPOOL_AI_DAILY_CAP"},
+		{"400", "", "", "COMMITPOOL_AI_HOURLY_CAP cannot be above COMMITPOOL_AI_DAILY_CAP"},
+		{"", "900", "800", "COMMITPOOL_AI_DAILY_CAP cannot be above COMMITPOOL_AI_MONTHLY_CAP"},
+		{"", "2500", "", "COMMITPOOL_AI_DAILY_CAP cannot be above COMMITPOOL_AI_MONTHLY_CAP"},
+		{"100", "", "80", "COMMITPOOL_AI_HOURLY_CAP cannot be above COMMITPOOL_AI_MONTHLY_CAP"},
+	}
+	for _, tc := range refusals {
+		env := baseEnv()
+		for name, v := range map[string]string{"COMMITPOOL_AI_HOURLY_CAP": tc.hourly, "COMMITPOOL_AI_DAILY_CAP": tc.daily, "COMMITPOOL_AI_MONTHLY_CAP": tc.monthly} {
+			if v != "" {
+				env[name] = v
+			}
+		}
+		if _, err := load(env); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("caps %q, %q, %q: err = %v, want %q", tc.hourly, tc.daily, tc.monthly, err, tc.want)
+		}
+	}
+	lowered := []struct {
+		daily, monthly        string
+		wantHourly, wantDaily int
+	}{
+		{"50", "", 50, 50},
+		{"800", "", 60, 800},
+		{"", "200", 60, 200},
+		{"", "40", 40, 40},
+	}
+	for _, tc := range lowered {
+		env := baseEnv()
+		if tc.daily != "" {
+			env["COMMITPOOL_AI_DAILY_CAP"] = tc.daily
+		}
+		if tc.monthly != "" {
+			env["COMMITPOOL_AI_MONTHLY_CAP"] = tc.monthly
+		}
+		cfg, err := load(env)
+		if err != nil || cfg.AIHourlyCap != tc.wantHourly || cfg.AIDailyCap != tc.wantDaily {
+			t.Errorf("daily %q, monthly %q = %d an hour, %d a day, %v; want %d and %d: a default above a cap set lower is lowered to it",
+				tc.daily, tc.monthly, cfg.AIHourlyCap, cfg.AIDailyCap, err, tc.wantHourly, tc.wantDaily)
+		}
 	}
 	env = baseEnv()
-	env["COMMITPOOL_AI_HOURLY_CAP"] = "2000"
-	if _, err := load(env); err == nil || !strings.Contains(err.Error(), "COMMITPOOL_AI_HOURLY_CAP") {
-		t.Errorf("an hourly cap set above the default daily one: err = %v", err)
+	env["COMMITPOOL_AI_MONTHLY_CAP"] = "40"
+	cfg, err = load(env)
+	if err != nil {
+		t.Fatal(err)
 	}
-	env = baseEnv()
-	env["COMMITPOOL_AI_DAILY_CAP"] = "120"
-	if cfg, err := load(env); err != nil || cfg.AIHourlyCap != 120 || cfg.AIDailyCap != 120 {
-		t.Errorf("only a daily cap of 120 = %d an hour, %d a day, %v; want the hourly default clamped to 120", cfg.AIHourlyCap, cfg.AIDailyCap, err)
-	}
-	env["COMMITPOOL_AI_DAILY_CAP"] = "800"
-	if cfg, err := load(env); err != nil || cfg.AIHourlyCap != 200 || cfg.AIDailyCap != 800 {
-		t.Errorf("only a daily cap of 800 = %d an hour, %d a day, %v; want the hourly default", cfg.AIHourlyCap, cfg.AIDailyCap, err)
+	var logged strings.Builder
+	slog.New(slog.NewTextHandler(&logged, nil)).Info("starting", "config", cfg)
+	for _, want := range []string{"ai_hourly_cap=40", "ai_daily_cap=40", "ai_monthly_cap=40"} {
+		if !strings.Contains(logged.String(), want) {
+			t.Errorf("the startup log lacks the lowered cap %q: %s", want, logged.String())
+		}
 	}
 }
 

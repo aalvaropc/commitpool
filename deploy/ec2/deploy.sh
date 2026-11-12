@@ -48,6 +48,18 @@ umask 077
     echo "COMMITPOOL_JUDGE_BUYER_EMAIL=$judge_buyer_email"
     echo "COMMITPOOL_JUDGE_BUYER_PASSWORD=$judge_buyer_password"
   fi
+  ai_hourly_cap="$(optional_param ai_hourly_cap)"
+  if [[ -n "$ai_hourly_cap" ]]; then
+    echo "COMMITPOOL_AI_HOURLY_CAP=$ai_hourly_cap"
+  fi
+  ai_daily_cap="$(optional_param ai_daily_cap)"
+  if [[ -n "$ai_daily_cap" ]]; then
+    echo "COMMITPOOL_AI_DAILY_CAP=$ai_daily_cap"
+  fi
+  ai_monthly_cap="$(optional_param ai_monthly_cap)"
+  if [[ -n "$ai_monthly_cap" ]]; then
+    echo "COMMITPOOL_AI_MONTHLY_CAP=$ai_monthly_cap"
+  fi
   mail_from="$(optional_param mail_from)"
   if [[ -n "$mail_from" ]]; then
     echo "COMMITPOOL_MAILER=ses"

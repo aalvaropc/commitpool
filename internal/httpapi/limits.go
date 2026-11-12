@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"golang.org/x/time/rate"
+
+	"github.com/aalvaropc/commitpool/internal/present"
 )
 
 var (
@@ -143,6 +145,9 @@ func modelCapped(w http.ResponseWriter, wait time.Duration, now time.Time, loc *
 	retryAfter(w, wait)
 	if wait < time.Hour {
 		return newError(http.StatusTooManyRequests, "ai_capped", "Claude has read a lot of messages this hour. Please try again in "+minutes(wait)+".")
+	}
+	if wait > 24*time.Hour {
+		return newError(http.StatusTooManyRequests, "ai_capped", "Claude has read a lot of messages this month. Please try again on "+present.Day(now.Add(wait), loc)+".")
 	}
 	when := "tomorrow"
 	if now.In(loc).Format(time.DateOnly) == now.Add(wait).In(loc).Format(time.DateOnly) {

@@ -15,8 +15,9 @@ const (
 	defaultPayPalBaseURL = "https://api-m.sandbox.paypal.com"
 	defaultSeatTTLMin    = 30
 	defaultDemoPaceMS    = 2000
-	defaultAIHourlyCap   = 200
-	defaultAIDailyCap    = 1500
+	defaultAIHourlyCap   = 60
+	defaultAIDailyCap    = 300
+	defaultAIMonthlyCap  = 2000
 
 	DefaultBedrockModel         = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
 	DefaultBedrockFallbackModel = ""
@@ -50,6 +51,7 @@ type Config struct {
 	AllowLivePayPal      bool
 	AIHourlyCap          int
 	AIDailyCap           int
+	AIMonthlyCap         int
 	VideoEmbedURL        string
 	DevpostURL           string
 	JudgeBuyerEmail      string
@@ -188,11 +190,22 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	cfg.AIHourlyCap = positive("COMMITPOOL_AI_HOURLY_CAP", defaultAIHourlyCap)
 	cfg.AIDailyCap = positive("COMMITPOOL_AI_DAILY_CAP", defaultAIDailyCap)
-	if cfg.AIHourlyCap > cfg.AIDailyCap {
-		if strings.TrimSpace(getenv("COMMITPOOL_AI_HOURLY_CAP")) != "" {
-			problems = append(problems, "COMMITPOOL_AI_HOURLY_CAP cannot be above COMMITPOOL_AI_DAILY_CAP")
+	cfg.AIMonthlyCap = positive("COMMITPOOL_AI_MONTHLY_CAP", defaultAIMonthlyCap)
+	type aiCap struct {
+		name  string
+		value *int
+	}
+	widestFirst := []aiCap{{"COMMITPOOL_AI_MONTHLY_CAP", &cfg.AIMonthlyCap}, {"COMMITPOOL_AI_DAILY_CAP", &cfg.AIDailyCap}, {"COMMITPOOL_AI_HOURLY_CAP", &cfg.AIHourlyCap}}
+	bound := widestFirst[0]
+	for _, c := range widestFirst[1:] {
+		switch {
+		case *c.value <= *bound.value:
+			bound = c
+		case strings.TrimSpace(getenv(c.name)) != "":
+			problems = append(problems, c.name+" cannot be above "+bound.name)
+		default:
+			*c.value = *bound.value
 		}
-		cfg.AIHourlyCap = cfg.AIDailyCap
 	}
 	if strings.EqualFold(cfg.BedrockFallbackModel, "none") {
 		cfg.BedrockFallbackModel = ""
@@ -290,6 +303,7 @@ func (c Config) LogValue() slog.Value {
 		slog.Bool("allow_live_paypal", c.AllowLivePayPal),
 		slog.Int("ai_hourly_cap", c.AIHourlyCap),
 		slog.Int("ai_daily_cap", c.AIDailyCap),
+		slog.Int("ai_monthly_cap", c.AIMonthlyCap),
 		slog.String("video_embed_url", c.VideoEmbedURL),
 		slog.String("devpost_url", c.DevpostURL),
 		slog.String("judge_buyer_email", c.JudgeBuyerEmail),

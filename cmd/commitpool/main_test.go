@@ -12,7 +12,7 @@ import (
 )
 
 func TestNewInterpreter_TheFakeStaysUnlimited(t *testing.T) {
-	got, err := newInterpreter(context.Background(), config.Config{AIProvider: config.AIProviderFake, AIHourlyCap: 1, AIDailyCap: 1}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	got, err := newInterpreter(context.Background(), config.Config{AIProvider: config.AIProviderFake, AIHourlyCap: 1, AIDailyCap: 1, AIMonthlyCap: 1}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}

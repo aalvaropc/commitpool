@@ -62,6 +62,7 @@ func TestAvailability_ACappedModelIs429WithTheRealWait(t *testing.T) {
 		{"minutes", 7*time.Minute + 30*time.Second, "450", "Claude has read a lot of messages this hour. Please try again in 8 minutes."},
 		{"later today", 5 * time.Hour, "18000", "Claude has read a lot of messages today. Please try again later today."},
 		{"tomorrow", 22 * time.Hour, "79200", "Claude has read a lot of messages today. Please try again tomorrow."},
+		{"this month", 10 * 24 * time.Hour, "864000", "Claude has read a lot of messages this month. Please try again on Thu, Nov 12."},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -169,19 +170,20 @@ func TestDemo_AnswersWaitAsLongAsTheAPIAsks(t *testing.T) {
 
 func TestDemo_RestsWhileTheBudgetHasNoRoomForOne(t *testing.T) {
 	cases := []struct {
-		name          string
-		hourly, daily int
-		later         time.Duration
-		after         string
-		message       string
+		name                   string
+		hourly, daily, monthly int
+		later                  time.Duration
+		after                  string
+		message                string
 	}{
-		{"this hour", 30, 1000, 15 * time.Minute, "2700", "Claude has read many messages this hour. Try the demo again in 45 minutes, or create your own workshop."},
-		{"today", 100, 30, 5 * time.Hour, "68400", "Claude has read many messages today. Try the demo again in about 19 hours, or create your own workshop."},
+		{"this hour", 30, 1000, 2000, 15 * time.Minute, "2700", "Claude has read many messages this hour. Try the demo again in 45 minutes, or create your own workshop."},
+		{"today", 100, 30, 2000, 5 * time.Hour, "68400", "Claude has read many messages today. Try the demo again in about 19 hours, or create your own workshop."},
+		{"this month", 100, 100, 30, 5 * 24 * time.Hour, "2160000", "Claude has read many messages this month. Try the demo again in about 25 days, or create your own workshop."},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			budgetClock := &clock.Fake{T: t0}
-			budget := ai.NewBudget(ai.Fake{}, ai.BudgetConfig{Hourly: tc.hourly, Daily: tc.daily, Clock: budgetClock})
+			budget := ai.NewBudget(ai.Fake{}, ai.BudgetConfig{Hourly: tc.hourly, Daily: tc.daily, Monthly: tc.monthly, Clock: budgetClock})
 			for range 6 {
 				if _, _, err := budget.Interpret(context.Background(), ai.InterpretInput{Dates: []ai.DateOption{{ID: "d"}}, Message: "any day"}); err != nil {
 					t.Fatal(err)
@@ -201,7 +203,7 @@ func TestDemo_RestsWhileTheBudgetHasNoRoomForOne(t *testing.T) {
 			for range 4 {
 				e.wantError(http.MethodPost, "/api/v1/demo/workshops", nil, http.StatusTooManyRequests, "demo_resting")
 			}
-			budgetClock.Set(t0.Add(25 * time.Hour))
+			budgetClock.Set(t0.Add(31 * 24 * time.Hour))
 			e.call(http.MethodPost, "/api/v1/demo/workshops", nil, http.StatusCreated, nil)
 		})
 	}

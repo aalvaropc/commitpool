@@ -121,10 +121,17 @@ export AWS_REGION=us-east-1
   `/commitpool/judge_buyer_email` (String) and
   `/commitpool/judge_buyer_password` (SecureString), a PayPal Sandbox
   Personal account, show there with copy buttons. The login is deployed only
-  when both exist. A video link that is not a YouTube video is refused, so
-  every deploy first runs the new image with `check-config` against the
-  written environment; if the configuration is refused, the deploy stops
-  there and the running app keeps serving.
+  when both exist.
+  `/commitpool/ai_hourly_cap`, `/commitpool/ai_daily_cap` and
+  `/commitpool/ai_monthly_cap` (String), each a whole number, override the
+  most Bedrock calls in a sliding hour, day and 30 days (defaults 60, 300 and
+  2000; see [Running: Configuration](../../docs/running.md#configuration)).
+  The counts live in memory, so a deploy or restart starts them over.
+  A video link that is not a YouTube video is refused, and so is a cap that
+  is not a whole number or that is above the next window's cap, so every
+  deploy first runs the new image with `check-config` against the written
+  environment; if the configuration is refused, the deploy stops there and
+  the running app keeps serving.
 - Tear down: `terraform -chdir=deploy/ec2 destroy`, then delete the three
   PayPal parameters with `aws ssm delete-parameter`.
 

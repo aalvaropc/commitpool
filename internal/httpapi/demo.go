@@ -65,6 +65,9 @@ func demoResting(wait time.Duration) string {
 	if wait < time.Hour {
 		return "Claude has read many messages this hour. Try the demo again in " + minutes(wait) + ", or create your own workshop."
 	}
+	if wait > 24*time.Hour {
+		return "Claude has read many messages this month. Try the demo again in about " + strconv.Itoa(int(math.Ceil(wait.Hours()/24))) + " days, or create your own workshop."
+	}
 	hours := "an hour"
 	if n := int(math.Ceil(wait.Hours())); n > 1 {
 		hours = strconv.Itoa(n) + " hours"

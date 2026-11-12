@@ -32,7 +32,7 @@ CommitPool turns "I'm in" into a commitment that only costs money when the class
 - Availability in plain words, read by Claude on Amazon Bedrock; the participant can correct each verdict; a message that leaves the class hours open gets one question from Claude instead of a guess.
 - Payments: one PayPal order per spot, a hold, a charge once enough people reserve, a release or refund otherwise; organizer cancel; participant can give up their spot until charging starts; operator actions for anything PayPal leaves unsettled.
 - Group chat import (pasted text or WhatsApp's `.txt`; pasting again reads only new messages), Claude's reply for the group, a payout to the organizer at the class start less PayPal's fees, and one deadline extension for a class short of its minimum.
-- Terminology in the product: reserve, spot, hold (in the terms), it's on, cancelled, refunded, released. Not "authorize", "capture", "seat", "capacity" or "minimum paid seats" in what people read.
+- Terminology in the product: reserve, spot, hold (in the terms), it's on, cancelled, refunded, released. Not "authorize", "capture", "seat", "capacity" or "minimum paid seats" in what people read. The docs use the same words in prose; [docs/payments.md](docs/payments.md#words-in-this-doc) maps them to the code's names.
 - No accounts: private links are the access. The code carries no comments.
 
 ## Brand Commitments

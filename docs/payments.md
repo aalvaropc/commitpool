@@ -1,21 +1,72 @@
 # Payments
 
-How CommitPool takes money for a workshop through PayPal, and the rules the
+How CommitPool takes money for a class through PayPal, and the rules the
 worker follows. The code is the reference: `internal/domain` holds the pure
 rules, `internal/worker` applies them, `internal/store` holds the state.
 
-A participant reserves a seat, approves a PayPal order and the worker
-authorizes it: the buyer's money is held, not taken. Holds are captured once
-enough of them exist to reach the workshop's minimum. The workshop is
-confirmed when the minimum number of completed payments is reached; if it is
-not reached when the payment window closes, the workshop is cancelled, holds
-are voided and completed payments refunded.
+**In one minute.** A participant reserves a spot: CommitPool creates a PayPal
+order with `intent: AUTHORIZE`, the participant approves it at PayPal, and the
+worker authorizes it. That is a hold, not a charge. Once the holds reach the
+class's minimum, the worker captures them, and the class is on (`CONFIRMED`)
+when completed captures reach the minimum. If the deadline passes short, the
+class is cancelled: holds are voided and any capture is refunded. When the
+class starts, PayPal Payouts sends the organizer the net. Operators: see the
+[Operator runbook](#operator-runbook).
 
-Each checkout is a payment attempt with at most one PayPal order, one
-authorization, one capture (in full, `final_capture: true`) and one refund.
-A new attempt can only be opened while the enrollment is `SEAT_RESERVED` and
-its latest attempt holds no authorization, so a hold, its capture, its void
-and its refund always belong to the attempt the enrollment follows.
+**Five rules that keep the money honest.**
+
+1. Every PayPal action is a job whose key is its `PayPal-Request-Id`, written
+   before the request leaves.
+2. An ambiguous answer (a timeout, a 5xx, a 409) is read back from PayPal,
+   never retried blind. A payout is sent again only under the same
+   `sender_batch_id`, which PayPal deduplicates.
+3. A webhook only triggers a read-back; it never sets a payment state.
+4. Only completed captures count toward the minimum.
+5. A payment is paid out or refunded, never both.
+
+## Words in this doc
+
+This doc uses the code's names. The screens and the other docs use the
+product's words:
+
+| Code | Product | Code | Product |
+|---|---|---|---|
+| workshop | class | authorization, authorize | hold, place a hold |
+| owner, owner link | organizer, organizer link | capture | charge |
+| share link | invite link | void | release |
+| seat, capacity | spot, spots | `CONFIRMED` | It's on |
+| enrollment, enroll | reservation, reserve | `FUNDING`, payments open | reservations open |
+| buyer | participant (PayPal's payer) | `closes_at`, payment window | deadline |
+
+The internal terms:
+
+- **Proposal:** the date the organizer opens reservations on, with the terms
+  that lock (price, minimum, spots and `closes_at`).
+- **Resolution:** the money side of a workshop, kept apart from its status.
+- **Attempt:** one checkout of an enrollment (`payment_attempts`).
+- **Job:** a row in `jobs` for one PayPal action or worker step.
+- **Skip:** a job that failed without a PayPal answer, because the action did
+  not apply yet.
+- **Park:** leave a job `needs_attention` for an operator once its retries
+  are used up.
+- **Revive:** set a job back to `pending` under the same key.
+- **Re-arm:** revive a waiting payout job with its attempts reset.
+- **Generation:** the `n` in `reconcile:{attempt}:{n}`; the fifth is the last.
+- **Heal:** redo a follow-up from a fresh read, idempotently by key.
+- **Flag:** mark an enrollment or a workshop for an operator; the worker
+  never clears it.
+- **Compare-and-set:** an update guarded by the state it expects, which
+  changes nothing when the row has moved.
+- **Terms hash:** the hash of the terms an organizer approval locks.
+- **Key-share lock:** `for key share` on the workshop row, which the payout's
+  `for update` excludes.
+
+An attempt has at most one PayPal order, one authorization, one capture (in
+full, `final_capture: true`) and one refund. A new attempt, numbered under the
+enrollment's row lock, can only be opened while the enrollment is
+`SEAT_RESERVED` and its latest attempt holds no authorization, so a hold, its
+capture, its void and its refund always belong to the attempt the enrollment
+follows.
 
 ## Workshop
 
@@ -72,7 +123,7 @@ request: a buyer closing the tab never cuts a PayPal call short.
 An enrollment that needs an operator is **flagged** (`needs_attention_at`,
 `attention_reason`) and keeps its status, so the status always says where the
 money is. A flagged enrollment stays the participant's one active
-enrollment whatever its status (migration 0005 widens the unique index), so
+enrollment (active means non-terminal, or flagged) whatever its status (migration 0005 widens the unique index), so
 no second hold can be placed beside it; a flagged reserved seat is never
 released and the PayPal return never authorizes a flagged enrollment. It is
 still voided, captured or refunded by status when the workshop is healed or
@@ -106,11 +157,12 @@ Every PayPal action is a row in `jobs`, written before the request leaves.
 | `needs_attention` | Retries used up (`create_order`, `authorize`, `capture`, `payout`, `payout_check`; a close parked before this rule is revived by the periodic work). | `pending` (same key) only when revived by hand. |
 | `succeeded` | Done. | Final. A succeeded seat release or read-only reconcile is deleted after 30 days (see Periodic work). |
 
-Automatic paths revive only a job that failed without a PayPal answer (a
-skip), never an action PayPal refused. The one exception is an authorize
-PayPal refused as `ORDER_NOT_APPROVED`: the return page and a reconcile that
-finds the order `APPROVED` both revive it, because the order is approved
-now.
+Automatic paths (`EnqueueOrRevive`) revive only a job that failed without a
+PayPal answer (a skip), never an action PayPal refused; a job that is running,
+unknown or waiting for its retry is left alone. The one exception is an
+authorize PayPal refused as `ORDER_NOT_APPROVED`: the return page and a
+reconcile that finds the order `APPROVED` both revive it (`Revive`, for
+callers that know something changed), because the order is approved now.
 
 A job whose retries are used up flags its enrollment (the status stays),
 unless the enrollment is paid or finished; a `close` or `release_seats` job
@@ -382,17 +434,29 @@ cleared without fixing the payout. `/healthz` counts them instead,
 ### Organizer page and demo
 
 The owner view's `payout` block is `null` until the class is confirmed. Then
-it has a `state`: `no_email`, `off` (payouts switched off), `scheduled` (with
-`scheduled_at`, the start), `waiting` (the class started but a rule above
-still refuses, named in `waiting`), `created` (frozen, PayPal has not
-confirmed a batch yet), `parked` (frozen, and its job is parked for an
-operator), `sending` (`sent`), `paid`, `unclaimed`, `failed` or `unknown`;
-`locked` once the payout is frozen (the organizer page then hides Cancel); the
-receiver; the amount, gross and fees
-with `estimated` until the row freezes them (no amount while a fee is
-unknown); and once sent the PayPal batch, item and transaction ids, their
-statuses, the issue and the debug id. The MCP `get_status` returns it with a
-sentence.
+it has a `state`:
+
+| `state` | Means |
+|---|---|
+| `no_email` | The workshop has no payout email. |
+| `off` | Payouts are switched off. |
+| `scheduled` | Waiting for the start, given in `scheduled_at`. |
+| `waiting` | The class started, but a rule above still refuses; `waiting` names it. |
+| `created` | Frozen; PayPal has not confirmed a batch yet. |
+| `parked` | Frozen, and its job is parked for an operator. |
+| `sending` | The payout is `sent`. |
+| `paid`, `unclaimed`, `failed`, `unknown` | The payout status of the same name (`paid` is `succeeded`). |
+
+The block also carries:
+
+- `locked` once the payout is frozen (the organizer page then hides Cancel);
+- the receiver;
+- the amount, gross and fees, with `estimated` until the row freezes them (no
+  amount while a fee is unknown);
+- once sent, the PayPal batch, item and transaction ids, their statuses, the
+  issue and the debug id.
+
+The MCP `get_status` returns it with a sentence.
 
 `POST /api/v1/owner/{token}/demo/start-class` (demo mode only; 404 otherwise)
 starts the class now: it freezes the payout early, runs `payout:{workshop}`
@@ -528,28 +592,28 @@ Once extended:
   return or reconcile does not authorize it); its holder never agreed to the
   later deadline.
 
-The owner view carries `extension` (`available`, `from`, `to` and an
+The owner view carries `extension`: `available`, `from`, `to` and an
 `approve_url` when on offer, or the `refusal` code, with a `reason` either
-way), and the proposal in the owner, participant and invite views carries
+way. The proposal in the owner, participant and invite views carries
 `extended_from` and `latest_closes_at` (`domain.LatestPossibleDeadline`), a
-date a later extension cannot pass. While the deadline may still move (the
-workshop is `FUNDING`, at least 10 minutes are left, it was never extended and
-no seat is `PAID`), it is `LatestDeadline`, the option without the cap of the
-holds, which only rises as old holds leave. It stays published while a refusal
-can still lift: a seat under an older consent that may be released, holds that
-reach the minimum and may drop before charging, a charge (`CAPTURING`,
-`CAPTURE_PENDING`) that may be declined and free its seat, or a gain under an
-hour that grows once the oldest hold leaves. It is `closes_at` itself once the
-deadline cannot move (already extended, a seat paid or the class funded, under
-10 minutes left, payments closed, or `LatestDeadline` adds less than an hour).
+date a later extension cannot pass:
+
+| When | `latest_closes_at` is |
+|---|---|
+| The deadline may still move: the workshop is `FUNDING`, at least 10 minutes are left, it was never extended and no seat is `PAID`. | `LatestDeadline`, the option without the cap of the holds, which only rises as old holds leave. |
+| The same, while a refusal can still lift: a seat under an older consent that may be released, holds that reach the minimum and may drop before charging, a charge (`CAPTURING`, `CAPTURE_PENDING`) that may be declined and free its seat, or a gain under an hour that grows once the oldest hold leaves. | Still `LatestDeadline`. |
+| The deadline cannot move: already extended, a seat paid or the class funded, under 10 minutes left, payments closed, or `LatestDeadline` adds less than an hour. | `closes_at` itself. |
+
 While the class is funding, a paid seat leaves `PAID` only through a refund or
 dispute made in the PayPal account, outside the app. The organizer's
 `extension.to` and the rescue keep the hold-capped option, the one the server
-accepts now. Other responses carry `closes_at`. The participant's card shows
-it as "Latest possible deadline", followed by "The organizer can extend the
-deadline once, up to this date." when it is later than `closes_at`, and "This
-deadline will not move." (or "It was already extended once.") otherwise, and
-both pages show "Deadline extended from X to Y" while the class is funding.
+accepts now. Other responses carry `closes_at`.
+
+The participant's card shows `latest_closes_at` as "Latest possible
+deadline", followed by "The organizer can extend the deadline once, up to this
+date." when it is later than `closes_at`, and "This deadline will not move."
+(or "It was already extended once.") otherwise. Both pages show "Deadline
+extended from X to Y" while the class is funding.
 
 The suggestion `rescue` (see `domain.Suggestions`) appears for a `FUNDING`
 class short of its minimum with an extension on offer and at most six hours
@@ -692,48 +756,26 @@ in the periodic work.
 
 ## Periodic work
 
-The worker, in process:
+The worker runs these in process. The two-minute steps run in this order on
+one tick.
 
-- every minute takes back jobs claimed more than five minutes ago (parked as
-  `needs_attention` once their attempts are used up, unless their kind
-  retries forever) and enqueues `release_seats` for every workshop with a
-  seat that expired (a seat holds through its expiry instant, and one kept
-  for a `PENDING` authorization is not released);
-- every two minutes enqueues `reconcile:{attempt}:periodic:{hour}` for the
-  latest attempt of every `CAPTURE_PENDING` or `REFUND_PENDING` enrollment,
-  and of every `SEAT_RESERVED` enrollment whose authorization PayPal reports
-  `PENDING` (so a pending authorization, capture or refund is read back
-  within two minutes of turning pending and then once an hour; the
-  authorization then moves `CREATED` → `AUTHORIZED` or `DENIED` →
-  `CAPTURE_FAILED`, which frees the seat), and `reconcile:{attempt}:periodic:{minute}`
-  for every attempt with a job unknown for more than five minutes, unless its
-  fifth reconcile generation has run; runs again the close of every workshop
-  still `FUNDING` more than five minutes past its `closes_at`, extended or not
-  (enqueued, or revived when it failed, was refused as early or was parked);
-  then heals every `FUNDING` workshop and
-  every workshop whose money is not settled (`RESOLVING`, or cancelled and
-  not `SETTLED`, `NEEDS_ATTENTION` included);
-- on the same two-minute tick deletes the `succeeded` jobs last updated
-  more than 30 days ago that only read or released something:
-  `release_seats` and every reconcile except a numbered generation
-  (`reconcile:{attempt}:{n}`). Payment actions, `close` and numbered
-  generations are kept whatever their age, because the worker decides from
-  their existence (healing, the next generation and the last one that leaves
-  a job to an operator). The count is logged when it is not zero;
-- then runs the fee backfill (see [Fees](#fees));
-- last, the payout sweep (see [Payouts](#payouts)): with payouts on, every
-  confirmed workshop with a payout email whose class has started and whose
-  payout is missing or still `created` gets `payout:{workshop}` enqueued, or
-  re-armed with its attempts reset when it waited (an hour later for a wait
-  that needs an operator or has nothing to pay; never when PayPal refused it
-  or it is parked); and
-  every payout that is `sent`, `unclaimed` or `unknown` with a batch id gets
-  `payout_check:{payout}:periodic:{hour}`. Succeeded payout checks are deleted
-  after 30 days like the read-only reconciles.
+| Every | What it does | Key |
+|---|---|---|
+| Minute | Takes back jobs claimed more than five minutes ago, parked as `needs_attention` once their attempts are used up unless their kind retries forever. | The job's own |
+| Minute | Releases the expired seats of every workshop that has one. | `release_seats:{workshop}:{minute}` |
+| 2 minutes | Reads back the latest attempt of every `CAPTURE_PENDING` or `REFUND_PENDING` enrollment, and of every `SEAT_RESERVED` one whose authorization PayPal reports `PENDING`: within two minutes of turning pending, then hourly. The authorization then moves `CREATED` → `AUTHORIZED`, or `DENIED` → `CAPTURE_FAILED`, which frees the seat. | `reconcile:{attempt}:periodic:{hour}` |
+| 2 minutes | Reads back every attempt with a job unknown for more than five minutes, unless its fifth reconcile generation has run. | `reconcile:{attempt}:periodic:{minute}` |
+| 2 minutes | Runs again the close of every workshop still `FUNDING` more than five minutes past its `closes_at`, extended or not: enqueued, or revived when it failed, was refused as early or was parked. | `close:{proposal}` |
+| 2 minutes | Heals every `FUNDING` workshop and every workshop whose money is not settled (`RESOLVING`, or cancelled and not `SETTLED`, `NEEDS_ATTENTION` included). | The healed actions' own |
+| 2 minutes | Deletes the `succeeded` jobs last updated more than 30 days ago that only read or released something: `release_seats`, payout checks and every reconcile except a numbered generation. Payment actions, `close` and numbered generations are kept whatever their age, because the worker decides from their existence (healing, the next generation and the last one that leaves a job to an operator). The count is logged when it is not zero. | None |
+| 2 minutes | Runs the fee backfill (see [Fees](#fees)). | None: it only reads |
+| 2 minutes | With payouts on, enqueues the payout of every confirmed workshop with a payout email whose class has started and whose payout is missing or still `created`, or re-arms it when it waited (an hour later for a wait that needs an operator or has nothing to pay; never when PayPal refused it or it is parked). See [Payouts](#payouts). | `payout:{workshop}` |
+| 2 minutes | Checks every payout that is `sent`, `unclaimed` or `unknown` with a batch id. | `payout_check:{payout}:periodic:{hour}` |
 
 On shutdown the worker claims nothing new and lets the job it is running
 finish for up to ten seconds; past that the PayPal call is cancelled and its
-result is reconciled like any other ambiguous one.
+result is reconciled like any other ambiguous one. Results are written in a
+context that outlives the shutdown.
 
 ## Operator runbook
 
@@ -868,7 +910,7 @@ order by p.updated_at;
 
 A confirmed class that started and has no payout row is waiting: its
 `payout:{workshop}` job is `failed` with a `last_error` of
-`payout waits: {rule}` (the rules are in [Payouts](#ready-to-pay)). Settle what
+`payout waits: {rule}` (the rules are in [Ready to pay](#ready-to-pay)). Settle what
 the rule names (a payment in flight, a flag to clear); the periodic sweep runs
 the job again within two minutes.
 
@@ -984,8 +1026,7 @@ v2 and v3 say the same thing; v3 says it in the words the app now uses.
 
 ## Implementation reference
 
-The code carries no comments. The rules it follows, beyond the sections above,
-are here.
+The rules the code follows, beyond the sections above.
 
 ### Return from PayPal
 
@@ -998,10 +1039,6 @@ are here.
 - A checkout whose hold is already recorded, or whose enrollment is past
   checkout, is answered from the stored state without asking PayPal, so a
   repeated return sends nothing twice.
-- An authorize skipped earlier is revived automatically; one PayPal refused as
-  `ORDER_NOT_APPROVED` is revived because the buyer is back with the order
-  approved. Any other refusal, or a job running, unknown or waiting for its
-  retry, is left alone.
 - A seat past its expiry is taken again under the capacity rule
   (`store.ReReserveSeat`) for the configured seat TTL. When that is refused the
   enrollment is read again, since another request or a reconcile may have
@@ -1046,16 +1083,10 @@ are here.
   taking back jobs claimed more than five minutes ago plus enqueuing seat
   releases (every minute), and the periodic reconciles and heals (every two
   minutes).
-- On shutdown no new job is claimed; a job already sent to PayPal may run on
-  for a short grace period so its answer is recorded instead of becoming
-  unknown, and results are written in a context that outlives the shutdown.
 - A handler's error decides the next step: an ambiguous PayPal error parks the
   job as `unknown` and schedules the next reconcile generation; a recorded
   refusal fails the job and keeps its key; anything else (a 429, a store
   failure, a panic) retries it under the same key.
-- `EnqueueOrRevive` revives only a skip, never an action PayPal refused;
-  `Revive` is for callers that know something changed (the buyer is back with
-  an approved order, an operator).
 - A late result for a job that was taken back or settled elsewhere is dropped
   (`ErrJobNotActive`), never written over the newer state.
 - A pending reconcile of the attempt that has not started yet resolves a new
@@ -1074,15 +1105,9 @@ are here.
   attempt count, so a retry reuses the PayPal-Request-Id. `AdvanceJob` only
   brings a pending job forward, never later.
 - An unknown job's age is measured against the database clock.
-- The purge keeps payment actions, closes and numbered reconciles, because the
-  worker decides from their existence.
 
 ### Payment attempts
 
-- A new attempt needs a `SEAT_RESERVED` enrollment whose latest attempt holds
-  no authorization, numbered under the enrollment's row lock. An attempt with
-  a hold therefore stays the enrollment's latest, so the hold, its capture, its
-  void and its refund always belong to the attempt the enrollment follows.
 - A second tab or a repeated click reuses the open checkout's attempt; a new
   one is opened only when the order expired or PayPal refused to create it.
 - PayPal identity columns (order, authorization, capture and refund ids, hold
@@ -1107,13 +1132,7 @@ are here.
 ### Seats
 
 - Seats are reserved under the workshop's row lock, so concurrent requests
-  never exceed capacity; a lapsed seat no release job has freed yet does not
-  count.
-- A participant's active enrollment is any non-terminal one, or a flagged one
-  whatever its status, so a seat whose money state is uncertain never gets a
-  second hold beside it.
-- A seat kept while PayPal reviews an authorization (`PENDING`) is never
-  released by the seat tick.
+  never exceed capacity.
 
 ### Recommendation explanation
 

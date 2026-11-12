@@ -30,7 +30,7 @@ Claude asks her about the class hours, and her answer is what lets Saturday open
 participant, and needs no credentials. `go run ./cmd/seed -h` lists the flags:
 - `-base` for another base URL;
 - the price, time zone and payment window;
-- `-open-payments` to send Grace's answer to Claude's question and open payments on the recommended date right away.
+- `-open-payments` to send Grace's answer to Claude's question and open reservations on the recommended date right away.
 
 ### Demo mode
 
@@ -46,23 +46,18 @@ Limits on starting demos:
 - At most 30 demos start in any hour, and at most 6 are being set up at once.
 - A demo starts only when the Bedrock caps leave room for about 10 more calls. Otherwise it answers 429 `demo_resting` with `Retry-After` and says when to try again.
 
-Both endpoints answer 404 outside demo mode. The demo also adds the
-organizer's **Close reservations now** control; once the class is on and
-reservations are closed, **Start the class now**, which starts the class early
-(the payout lock counts as the start) and pays the organizer out right away (see
-[Payouts](#payouts)); and, while a class is funding, a **Demo clock** with
-**Skip to the last 2 hours** (`POST /api/v1/owner/{token}/demo/skip-to-last-hours`):
-while its deadline has never been extended, it moves `closes_at` to two hours
-from now (only ever earlier) and brings the `close:{proposal}` job forward
-with it, in one transaction guarded by `extended_at is null`
-(`store.SkipToLastHours`), so a short class reaches the window in which Claude suggests
-rescuing it with one deadline extension. It answers 404 outside demo mode
-too.
+Both endpoints answer 404 outside demo mode. The demo also adds these
+controls to the organizer page:
 
-With `COMMITPOOL_SANDBOX_MOCKS=1` as well, **Fail next charge** makes PayPal
-answer `AUTHORIZATION_EXPIRED` to one capture through the
-`PayPal-Mock-Response` header. The server refuses that header outside the
-Sandbox.
+| Control | Endpoint | What it does |
+| --- | --- | --- |
+| **Close reservations now** | `POST /api/v1/owner/{token}/demo/close-now` | Moves `closes_at` to now and brings the `close:{proposal}` job forward with it. |
+| **Start the class now** | `POST /api/v1/owner/{token}/demo/start-class` | Once the class is on and reservations are closed: starts the class early (the payout lock counts as the start) and pays the organizer out right away. See [Payouts](#payouts). |
+| **Skip to the last 2 hours** | `POST /api/v1/owner/{token}/demo/skip-to-last-hours` | Under **Demo clock**, while a class is funding and its deadline was never extended: moves `closes_at` to two hours from now (only ever earlier) and brings the `close:{proposal}` job forward with it, in one transaction guarded by `extended_at is null` (`store.SkipToLastHours`). A short class then reaches the window in which Claude suggests rescuing it with one deadline extension. |
+| **Fail next charge** | `POST /api/v1/owner/{token}/demo/fail-next-capture` | Makes PayPal answer `AUTHORIZATION_EXPIRED` to one capture through the `PayPal-Mock-Response` header. The server refuses that header outside the Sandbox. |
+
+The first three answer 404 outside demo mode. **Fail next charge** answers 404
+unless `COMMITPOOL_SANDBOX_MOCKS=1`.
 
 ## Pasting a group chat
 
@@ -110,7 +105,7 @@ exits 1; the EC2 deploy runs it before it replaces the running app.
 | `COMMITPOOL_ALLOW_LIVE_PAYPAL` | `1` accepts a `PAYPAL_BASE_URL` other than the Sandbox, such as the live `https://api-m.paypal.com`; it must still be https. Default `0`. Refused next to `COMMITPOOL_DEMO_MODE=1` or `COMMITPOOL_SANDBOX_MOCKS=1`, which are Sandbox-only. |
 | `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` | Required unless `E2E_FAKE_PAYPAL=1`. PayPal Sandbox app credentials. |
 | `PAYPAL_WEBHOOK_ID` | Id of the Sandbox webhook pointing at `/paypal/webhook` (`scripts/register-webhook.sh` creates it). Without it the webhook endpoint answers 503 and the periodic reconcile does the work alone. |
-| `COMMITPOOL_AI_PROVIDER` | `bedrock` (default) or `fake`, a deterministic keyword interpreter for tests that also plays back the scripted readings of Iris's demo cast, including Grace's answer when it follows her first message. |
+| `COMMITPOOL_AI_PROVIDER` | `bedrock` (default) or `fake`, the deterministic keyword reader the tests use, which also plays back the scripted readings of Iris's demo cast, including Grace's answer when it follows her first message. |
 | `AWS_REGION` | Required unless `COMMITPOOL_AI_PROVIDER=fake`. |
 | `COMMITPOOL_BEDROCK_MODEL`, `COMMITPOOL_BEDROCK_FALLBACK_MODEL` | Bedrock model or inference profile IDs. The model defaults to Claude Sonnet 4.5 through the US inference profile, `us.anthropic.claude-sonnet-4-5-20250929-v1:0`. The fallback defaults to none, which turns the refusal fallback off. |
 | `COMMITPOOL_AI_HOURLY_CAP`, `COMMITPOOL_AI_DAILY_CAP` | Most Bedrock calls in any sliding hour (default `200`) and in any sliding 24 hours (default `1500`). They count model calls as the app makes them; the SDK may retry a failed call up to twice, and that is still one call. Readings of availability may use the whole cap; explanations, nudges and drafts only three quarters of it, so they never starve readings. Past its share, a reading answers 429 `ai_capped` with `Retry-After` and a message that says when to try again, and the others fall back to plain text or an empty draft until the wait is over. Every reading calls Claude; an explanation, nudge or draft identical to one of the last 512 reuses that answer and is not counted. Setting only the daily cap lowers the hourly default to it. The fake provider has no cap. |

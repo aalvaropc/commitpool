@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/aalvaropc/commitpool/internal/ai"
+	"github.com/aalvaropc/commitpool/internal/chatimport"
 	"github.com/aalvaropc/commitpool/internal/demo"
+	"github.com/aalvaropc/commitpool/internal/domain"
 	"github.com/aalvaropc/commitpool/internal/inproc"
 	"github.com/aalvaropc/commitpool/internal/store"
 )
@@ -175,6 +177,38 @@ func demoChat(ws store.WorkshopRow, loc *time.Location) *string {
 	}
 	chat := demo.LifeDrawing.Chat(ws.CreatedAt, loc)
 	return &chat
+}
+
+func demoUpdate(ws store.WorkshopRow, loc *time.Location, participants []store.ParticipantRow, readings map[string]domain.Interpretation) *string {
+	if !ws.IsDemo || ws.Status != domain.WorkshopCollecting || ws.ChatImports != 1 {
+		return nil
+	}
+	text := demo.LifeDrawing.ChatWithReplies(ws.CreatedAt, loc)
+	chat, err := chatimport.Parse(text)
+	if err != nil {
+		return nil
+	}
+	updates := 0
+	for _, p := range chat.People {
+		if isHost(p.Name, ws.HostName) {
+			continue
+		}
+		if !joinedAs(p.Name, participants) {
+			return nil
+		}
+		u, ok := updateFor(p, participants)
+		if !ok {
+			continue
+		}
+		if in, read := readings[u.participant.ID]; !read || !in.NeedsClarification {
+			return nil
+		}
+		updates++
+	}
+	if updates == 0 {
+		return nil
+	}
+	return &text
 }
 
 func (s *server) pace() demo.Pace {

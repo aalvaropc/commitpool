@@ -1,8 +1,23 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router'
 import type { OwnerView } from '../api'
 import { demoParticipants, demoStep, type DemoParticipant, type DemoStep } from '../lib/demo'
 import { DEMO_ACTIONS, useDemoAction } from '../lib/demoActions'
 import { Button, ButtonLink, DemoTag, Icon, Notice, Pill, Tile } from './ui'
+
+function StepText({ step }: { step: DemoStep }) {
+  const at = step.link ? step.text.indexOf(step.link.label) : -1
+  if (!step.link || at < 0) return <>{step.text}</>
+  return (
+    <>
+      {step.text.slice(0, at)}
+      <Link to={step.link.to} className="underline">
+        {step.link.label}
+      </Link>
+      {step.text.slice(at + step.link.label.length)}
+    </>
+  )
+}
 
 interface GuideProps {
   token: string
@@ -51,7 +66,7 @@ function Guide({ token, step, people, guided, onChange }: GuideProps) {
                 <Icon name="spark" size={20} className="mt-0.5 shrink-0 text-brand" />
                 <span>
                   <span className="sr-only">Next in the demo: </span>
-                  {step.text}
+                  <StepText step={step} />
                 </span>
               </p>
             )}

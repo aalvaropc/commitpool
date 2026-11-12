@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type Ref } from 'react'
 import { api, type ChatPreview, type OwnerView, type Reading } from '../api'
-import { addLabel, chatLength, chatProblem, importedNote, MAX_CHAT_CHARS, personTag, progressText, readChatFile, readingNow, ticked } from '../lib/chat'
-import { chatLead } from '../lib/demo'
+import { addLabel, chatLength, chatProblem, chosenCounts, importedNote, isLocked, MAX_CHAT_CHARS, personTag, progressText, readChatFile, readingNow, ticked } from '../lib/chat'
+import { chatLead, updateLead } from '../lib/demo'
 import { count } from '../lib/plural'
 import { Button, Icon, Notice, Tile, inputClass } from './ui'
 
@@ -64,6 +64,8 @@ function PreviewList({
   onToggle: (name: string) => void
   onAdd: () => void
 }) {
+  const picked = chosenCounts(preview.people, chosen)
+  const onlyUpdates = picked.add === 0 && picked.update > 0
   return (
     <div className="flex flex-col gap-3">
       <h3 id="chat-found" ref={foundRef} tabIndex={-1} className="scroll-mt-4 font-sans text-base font-semibold">
@@ -73,7 +75,7 @@ function PreviewList({
         <ul className="flex flex-col divide-y divide-line rounded-control ring-1 ring-line ring-inset">
           {preview.people.map((p) => {
             const tag = personTag(p)
-            const locked = p.host || p.joined
+            const locked = isLocked(p)
             return (
               <li key={p.name}>
                 <label className={`flex min-h-11 items-start gap-3 px-3.5 py-3 ${locked ? 'cursor-default' : 'cursor-pointer'}`}>
@@ -99,8 +101,8 @@ function PreviewList({
         {preview.skipped > 0 && <p className="text-sm text-ink-soft">{`${count(preview.skipped, 'line')} left out: system messages, media and deleted messages.`}</p>}
       </fieldset>
       <div className="flex flex-col sm:block">
-        <Button onClick={onAdd} busy={busy === 'add'} busyLabel="Adding them…" disabled={chosen.length === 0}>
-          {addLabel(chosen.length)}
+        <Button onClick={onAdd} busy={busy === 'add'} busyLabel={onlyUpdates ? 'Sending them to Claude…' : 'Adding them…'} disabled={chosen.length === 0}>
+          {addLabel(picked.add, picked.update)}
           <Icon name="arrowRight" size={18} />
         </Button>
       </div>
@@ -209,18 +211,20 @@ interface Props {
 
 export default function ChatImportCard({ token, view, onImported }: Props) {
   const fresh = view.participants.length === 0
-  const [state, setState] = useState(() => chatCard(fresh ? (view.demo_chat ?? '') : ''))
+  const [state, setState] = useState(() => chatCard((fresh ? view.demo_chat : view.demo_update) ?? ''))
   const [busy, setBusy] = useState<ChatBusy>(null)
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(() => !fresh && Boolean(view.demo_update))
   const [note, setNote] = useState('')
   const text = useRef<HTMLTextAreaElement>(null)
   const found = useRef<HTMLHeadingElement>(null)
   const after = useRef<'found' | 'text' | null>(null)
+  const wasFresh = useRef(fresh)
   const working = state.text !== '' || state.preview !== null || state.error !== null
-  const lead = fresh && view.workshop.demo ? chatLead(state.text, view.demo_chat) : null
+  const lead = view.workshop.demo ? (fresh ? chatLead(state.text, view.demo_chat) : updateLead(state.text, view.demo_update)) : null
 
   useEffect(() => {
-    if (!fresh && working) setOpen(true)
+    if (wasFresh.current && !fresh && working) setOpen(true)
+    wasFresh.current = fresh
   }, [fresh])
 
   useEffect(() => {

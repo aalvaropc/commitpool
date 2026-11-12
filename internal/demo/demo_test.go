@@ -417,6 +417,27 @@ func TestLifeDrawingChat_IsAlwaysTheEveningBefore(t *testing.T) {
 	}
 }
 
+func TestLifeDrawingChatWithReplies_AddsGracesAnswerThatEvening(t *testing.T) {
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 11, 11, 18, 30, 0, 0, time.UTC)
+	reply := demo.LifeDrawing.Replies[0]
+	text := demo.LifeDrawing.ChatWithReplies(now, ny)
+	if want := demo.LifeDrawing.Chat(now, ny) + "\n[11/10/26, 7:52:07 PM] Grace Liu: " + reply.Message; text != want {
+		t.Fatalf("the updated chat =\n%s\nwant Iris's chat with Grace's reply at 7:52 PM the same evening:\n%s", text, want)
+	}
+	chat, err := chatimport.Parse(text)
+	if err != nil {
+		t.Fatalf("Parse(the updated chat) = %v", err)
+	}
+	grace := chat.People[len(chat.People)-1]
+	if grace.Name != reply.Name || len(grace.Messages) != 2 || grace.Messages[0] != demo.LifeDrawing.People[5].Message || grace.Messages[1] != reply.Message {
+		t.Errorf("Grace = %+v, want her first message, then exactly her scripted reply", grace)
+	}
+}
+
 func TestLifeDrawing_TheWebGuideQuotesGracesReply(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("..", "..", "web", "src", "lib", "demo.ts"))
 	if err != nil {

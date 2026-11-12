@@ -33,8 +33,8 @@ test.describe('one-click demo', () => {
     await expect(grid).toContainText('Tied')
 
     const guide = page.getByRole('region', { name: 'You are Iris now' })
-    await expect(guide).toContainText('Copy Claude’s reply for the group, then act as Grace to answer her question.')
-    await expect(guide).toContainText("For example: “No problem — I swapped Saturday. Sunday I'm still at the market.”")
+    await expect(guide).toContainText('Copy Claude’s reply for the group. Grace answered in the chat. Paste the updated chat, or act as Grace to answer on her page.')
+    await expect(guide).toContainText("She wrote: “No problem — I swapped Saturday. Sunday I'm still at the market.”")
     const all = await suggests.innerText()
     expect(all.indexOf('Claude’s reply for the group')).toBeGreaterThan(-1)
     expect(all.indexOf('Claude’s reply for the group')).toBeLessThan(all.indexOf('Grace Liu’s message needs clarifying.'))

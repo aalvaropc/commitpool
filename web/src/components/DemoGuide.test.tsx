@@ -45,9 +45,12 @@ describe('DemoGuide', () => {
     expect(render(view())).toMatch(/<details[^>]* open/)
   })
 
-  it('shows no button once the payout went out', () => {
+  it('shows no button once the payout went out, and links Try it as Iris back to the start', () => {
     const html = render(view({ proposal: { date_id: 'sat', payments_open: false, minimum: 3 }, payout: { state: 'paid', locked: true, estimated: false, seats: 3 } }))
     expect(html).not.toContain('Start the class now')
     expect(html).not.toContain('Close reservations now')
+    expect(html).toMatch(/<details[^>]* open/)
+    expect(html).toContain('That’s the whole loop: the chat read, the date found, the holds charged and Iris paid. To see the rescue, press <a')
+    expect(html).toMatch(/<a [^>]*href="\/"[^>]*>Try it as Iris<\/a> again, reserve as two people, then Skip to the last 2 hours\./)
   })
 })

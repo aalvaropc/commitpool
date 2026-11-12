@@ -55,6 +55,31 @@ describe('ChatImportCard', () => {
     expect(plain).toContain('Add 2 people')
   })
 
+  it('shows someone already here with new messages as ticked, with their newest message, and reads only those', () => {
+    const later: ChatPreview = {
+      people: [
+        { name: 'Iris Calder', excerpt: 'Life drawing at The Long Room', messages: 2, host: true, joined: false },
+        { name: 'Priya Raman', excerpt: 'Saturday works for me, Sunday I can’t.', messages: 1, new_messages: 0, host: false, joined: true },
+        { name: 'Grace Liu', excerpt: 'No problem — I swapped Saturday. Sunday I’m still at the market.', messages: 2, new_messages: 1, host: false, joined: true },
+      ],
+      skipped: 0,
+    }
+    const html = panel(withPreview(chatCard('Grace Liu: No problem'), later))
+    const grace = row(html, 'Grace Liu')
+    expect(grace).toMatch(/checked/)
+    expect(grace).not.toMatch(/disabled/)
+    expect(text(grace)).toContain('Grace Liu · new messages')
+    expect(text(grace)).toContain('“No problem — I swapped Saturday. Sunday I’m still at the market.”')
+    const priya = row(html, 'Priya Raman')
+    expect(priya).toMatch(/disabled/)
+    expect(text(priya)).toContain('Priya Raman · already here')
+    expect(text(html)).toContain('Read new messages from 1 person')
+    expect(text(html)).not.toContain('Add 0 people')
+
+    const mixed = panel({ ...withPreview(chatCard('x'), later), chosen: ['Grace Liu', 'Ana'], preview: { ...later, people: [...later.people, { name: 'Ana', excerpt: 'Sunday', messages: 1, host: false, joined: false }] } })
+    expect(text(mixed)).toContain('Add 1 person, read new messages from 1')
+  })
+
   it('rejects a zip', async () => {
     const before = chatCard('Ana: Saturday works')
     const zip = new File([new Uint8Array([0x50, 0x4b, 0x03, 0x04])], 'WhatsApp Chat - Life drawing.zip', { type: 'application/zip' })
@@ -116,6 +141,21 @@ describe('ChatImportCard', () => {
     expect(later).not.toMatch(/<details[^>]*open/)
     expect(text(later)).toContain('Paste more of the chat')
     expect(later).not.toContain('Who’s in?</textarea>')
+  })
+
+  it('opens Iris’s chat with Grace’s answer once the demo offers it', () => {
+    const update = 'Iris Calder: Who’s in?\nGrace Liu: No problem — I swapped Saturday.'
+    const view = owner({
+      workshop: { status: 'COLLECTING', demo: true },
+      demo_chat: 'Iris Calder: Who’s in?',
+      demo_update: update,
+      participants: [{ id: 'p1', display_name: 'Grace Liu' }],
+    } as Partial<OwnerView>)
+    const html = renderToStaticMarkup(<ChatImportCard token="t" view={view} onImported={async () => {}} />)
+    expect(html).toMatch(/<details[^>]*open/)
+    expect(text(html)).toContain('Paste more of the chat')
+    expect(html).toContain('Grace Liu: No problem — I swapped Saturday.</textarea>')
+    expect(text(html)).toContain('Next in the demo: Grace’s answer is now the last line of Iris’s chat. Press Read the chat, then Read new messages from 1 person.')
   })
 
   it('shows how far Claude got only while it is reading', () => {

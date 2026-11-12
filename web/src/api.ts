@@ -190,6 +190,7 @@ export interface ChatPerson {
   name: string
   excerpt: string
   messages: number
+  new_messages?: number
   host: boolean
   joined: boolean
 }
@@ -199,10 +200,11 @@ export interface ChatPreview {
   skipped: number
 }
 
-export type ChatSkipReason = 'host' | 'already_here' | 'not_in_chat'
+export type ChatSkipReason = 'host' | 'already_here' | 'not_in_chat' | 'still_reading'
 
 export interface ChatImport {
   imported: { name: string; participant_url: string }[]
+  updated?: { name: string; participant_url: string }[]
   skipped: { name: string; reason: ChatSkipReason }[]
 }
 
@@ -242,6 +244,7 @@ export interface OwnerView {
   participants: OwnerParticipant[]
   reading?: Reading
   demo_chat?: string | null
+  demo_update?: string | null
   chat_imported?: boolean
   availabilities: Availability[]
   recommendation: Recommendation

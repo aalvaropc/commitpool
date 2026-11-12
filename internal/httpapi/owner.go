@@ -53,6 +53,7 @@ type ownerViewDTO struct {
 	Participants   []ownerParticipantDTO `json:"participants"`
 	Reading        readingDTO            `json:"reading"`
 	DemoChat       *string               `json:"demo_chat"`
+	DemoUpdate     *string               `json:"demo_update"`
 	ChatImported   bool                  `json:"chat_imported"`
 	Availabilities []availabilityDTO     `json:"availabilities"`
 	Recommendation recommendationDTO     `json:"recommendation"`
@@ -157,6 +158,7 @@ func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
 		Participants:   participants,
 		Reading:        reading,
 		DemoChat:       demoChat(ws, st.loc),
+		DemoUpdate:     demoUpdate(ws, st.loc, st.participants, readings),
 		ChatImported:   ws.ChatImports > 0,
 		Availabilities: availabilities,
 		Recommendation: recommendation,

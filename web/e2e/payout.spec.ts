@@ -91,6 +91,8 @@ test.describe('payout', () => {
       await expect(owner.getByRole('region', { name: 'Workshop status' })).toContainText(/PayPal batch \w+ · \w+/)
       await expect(guide.getByRole('button', { name: /Start the class now/ })).toHaveCount(0)
       await expect(guide).not.toContainText('The class has started')
+      await expect(guide).toContainText('That’s the whole loop: the chat read, the date found, the holds charged and Iris paid.')
+      await expect(guide.getByRole('link', { name: 'Try it as Iris' })).toHaveAttribute('href', '/')
       await expectAccessible(owner, 'the demo organizer page once paid out')
     } finally {
       await Promise.all(contexts.map((c) => c.close()))

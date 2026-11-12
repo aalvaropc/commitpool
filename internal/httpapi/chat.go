@@ -224,7 +224,7 @@ func isHost(name, host string) bool {
 	if len(words) == 0 {
 		return false
 	}
-	return chatimport.SameName(name, host) || chatimport.SameName(name, words[0])
+	return chatimport.SameName(name, host) || chatimport.StartsWithName(name, words[0])
 }
 
 func sameNameAs(name string) func(string) bool {

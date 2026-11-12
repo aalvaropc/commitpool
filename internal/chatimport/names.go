@@ -153,3 +153,12 @@ func fold(s string) string {
 func SameName(a, b string) bool {
 	return fold(a) == fold(b)
 }
+
+func nameWords(s string) string {
+	return strings.Join(strings.FieldsFunc(fold(s), func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsNumber(r) }), " ")
+}
+
+func StartsWithName(name, first string) bool {
+	want, got := nameWords(first), nameWords(name)
+	return want != "" && (got == want || strings.HasPrefix(got, want+" "))
+}

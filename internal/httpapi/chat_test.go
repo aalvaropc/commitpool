@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -141,6 +142,33 @@ func TestPreview_MarksHostAndJoined(t *testing.T) {
 	if v := e.owner(h); len(v.Participants) != 1 {
 		t.Errorf("a preview created participants: %+v", v.Participants)
 	}
+}
+
+func TestPreview_KnowsTheHostUnderAChatName(t *testing.T) {
+	e := newEnv(t)
+	h := e.createWorkshop(withHost("Iris Calder"))
+	text := strings.Join([]string{
+		"Iris 🎨: Saturday or Sunday, who's in?",
+		"Iris C.: Same class, from my other phone.",
+		"Irisa: Sunday works.",
+	}, "\n")
+
+	host := map[string]bool{}
+	for _, p := range e.previewChat(h, text).People {
+		host[p.Name] = p.Host
+	}
+	if want := map[string]bool{"Iris 🎨": true, "Iris C.": true, "Irisa": false}; !maps.Equal(host, want) {
+		t.Errorf("host by name = %v, want %v", host, want)
+	}
+
+	got := e.importChat(h, text, "Iris 🎨", "Irisa")
+	if want := []chatSkippedJSON{{Name: "Iris 🎨", Reason: "host"}}; !slices.Equal(got.Skipped, want) {
+		t.Errorf("skipped = %+v, want %+v", got.Skipped, want)
+	}
+	if len(got.Imported) != 1 || got.Imported[0].Name != "Irisa" {
+		t.Errorf("imported = %+v, want only Irisa", got.Imported)
+	}
+	e.background.Wait()
 }
 
 func TestPreview_ExcerptIsShort(t *testing.T) {

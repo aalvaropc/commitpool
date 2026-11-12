@@ -1,6 +1,7 @@
 import type { OwnerView } from '../api'
 import { tokenFromParticipantURL } from './participant'
 import { canStartClass } from './payout'
+import { count } from './plural'
 import { freeToReserveAgain } from './status'
 import { formatWeekday } from './time'
 
@@ -36,7 +37,7 @@ export const REPLY_STEP = 'Copy Claude’s reply for the group, then act as Grac
 export const ANSWERED_STEP = 'Grace answered in the chat. Paste the updated chat, or act as Grace to answer on her page.'
 export const UPDATE_STEP = 'Grace’s answer is now the last line of Iris’s chat. Press Read the chat, then Read new messages from 1 person.'
 export const DONE_STEP =
-  'That’s the whole loop: the chat read, the date found, the holds charged and Iris paid. To see the rescue, press Try it as Iris again, reserve as two people, then Skip to the last 2 hours.'
+  'That’s the whole loop: the chat read, the date found, the holds charged and the money paid out to Iris. To see the rescue, press Try it as Iris again, reserve as two people, then Skip to the last 2 hours.'
 const TRY_AGAIN: DemoLink = { label: 'Try it as Iris', to: '/' }
 
 export function chatLead(text: string, demoChat: string | null | undefined): string | null {
@@ -95,6 +96,8 @@ export function demoStep(v: OwnerView, cast: string[]): DemoStep | null {
   const answers = new Map(v.availabilities.map((a) => [a.participant_id, a]))
   const waiting = members.some((p) => !answers.has(p.id))
   if (members.length > 0 && v.reading?.active) return { text: `Claude is reading each person’s messages against ${firstName(w.host_name)}’s dates.`, primary: null }
+  const unread = v.participants.filter((p) => p.unread && !answers.has(p.id)).length
+  if (unread > 0 && !v.reading?.active) return { text: `Claude couldn’t read ${count(unread, 'person', 'people')} yet. Press Read again.`, primary: null }
   if (!rec.date_id || members.length === 0 || waiting) return null
   if (rec.meets_minimum) return { text: 'Open reservations, then reserve as someone who can come.', primary: null }
   const best = v.dates.find((d) => d.id === rec.date_id)

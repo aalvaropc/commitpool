@@ -158,7 +158,7 @@ func (s *server) ownerView(w http.ResponseWriter, r *http.Request) error {
 		Participants:   participants,
 		Reading:        reading,
 		DemoChat:       demoChat(ws, st.loc),
-		DemoUpdate:     demoUpdate(ws, st.loc, st.participants, readings),
+		DemoUpdate:     demoUpdate(ws, st.loc, st.participants, readings, reading.Active),
 		ChatImported:   ws.ChatImports > 0,
 		Availabilities: availabilities,
 		Recommendation: recommendation,

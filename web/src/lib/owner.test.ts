@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { OwnerView } from '../api'
-import { cancellationDetail, cellNotes, cellStatus, dateColumns, countFacts, decisionCounts, nextStep, ownerRefresh, sessionCovered, sessionPlan } from './owner'
+import { cancellationDetail, cellNotes, cellStatus, dateColumns, countFacts, decisionCounts, foldName, nextStep, ownerRefresh, possibleDuplicates, sessionCovered, sessionPlan } from './owner'
 
 const usd = (minor: number) => ({ minor, currency: 'USD', value: (minor / 100).toFixed(2) })
 
@@ -474,5 +474,32 @@ describe('cellNotes while a reading needs clarifying', () => {
     }
     const a = { ...answered(['p2'])[0], interpretation, needs_clarification: true }
     expect(cellNotes(a, 'sat', { date_id: 'sat', compatible: [], blockers: { p2: 'needs clarification' } }).fit).toBeNull()
+  })
+})
+
+describe('foldName', () => {
+  it('folds case, accents and spaces like the server', () => {
+    const same = (a: string, b: string) => foldName(a) === foldName(b)
+    expect(same('Lucia', 'Lucía')).toBe(true)
+    expect(same('lucía', 'LUCÍA')).toBe(true)
+    expect(same('José  María', 'jose maria')).toBe(true)
+    expect(same(' Grace Liu ', 'grace liu')).toBe(true)
+    expect(same('Ana', 'Anna')).toBe(false)
+    expect(same('Ana', 'Ana Ruiz')).toBe(false)
+  })
+})
+
+describe('possibleDuplicates', () => {
+  it('marks everyone whose name another person shares', () => {
+    const people = [
+      { id: 'chat', display_name: 'Grace Liu' },
+      { id: 'ben', display_name: 'Ben' },
+      { id: 'link', display_name: 'grace liu' },
+      { id: 'lucia', display_name: 'Lucía' },
+      { id: 'lucia2', display_name: 'Lucia' },
+      { id: 'ana', display_name: 'Ana Ruiz' },
+    ]
+    expect([...possibleDuplicates(people)].sort()).toEqual(['chat', 'link', 'lucia', 'lucia2'])
+    expect(possibleDuplicates([{ id: 'ben', display_name: 'Ben' }]).size).toBe(0)
   })
 })

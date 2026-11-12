@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api, type Availability, type DateSummary, type OwnerParticipant, type OwnerView } from '../api'
-import { cellNotes, cellStatus, dateColumns, type DateColumn } from '../lib/owner'
+import { cellNotes, cellStatus, dateColumns, possibleDuplicates, type DateColumn } from '../lib/owner'
 import { count } from '../lib/plural'
 import { Avatar, Button, ConfirmDialog, Icon, Notice, Pill, Tile, VerdictChip, toneWash } from './ui'
 
@@ -18,12 +18,14 @@ interface Actions {
   copy: (p: OwnerParticipant) => void
   remove: (p: OwnerParticipant) => void
   removable: (p: OwnerParticipant) => boolean
+  duplicate: (p: OwnerParticipant) => boolean
 }
 
 export const COPIED_FOR_MS = 4000
 
 const markTone = (c: DateColumn, meets: boolean) => (c.mark === 'Recommended' ? (meets ? 'paid' : 'neutral') : c.mark === 'Tied' ? 'neutral' : 'hold')
 const wrap = 'min-w-0 [overflow-wrap:anywhere]'
+const DUPLICATE = 'Possible duplicate'
 
 function Cell({ a, dateId, summary }: { a: Availability; dateId: string; summary?: DateSummary }) {
   const status = cellStatus(a, dateId)
@@ -119,9 +121,10 @@ function PersonActions({ p, actions }: { p: OwnerParticipant; actions: Actions }
 function PersonCard({ p, a, unread, actions, columns, summaries }: { p: OwnerParticipant; a?: Availability; unread: Unread; actions: Actions; columns: DateColumn[]; summaries: Map<string, DateSummary> }) {
   return (
     <li className="flex flex-col gap-2.5 rounded-control p-3.5 ring-1 ring-line ring-inset">
-      <p className="flex min-w-0 items-center gap-2.5">
+      <p className="flex min-w-0 flex-wrap items-center gap-2.5">
         <Avatar name={p.display_name} size="sm" />
         <span className={`font-semibold ${wrap}`}>{p.display_name}</span>
+        {actions.duplicate(p) && <Pill tone="attention">{DUPLICATE}</Pill>}
       </p>
       <Message a={a} p={p} unread={unread} />
       <PersonActions p={p} actions={actions} />
@@ -144,6 +147,8 @@ export default function AvailabilityGrid({ token, view, onOpen, onChange }: Prop
   const summaries = new Map((view.recommendation.per_date ?? []).map((d) => [d.date_id, d]))
   const byParticipant = new Map(view.availabilities.map((a) => [a.participant_id, a]))
   const people = view.participants
+  const collecting = view.workshop.status === 'COLLECTING'
+  const duplicates = possibleDuplicates(people)
   const openable = columns.some((c) => c.canOpen)
   const [said, setSaid] = useState('')
   const [again, setAgain] = useState('')
@@ -155,6 +160,7 @@ export default function AvailabilityGrid({ token, view, onOpen, onChange }: Prop
   const enrolled = new Set(view.enrollments.map((e) => e.participant_id))
   const unreadOf = (p: OwnerParticipant): Unread => (p.unread && !byParticipant.has(p.id) ? (readingNow ? 'reading' : 'stuck') : null)
   const stuck = people.filter((p) => unreadOf(p) === 'stuck')
+  const retryable = collecting && stuck.length > 0
   const readStuck = stuck.length === 1 ? `Read ${stuck[0].display_name}’s message again` : `Read the ${count(stuck.length, 'person', 'people')} Claude couldn’t read yet`
 
   useEffect(() => {
@@ -194,8 +200,10 @@ export default function AvailabilityGrid({ token, view, onOpen, onChange }: Prop
       setRemoveError(null)
       setRemoving(p)
     },
-    removable: (p) => view.workshop.status === 'COLLECTING' && p.source === 'chat' && !enrolled.has(p.id) && unreadOf(p) !== 'reading',
+    removable: (p) => collecting && p.source === 'chat' && !enrolled.has(p.id) && unreadOf(p) !== 'reading',
+    duplicate: (p) => duplicates.has(p.id),
   }
+  const removableDuplicate = people.some((p) => actions.duplicate(p) && actions.removable(p))
 
   async function confirmRemove() {
     if (!removing) return
@@ -228,9 +236,11 @@ export default function AvailabilityGrid({ token, view, onOpen, onChange }: Prop
         {said}
       </p>
 
-      {(stuck.length > 0 || busy === 'retry' || (again && readingNow)) && (
+      {removableDuplicate && <p className={`text-sm text-attention ${wrap}`}>{DUPLICATE}: a name appears more than once. If it’s the same person, remove the row added from the chat so they count once.</p>}
+
+      {(retryable || busy === 'retry' || (again && readingNow)) && (
         <div className={`flex flex-col items-start gap-2 rounded-control px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center ${toneWash.attention}`}>
-          {stuck.length > 0 && (
+          {retryable && (
             <Button variant="secondary" size="sm" busy={busy === 'retry'} busyLabel="Reading again…" onClick={() => void readAgain()}>
               {readStuck}
             </Button>
@@ -243,7 +253,7 @@ export default function AvailabilityGrid({ token, view, onOpen, onChange }: Prop
 
       {people.length === 0 ? (
         <p className="text-ink-soft">
-          {view.workshop.status === 'COLLECTING' ? 'Paste your group chat above, or share the invite.' : 'Share the invite.'} Each person appears here with their answer for every date.
+          {collecting ? 'Paste your group chat above, or share the invite.' : 'Share the invite.'} Each person appears here with their answer for every date.
         </p>
       ) : (
         <>
@@ -290,9 +300,12 @@ export default function AvailabilityGrid({ token, view, onOpen, onChange }: Prop
                   return (
                     <tr key={p.id}>
                       <th scope="row" className="border-t border-line py-3 pr-3 align-top font-normal">
-                        <span className="flex min-w-0 items-center gap-2.5">
-                          <Avatar name={p.display_name} size="sm" />
-                          <span className={`font-semibold text-ink ${wrap}`}>{p.display_name}</span>
+                        <span className="flex min-w-0 flex-col items-start gap-1.5">
+                          <span className="flex min-w-0 items-center gap-2.5">
+                            <Avatar name={p.display_name} size="sm" />
+                            <span className={`font-semibold text-ink ${wrap}`}>{p.display_name}</span>
+                          </span>
+                          {actions.duplicate(p) && <Pill tone="attention">{DUPLICATE}</Pill>}
                         </span>
                       </th>
                       <td className="border-t border-line px-3 py-3 align-top">

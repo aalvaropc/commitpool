@@ -2,7 +2,9 @@ package httpapi_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/aalvaropc/commitpool/internal/ai"
 	"github.com/aalvaropc/commitpool/internal/demo"
+	"github.com/aalvaropc/commitpool/internal/domain"
 )
 
 type chatRepasteJSON struct {
@@ -577,5 +580,65 @@ func TestImport_DemoOffersTheUpdateOnlyWhileGraceIsUnclear(t *testing.T) {
 	}
 	if sat := canCome(e.owner(h), e.owner(h).Dates[0].ID); len(sat) != 3 {
 		t.Errorf("Saturday after Grace answered on her page = %v, want 3", sat)
+	}
+}
+
+type lateReaderAI struct {
+	ai.Fake
+	late    string
+	failing atomic.Bool
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (l *lateReaderAI) open() { l.once.Do(func() { close(l.release) }) }
+
+func (l *lateReaderAI) Interpret(ctx context.Context, in ai.InterpretInput) (domain.Interpretation, ai.Meta, error) {
+	if strings.Contains(in.Message, l.late) {
+		if l.failing.Load() {
+			return domain.Interpretation{}, ai.Meta{}, errors.New("the model answered with nothing")
+		}
+		l.entered <- struct{}{}
+		select {
+		case <-l.release:
+		case <-ctx.Done():
+			return domain.Interpretation{}, ai.Meta{}, ctx.Err()
+		}
+	}
+	return l.Fake.Interpret(ctx, in)
+}
+
+func TestImport_DemoOffersTheUpdateOnlyOnceNobodyIsBeingRead(t *testing.T) {
+	model := &lateReaderAI{Fake: ai.Fake{Script: demo.FakeScript()}, late: "Saturday works for me", entered: make(chan struct{}, 1), release: make(chan struct{})}
+	model.failing.Store(true)
+	e := newEnv(t, withDemoMode(), withAI(model))
+	t.Cleanup(model.open)
+	var d demoJSON
+	e.call(http.MethodPost, "/api/v1/demo/workshops", nil, http.StatusCreated, &d)
+	h := demoHandle(d)
+	e.importDemoChat(h)
+	e.background.Wait()
+	if e.demoUpdate(h) == nil {
+		t.Fatal("no updated chat once Grace's question is open and nobody is being read")
+	}
+
+	model.failing.Store(false)
+	e.call(http.MethodPost, h.ownerPath+"/chat/retry", nil, http.StatusAccepted, nil)
+	select {
+	case <-model.entered:
+	case <-time.After(30 * time.Second):
+		t.Fatal("Priya's second reading never started")
+	}
+	if !e.owner(h).Reading.Active {
+		t.Fatal("Priya's second reading is not active")
+	}
+	if u := e.demoUpdate(h); u != nil {
+		t.Error("the demo offers the updated chat while Claude is still reading someone")
+	}
+	model.open()
+	e.background.Wait()
+	if e.demoUpdate(h) == nil {
+		t.Error("no updated chat once the reading ended")
 	}
 }

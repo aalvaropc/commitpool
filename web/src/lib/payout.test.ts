@@ -138,7 +138,7 @@ describe('classStarted', () => {
   }) as Parameters<typeof classStarted>[0]
 
   it('names the amount, the PayPal batch and its status once the payout succeeded', () => {
-    expect(classStarted(v())).toEqual({ headline: 'Class started · Iris paid $27.48', sub: 'PayPal batch BATCH42 · SUCCESS' })
+    expect(classStarted(v())).toEqual({ headline: 'Class started · $27.48 paid out to Iris', sub: 'PayPal batch BATCH42 · SUCCESS' })
     expect(classStarted(v({}, { batch_status: undefined, item_status: 'SUCCESS' }))?.sub).toBe('PayPal batch BATCH42 · SUCCESS')
     expect(classStarted(v({}, { payout_batch_id: undefined }))?.sub).toBeNull()
   })
@@ -154,10 +154,10 @@ describe('classStarted', () => {
 
   it('works the same for a real workshop, with or without a host name', () => {
     const named = { workshop: { status: 'CONFIRMED', host_name: 'Ann Lee' } } as Partial<Parameters<typeof classStarted>[0]>
-    expect(classStarted(v(named))).toEqual({ headline: 'Class started · Ann paid $27.48', sub: 'PayPal batch BATCH42 · SUCCESS' })
+    expect(classStarted(v(named))).toEqual({ headline: 'Class started · $27.48 paid out to Ann', sub: 'PayPal batch BATCH42 · SUCCESS' })
     for (const host_name of ['', '   ']) {
       const nameless = { workshop: { status: 'CONFIRMED', host_name } } as Partial<Parameters<typeof classStarted>[0]>
-      expect(classStarted(v(nameless))).toEqual({ headline: 'Class started · Paid out $27.48', sub: 'PayPal batch BATCH42 · SUCCESS' })
+      expect(classStarted(v(nameless))).toEqual({ headline: 'Class started · $27.48 paid out', sub: 'PayPal batch BATCH42 · SUCCESS' })
     }
   })
 })

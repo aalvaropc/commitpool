@@ -316,3 +316,29 @@ func TestSameName(t *testing.T) {
 		}
 	}
 }
+
+func TestStartsWithName(t *testing.T) {
+	cases := []struct {
+		name, first string
+		want        bool
+	}{
+		{"Iris", "Iris", true},
+		{"Iris 🎨", "Iris", true},
+		{"Iris C.", "Iris", true},
+		{"iris calder", "Iris", true},
+		{"Íris ✨ Calder", "Iris", true},
+		{"🎨 Iris", "Iris", true},
+		{"Irisa", "Iris", false},
+		{"Iri", "Iris", false},
+		{"Ben", "Iris", false},
+		{"Mary-Jane 🌸", "Mary-Jane", true},
+		{"Mary", "Mary-Jane", false},
+		{"🎨", "🎨", false},
+		{"Iris", "", false},
+	}
+	for _, c := range cases {
+		if got := StartsWithName(c.name, c.first); got != c.want {
+			t.Errorf("StartsWithName(%q, %q) = %v, want %v", c.name, c.first, got, c.want)
+		}
+	}
+}

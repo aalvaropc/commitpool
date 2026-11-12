@@ -179,8 +179,8 @@ func demoChat(ws store.WorkshopRow, loc *time.Location) *string {
 	return &chat
 }
 
-func demoUpdate(ws store.WorkshopRow, loc *time.Location, participants []store.ParticipantRow, readings map[string]domain.Interpretation) *string {
-	if !ws.IsDemo || ws.Status != domain.WorkshopCollecting || ws.ChatImports != 1 {
+func demoUpdate(ws store.WorkshopRow, loc *time.Location, participants []store.ParticipantRow, readings map[string]domain.Interpretation, stillReading bool) *string {
+	if !ws.IsDemo || ws.Status != domain.WorkshopCollecting || ws.ChatImports != 1 || stillReading {
 		return nil
 	}
 	text := demo.LifeDrawing.ChatWithReplies(ws.CreatedAt, loc)
@@ -190,7 +190,7 @@ func demoUpdate(ws store.WorkshopRow, loc *time.Location, participants []store.P
 	}
 	updates := 0
 	for _, p := range chat.People {
-		if isHost(p.Name, ws.HostName) {
+		if chatimport.SameName(p.Name, ws.HostName) {
 			continue
 		}
 		if !joinedAs(p.Name, participants) {

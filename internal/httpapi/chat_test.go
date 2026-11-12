@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -143,6 +144,46 @@ func TestPreview_MarksHostAndJoined(t *testing.T) {
 	}
 }
 
+func TestPreview_KnowsTheHostUnderAChatName(t *testing.T) {
+	e := newEnv(t)
+	h := e.createWorkshop(withHost("Iris Calder"))
+	text := strings.Join([]string{
+		"Iris Calder: Saturday or Sunday, who's in?",
+		"Iris 🎨: Same class, from my other phone.",
+		"Iris Brown: Saturday works for me.",
+		"Irisa: Sunday works.",
+	}, "\n")
+
+	host := map[string]bool{}
+	for _, p := range e.previewChat(h, text).People {
+		host[p.Name] = p.Host
+	}
+	if want := map[string]bool{"Iris Calder": true, "Iris 🎨": true, "Iris Brown": true, "Irisa": false}; !maps.Equal(host, want) {
+		t.Errorf("host by name = %v, want %v", host, want)
+	}
+
+	got := e.importChat(h, text, "Iris Calder", "Iris Brown", "Irisa")
+	if want := []chatSkippedJSON{{Name: "Iris Calder", Reason: "host"}}; !slices.Equal(got.Skipped, want) {
+		t.Errorf("skipped = %+v, want %+v", got.Skipped, want)
+	}
+	var imported []string
+	for _, p := range got.Imported {
+		imported = append(imported, p.Name)
+	}
+	if want := []string{"Iris Brown", "Irisa"}; !slices.Equal(imported, want) {
+		t.Errorf("imported = %v, want %v", imported, want)
+	}
+	e.background.Wait()
+
+	later := e.previewPeople(h, text+"\nIris Brown: Sunday too, actually.")
+	if brown := later["Iris Brown"]; brown.Host || !brown.Joined || brown.NewMessages != 1 {
+		t.Errorf("Iris Brown after her import = %+v, want already here with 1 new message, not the host", brown)
+	}
+	if calder := later["Iris Calder"]; !calder.Host || calder.Joined {
+		t.Errorf("Iris Calder after the import = %+v, want the host, not joined", calder)
+	}
+}
+
 func TestPreview_ExcerptIsShort(t *testing.T) {
 	e := newEnv(t)
 	h := e.createWorkshop()
@@ -212,7 +253,7 @@ func TestPreview_NeedsTheOwnerLink(t *testing.T) {
 
 func TestImport_CreatesPeopleAndReadsThem(t *testing.T) {
 	e := newEnv(t)
-	h := e.createWorkshop(withHost("Iris Calder"))
+	h := e.createWorkshop(withHost("Iris"))
 
 	got := e.importChat(h, lifeDrawingChat(), append([]string{"Iris"}, castNames()...)...)
 
@@ -377,7 +418,7 @@ func TestImport_RefusesWithoutAIRoom(t *testing.T) {
 
 func TestImport_DemoLimits(t *testing.T) {
 	e := newEnv(t, withDemoMode())
-	h := e.createWorkshop(withHost("Iris Calder"), asDemo)
+	h := e.createWorkshop(withHost("Iris"), asDemo)
 	nine := []string{"Ana", "Ben", "Cleo", "Dev", "Eli", "Fay", "Gus", "Hal", "Ivy"}
 
 	e.wantError(http.MethodPost, h.ownerPath+"/chat/import", importBody(chatOf(nine...), nine...), http.StatusUnprocessableEntity, "demo_too_many_people")

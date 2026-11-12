@@ -206,6 +206,45 @@ func TestParse_PlainSenderLineInADatedPaste(t *testing.T) {
 	if got := messagesOf(c, "Ben"); !reflect.DeepEqual(got, []string{"Sunday", "or Saturday after 3"}) {
 		t.Fatalf("ben = %q", got)
 	}
+	c = mustParse(t, "11/10/26, 21:15 - Ben: Sunday\nben: or Saturday after 3")
+	if got := messagesOf(c, "Ben"); !reflect.DeepEqual(got, []string{"Sunday", "or Saturday after 3"}) {
+		t.Fatalf("ben in another case = %q", got)
+	}
+}
+
+func TestParse_AnotherMembersNameInsideAMessageStaysWithItsSender(t *testing.T) {
+	text := strings.Join([]string{
+		"11/10/26, 21:14 - Grace Liu: Sunday only, I work Saturdays",
+		"11/10/26, 21:15 - Ben Whitaker: I can do Saturday",
+		"Grace Liu: actually Saturday is fine, count me in",
+	}, "\n")
+	c := mustParse(t, text)
+	if got := messagesOf(c, "Ben Whitaker"); !reflect.DeepEqual(got, []string{"I can do Saturday\nGrace Liu: actually Saturday is fine, count me in"}) {
+		t.Errorf("ben = %q", got)
+	}
+	if got := messagesOf(c, "Grace Liu"); !reflect.DeepEqual(got, []string{"Sunday only, I work Saturdays"}) {
+		t.Errorf("grace = %q, want only her own message", got)
+	}
+}
+
+func TestParse_APastedGroupReplyStaysWithWhoPastedIt(t *testing.T) {
+	text := strings.Join([]string{
+		"[11/10/26, 9:14:00 PM] Grace: Saturday maybe, I’m at the market",
+		"[11/10/26, 9:20:00 PM] Iris Calder: Saturday has 2 of the 3 I need.",
+		"Grace: are you free on Saturday from 10 to 12?",
+		"Anyone who hasn’t answered yet: say when you can come. https://cp.test/w/abc",
+	}, "\n")
+	c := mustParse(t, text)
+	if got := names(c); !reflect.DeepEqual(got, []string{"Grace", "Iris Calder"}) {
+		t.Fatalf("names = %v", got)
+	}
+	if got := messagesOf(c, "Grace"); !reflect.DeepEqual(got, []string{"Saturday maybe, I’m at the market"}) {
+		t.Errorf("grace = %q, want only her own message", got)
+	}
+	want := "Saturday has 2 of the 3 I need.\nGrace: are you free on Saturday from 10 to 12?\nAnyone who hasn’t answered yet: say when you can come. https://cp.test/w/abc"
+	if got := messagesOf(c, "Iris Calder"); !reflect.DeepEqual(got, []string{want}) {
+		t.Errorf("iris = %q, want the whole reply", got)
+	}
 }
 
 func TestParse_NamesAreNFC(t *testing.T) {

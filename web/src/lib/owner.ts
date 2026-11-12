@@ -287,3 +287,16 @@ export function cellStatus(a: Availability, dateId: string): CellStatus {
   if (!v) return { chip: null, pill: null, readAs: null }
   return { chip: { verdict: v.verdict, text: verdictText(v) }, pill: null, readAs: null }
 }
+
+export function foldName(name: string): string {
+  return name.trim().split(/\s+/).join(' ').toLowerCase().normalize('NFD').replace(/\p{Mn}/gu, '').normalize('NFC')
+}
+
+export function possibleDuplicates(people: { id: string; display_name: string }[]): Set<string> {
+  const byName = new Map<string, string[]>()
+  for (const p of people) {
+    const key = foldName(p.display_name)
+    byName.set(key, [...(byName.get(key) ?? []), p.id])
+  }
+  return new Set([...byName.values()].filter((ids) => ids.length > 1).flat())
+}

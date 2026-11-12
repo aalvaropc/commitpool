@@ -159,7 +159,6 @@ func splitSender(rest string, plain bool) (string, string, bool) {
 type builder struct {
 	people   []Person
 	index    map[string]int
-	seen     map[string]bool
 	chatName string
 	skipped  int
 	tooMany  bool
@@ -204,7 +203,6 @@ func (b *builder) start(name, first string) {
 	b.flush()
 	b.open = true
 	b.name = name
-	b.seen[fold(name)] = true
 	b.marked = strings.HasPrefix(first, groupEventMark)
 	b.lines = []string{strings.ReplaceAll(first, groupEventMark, "")}
 }
@@ -239,7 +237,7 @@ func Parse(text string) (Chat, error) {
 			}
 		}
 	}
-	b := &builder{index: map[string]int{}, seen: map[string]bool{}}
+	b := &builder{index: map[string]int{}}
 	for _, raw := range lines {
 		line := cleanLine(raw)
 		if line == "" {
@@ -248,7 +246,7 @@ func Parse(text string) (Chat, error) {
 		if dated {
 			end := headerEnd(line)
 			if end < 0 {
-				if name, msg, ok := splitSender(line, false); ok && b.seen[fold(name)] {
+				if name, msg, ok := splitSender(line, false); ok && b.open && fold(name) == fold(b.name) {
 					b.start(name, msg)
 					continue
 				}

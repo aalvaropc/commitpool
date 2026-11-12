@@ -34,10 +34,11 @@ const preview: ChatPreview = {
 const owner = (over: Partial<OwnerView>) => ({ workshop: { status: 'COLLECTING' }, participants: [], ...over }) as unknown as OwnerView
 
 describe('ChatImportCard', () => {
-  it('shows the preview with the host unticked and joined disabled', () => {
+  it('shows the preview with the host unticked but tickable, and joined disabled', () => {
     const html = panel(withPreview(chatCard('Iris Calder: Who’s in?'), preview))
     const iris = row(html, 'Iris Calder')
     expect(iris).not.toMatch(/checked/)
+    expect(iris).not.toMatch(/disabled/)
     expect(text(iris)).toContain('Iris Calder · you')
     const lucia = row(html, 'Lucía Torres')
     expect(lucia).toMatch(/disabled/)

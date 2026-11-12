@@ -5,9 +5,28 @@ ink, one ember brand colour and four glazes for states. The thesis is that
 **the interface is the group chat**. People answer in their own words, as they
 would in the chat where the invite was shared, and Claude is one more member
 of that chat: it reads each message, replies when a message is unclear and
-drafts the reply for the group and the nudges the organizer may send. CommitPool, not Claude, counts who
-can come, picks the date and moves money. The product truth behind it is in
-[PRODUCT.md](PRODUCT.md).
+drafts the reply for the group and the nudges the organizer may send.
+CommitPool, not Claude, counts who can come, picks the date and moves money.
+The product truth behind it is in [PRODUCT.md](PRODUCT.md).
+
+## At a glance
+
+| The landing | Who can come | The invite on a phone |
+| --- | --- | --- |
+| ![The landing page: the headline next to a group chat being read](docs/images/landing.png) | ![Who can come: each person from the chat read by Claude, per date, with the words it came from](docs/images/organizer-board.png) | ![The invite page on a phone](docs/images/invite-phone.png) |
+
+- **The interface is the group chat.** People write as they would to friends,
+  and Claude reads them as one more member of the chat.
+- **Plain words, not payment words.** People read reserve, spot, hold and
+  It's on, never authorize, capture or seat.
+- **Claude's words are labelled as Claude's:** "Read by Claude" and "Claude’s
+  read", or "Prepared reading" and "Simple rules read this one" when Claude
+  did not read it live.
+- **Money never runs ahead of PayPal.** No screen says charged, released or
+  refunded before PayPal does.
+- **Accessible by default.** The end-to-end tests run axe (WCAG 2.2 AA) on
+  every page a person reaches, and buttons, inputs and the landing's links
+  are at least 44px tall (see [Accessibility](#accessibility)).
 
 ## Tokens
 

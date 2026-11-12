@@ -57,6 +57,13 @@ There is deliberately no tool to capture, void, refund, pay out, cancel a
 workshop, withdraw a seat or approve anything. Those stay in the web app, in front of
 the person they affect.
 
+There is also no tool to import a group chat. Adding people from a pasted chat
+stays on the organizer's board: it names real people from text the organizer
+pastes, and each one is read by Claude and listed with the words they wrote,
+which the organizer checks before anything counts. An assistant that wants more
+people in a class shares the invite link; each person joins and passes on their
+own availability with `join_workshop` and `submit_availability`.
+
 ## Opening reservations: the organizer approves
 
 Opening reservations locks the terms every participant then agrees to, so the

@@ -219,12 +219,20 @@ func parseChat(text string) (chatimport.Chat, error) {
 	return chat, err
 }
 
-func isHost(name, host string) bool {
+func looksLikeHost(name, host string) bool {
 	words := strings.Fields(host)
 	if len(words) == 0 {
 		return false
 	}
 	return chatimport.SameName(name, host) || chatimport.StartsWithName(name, words[0])
+}
+
+func isOrganizer(name, host string) bool {
+	words := strings.Fields(host)
+	if len(words) == 0 {
+		return false
+	}
+	return chatimport.SameName(name, host) || chatimport.SameName(name, words[0])
 }
 
 func sameNameAs(name string) func(string) bool {
@@ -316,14 +324,15 @@ func (s *server) previewChat(w http.ResponseWriter, r *http.Request) error {
 	}
 	out := chatPreviewDTO{People: make([]chatPersonDTO, len(chat.People)), Skipped: chat.Skipped}
 	for i, p := range chat.People {
+		joined := joinedAs(p.Name, existing)
 		person := chatPersonDTO{
 			Name:     p.Name,
 			Excerpt:  excerpt(p.Messages[0]),
 			Messages: len(p.Messages),
-			Host:     isHost(p.Name, ws.HostName),
-			Joined:   joinedAs(p.Name, existing),
+			Host:     !joined && looksLikeHost(p.Name, ws.HostName),
+			Joined:   joined,
 		}
-		if u, ok := updateFor(p, existing); ok && person.Joined && !person.Host {
+		if u, ok := updateFor(p, existing); ok && joined {
 			person.NewMessages = len(u.fresh)
 			person.Excerpt = excerpt(u.fresh[len(u.fresh)-1])
 		}
@@ -361,7 +370,7 @@ func planImport(chat chatimport.Chat, names []string, host string, existing []st
 		if !slices.ContainsFunc(names, sameNameAs(p.Name)) {
 			continue
 		}
-		if isHost(p.Name, host) {
+		if isOrganizer(p.Name, host) {
 			plan.skipped = append(plan.skipped, chatSkippedDTO{Name: p.Name, Reason: skippedHost})
 			continue
 		}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addLabel, chatLength, chatProblem, chosenCounts, hostFirstName, importedNote, MAX_CHAT_CHARS, NOT_TEXT_ERROR, NOT_UTF8_ERROR, personTag, progressText, readChatFile, readingNow, ticked, TOO_LONG_ERROR, ZIP_ERROR } from './chat'
+import { addLabel, chatLength, chatProblem, chosenCounts, hostFirstName, importedNote, isLocked, MAX_CHAT_CHARS, NOT_TEXT_ERROR, NOT_UTF8_ERROR, personTag, progressText, readChatFile, readingNow, ticked, TOO_LONG_ERROR, ZIP_ERROR } from './chat'
 
 const txt = (text: string, name = 'WhatsApp Chat - Life drawing.txt') => new File([text], name, { type: 'text/plain' })
 
@@ -55,6 +55,7 @@ describe('chat helpers', () => {
       { name: 'Grace Liu', excerpt: '', messages: 1, host: false, joined: false },
     ]
     expect(ticked(people)).toEqual(['Priya Raman', 'Grace Liu'])
+    expect(people.map(isLocked)).toEqual([false, false, true, false])
     expect(addLabel(6)).toBe('Add 6 people')
     expect(addLabel(1)).toBe('Add 1 person')
   })

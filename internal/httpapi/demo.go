@@ -190,7 +190,7 @@ func demoUpdate(ws store.WorkshopRow, loc *time.Location, participants []store.P
 	}
 	updates := 0
 	for _, p := range chat.People {
-		if isHost(p.Name, ws.HostName) {
+		if chatimport.SameName(p.Name, ws.HostName) {
 			continue
 		}
 		if !joinedAs(p.Name, participants) {

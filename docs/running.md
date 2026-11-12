@@ -74,8 +74,8 @@ organizer link and answering JSON:
 
 | Endpoint | What it does |
 | --- | --- |
-| `POST /api/v1/owner/{token}/chat/preview` | Body `{"text": "..."}`. Parses the chat and returns `people` (`name`, `excerpt`, `messages`, `host`, `joined`) and how many lines were `skipped`. Writes nothing and calls no model. |
-| `POST /api/v1/owner/{token}/chat/import` | Body `{"text": "...", "names": ["..."]}`. Adds the chosen people, skipping the organizer (a sender whose name is theirs or starts with their first name, as in "Iris 🎨" or "Iris C.") and anyone already in the class, and answers 202 with `imported` (`name`, `participant_url`) and `skipped` (`name`, `reason`: `host`, `already_here`, `not_in_chat` or `still_reading`). Claude reads each person's text in the background; the board shows "Claude is reading..." until each reading arrives. |
+| `POST /api/v1/owner/{token}/chat/preview` | Body `{"text": "..."}`. Parses the chat and returns `people` (`name`, `excerpt`, `messages`, `host`, `joined`) and how many lines were `skipped`. `host` marks a sender not yet in the class whose name is the organizer's or starts with their first name, as in "Iris 🎨" or "Iris C."; the board leaves them unticked, and the organizer can still tick them. Writes nothing and calls no model. |
+| `POST /api/v1/owner/{token}/chat/import` | Body `{"text": "...", "names": ["..."]}`. Adds the chosen people, skipping the organizer (a sender with their full name) and anyone already in the class, and answers 202 with `imported` (`name`, `participant_url`) and `skipped` (`name`, `reason`: `host`, `already_here`, `not_in_chat` or `still_reading`). Claude reads each person's text in the background; the board shows "Claude is reading..." until each reading arrives. |
 | `POST /api/v1/owner/{token}/chat/retry` | Reads again the people added from the chat who have no reading yet, and answers 202 with `{"reading": n}`. It is what **Read again** calls after a person shows "Couldn't read yet". |
 
 `DELETE /api/v1/owner/{token}/participants/{id}` removes someone added from the

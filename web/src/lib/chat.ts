@@ -59,11 +59,11 @@ export function hasNewMessages(p: ChatPerson): boolean {
 }
 
 export function isLocked(p: ChatPerson): boolean {
-  return p.host || (p.joined && !hasNewMessages(p))
+  return p.joined && !hasNewMessages(p)
 }
 
 export function ticked(people: ChatPerson[]): string[] {
-  return people.filter((p) => !isLocked(p)).map((p) => p.name)
+  return people.filter((p) => !p.host && !isLocked(p)).map((p) => p.name)
 }
 
 export function addLabel(n: number, updates = 0): string {

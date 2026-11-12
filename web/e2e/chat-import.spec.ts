@@ -66,7 +66,7 @@ test.describe('paste your group chat', () => {
     await expect(card.getByRole('heading', { name: '7 people in the chat' })).toBeFocused()
     const iris = card.getByRole('checkbox', { name: /^Iris Calder · you/ })
     await expect(iris).not.toBeChecked()
-    await expect(iris).toBeDisabled()
+    await expect(iris).toBeEnabled()
     await expect(card.getByRole('checkbox', { checked: true })).toHaveCount(6)
     await expect(card.getByRole('checkbox', { name: /^Lucía Torres “El sábado no puedo/ })).toBeChecked()
     await expectAccessible(page, 'the preview of Iris’s chat')

@@ -104,7 +104,8 @@ test.describe('landing proof', () => {
     await expect(apis).toContainText('create · authorize')
     await expect(apis).toContainText('capture · void · refund')
     await expect(apis).toContainText('9 of 9 records match PayPal')
-    await expect(apis).toContainText('QW74P22YPEA8W')
+    await expect(apis).toContainText('L8SSKBUKM5UF6')
+    await expect(apis).toContainText('A real PayPal Sandbox run on Nov 11, 2026')
   })
 
   test('without a video or a buyer login the judge path points to the testing instructions', async ({ page }) => {

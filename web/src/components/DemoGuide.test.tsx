@@ -51,6 +51,6 @@ describe('DemoGuide', () => {
     expect(html).not.toContain('Close reservations now')
     expect(html).toMatch(/<details[^>]* open/)
     expect(html).toContain('That’s the whole loop: the chat read, the date found, the holds charged and the money paid out to Iris. To see the rescue, press <a')
-    expect(html).toMatch(/<a [^>]*href="\/"[^>]*>Try it as Iris<\/a> again, reserve as two people, then Skip to the last 2 hours\./)
+    expect(html).toMatch(/<a [^>]*href="\/"[^>]*>Try it as Iris<\/a> again, read the chat and Grace’s reply, open reservations, reserve as two people, then Skip to the last 2 hours\./)
   })
 })

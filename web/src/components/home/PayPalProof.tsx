@@ -9,10 +9,10 @@ const apis = [
 ]
 
 const records = [
-  { kind: 'Order', id: '8CU0641389306473M', status: 'COMPLETED', check: 'Match' },
-  { kind: 'Authorization', id: '29F87239ER3603046', status: 'CAPTURED', check: 'Match' },
-  { kind: 'Capture', id: '5A184279HG6049222', status: 'COMPLETED', check: 'Match' },
-  { kind: 'Payouts batch', id: 'QW74P22YPEA8W', status: 'SUCCESS', check: 'Paid out' },
+  { kind: 'Order', id: '7UV14666HK580221P', status: 'COMPLETED', check: 'Match' },
+  { kind: 'Authorization', id: '7D4155031A510524L', status: 'CAPTURED', check: 'Match' },
+  { kind: 'Capture', id: '0T125042VN752083V', status: 'COMPLETED', check: 'Match' },
+  { kind: 'Payouts batch', id: 'L8SSKBUKM5UF6', status: 'SUCCESS', check: 'Paid out' },
 ]
 
 export default function PayPalProof() {
@@ -36,7 +36,7 @@ export default function PayPalProof() {
             <figcaption>
               <strong className="block text-[1.0625rem]">Three paid spots, then the payout</strong>
               <span className="mt-0.5 block text-[0.8125rem] leading-snug text-ink-faint">
-                A real PayPal Sandbox run on Nov 10, 2026: “Verify with PayPal” on Iris’s board, Priya’s spot and Iris’s payout.
+                A real PayPal Sandbox run on Nov 11, 2026: “Verify with PayPal” on Iris’s board, Priya’s spot and Iris’s payout.
               </span>
             </figcaption>
             <p className="flex items-center gap-3.5 rounded-control bg-paid-wash px-[1.125rem] py-4 text-paid">

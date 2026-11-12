@@ -87,11 +87,11 @@ test.describe('payout', () => {
       expect(await owner.evaluate('document.documentElement.scrollWidth <= window.innerWidth')).toBe(true)
       await start.click()
 
-      await expect(headline(owner)).toHaveText(/^Class started · Iris paid \$\d+\.\d{2}$/, { timeout: 30_000 })
+      await expect(headline(owner)).toHaveText(/^Class started · \$\d+\.\d{2} paid out to Iris$/, { timeout: 30_000 })
       await expect(owner.getByRole('region', { name: 'Workshop status' })).toContainText(/PayPal batch \w+ · \w+/)
       await expect(guide.getByRole('button', { name: /Start the class now/ })).toHaveCount(0)
       await expect(guide).not.toContainText('The class has started')
-      await expect(guide).toContainText('That’s the whole loop: the chat read, the date found, the holds charged and Iris paid.')
+      await expect(guide).toContainText('That’s the whole loop: the chat read, the date found, the holds charged and the money paid out to Iris.')
       await expect(guide.getByRole('link', { name: 'Try it as Iris' })).toHaveAttribute('href', '/')
       await expectAccessible(owner, 'the demo organizer page once paid out')
     } finally {

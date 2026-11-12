@@ -230,7 +230,7 @@ describe('demoStep', () => {
     it('closes the guide once Iris is paid, with the rescue to try next', () => {
       const closed = { date_id: 'sat', payments_open: false, minimum: 3 }
       expect(demoStep(confirmed({ proposal: closed, payout: payout('paid') }), cast)).toEqual({
-        text: 'That’s the whole loop: the chat read, the date found, the holds charged and Iris paid. To see the rescue, press Try it as Iris again, reserve as two people, then Skip to the last 2 hours.',
+        text: 'That’s the whole loop: the chat read, the date found, the holds charged and the money paid out to Iris. To see the rescue, press Try it as Iris again, reserve as two people, then Skip to the last 2 hours.',
         primary: null,
         link: { label: 'Try it as Iris', to: '/' },
       })

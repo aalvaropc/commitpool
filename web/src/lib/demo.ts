@@ -37,7 +37,7 @@ export const REPLY_STEP = 'Copy Claude’s reply for the group, then act as Grac
 export const ANSWERED_STEP = 'Grace answered in the chat. Paste the updated chat, or act as Grace to answer on her page.'
 export const UPDATE_STEP = 'Grace’s answer is now the last line of Iris’s chat. Press Read the chat, then Read new messages from 1 person.'
 export const DONE_STEP =
-  'That’s the whole loop: the chat read, the date found, the holds charged and Iris paid. To see the rescue, press Try it as Iris again, reserve as two people, then Skip to the last 2 hours.'
+  'That’s the whole loop: the chat read, the date found, the holds charged and the money paid out to Iris. To see the rescue, press Try it as Iris again, reserve as two people, then Skip to the last 2 hours.'
 const TRY_AGAIN: DemoLink = { label: 'Try it as Iris', to: '/' }
 
 export function chatLead(text: string, demoChat: string | null | undefined): string | null {

@@ -36,7 +36,7 @@ describe('Decision after the payout', () => {
   it('the status banner shows Class started after the payout', () => {
     const paid = { state: 'paid', locked: true, estimated: false, seats: 3, amount: usd(2748), payout_batch_id: 'BATCH42', batch_status: 'SUCCESS' }
     const html = text(renderToStaticMarkup(<Decision view={view(paid)} step={step} onOpen={() => {}} />))
-    expect(html).toContain('|Class started · Iris paid $27.48|')
+    expect(html).toContain('|Class started · $27.48 paid out to Iris|')
     expect(html).toContain('|PayPal batch BATCH42 · SUCCESS|')
   })
 

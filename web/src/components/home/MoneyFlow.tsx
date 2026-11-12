@@ -4,7 +4,7 @@ import { Icon, type IconName } from '../ui'
 import { Easels } from './Drawings'
 import { PaperSection, SectionHead } from './Section'
 
-export const SANDBOX_RUN = { date: 'Nov 10, 2026', collected: 13_500, fees: 819, net: 12_681 }
+export const SANDBOX_RUN = { date: 'Nov 11, 2026', collected: 13_500, fees: 819, net: 12_681 }
 
 function money(c: number): string {
   return `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`

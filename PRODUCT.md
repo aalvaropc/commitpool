@@ -13,7 +13,7 @@ web
 
 ## Product Purpose
 
-CommitPool turns "I'm in" into a commitment that only costs money when the class is real. The organizer proposes dates; participants answer in plain language; the date that works for the most people is recommended; participants reserve with a PayPal hold; the holds are charged only once enough people have reserved, and everyone is released or refunded if the group falls short. Success is a class that either happens with its room paid for, or is cancelled cleanly with nobody out of pocket.
+CommitPool turns "I'm in" into a commitment that only costs money when the class is real. The organizer proposes dates and pastes the group chat; Claude reads each person's words against the dates; CommitPool picks the date that reaches the minimum, or says which tied date comes first; participants reserve with a PayPal hold; the holds are charged only once enough people have reserved, and everyone is released or refunded if the group falls short. Success is a class that either happens with its room paid for, or is cancelled cleanly with nobody out of pocket.
 
 ## Positioning
 
@@ -21,17 +21,18 @@ CommitPool turns "I'm in" into a commitment that only costs money when the class
 
 ## Operating Context
 
-- An organizer creates a workshop, shares one invite link in their existing group chat, watches answers arrive, opens reservations on the recommended date, and sees the class confirm or cancel.
+- An organizer creates a class, pastes the group chat (or shares the invite link in it), sees Claude read each person against the dates, opens reservations on the date CommitPool picks, and sees the class confirm or cancel.
 - A participant opens the link, joins with a name (email optional), writes when they can come, corrects the reading if needed, reads the terms and reserves at PayPal.
-- An organizer can also run the workshop from an AI assistant through CommitPool's MCP server; no tool moves money, a human approves every hold at PayPal.
+- An organizer can also run the class from an AI assistant through CommitPool's MCP server; no tool moves money, a human approves every hold at PayPal.
 - Payments run on the PayPal Sandbox in the hosted demo; nothing real is charged.
 
 ## Capabilities and Constraints
 
-- Workshops: title, description, host name, place, duration, price (USD), people needed, spots, optional private session cost (room, model, materials) (suggests the break-even minimum), one to ten candidate dates, time to reserve up to 72 hours.
-- Availability in plain words, read by Claude on Amazon Bedrock; the participant can correct each verdict; vague messages get a clarification question instead of a guess.
-- Payments: one PayPal order per spot, hold, capture once enough people reserve, void or refund otherwise; organizer cancel; participant can give up their spot until charged; operator actions for anything PayPal leaves unsettled.
-- Terminology in the product: reserve, spot, hold (in the terms), it's on, cancelled, refunded, released. Not "authorize", "capture", "seat", "capacity" or "minimum paid seats" in what people read.
+- Classes: title, description, organizer's name, place, duration, price (USD), people needed, spots, optional private session cost (room, model, materials) (suggests the break-even minimum), one to ten candidate dates, time to reserve up to 72 hours.
+- Availability in plain words, read by Claude on Amazon Bedrock; the participant can correct each verdict; a message that leaves the class hours open gets one question from Claude instead of a guess.
+- Payments: one PayPal order per spot, a hold, a charge once enough people reserve, a release or refund otherwise; organizer cancel; participant can give up their spot until charging starts; operator actions for anything PayPal leaves unsettled.
+- Group chat import (pasted text or WhatsApp's `.txt`; pasting again reads only new messages), Claude's reply for the group, a payout to the organizer at the class start less PayPal's fees, and one deadline extension for a class short of its minimum.
+- Terminology in the product: reserve, spot, hold (in the terms), it's on, cancelled, refunded, released. Not "authorize", "capture", "seat", "capacity" or "minimum paid seats" in what people read. The docs use the same words in prose; [docs/payments.md](docs/payments.md#words-in-this-doc) maps them to the code's names.
 - No accounts: private links are the access. The code carries no comments.
 
 ## Brand Commitments

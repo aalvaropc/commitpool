@@ -92,6 +92,7 @@ test.describe('payout', () => {
       await expect(guide.getByRole('button', { name: /Start the class now/ })).toHaveCount(0)
       await expect(guide).not.toContainText('The class has started')
       await expect(guide).toContainText('That’s the whole loop: the chat read, the date found, the holds charged and the money paid out to Iris.')
+      await expect(guide).toContainText('To see the rescue, press Try it as Iris again, read the chat and Grace’s reply, open reservations, reserve as two people, then Skip to the last 2 hours.')
       await expect(guide.getByRole('link', { name: 'Try it as Iris' })).toHaveAttribute('href', '/')
       await expectAccessible(owner, 'the demo organizer page once paid out')
     } finally {

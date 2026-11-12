@@ -4,6 +4,7 @@ import {
   CROWD,
   HOST,
   NEEDED,
+  OFF_TOPIC,
   PRICE,
   SESSION_COST,
   SPOTS,
@@ -20,7 +21,7 @@ import {
   type Read,
 } from '../../lib/chatScript'
 import { useInView } from '../../lib/inView'
-import { earlierFrom, footnote, readLive, type Earlier, type ReadBy, type Reader } from '../../lib/liveReading'
+import { earlierFrom, footnote, readLive, saysNothingAboutTheDates, type Earlier, type ReadBy, type Reader } from '../../lib/liveReading'
 import { sampleDates, type SampleDates } from '../../lib/sampleDates'
 import type { Day, SampleReading } from '../../lib/sampleReader'
 import TryDemo from '../TryDemo'
@@ -35,7 +36,7 @@ type Offer = { id: number; kind: 'offer'; key: Day; day: string }
 
 type Item =
   | { id: number; kind: 'host'; text: string }
-  | { id: number; kind: 'person'; name: string; text: string; you: boolean; by: Reader; reading: SampleReading | null; counted: Counted | null }
+  | { id: number; kind: 'person'; name: string; text: string; you: boolean; by: Reader; reading: SampleReading | null; counted: Counted | null; offTopic: boolean }
   | { id: number; kind: 'typing'; name: string }
   | { id: number; kind: 'tally'; text: string }
   | { id: number; kind: 'question'; by: ReadBy; text: string }
@@ -184,7 +185,7 @@ export default function ChatDemo({ demo, noteClassName = '' }: { demo?: boolean;
         await pause(1100)
         if (!live()) return
         drop(typing)
-        const said = push({ kind: 'person', name: voice.name, text: voice.message, you: false, by: 'prepared', reading: null, counted: null })
+        const said = push({ kind: 'person', name: voice.name, text: voice.message, you: false, by: 'prepared', reading: null, counted: null, offTopic: false })
         await pause(600)
         if (!live()) return
         patch(said, { reading: voice.reading, counted: countedBy(voice.reading) })
@@ -210,10 +211,18 @@ export default function ChatDemo({ demo, noteClassName = '' }: { demo?: boolean;
     const asked = earlier
     setDraft('')
     setPhase('reading')
-    const id = push({ kind: 'person', name: YOU, text: said, you: true, by: 'claude', reading: null, counted: null })
+    const id = push({ kind: 'person', name: YOU, text: said, you: true, by: 'claude', reading: null, counted: null, offTopic: false })
     const [result] = await Promise.all([readLive({ message: said, earlier: asked }), pause(700)])
     if (!live()) return
     setLastBy(result.by)
+    if (saysNothingAboutTheDates(result)) {
+      patch(id, { by: result.by, offTopic: true })
+      await pause(800)
+      if (!live()) return
+      push({ kind: 'tally', text: OFF_TOPIC })
+      setPhase('turn')
+      return
+    }
     patch(id, { by: result.by, reading: result.reading, counted: result.counted })
     await pause(800)
     if (!live()) return
@@ -308,7 +317,7 @@ export default function ChatDemo({ demo, noteClassName = '' }: { demo?: boolean;
                 return (
                   <div key={item.id} className="flex flex-col gap-2">
                     {item.you ? <SaidByYou text={item.text} /> : <Said name={item.name} text={item.text} />}
-                    <Reading reading={item.reading} by={item.by} live={item.you} />
+                    {!item.offTopic && <Reading reading={item.reading} by={item.by} live={item.you} />}
                   </div>
                 )
               case 'tally':

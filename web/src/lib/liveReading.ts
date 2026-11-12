@@ -104,6 +104,10 @@ function fromServer(data: ServerReading): LiveReading {
   }
 }
 
+export function saysNothingAboutTheDates(read: LiveReading): boolean {
+  return read.by === 'claude' && read.question === null && read.reading.sat === 'unknown' && read.reading.sun === 'unknown'
+}
+
 export function fallback(message: string): LiveReading {
   const reading = readSample(message)
   return { by: 'fallback', reading, counted: countedBy(reading), question: reading.ask, questionSig: '' }

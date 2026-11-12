@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { LIVE_PATH, READ_LABEL, earlierFrom, footnote, readLive, readingRequest } from './liveReading'
+import { LIVE_PATH, READ_LABEL, earlierFrom, footnote, readLive, readingRequest, saysNothingAboutTheDates } from './liveReading'
 
 const none = { type: 'none', time: '' }
 const FALLBACK = 'Simple rules read this one — Claude wasn’t available'
@@ -140,5 +140,37 @@ describe('labels', () => {
     expect(footnote('rules')).toContain('simple rules on the server read yours.')
     expect(footnote('fallback')).toContain('Claude wasn’t available, so simple rules in your browser read yours.')
     expect(footnote('fallback')).not.toContain('read live by Claude')
+  })
+})
+
+describe('saysNothingAboutTheDates', () => {
+  const unknown = { verdict: 'unknown', condition: none, counted: false }
+  const offTopic = { per_date: { sat: unknown, sun: unknown } }
+
+  it('is true when Claude finds nothing about either date and asks nothing', async () => {
+    respond(200, answer('claude', offTopic))
+    const got = await readLive({ message: 'What is the weather like?', earlier: null })
+    expect(saysNothingAboutTheDates(got)).toBe(true)
+    expect(got.counted).toEqual({ sat: false, sun: false })
+  })
+
+  it('is false when Claude asks a question instead', async () => {
+    respond(200, answer('claude', { ...offTopic, question: 'The class runs 10 AM–12 PM — can you make either morning?', question_sig: 'sig-1' }))
+    expect(saysNothingAboutTheDates(await readLive({ message: 'afternoons', earlier: null }))).toBe(false)
+  })
+
+  it('is false when one date has a verdict', async () => {
+    respond(200, answer('claude', { per_date: { sat: unknown, sun: { verdict: 'unavailable', condition: none, counted: false } } }))
+    expect(saysNothingAboutTheDates(await readLive({ message: 'Not Sunday', earlier: null }))).toBe(false)
+  })
+
+  it('is false for simple rules, which may just not understand the message', async () => {
+    respond(200, answer('rules', offTopic))
+    expect(saysNothingAboutTheDates(await readLive({ message: 'Samstag passt', earlier: null }))).toBe(false)
+    vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(new TypeError('offline'))))
+    const fallen = await readLive({ message: 'Samstag passt', earlier: null })
+    expect(fallen.by).toBe('fallback')
+    expect(fallen.reading).toMatchObject({ sat: 'unknown', sun: 'unknown' })
+    expect(saysNothingAboutTheDates(fallen)).toBe(false)
   })
 })

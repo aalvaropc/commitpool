@@ -30,6 +30,45 @@ test.describe('landing chat', () => {
     await expect(chat.getByText('It’s on', { exact: true }).last()).toBeVisible()
     await expect(chat.getByText('3 paid · $135 before PayPal fees covers your $120 session costs.')).toBeVisible()
   })
+
+  test('says so when Claude finds nothing about the dates, without counting the visitor, and lets them try again', async ({ page }) => {
+    const none = { type: 'none', time: '' }
+    const reading = (sat: string, sun: string, counted: boolean) => ({
+      read_by: 'claude',
+      dates: [],
+      per_date: { sat: { verdict: sat, condition: none, counted }, sun: { verdict: sun, condition: none, counted: false } },
+      question: '',
+      question_sig: '',
+    })
+    const sent: unknown[] = []
+    await page.route('**/api/v1/sample-reading', (route) => {
+      sent.push(route.request().postDataJSON())
+      return route.fulfill({ json: sent.length === 1 ? reading('unknown', 'unknown', false) : reading('available', 'unavailable', true) })
+    })
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await page.goto('/')
+    const chat = page.getByRole('region', { name: 'Example: answers to Iris’s invite' })
+    await expect(chat.getByText('you could be the third')).toBeVisible()
+
+    const draft = chat.getByRole('textbox', { name: 'Your answer' })
+    await draft.fill('What should I bring?')
+    await chat.getByRole('button', { name: 'Send' }).click()
+    await expect(chat.getByText('That doesn’t say when you can come. Try something like “Saturday works” or “Sunday, if we finish by 11.”', { exact: true })).toBeVisible()
+    await expect(chat.getByText('What should I bring?')).toBeVisible()
+    await expect(chat.getByText('Read by Claude')).toHaveCount(0)
+    await expect(chat.getByText(/Claude is reading/)).toHaveCount(0)
+    await expect(chat.getByText('Sat · Not sure')).toHaveCount(0)
+    await expect(chat.getByText('2 can come', { exact: true })).toHaveCount(2)
+    await expect(chat.getByText(/you aren’t counted/)).toHaveCount(0)
+    await expect(draft).toBeEditable()
+    await expect(draft).toHaveAttribute('placeholder', 'When can you come? Write it like a text')
+    await expectAccessible(page, 'the landing chat after a message about something else')
+
+    await chat.getByRole('button', { name: 'No problem — Saturday works!' }).click()
+    await expect(chat.getByText('Read by Claude')).toHaveCount(1)
+    await expect(chat.getByText(/^You’re counted for Saturday: that makes 3/)).toBeVisible()
+    expect(sent).toEqual([{ message: 'What should I bring?' }, { message: 'No problem — Saturday works!' }])
+  })
 })
 
 const VIDEO = 'https://www.youtube-nocookie.com/embed/aB3_x-9Zk0Q'

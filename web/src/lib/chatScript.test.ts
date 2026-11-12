@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CROWD, CROWD_READS, SUGGESTIONS, countedBy, crowdTally, fits, leader, opening, outcome, reservers, tally } from './chatScript'
+import { CROWD, CROWD_READS, OFF_TOPIC, SUGGESTIONS, countedBy, crowdTally, fits, leader, opening, outcome, reservers, tally } from './chatScript'
 import { sampleDates } from './sampleDates'
 import { readSample } from './sampleReader'
 
@@ -127,5 +127,13 @@ describe('fits', () => {
 
   it('counts a limit the class keeps without a condition word', () => {
     expect(fits(readSample('Saturday is fine from 9'), 'sat')).toBe(true)
+  })
+})
+
+describe('the reply to a message that says nothing about the dates', () => {
+  it('gives two examples that each say when someone can come', () => {
+    expect(OFF_TOPIC).toBe('That doesn’t say when you can come. Try something like “Saturday works” or “Sunday, if we finish by 11.”')
+    expect(readSample('Saturday works').sat).toBe('available')
+    expect(readSample('Sunday, if we finish by 11.')).toMatchObject({ sun: 'conditional', limits: { sun: { type: 'end_before', hour: 11 } } })
   })
 })
